@@ -35,6 +35,33 @@ const STRINGS = {
 
 const I18nContext = createContext({ lang: 'es', t: STRINGS.es, setLang: () => {} });
 
+/**
+ * Sport-aware vocabulary. Returns the right unit/event noun for the active sport
+ * so we don't have to hard-code "partido / goles" everywhere.
+ *
+ * Usage:
+ *   const terms = sportTerms(lang, sport);
+ *   terms.eventPlural  // "partidos" / "juegos" / "encuentros"
+ *   terms.scoreUnit    // "goles" / "puntos" / "carreras"
+ */
+const SPORT_TERMS = {
+  es: {
+    football:   { event: 'partido',  eventPlural: 'partidos',  scoreUnit: 'goles',    scoreUnitSingular: 'gol',    scorer: 'goleador',   period: 'tiempo',  periodPlural: 'tiempos' },
+    basketball: { event: 'juego',    eventPlural: 'juegos',    scoreUnit: 'puntos',   scoreUnitSingular: 'punto',  scorer: 'anotador',   period: 'cuarto',  periodPlural: 'cuartos' },
+    baseball:   { event: 'juego',    eventPlural: 'juegos',    scoreUnit: 'carreras', scoreUnitSingular: 'carrera', scorer: 'bateador',  period: 'entrada', periodPlural: 'entradas' },
+  },
+  en: {
+    football:   { event: 'match',  eventPlural: 'matches', scoreUnit: 'goals',  scoreUnitSingular: 'goal',  scorer: 'scorer',  period: 'half',    periodPlural: 'halves' },
+    basketball: { event: 'game',   eventPlural: 'games',   scoreUnit: 'points', scoreUnitSingular: 'point', scorer: 'scorer',  period: 'quarter', periodPlural: 'quarters' },
+    baseball:   { event: 'game',   eventPlural: 'games',   scoreUnit: 'runs',   scoreUnitSingular: 'run',   scorer: 'batter',  period: 'inning',  periodPlural: 'innings' },
+  },
+};
+
+export function sportTerms(lang, sport) {
+  const byLang = SPORT_TERMS[lang] || SPORT_TERMS.es;
+  return byLang[sport] || byLang.football;
+}
+
 export function I18nProvider({ children }) {
   const [lang, setLangState] = useState(() => localStorage.getItem('vbi_lang') || 'es');
   const setLang = useCallback((l) => {

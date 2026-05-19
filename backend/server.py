@@ -37,6 +37,7 @@ from services import normalizer as nz
 from services import auth as auth_module
 from services import scheduler as scheduler_module
 from services import fallback_scraper as fallback_module
+from services import job_queue
 
 # FastAPI app
 app = FastAPI(title="Value Bet Intelligence", version="1.0.0")
@@ -58,8 +59,15 @@ async def on_startup() -> None:
     await db.picks.create_index([("user_id", 1), ("generated_at", -1)])
     await db.picks.create_index([("user_id", 1), ("sport", 1), ("generated_at", -1)])
     await db.pick_tracking.create_index([("user_id", 1), ("match_id", 1), ("pick_id", 1)], unique=True)
+    await db.analysis_jobs.create_index([("user_id", 1), ("created_at", -1)])
+    await db.analysis_jobs.create_index("id", unique=True)
     await auth_module.seed_demo_user(db)
     scheduler_module.start_scheduler(db)
+    # Mark any jobs orphaned by the previous process as failed.
+    try:
+        await job_queue.cleanup_stale(db, max_age_minutes=0)  # everything still "running" is now stale
+    except Exception as e:
+        log.warning("startup cleanup_stale failed: %s", e)
     log.info("Startup complete")
 
 
@@ -157,32 +165,54 @@ class AnalysisRunIn(BaseModel):
     include_live: bool = True
     max_matches: int = Field(default=6, ge=1, le=20)
     sport: Optional[str] = "football"
+    background: bool = False  # if True, run as async job and return job_id
 
 
-@api.post("/analysis/run")
-async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_user)):
-    """Run the LLM analyst on currently ingested matches for the chosen sport."""
-    sport = _norm_sport(payload.sport)
+async def _run_analysis_pipeline(
+    user_id: str,
+    sport: str,
+    refresh: bool,
+    include_live: bool,
+    max_matches: int,
+    progress_cb=None,
+) -> dict:
+    """Execute the full LLM analysis pipeline.
+
+    `progress_cb(stage, progress, message)` is awaited at each checkpoint so the
+    caller can stream status to a polling endpoint. For sync callers, pass a
+    no-op (or None).
+    """
+    from services.data_ingestion import enrich_fixture as enrich_fx
+    from services import api_football as af
+    from services import api_sports as aps
+
+    async def _emit(stage: str, pct: int, msg: str) -> None:
+        if progress_cb is not None:
+            try:
+                await progress_cb(stage, pct, msg)
+            except Exception:
+                pass
+
     started = datetime.now(timezone.utc)
     ingest_error: str | None = None
+    top_set = aps.SPORT_CONFIG.get(sport, {}).get("top_leagues", set())
+
+    await _emit("ingesting", 5, f"Ingesting upcoming {sport} fixtures…")
     async with httpx.AsyncClient() as client:
-        if payload.refresh:
+        if refresh:
             try:
                 await ingestion.ingest_upcoming(client, db, sport=sport)
             except Exception as exc:
                 ingest_error = f"upcoming ingest failed: {exc}"
                 log.warning(ingest_error)
-            if payload.include_live:
+            if include_live:
+                await _emit("ingesting", 15, "Refreshing live games…")
                 try:
                     await ingestion.ingest_live(client, db, sport=sport)
                 except Exception as exc:
                     log.warning("live ingest failed: %s", exc)
 
-    from services.data_ingestion import enrich_fixture as enrich_fx
-    from services import api_football as af
-    from services import api_sports as aps
-    top_set = aps.SPORT_CONFIG.get(sport, {}).get("top_leagues", set())
-
+    await _emit("enriching", 25, "Selecting candidates by league + odds availability…")
     query_upcoming = {**_sport_filter(sport), "is_live": False}
     upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
     now_ts = datetime.now(timezone.utc).timestamp()
@@ -194,12 +224,13 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
         return (-has_odds, -is_top, m.get("kickoff_ts") or 0)
 
     upcoming.sort(key=priority_score)
-    candidates = upcoming[: payload.max_matches]
+    candidates = upcoming[: max_matches]
 
-    # Deep-enrich (only football for now — basketball/baseball not yet supported by deep path's fixture_by_id)
+    # Deep-enrich
     if sport == "football":
+        await _emit("enriching", 40, f"Deep-enriching top {min(6, len(candidates))} football fixtures…")
         async with httpx.AsyncClient() as client:
-            for c in candidates[:6]:
+            for idx, c in enumerate(candidates[:6]):
                 try:
                     raw = await af.fixture_by_id(client, c["match_id"])
                     if raw:
@@ -210,11 +241,11 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
                                     c[k] = enriched[k]
                 except Exception as exc:
                     log.warning("deep enrich skipped for %s: %s", c.get("match_id"), exc)
-                    continue
+                await _emit("enriching", 40 + int(20 * (idx + 1) / max(1, min(6, len(candidates)))), f"Enriched {idx + 1}/{min(6, len(candidates))}")
     else:
-        # For NBA/MLB, do best-effort deep enrich via api_sports
+        await _emit("enriching", 40, f"Deep-enriching top {min(4, len(candidates))} {sport} games…")
         async with httpx.AsyncClient() as client:
-            for c in candidates[:4]:
+            for idx, c in enumerate(candidates[:4]):
                 try:
                     raw = await aps.fixture_by_id(sport, client, c["match_id"])
                     if raw:
@@ -225,16 +256,17 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
                                     c[k] = enriched[k]
                 except Exception as exc:
                     log.warning("deep enrich skipped for %s [%s]: %s", c.get("match_id"), sport, exc)
+                await _emit("enriching", 40 + int(20 * (idx + 1) / max(1, min(4, len(candidates)))), f"Enriched {idx + 1}/{min(4, len(candidates))}")
 
-    if payload.include_live:
+    if include_live:
         query_live = {**_sport_filter(sport), "is_live": True}
         live = await db.matches.find(query_live).limit(10).to_list(length=10)
         candidates.extend(live)
 
-    candidates = candidates[: payload.max_matches]
+    candidates = candidates[: max_matches]
 
     if not candidates:
-        any_recent = await db.matches.find(_sport_filter(sport)).sort("updated_at", -1).limit(payload.max_matches).to_list(length=payload.max_matches)
+        any_recent = await db.matches.find(_sport_filter(sport)).sort("updated_at", -1).limit(max_matches).to_list(length=max_matches)
         candidates = any_recent
     if not candidates:
         detail = f"no {sport} matches available"
@@ -242,6 +274,7 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
             detail += f" — {ingest_error}"
         raise HTTPException(status_code=409, detail=detail)
 
+    await _emit("analyzing", 65, f"LLM analyzing {len(candidates)} {sport} matches…")
     llm_payload = [nz.summarize_match_for_llm(_clean(c)) for c in candidates]
     try:
         result = await analyst_engine.analyze_matches(llm_payload, sport=sport)
@@ -249,10 +282,11 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
         log.exception("LLM analysis failed")
         raise HTTPException(status_code=502, detail=f"analyst engine error: {exc}")
 
+    await _emit("analyzing", 90, "Persisting picks…")
     pick_id_base = uuid.uuid4().hex[:10]
     record = {
         "id": pick_id_base,
-        "user_id": user["id"],
+        "user_id": user_id,
         "sport": sport,
         "generated_at": started.isoformat(),
         "matches_analyzed": len(candidates),
@@ -260,6 +294,91 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
     }
     await db.picks.insert_one(record)
     return {"pick_run_id": pick_id_base, "sport": sport, "generated_at": record["generated_at"], "result": result}
+
+
+@api.post("/analysis/run")
+async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_user)):
+    """Run the LLM analyst on currently ingested matches for the chosen sport.
+
+    Two modes:
+      - SYNC (default): blocks until completion, returns full result (60-120s for NBA/MLB).
+      - BACKGROUND (`background=true`): returns immediately with `job_id`;
+        client polls `/api/analysis/jobs/{job_id}` for progress + final result.
+    """
+    sport = _norm_sport(payload.sport)
+
+    if payload.background:
+        async def _job(job_id: str) -> None:
+            async def progress(stage: str, pct: int, msg: str):
+                await job_queue.update_progress(db, job_id, stage, pct, msg)
+            try:
+                result = await _run_analysis_pipeline(
+                    user_id=user["id"],
+                    sport=sport,
+                    refresh=payload.refresh,
+                    include_live=payload.include_live,
+                    max_matches=payload.max_matches,
+                    progress_cb=progress,
+                )
+                await job_queue.finish(db, job_id, result)
+            except HTTPException as he:
+                await job_queue.fail(db, job_id, f"{he.status_code}: {he.detail}")
+            except Exception as exc:
+                log.exception("background analysis_run failed")
+                await job_queue.fail(db, job_id, str(exc))
+
+        job_id = await job_queue.enqueue_async(
+            db,
+            _job,
+            user_id=user["id"],
+            kind="analysis_run",
+            params={
+                "sport": sport,
+                "refresh": payload.refresh,
+                "include_live": payload.include_live,
+                "max_matches": payload.max_matches,
+            },
+        )
+        return {
+            "job_id": job_id,
+            "status": "queued",
+            "sport": sport,
+            "stage": "queued",
+            "progress": 0,
+        }
+
+    # SYNC path
+    return await _run_analysis_pipeline(
+        user_id=user["id"],
+        sport=sport,
+        refresh=payload.refresh,
+        include_live=payload.include_live,
+        max_matches=payload.max_matches,
+        progress_cb=None,
+    )
+
+
+@api.get("/analysis/jobs/{job_id}")
+async def analysis_job_status(job_id: str, user: dict = Depends(get_current_user)):
+    """Poll the status of a background analysis job."""
+    doc = await job_queue.get(db, job_id, user_id=user["id"])
+    if not doc:
+        raise HTTPException(status_code=404, detail="job not found")
+    return doc
+
+
+@api.get("/analysis/jobs")
+async def analysis_jobs_recent(user: dict = Depends(get_current_user)):
+    """Recent jobs for the authenticated user (active + last few terminal)."""
+    # Opportunistic cleanup so the UI never lingers on a dead "running" job.
+    try:
+        await job_queue.cleanup_stale(db)
+    except Exception:
+        pass
+    jobs = await job_queue.list_active(db, user["id"], limit=10)
+    active = [j for j in jobs if j.get("stage") not in job_queue.TERMINAL]
+    recent = [j for j in jobs if j.get("stage") in job_queue.TERMINAL][:3]
+    return {"active": active, "recent": recent}
 
 
 @api.get("/picks/today")

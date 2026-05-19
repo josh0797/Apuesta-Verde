@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Clock, AlertOctagon, ShieldCheck, BadgeCheck, ThumbsDown, Equal } from 'lucide-react';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, sportTerms } from '@/lib/i18n';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -22,6 +22,9 @@ export default function MatchDetailPage() {
   const [pickRun, setPickRun] = useState(null);
   const [loading, setLoading] = useState(true);
   const [marking, setMarking] = useState(false);
+
+  const sport = match?.sport || 'football';
+  const terms = sportTerms(lang, sport);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -157,8 +160,8 @@ export default function MatchDetailPage() {
           <section className="rounded-xl border border-border bg-card p-5">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">{t.match.keyData}</h3>
             <div className="grid sm:grid-cols-2 gap-4">
-              <KeyDataBlock team={home} t={t} />
-              <KeyDataBlock team={away} t={t} />
+              <KeyDataBlock team={home} t={t} terms={terms} lang={lang} />
+              <KeyDataBlock team={away} t={t} terms={terms} lang={lang} />
             </div>
           </section>
 
@@ -225,15 +228,23 @@ function TeamMotivationBlock({ team, side, llmPick, lang, t }) {
   );
 }
 
-function KeyDataBlock({ team, t }) {
+function KeyDataBlock({ team, t, terms, lang }) {
   const c = team?.context || {};
+  // Sport-aware labels: for football we keep "Goles a favor/contra"; for NBA/MLB
+  // the matching field is `points_for_avg/points_against_avg` populated by
+  // normalize_team_context_generic. Fall back to football fields when present.
+  const scoredFor = c.points_for_avg ?? c.goals_for_avg;
+  const scoredAgainst = c.points_against_avg ?? c.goals_against_avg;
+  const scoreUnit = terms?.scoreUnit || (lang === 'es' ? 'goles' : 'goals');
+  const labelFor = lang === 'es' ? `${scoreUnit.charAt(0).toUpperCase()}${scoreUnit.slice(1)} a favor (prom.)` : `${scoreUnit.charAt(0).toUpperCase()}${scoreUnit.slice(1)} for (avg.)`;
+  const labelAgainst = lang === 'es' ? `${scoreUnit.charAt(0).toUpperCase()}${scoreUnit.slice(1)} en contra (prom.)` : `${scoreUnit.charAt(0).toUpperCase()}${scoreUnit.slice(1)} against (avg.)`;
+
   const items = [
-    { label: t.match.form, value: c.form_last_5 || '—' },
+    { label: t.match.form, value: c.form_last_5 || (c.wins_total != null ? `${c.wins_total}W-${c.losses_total ?? '—'}L` : '—') },
     { label: t.match.position, value: c.position ?? '—' },
-    { label: t.match.points, value: c.points ?? '—' },
-    { label: t.match.goalsForAvg, value: c.goals_for_avg ?? '—' },
-    { label: t.match.goalsAgainstAvg, value: c.goals_against_avg ?? '—' },
-    { label: t.match.injuries, value: c.injuries_count ?? 0 },
+    { label: labelFor, value: scoredFor != null ? Number(scoredFor).toFixed(2) : '—' },
+    { label: labelAgainst, value: scoredAgainst != null ? Number(scoredAgainst).toFixed(2) : '—' },
+    { label: t.match.injuries, value: c.injuries_count ?? '—' },
   ];
   return (
     <div className="rounded-lg border border-border bg-secondary/30 p-3">

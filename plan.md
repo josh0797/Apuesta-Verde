@@ -2,10 +2,12 @@
 
 ## 1) Objetivos
 - ✅ **Workflow core validado end-to-end** con datos reales: fixtures/odds/contexto → normalización → LLM produce picks **estrictos, gestionados por riesgo** (máx 3–8/día según reglas) o “Hoy no hay valor…”.
-- ✅ **MVP entregado** con UI tipo sportsbook en dark mode, ES/EN, transparencia por partido (match detail) y tracking de picks.
+- ✅ **MVP entregado** con UI tipo sportsbook en dark mode, ES/EN, transparencia por evento (match detail) y tracking de picks.
 - ✅ **Autenticación desde el día 1** (email+password + JWT; usuario demo sembrado).
-- ✅ **Resiliencia mejorada vía fallbacks**: cuando el proveedor principal no alcanza, el sistema sigue mostrando partidos desde fuentes públicas.
+- ✅ **Resiliencia mejorada vía fallbacks**: cuando el proveedor principal no alcanza, el sistema sigue mostrando eventos desde fuentes públicas.
 - ✅ **Multi-deporte COMPLETO (P0)**: Fútbol + NBA/Basket + MLB/Béisbol con selector global en UI, prompts LLM por deporte, y persistencia/consulta por `sport`.
+- ✅ **UX mejorada para análisis lento (P2)**: `analysis/run` soporta ejecución en background con progreso persistido y modal de progreso en UI.
+- ✅ **Lenguaje neutro por deporte (P2)**: labels/copy ahora se ajustan automáticamente (partidos/juegos, goles/puntos/carreras).
 - 🔁 **Objetivo operativo (en curso):** mantener generación de picks fiable pese a:
   - límites de API-Sports (10 req/min) + bloqueo de temporadas actuales (usar 2024 como “proxy season”)
   - costes/créditos LLM
@@ -62,8 +64,8 @@ Implementado:
     - rate limiting tipo token bucket (≈8 req/min para respetar 10/min)
     - cache Mongo agresiva (odds TTL ~30m, contexto TTL ~6h)
     - usa **proxy season 2024** cuando el plan bloquea temporadas actuales
-  - `data_ingestion.py`: priorización ligas + enriquecimiento serial (evolucionará en Phase A)
-  - `analyst_engine.py`: persona analista ES + JSON estricto
+  - `data_ingestion.py`: priorización ligas + enriquecimiento (evolucionó en Phase A)
+  - `analyst_engine.py`: analista ES + JSON estricto
   - `normalizer.py`: normalización a esquema interno
   - `fallback_scraper.py`: ESPN + scrapers fallback
   - `auth.py`: JWT + seed usuario demo
@@ -137,8 +139,8 @@ Cambios implementados:
   - retorna `browser_engine`
 
 Resultados y limitaciones:
-- ✅ ESPN (httpx): ~36 matches
-- ✅ Flashscore (Crawlee): ~106 matches con live/minuto/score
+- ✅ ESPN (httpx): ~36 eventos
+- ✅ Flashscore (Crawlee): ~106 eventos con live/minuto/score
 - ❌ Sofascore: devuelve JSON 403 por **bloqueo por clase de IP (datacenter)** a nivel aplicación. **Requiere proxy residencial** (Bright Data/IPRoyal/Apify Proxy) para funcionar.
 - ✅ Smoke tests: endpoints críticos 200 OK, sin regresiones.
 - ⏱️ `use_browser=true` tarda ~21s (aceptable porque es explícito; no se usa por defecto).
@@ -160,11 +162,17 @@ Resultados y limitaciones:
 ---
 
 ### Phase 4 — Polish (post-MVP)
-🔲 **Estado: NO INICIADO**
-- Alertas para picks nuevos.
-- Filtros avanzados + vistas guardadas.
-- Dashboard de stats enriquecido (ROI por mercado/liga, rachas).
-- Mejoras de rendimiento (virtualización de tablas si aplica).
+🟨 **Estado: PARCIALMENTE COMPLETADO (P2 ejecutado)**
+
+Completado en esta iteración:
+- ✅ **Background queue para análisis** (evita bloquear la UI 60–120s en NBA/MLB)
+- ✅ **UX copy neutro por deporte** (partidos/juegos; goles/puntos/carreras)
+
+Pendiente:
+- 🔲 Alertas para picks nuevos.
+- 🔲 Filtros avanzados + vistas guardadas.
+- 🔲 Dashboard de stats enriquecido (ROI por mercado/liga, rachas) — idealmente por `sport`.
+- 🔲 Mejoras de rendimiento (virtualización de tablas si aplica).
 
 ---
 
@@ -173,59 +181,53 @@ Resultados y limitaciones:
 ### ✅ P0 — Phase A: Multi-deporte (Fútbol + NBA + MLB) — COMPLETADA
 **Estado:** ✅ DONE
 
+(Se mantiene el detalle ya documentado en el plan: `api_sports.py`, prompts por deporte, selector global UI, persistencia por `sport`.)
+
+### ✅ P2 — Background queue + UX neutral por deporte — COMPLETADA
+**Estado:** ✅ DONE
+
 #### Backend (completado)
-- ✅ `api_sports.py` (hub central) usado para **basketball** y **baseball**.
-- ✅ `analyst_engine.py`:
-  - `analyze_matches(payload, sport)`
-  - prompt dinámico via `_build_system_prompt(sport)` con `SPORT_RULES`:
-    - football / basketball / baseball
-  - meta `_sport` en respuesta.
-- ✅ `data_ingestion.py` refactor completo:
-  - `ingest_upcoming/ingest_live/enrich_fixture` aceptan `sport`
-  - football usa `api_football` (compat)
-  - basketball/baseball usan `api_sports`
-  - `_enrich_generic` para NBA/MLB
-- ✅ `normalizer.py`:
-  - `normalize_odds_generic`, `normalize_team_context_generic`, `normalize_live_stats_generic`
-  - `summarize_match_for_llm` incluye `sport`
+- ✅ Nuevo `/app/backend/services/job_queue.py`:
+  - Cola async in-process con persistencia en Mongo `analysis_jobs`
+  - Stages: `queued → ingesting → enriching → analyzing → done|failed`
+  - APIs: `create_job`, `update_progress`, `finish`, `fail`, `get`, `list_active`, `cleanup_stale`, `enqueue_async`
+  - `_BACKGROUND_TASKS` mantiene referencias fuertes a tareas en ejecución
+  - `cleanup_stale` marca jobs huérfanos como failed (>
+    15min sin update); también se ejecuta en startup
 - ✅ `server.py`:
-  - helpers `SUPPORTED_SPORTS`, `_norm_sport()`, `_sport_filter()` (compat: docs sin `sport` se tratan como football)
-  - nuevo endpoint `GET /api/meta/sports`
-  - soporte `?sport=` en:
-    - `/matches/upcoming`, `/matches/live`
-    - `/analysis/run`
-    - `/picks/today`, `/picks/history`, `/picks/today/filtered`, `/picks/today/export.csv`
-    - `/meta/leagues`
-  - persistencia de `sport` en matches/odds_snapshots/picks
-  - índices: `matches.sport` + `picks(user_id, sport, generated_at)`
-- ✅ `scheduler.py`:
-  - jobs explícitos para `sport="football"`
-  - NBA/MLB **opt-in** vía `analysis/run` para preservar cuota compartida 10 req/min.
+  - `AnalysisRunIn` agrega `background: bool = False`
+  - Pipeline extraído a `_run_analysis_pipeline(...)` con callback de progreso
+  - `POST /api/analysis/run` con `background=true` retorna inmediatamente `{job_id, stage, progress}`
+  - Nuevos endpoints:
+    - `GET /api/analysis/jobs/{job_id}` (scoped a usuario)
+    - `GET /api/analysis/jobs` (active + últimos terminales)
+  - Índices:
+    - `analysis_jobs.id` unique
+    - `analysis_jobs(user_id, created_at)`
+  - Checkpoints de progreso: ~5% ingesting, 25% selección, 40–60% enrich por fixture, 65% analyzing, 90% persist, 100% done
 
 #### Frontend (completado)
-- ✅ `/app/frontend/src/lib/sport.jsx`:
-  - `SportProvider` + `useSport()`
-  - persistencia `localStorage`
-  - fetch de `/api/meta/sports`
-- ✅ `App.js`: app envuelta en `<SportProvider>`
-- ✅ `AppHeader.jsx`: SportSwitcher dropdown global (icono+label+activo)
-- ✅ `DashboardPage.jsx`: incluye `sport` en llamadas:
-  - `GET /picks/today?sport=`
-  - `POST /analysis/run` con `sport`
-  - `GET /picks/today/export.csv?sport=`
-  - badge + icono del deporte activo
-- ✅ `LivePage.jsx`: `GET /matches/live?sport=`
-- ✅ `i18n.js`: traducciones `sport.*` en ES/EN
+- ✅ Nuevo componente `/app/frontend/src/components/AnalysisProgressModal.jsx`:
+  - Polling cada 1.5s a `/api/analysis/jobs/{id}`
+  - UI con stage label + barra + % + mensaje + estados terminales (done/failed)
+  - Copy sport-aware usando `sportTerms()`
+- ✅ `DashboardPage.jsx`:
+  - `generate()` usa `background:true`
+  - Reanuda jobs activos del deporte actual al montar (si el usuario refresca la página)
+  - Deshabilita botón con “Procesando…” mientras exista job activo
+  - Subtitle sport-aware (eventPlural)
+- ✅ `MatchDetailPage.jsx`:
+  - `KeyDataBlock` sport-aware para unidades: goles/puntos/carreras
+  - Fallback a `points_for_avg/points_against_avg` (NBA/MLB) o `goals_for_avg/goals_against_avg` (fútbol)
+  - Form fallback a `Ws-Ls` cuando aplique
 
-#### Verificación End-to-End (completado)
-- ✅ `/api/meta/sports` retorna 3 deportes
-- ✅ `GET /api/matches/upcoming?sport=basketball` devuelve partidos (incl. Knicks vs Cavaliers) + odds
-- ✅ `GET /api/matches/upcoming?sport=baseball` devuelve partidos (incl. Marlins vs Braves) + odds
-- ✅ `POST /api/analysis/run` con `sport=basketball` y `sport=baseball` completan:
-  - provider: OpenAI gpt-4o-mini
-  - prompts específicos por deporte aplican reglas/descartes correctos
-- ✅ UI: selector cambia deporte, dashboard se refresca con picks por deporte
-- ✅ Smoke tests: endpoints críticos 200 OK (sin regresiones)
+#### i18n (completado)
+- ✅ `sportTerms(lang, sport)` agregado en `i18n.js` con:
+  - `{ event, eventPlural, scoreUnit, scoreUnitSingular, scorer, period, periodPlural }` para ES/EN
+
+#### Verificación end-to-end
+- ✅ Curl: `POST /api/analysis/run` background retorna `job_id` <100ms; polling muestra progreso hasta done
+- ✅ Browser: modal aparece instantáneo, progreso visible, completa y refresca resultados
 
 ### P1 — Proxy residencial para Sofascore (si se desea)
 - Integrar proxy residencial en Crawlee/Playwright.
@@ -235,10 +237,12 @@ Resultados y limitaciones:
 ### P1 — Operación / estabilidad
 - Mantener `analysis/run` cache-first por defecto.
 - Ajustar límites de análisis/enriquecimiento para minimizar rate-limit churn.
-- Considerar cola/background para análisis multi-deporte (por latencias 80–120s en NBA/MLB).
+- Opcional: throttling por usuario para evitar múltiples jobs concurrentes por `sport`.
 
-### P2 — Traducción / UX polish
-- Revisar labels que asumen fútbol (“partidos”, “goles”, etc.) y hacerlos neutros por deporte.
+### P2 — Backlog (ahora opcional)
+- ROI / Winrate segmentado por `sport` en `/api/stats/dashboard` y en UI.
+- “Provenance” visible: indicar si los matches vinieron de API-Sports vs ESPN/Flashscore.
+- WebSockets/SSE (no necesario: polling actual es suficiente para jobs de 60–120s).
 
 ---
 
@@ -248,4 +252,5 @@ Resultados y limitaciones:
 - ✅ **Auth:** login disponible (JWT) + usuario demo.
 - ✅ **Resiliencia:** rate-limit + cache; fallback robusto (ESPN + Flashscore via Crawlee).
 - ✅ **Multi-deporte:** usuario puede generar y trackear picks para Football/NBA/MLB con prompts específicos y selector en UI.
+- ✅ **UX análisis largo:** análisis multi-deporte en background con progreso persistido y UI de seguimiento.
 - 🔁 **Operativo:** créditos LLM sostenibles para que análisis siga disponible.

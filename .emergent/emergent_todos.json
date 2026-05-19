@@ -1,46 +1,30 @@
 [
   {
-    "content": "Refactor analyst_engine.py: usar SPORT_RULES por deporte (NBA/MLB/Fútbol)",
+    "content": "Crear /app/backend/services/job_queue.py: async job runner con persistencia en Mongo y stages",
     "status": "completed"
   },
   {
-    "content": "Extender data_ingestion.py: parámetro sport, multi-deporte vía api_sports.py",
+    "content": "Update server.py: /api/analysis/run con `background=true` + GET /api/analysis/jobs/{id} + jobs/active",
     "status": "completed"
   },
   {
-    "content": "Extender normalizer.py: helpers para basketball y baseball",
+    "content": "Frontend: modal de progreso con polling cuando background=true",
     "status": "completed"
   },
   {
-    "content": "Update server.py: query param `sport` en endpoints relevantes; almacenar sport en docs",
+    "content": "i18n: sport_terms (partido/juego/encuentro, goles/puntos/carreras)",
     "status": "completed"
   },
   {
-    "content": "Update scheduler.py: jobs por deporte",
+    "content": "Aplicar sport_terms en DashboardPage y MatchDetailPage",
     "status": "completed"
   },
   {
-    "content": "Frontend: SportProvider context + selector en AppHeader",
+    "content": "Test end-to-end: background job + UI progreso + labels neutralizados",
     "status": "completed"
   },
   {
-    "content": "Frontend: pasar sport a las llamadas API (DashboardPage, LivePage)",
-    "status": "completed"
-  },
-  {
-    "content": "Frontend: i18n strings para deportes",
-    "status": "completed"
-  },
-  {
-    "content": "Test backend: pulse cada deporte via curl - NBA y MLB devuelven picks reales",
-    "status": "completed"
-  },
-  {
-    "content": "Test frontend: screenshot + interacción del selector - todo OK",
-    "status": "completed"
-  },
-  {
-    "content": "Actualizar plan.md con Phase A completada",
+    "content": "Actualizar plan.md con P2 completado",
     "status": "completed"
   }
 ]

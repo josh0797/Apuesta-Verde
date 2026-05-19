@@ -2,9 +2,10 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Loader2, ChevronDown, ChevronUp, ExternalLink, Activity, Shield, TrendingDown, AlertCircle, Eye } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, sportTerms } from '@/lib/i18n';
 import { useSport, sportLabel } from '@/lib/sport';
 import { api } from '@/lib/api';
+import { AnalysisProgressModal } from '@/components/AnalysisProgressModal';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { MatchCard } from '@/components/MatchCard';
@@ -79,10 +80,15 @@ export default function DashboardPage() {
   const { t, lang } = useI18n();
   const { sport, sports } = useSport();
   const currentSport = sports.find((s) => s.id === sport) || sports[0];
+  const terms = sportTerms(lang, sport);
+  const dynamicSubtitle = lang === 'es'
+    ? `Análisis de valor para los próximos ${terms.eventPlural} (48h)`
+    : `Value analysis for the next ${terms.eventPlural} (48h)`;
   const [running, setRunning] = useState(false);
   const [run, setRun] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ league: '', market: '', minConfidence: 0 });
+  const [activeJobId, setActiveJobId] = useState(null);
 
   const refs = {
     high: useRef(null), medium: useRef(null),
@@ -100,16 +106,52 @@ export default function DashboardPage() {
 
   useEffect(() => { loadLast(); }, [loadLast]);
 
+  // On mount / sport change, resume any active job for this user.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await api.get('/analysis/jobs');
+        if (cancelled) return;
+        const active = (r.data?.active || []).find((j) => j.kind === 'analysis_run' && j?.params?.sport === sport);
+        if (active) setActiveJobId(active.id);
+      } catch (_) {}
+    })();
+    return () => { cancelled = true; };
+  }, [sport]);
+
   const generate = async () => {
     setRunning(true);
     try {
-      const r = await api.post('/analysis/run', { refresh: true, include_live: true, max_matches: 8, sport });
-      setRun({ id: r.data.pick_run_id, sport: r.data.sport, generated_at: r.data.generated_at, payload: r.data.result });
-      toast.success(t.dashboard.title + ' ✓');
+      // Use background mode so the UI shows real-time progress instead of a 60-120s spinner.
+      const r = await api.post('/analysis/run', {
+        refresh: true,
+        include_live: true,
+        max_matches: 8,
+        sport,
+        background: true,
+      });
+      if (r.data?.job_id) {
+        setActiveJobId(r.data.job_id);
+      } else if (r.data?.result) {
+        // Backward-compat: if backend ever returns sync, hydrate immediately.
+        setRun({ id: r.data.pick_run_id, sport: r.data.sport, generated_at: r.data.generated_at, payload: r.data.result });
+        toast.success(t.dashboard.title + ' ✓');
+      }
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Error');
     } finally { setRunning(false); }
   };
+
+  const onJobDone = useCallback((result) => {
+    // Refresh the dashboard with the freshly completed run.
+    toast.success(t.dashboard.title + ' ✓');
+    loadLast();
+  }, [loadLast, t.dashboard.title]);
+
+  const closeProgressModal = useCallback(() => {
+    setActiveJobId(null);
+  }, []);
 
   const exportCsv = async () => {
     try {
@@ -155,6 +197,14 @@ export default function DashboardPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-6">
+      {activeJobId && (
+        <AnalysisProgressModal
+          jobId={activeJobId}
+          onClose={closeProgressModal}
+          onDone={onJobDone}
+          sport={sport}
+        />
+      )}
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
         <div>
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tight flex items-center gap-3">
@@ -164,7 +214,7 @@ export default function DashboardPage() {
               {sportLabel(currentSport, lang)}
             </span>
           </h1>
-          <p className="text-muted-foreground mt-1 text-sm">{t.dashboard.subtitle}</p>
+          <p className="text-muted-foreground mt-1 text-sm">{dynamicSubtitle}</p>
         </div>
         <div className="flex items-center gap-3">
           {run?.generated_at && (
@@ -172,8 +222,14 @@ export default function DashboardPage() {
               {t.dashboard.lastRun}: <span className="mono font-mono-tabular text-foreground">{formatDateTime(run.generated_at, lang)}</span>
             </div>
           )}
-          <Button onClick={generate} disabled={running} data-testid="generate-picks-button" className="shadow-[0_0_0_1px_rgba(46,229,157,0.2),0_8px_24px_rgba(46,229,157,0.15)]">
-            {running ? (<><Loader2 className="h-4 w-4 animate-spin mr-2" />{t.dashboard.running}</>) : (<><Sparkles className="h-4 w-4 mr-2" />{t.dashboard.generateBtn}</>)}
+          <Button onClick={generate} disabled={running || !!activeJobId} data-testid="generate-picks-button" className="shadow-[0_0_0_1px_rgba(46,229,157,0.2),0_8px_24px_rgba(46,229,157,0.15)]">
+            {activeJobId ? (
+              <><Loader2 className="h-4 w-4 animate-spin mr-2" />{lang === 'es' ? 'Procesando…' : 'Processing…'}</>
+            ) : running ? (
+              <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t.dashboard.running}</>
+            ) : (
+              <><Sparkles className="h-4 w-4 mr-2" />{t.dashboard.generateBtn}</>
+            )}
           </Button>
         </div>
       </motion.div>
