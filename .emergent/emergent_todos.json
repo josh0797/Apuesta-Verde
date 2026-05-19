@@ -1,34 +1,22 @@
 [
   {
-    "content": "A: Add OPENAI_API_KEY to .env + install openai SDK",
+    "content": "#3 Drill-down: Always show analyzed/discarded sections + clickable KPIs + linking to match detail",
     "status": "completed"
   },
   {
-    "content": "A: Refactor analyst_engine to use gpt-4o-mini primary + Emergent fallback",
+    "content": "#3 Enhance LLM prompt: include match_id + force categorization + server-side reconciliation fallback",
     "status": "completed"
   },
   {
-    "content": "A: Test LLM fallback chain end-to-end (OpenAI confirmed primary)",
+    "content": "#2 ROI calculator: backend (avg odds * bankroll) + History UI",
     "status": "completed"
   },
   {
-    "content": "B1: Scheduler with APScheduler (odds 30min, context 6h, live 3min)",
+    "content": "#1 Playwright Sofascore scraper with stealth (CF blocks; infra ready for proxy)",
     "status": "completed"
   },
   {
-    "content": "B2: Additional scrapers (ESPN working, Sofascore/SportyTrader 403 expected)",
-    "status": "completed"
-  },
-  {
-    "content": "B3: Filters (league/market/confidence) + CSV export endpoints + UI",
-    "status": "completed"
-  },
-  {
-    "content": "B4: Winrate evolution chart in History page (recharts)",
-    "status": "completed"
-  },
-  {
-    "content": "Final: testing_agent_v3 for Phase 3 features (26/26 PASSED 100%)",
-    "status": "completed"
+    "content": "Final: testing_agent_v3 for new features",
+    "status": "in_progress"
   }
 ]

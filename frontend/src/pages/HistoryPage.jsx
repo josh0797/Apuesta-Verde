@@ -3,8 +3,9 @@ import { useI18n } from '@/lib/i18n';
 import { api } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { tierClass } from '@/lib/format';
-import { BadgeCheck, ThumbsDown, Equal, Clock, Download } from 'lucide-react';
+import { BadgeCheck, ThumbsDown, Equal, Clock, Download, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { WinRateChart } from '@/components/WinRateChart';
 import { toast } from 'sonner';
 
@@ -14,12 +15,13 @@ export default function HistoryPage() {
   const [tracked, setTracked] = useState([]);
   const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [stake, setStake] = useState(() => Number(localStorage.getItem('vbi_stake') || '10'));
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (currentStake) => {
     setLoading(true);
     try {
       const [s, tr, tl] = await Promise.all([
-        api.get('/stats/dashboard'),
+        api.get('/stats/dashboard', { params: { stake: currentStake } }),
         api.get('/picks/tracked'),
         api.get('/stats/timeline'),
       ]);
@@ -29,7 +31,13 @@ export default function HistoryPage() {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(stake); }, [load, stake]);
+
+  const updateStake = (v) => {
+    const n = Math.max(0.1, Number(v) || 10);
+    setStake(n);
+    localStorage.setItem('vbi_stake', String(n));
+  };
 
   const exportCsv = async () => {
     try {
@@ -43,6 +51,9 @@ export default function HistoryPage() {
   };
 
   if (loading) return <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"><Skeleton className="h-32 rounded-xl mb-4" /><Skeleton className="h-64 rounded-xl" /></div>;
+
+  const roi = stats?.roi || {};
+  const profitColor = (roi.total_profit ?? 0) >= 0 ? 'emerald' : 'red';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-6">
@@ -63,6 +74,34 @@ export default function HistoryPage() {
         <KPI label={t.history.last10} value={`${(stats?.last10 || []).filter(x => x.outcome === 'won').length}/${(stats?.last10 || []).length}`} />
       </div>
 
+      {/* ROI calculator card */}
+      <section className="rounded-xl border border-border bg-card p-4 md:p-5" data-testid="roi-calculator">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+          <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+            <DollarSign className="h-4 w-4" />
+            {t.history.roiTitle}
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="stake-input" className="text-xs text-muted-foreground">{t.history.stakeLabel}</label>
+            <Input
+              id="stake-input" data-testid="stake-input" type="number" min="0.1" step="0.1"
+              value={stake}
+              onChange={(e) => updateStake(e.target.value)}
+              className="h-8 w-24 text-right mono font-mono-tabular"
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <KPI label={t.history.roiTotalWagered} value={`${(roi.total_wagered ?? 0).toFixed(2)}`} hint={`${roi.settled_with_odds || 0} ${t.history.settledWithOdds}`} />
+          <KPI label={t.history.roiNetProfit} value={`${(roi.total_profit ?? 0) >= 0 ? '+' : ''}${(roi.total_profit ?? 0).toFixed(2)}`} accent={profitColor} icon={(roi.total_profit ?? 0) >= 0 ? TrendingUp : TrendingDown} />
+          <KPI label={t.history.roiPct} value={`${(roi.roi_pct ?? 0) >= 0 ? '+' : ''}${(roi.roi_pct ?? 0).toFixed(2)}%`} accent={profitColor} />
+          <KPI label={t.history.roiAvgWonOdds} value={(roi.avg_won_odds ?? 0).toFixed(2)} hint={`${t.history.roiAvgLostOdds}: ${(roi.avg_lost_odds ?? 0).toFixed(2)}`} />
+        </div>
+        {(roi.settled_with_odds ?? 0) < (roi.settled_total ?? 0) && (roi.settled_total ?? 0) > 0 && (
+          <p className="text-[11px] text-muted-foreground mt-3 italic">{t.history.roiHint}</p>
+        )}
+      </section>
+
       <section className="rounded-xl border border-border bg-card p-4" data-testid="winrate-evolution-section">
         <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">{t.history.evolution}</div>
         <WinRateChart data={timeline} />
@@ -71,13 +110,20 @@ export default function HistoryPage() {
       <section className="rounded-xl border border-border bg-card p-4">
         <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">{t.history.byTier}</div>
         <div className="grid sm:grid-cols-3 gap-3">
-          {['Maxima', 'Alta', 'Media'].map((tier) => (
-            <div key={tier} className={`rounded-lg p-3 ${tierClass(tier)}`} data-testid={`tier-${tier}`}>
-              <div className="text-[11px] uppercase opacity-80">{t.confidence[tier]}</div>
-              <div className="text-2xl mono font-mono-tabular font-semibold">{stats?.accuracy_by_tier?.[tier]?.rate ?? 0}%</div>
-              <div className="text-[11px] opacity-80 mono font-mono-tabular">{stats?.accuracy_by_tier?.[tier]?.won ?? 0}/{stats?.accuracy_by_tier?.[tier]?.settled ?? 0}</div>
-            </div>
-          ))}
+          {['Maxima', 'Alta', 'Media'].map((tier) => {
+            const tierData = stats?.accuracy_by_tier?.[tier] || {};
+            const tierRoi = tierData.roi_pct ?? 0;
+            return (
+              <div key={tier} className={`rounded-lg p-3 ${tierClass(tier)}`} data-testid={`tier-${tier}`}>
+                <div className="text-[11px] uppercase opacity-80">{t.confidence[tier]}</div>
+                <div className="text-2xl mono font-mono-tabular font-semibold">{tierData.rate ?? 0}%</div>
+                <div className="text-[11px] opacity-80 mono font-mono-tabular">{tierData.won ?? 0}/{tierData.settled ?? 0}</div>
+                <div className={`text-[11px] mono font-mono-tabular mt-1 ${tierRoi >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                  ROI: {tierRoi >= 0 ? '+' : ''}{tierRoi.toFixed(1)}%
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -115,12 +161,16 @@ export default function HistoryPage() {
   );
 }
 
-function KPI({ label, value, accent }) {
-  const cls = accent === 'emerald' ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300' : accent === 'amber' ? 'border-amber-500/30 bg-amber-500/5 text-amber-300' : 'border-border bg-card';
+function KPI({ label, value, accent, icon: Icon, hint }) {
+  const cls = accent === 'emerald' ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300' : accent === 'red' ? 'border-red-500/30 bg-red-500/5 text-red-300' : accent === 'amber' ? 'border-amber-500/30 bg-amber-500/5 text-amber-300' : 'border-border bg-card';
   return (
     <div className={`rounded-lg border p-3 ${cls}`}>
-      <div className="text-[11px] uppercase tracking-wide opacity-80">{label}</div>
+      <div className="text-[11px] uppercase tracking-wide opacity-80 flex items-center gap-1.5">
+        {Icon && <Icon className="h-3 w-3" />}
+        {label}
+      </div>
       <div className="text-2xl mono font-mono-tabular font-semibold mt-0.5">{value}</div>
+      {hint && <div className="text-[10px] opacity-70 mt-0.5 mono font-mono-tabular">{hint}</div>}
     </div>
   );
 }

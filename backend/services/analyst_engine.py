@@ -107,11 +107,11 @@ REGLAS ABSOLUTAS:
     }
   ],
   "summary": {
-    "high_confidence": [{"match_label": "string", "market": "string", "confidence": int}],
-    "medium_confidence": [{"match_label": "string", "market": "string", "confidence": int}],
-    "discarded_motivation": [{"match_label": "string", "reason": "string"}],
-    "discarded_market": [{"match_label": "string", "reason": "string"}],
-    "incomplete_data": [{"match_label": "string", "missing": "string"}],
+    "high_confidence": [{"match_id": int, "match_label": "string", "market": "string", "confidence": int}],
+    "medium_confidence": [{"match_id": int, "match_label": "string", "market": "string", "confidence": int}],
+    "discarded_motivation": [{"match_id": int, "match_label": "string", "reason": "string"}],
+    "discarded_market": [{"match_id": int, "match_label": "string", "reason": "string"}],
+    "incomplete_data": [{"match_id": int, "match_label": "string", "missing": "string"}],
     "total_analyzed": int,
     "total_recommended": int,
     "total_discarded": int,
@@ -123,8 +123,20 @@ NOTAS IMPORTANTES SOBRE LOS DATOS DISPONIBLES:
 - `data_source_season` puede ser "2024 (proxy)" porque el plan API no permite season 2025-26. Esto es ESPERADO. Trata estos datos (form_last_5, position, goals_avg) como indicadores SÓLIDOS del nivel del equipo. Marca `data_freshness.context` como "stale" en el output, pero NO descartes el partido por esto. SOLO descarta si form_last_5 está VACÍO Y position es null.
 - `injuries_count` viene del agregado de la temporada anterior (puede ser alto, ej. 180). NO tomes el número literal como bajas actuales; úsalo solo si está bajo (<5) como señal positiva.
 - Si tienes odds + form + position + h2h, TIENES SUFICIENTE para hacer un análisis razonable. No exijas datos perfectos.
-- IMPORTANTE: Si descartas un partido, debes incluirlo en UNA de estas listas: discarded_motivation, discarded_market, o incomplete_data. NUNCA dejes un partido en "discarded" sin categorizar. La suma debe cuadrar: total_recommended + len(todas las discarded) == total_analyzed.
 - Cuando hay un favorito CLARO (diferencia de >=10 puestos en tabla, o forma muy desbalanceada) + odds en rango 1.25-1.85, busca activamente picks de 1X2 o Doble Oportunidad.
+
+REGLA CRÍTICA DE CATEGORIZACIÓN (NO NEGOCIABLE):
+TODO partido analizado DEBE aparecer en EXACTAMENTE UNA de estas listas:
+  - `picks` (si lo recomiendas)
+  - `summary.discarded_motivation` (si lo descartaste por motivación baja/nula de uno o ambos equipos)
+  - `summary.discarded_market` (si lo descartaste porque ningún mercado protegido aplica o las cuotas son trampa)
+  - `summary.incomplete_data` (si faltan datos críticos: sin odds, sin form Y sin position)
+  
+VALIDACIÓN OBLIGATORIA: len(picks) + len(discarded_motivation) + len(discarded_market) + len(incomplete_data) === total_analyzed.
+
+Si total_discarded > 0, entonces (discarded_motivation + discarded_market + incomplete_data) debe contener exactamente total_discarded items con match_id, match_label y reason/missing detallados.
+
+NUNCA dejes las listas de descarte vacías cuando total_discarded > 0. Es un ERROR del JSON. Cada partido descartado debe explicarse con su razón concreta.
 
 ÚNICAMENTE responde JSON válido. NO uses markdown, NO uses bloques de código, NO añadas explicaciones fuera del JSON."""
 
@@ -218,6 +230,42 @@ async def analyze_matches(matches_payload: list[dict]) -> dict:
 
     raw = _strip_to_json(response)
     parsed = json.loads(raw)
+
+    # Reconciliation: if total_discarded > 0 but all discard lists are empty,
+    # auto-fill incomplete_data with the input matches that did NOT make it to picks.
+    summary = parsed.get("summary") or {}
+    picks = parsed.get("picks") or []
+    picked_ids = {p.get("match_id") for p in picks}
+    disc_mot = summary.get("discarded_motivation") or []
+    disc_mkt = summary.get("discarded_market") or []
+    incomp = summary.get("incomplete_data") or []
+    total_listed = len(picks) + len(disc_mot) + len(disc_mkt) + len(incomp)
+    expected = summary.get("total_analyzed") or len(matches_payload)
+    if total_listed < expected:
+        # Build a missing-matches fallback list using the original payload
+        existing_in_lists = {x.get("match_id") for x in (disc_mot + disc_mkt + incomp)}
+        for m in matches_payload:
+            mid = m.get("match_id")
+            if mid in picked_ids or mid in existing_in_lists:
+                continue
+            label = f"{(m.get('home_team') or {}).get('name','?')} vs {(m.get('away_team') or {}).get('name','?')}"
+            # Heuristic: if no odds → incomplete; if form missing on both → incomplete; else market
+            home_ctx = (m.get('home_team') or {}).get('context') or {}
+            away_ctx = (m.get('away_team') or {}).get('context') or {}
+            has_odds = bool(m.get('odds_snapshots'))
+            has_form = bool(home_ctx.get('form_last_5')) or bool(away_ctx.get('form_last_5'))
+            if not has_odds:
+                incomp.append({"match_id": mid, "match_label": label, "missing": "Sin cuotas disponibles"})
+            elif not has_form:
+                incomp.append({"match_id": mid, "match_label": label, "missing": "Sin forma reciente ni posición"})
+            else:
+                disc_mkt.append({"match_id": mid, "match_label": label, "reason": "No cumple criterios de valor (cuotas/motivación insuficientes para mercados protegidos)"})
+        summary["discarded_motivation"] = disc_mot
+        summary["discarded_market"] = disc_mkt
+        summary["incomplete_data"] = incomp
+        summary["total_discarded"] = len(disc_mot) + len(disc_mkt) + len(incomp)
+        parsed["summary"] = summary
+
     parsed["_generated_at"] = datetime.now(timezone.utc).isoformat()
     parsed["_session_id"] = session_id
     parsed["_provider"] = provider_used

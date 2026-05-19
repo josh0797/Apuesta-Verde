@@ -45,6 +45,15 @@ export default function MatchDetailPage() {
     if (!llmPick || !pickRun) return;
     setMarking(true);
     try {
+      // Parse odds from odds_range (e.g., "1.25-1.45" -> midpoint, or "1.70" -> 1.70)
+      let oddsValue = null;
+      const range = llmPick.recommendation?.odds_range;
+      if (range) {
+        const nums = String(range).match(/\d+\.?\d*/g) || [];
+        const parsed = nums.map(Number).filter((n) => n > 1 && n < 10);
+        if (parsed.length === 2) oddsValue = (parsed[0] + parsed[1]) / 2;
+        else if (parsed.length === 1) oddsValue = parsed[0];
+      }
       await api.post('/picks/track', {
         run_id: pickRun.id,
         match_id: llmPick.match_id,
@@ -52,6 +61,7 @@ export default function MatchDetailPage() {
         selection: llmPick.recommendation?.selection,
         confidence_score: llmPick.recommendation?.confidence_score || 0,
         outcome,
+        odds: oddsValue,
         league: llmPick.league,
         match_label: llmPick.match_label,
       });

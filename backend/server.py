@@ -299,7 +299,7 @@ async def list_tracked(user: dict = Depends(get_current_user), limit: int = 200)
 
 
 @api.get("/stats/dashboard")
-async def stats_dashboard(user: dict = Depends(get_current_user)):
+async def stats_dashboard(user: dict = Depends(get_current_user), stake: float = 10.0):
     docs = await db.pick_tracking.find({"user_id": user["id"]}).sort("tracked_at", -1).to_list(length=500)
     total = len(docs)
     won = sum(1 for d in docs if d.get("outcome") == "won")
@@ -324,24 +324,63 @@ async def stats_dashboard(user: dict = Depends(get_current_user)):
             "market": d.get("market"),
             "outcome": d.get("outcome"),
             "confidence_score": d.get("confidence_score"),
+            "odds": d.get("odds"),
         })
-    # Accuracy by confidence tier
-    tiers = {"Maxima": [0, 0], "Alta": [0, 0], "Media": [0, 0]}
+
+    # Accuracy + ROI by confidence tier
+    tiers = {"Maxima": {"won": 0, "lost": 0, "profit": 0.0, "wagered": 0.0},
+             "Alta":   {"won": 0, "lost": 0, "profit": 0.0, "wagered": 0.0},
+             "Media":  {"won": 0, "lost": 0, "profit": 0.0, "wagered": 0.0}}
+    total_profit = 0.0
+    total_wagered = 0.0
+    sum_won_odds = 0.0
+    sum_lost_odds = 0.0
     for d in docs:
         cs = d.get("confidence_score", 0) or 0
-        tier = "Maxima" if cs >= 88 else ("Alta" if cs >= 78 else ("Media" if cs >= 68 else "Other"))
-        if tier in tiers and d.get("outcome") in ("won", "lost"):
-            tiers[tier][1] += 1
-            if d.get("outcome") == "won":
-                tiers[tier][0] += 1
-    accuracy_by_tier = {
-        tier: {
-            "won": v[0],
-            "settled": v[1],
-            "rate": round((v[0] / v[1]) * 100, 1) if v[1] else 0.0,
+        tier = "Maxima" if cs >= 88 else ("Alta" if cs >= 78 else ("Media" if cs >= 68 else None))
+        outcome = d.get("outcome")
+        if outcome not in ("won", "lost"):
+            continue
+        odds = float(d.get("odds") or 0)
+        if odds <= 1.0:
+            continue  # No valid odds → skip ROI math for this pick
+        wagered = stake
+        total_wagered += wagered
+        if outcome == "won":
+            profit = wagered * (odds - 1.0)
+            total_profit += profit
+            sum_won_odds += odds
+            if tier:
+                tiers[tier]["won"] += 1
+                tiers[tier]["profit"] += profit
+                tiers[tier]["wagered"] += wagered
+        elif outcome == "lost":
+            total_profit -= wagered
+            sum_lost_odds += odds
+            if tier:
+                tiers[tier]["lost"] += 1
+                tiers[tier]["profit"] -= wagered
+                tiers[tier]["wagered"] += wagered
+
+    roi_pct = round((total_profit / total_wagered) * 100, 2) if total_wagered else 0.0
+    avg_won_odds = round(sum_won_odds / won, 2) if won else 0.0
+    avg_lost_odds = round(sum_lost_odds / lost, 2) if lost else 0.0
+    # Picks with odds (count) to know coverage
+    picks_with_odds = sum(1 for d in docs if (d.get("odds") or 0) > 1.0 and d.get("outcome") in ("won", "lost"))
+
+    accuracy_by_tier = {}
+    for tier, v in tiers.items():
+        settled_tier = v["won"] + v["lost"]
+        accuracy_by_tier[tier] = {
+            "won": v["won"],
+            "lost": v["lost"],
+            "settled": settled_tier,
+            "rate": round((v["won"] / settled_tier) * 100, 1) if settled_tier else 0.0,
+            "profit": round(v["profit"], 2),
+            "wagered": round(v["wagered"], 2),
+            "roi_pct": round((v["profit"] / v["wagered"]) * 100, 2) if v["wagered"] else 0.0,
         }
-        for tier, v in tiers.items()
-    }
+
     return {
         "total": total,
         "won": won,
@@ -352,6 +391,16 @@ async def stats_dashboard(user: dict = Depends(get_current_user)):
         "streak": streak,
         "last10": last10,
         "accuracy_by_tier": accuracy_by_tier,
+        "roi": {
+            "stake_per_pick": stake,
+            "total_wagered": round(total_wagered, 2),
+            "total_profit": round(total_profit, 2),
+            "roi_pct": roi_pct,
+            "avg_won_odds": avg_won_odds,
+            "avg_lost_odds": avg_lost_odds,
+            "settled_with_odds": picks_with_odds,
+            "settled_total": settled,
+        },
     }
 
 
@@ -370,12 +419,16 @@ async def system_status(user: dict = Depends(get_current_user)):
 
 
 @api.get("/system/fallback-sources")
-async def system_fallback_sources(user: dict = Depends(get_current_user)):
-    """Run all fallback scrapers and return aggregated public-source data."""
+async def system_fallback_sources(user: dict = Depends(get_current_user), use_playwright: bool = False):
+    """Run all fallback scrapers and return aggregated public-source data.
+
+    Pass `?use_playwright=true` to enable the heavier Playwright-based Sofascore/Flashscore
+    bypass (takes ~5-10s to launch headless Chromium).
+    """
     async with httpx.AsyncClient() as client:
-        data = await fallback_module.aggregate_fallback(client)
+        data = await fallback_module.aggregate_fallback(client, use_playwright=use_playwright)
     summary = {k: (len(v) if isinstance(v, list) else 0) for k, v in data.items() if k != "generated_at"}
-    return {"summary": summary, "data": data}
+    return {"summary": summary, "data": data, "playwright_used": use_playwright}
 
 
 # ── Filters / CSV export ─────────────────────────────────────────────────────

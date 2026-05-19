@@ -190,18 +190,34 @@ async def flashscore_today(client: httpx.AsyncClient) -> list[dict]:
 
 
 # ── Aggregator ───────────────────────────────────────────────────────────────
-async def aggregate_fallback(client: httpx.AsyncClient) -> dict:
-    """Run all scrapers in parallel and return aggregated results."""
-    espn, sofa, sport = await asyncio.gather(
+async def aggregate_fallback(client: httpx.AsyncClient, use_playwright: bool = False) -> dict:
+    """Run all scrapers in parallel and return aggregated results.
+
+    use_playwright=True enables the heavier Playwright-based Sofascore/Flashscore
+    bypass. Only enable when the standard httpx scrapers return 0 and you need data.
+    """
+    tasks = [
         espn_soccer_scoreboard(client),
         sofascore_today(client),
         sportytrader_today(client),
-        return_exceptions=True,
-    )
+    ]
+    if use_playwright:
+        from . import playwright_scraper as pws
+        tasks.extend([
+            pws.sofascore_via_playwright(),
+            pws.flashscore_via_playwright(),
+        ])
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
     def _safe(x): return x if isinstance(x, list) else []
-    return {
+    espn, sofa, sport = results[:3]
+    out = {
         "espn": _safe(espn),
         "sofascore": _safe(sofa),
         "sportytrader": _safe(sport),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if use_playwright and len(results) >= 5:
+        out["sofascore_pw"] = _safe(results[3])
+        out["flashscore_pw"] = _safe(results[4])
+    return out
