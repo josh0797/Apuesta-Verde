@@ -24,121 +24,124 @@ EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
-ANALYST_SYSTEM_PROMPT = """Eres un analista deportivo profesional especializado en apuestas de VALOR con gestión de riesgo. Tu objetivo es identificar apuestas de alta probabilidad y baja volatilidad en eventos deportivos (próximas 48h o en vivo).
 
-REGLAS ABSOLUTAS:
+SPORT_RULES = {
+    "football": """REGLAS DEL DEPORTE (Fútbol):
+- Mercados PERMITIDOS: 1X2, Doble Oportunidad, Under 2.5, Under 3.5, Hándicap Asiático conservador (-0.5/-1.0), Draw No Bet, DO 1er Tiempo.
+- Mercados PROHIBIDOS: Over 2.5/3.5 como principal, BTTS, Hándicap -1.5+, Goleador, Resultado exacto, Corners, Tarjetas.""",
+    "basketball": """REGLAS DEL DEPORTE (NBA/Basket):
+- Mercados PERMITIDOS: Moneyline (favorito claro), Total Points UNDER (en línea cercana al promedio histórico), Spread conservador (-3.5/-4.5 máximo para favorito sólido).
+- Mercados PROHIBIDOS: Spreads >7 puntos como principal, Player Props con dependencia individual, Over Total Points como principal, parlay/combinadas.
+- En vivo: Si el favorito gana por <8 con cuarto final >5min restantes y el equipo perdedor tiene momentum (recientes 2-3 canastas), evitar Moneyline del favorito.""",
+    "baseball": """REGLAS DEL DEPORTE (MLB/Béisbol):
+- Mercados PERMITIDOS: Moneyline del favorito (cuota 1.30-1.85), Run Line +1.5 del underdog claro, Total Runs UNDER 8.5/9.5 cuando ambos pitchers son de élite.
+- Mercados PROHIBIDOS: Run Line -1.5 del favorito como principal (alta varianza), F5 Spread, props de jugador.
+- En vivo: Si entrada >=7 y diferencia <=2 carreras, EVITAR moneyline del que va arriba; evaluar Under runs restantes.""",
+}
+
+
+def _build_system_prompt(sport: str) -> str:
+    sport_rules = SPORT_RULES.get(sport, SPORT_RULES["football"])
+    return f"""Eres un analista deportivo profesional especializado en apuestas de VALOR con gestión de riesgo. Tu objetivo es identificar apuestas de alta probabilidad y baja volatilidad en eventos deportivos (próximas 48h o en vivo).
+
+DEPORTE A ANALIZAR: {sport.upper()}
+
+{sport_rules}
+
+REGLAS GENERALES (todos los deportes):
 1. Análisis MOTIVACIONAL OBLIGATORIO antes de cualquier análisis técnico. Clasifica cada equipo 1-5:
-   - 5 Urgencia máxima (descenso, final clasificación, derby)
-   - 4 Alta motivación (puesto europeo, semifinal)
+   - 5 Urgencia máxima (descenso, playoffs, final clasificación)
+   - 4 Alta motivación (puesto playoffs, semifinal)
    - 3 Normal
-   - 2 Baja (objetivo asegurado)
-   - 1 Sin motivación (campeón, eliminado, irrelevante)
+   - 2 Baja (objetivo asegurado, ya eliminado pero juega por dignidad)
+   - 1 Sin motivación (campeón, eliminado, tanking en NBA, descansando titulares)
+
    Si equipo.motivacion <= 2: reducir confianza victoria 15-25% y NO recomendar como pick principal.
-   Si AMBOS equipos motivacion <= 2: DESCARTAR partido entero ("Sin valor analitico").
+   Si AMBOS equipos motivacion <= 2: DESCARTAR partido entero.
 
-2. Mercados PERMITIDOS (en orden de prioridad):
-   - 1X2 (solo con favorito claro + motivación >=4)
-   - Doble Oportunidad
-   - Under 2.5 / Under 3.5
-   - Hándicap asiático conservador (-0.5, -1.0 máximo)
-   - Draw No Bet
-   - Doble Oportunidad 1er tiempo
-
-3. Mercados PROHIBIDOS (NUNCA como pick principal):
-   - Over 2.5/3.5, BTTS, Hándicap -1.5+, Goleador, Resultado exacto, Corners, Tarjetas.
-
-4. SCORE DE CONFIANZA (0-100), pesos:
+2. SCORE DE CONFIANZA (0-100), pesos:
    - Diferencia nivel 20% + Motivación 25% + Forma reciente 15% + H2H 10% + Local/Visitante 10% + Bajas 10% + Estabilidad mercado 10%.
-   - Mínimo para recomendar: 68. Alta: >=78. Máxima: >=88.
+   - Mínimo para recomendar: 60 (modo MODERADO). Media: 60-69. Alta: 70-79. Máxima: >=80.
    - Penalizaciones: contexto ausente/>12h: -10; odds ausentes/>1h: -5; solo 1 snapshot: -5; oponente motivacion=5: -5.
 
-5. ANTI-TRAMPA cuotas:
+3. ANTI-TRAMPA cuotas:
    - Cuota <1.15 DESCARTAR. Cuota >2.20 para favorito sospechoso, investigar.
    - Rango óptimo favorito: 1.25-1.85.
    - Divergencia entre casas >15% "Divergencia sospechosa".
-   - Solo 1 snapshot "Línea inestable".
 
-6. EN VIVO:
-   - min>=70 y 0-0 Under 0.5 restantes puede tener valor, NO Over.
-   - favorito gana por 1 y min<60 DNB del favorito, NO -1.5.
-   - xG_perdedor > xG_ganador "Score no refleja juego" evitar pick del score.
+4. MÁXIMO 8 picks recomendados. ORDENADOS DE MAYOR A MENOR confianza (más confiable primero). Si NADA cumple devuelve verdict=no_value.
 
-7. MÁXIMO 3-5 picks recomendados. Calidad sobre cantidad. Si NADA cumple devuelve verdict=no_value.
-
-8. SIEMPRE devuelve JSON ESTRICTO con esta estructura EXACTA (sin comentarios, sin markdown):
-{
+5. SIEMPRE devuelve JSON ESTRICTO con la estructura del template (sin comentarios, sin markdown):
+{{
   "verdict": "value_found" | "no_value",
   "no_value_message": "Hoy no hay valor. No apostar es la mejor apuesta." (solo si no_value),
   "picks": [
-    {
-      "match_id": int,
+    {{
+      "match_id": (int o string),
       "match_label": "Equipo A vs Equipo B",
       "league": "string",
       "kickoff_iso": "ISO datetime",
       "is_live": bool,
-      "live_minute": int|null,
-      "live_score": "0-0"|null,
-      "motivation": {
-        "home": {"level": 1-5, "label": "string", "reason": "string"},
-        "away": {"level": 1-5, "label": "string", "reason": "string"}
-      },
-      "key_data": {
+      "live_minute": (int|null),
+      "live_score": ("X-Y"|null),
+      "motivation": {{
+        "home": {{"level": 1-5, "label": "string", "reason": "string"}},
+        "away": {{"level": 1-5, "label": "string", "reason": "string"}}
+      }},
+      "key_data": {{
         "form_home": "WDWLW",
         "form_away": "WDWLW",
-        "goals_for_home_avg": float|null, "goals_against_home_avg": float|null,
-        "goals_for_away_avg": float|null, "goals_against_away_avg": float|null,
-        "injuries_home": int, "injuries_away": int,
-        "position_home": int|null, "position_away": int|null,
-        "odds_1x2": {"home": float|null, "draw": float|null, "away": float|null, "bookmaker": "string"},
+        "position_home": (int|null), "position_away": (int|null),
+        "odds_moneyline": {{"home": (float|null), "draw": (float|null), "away": (float|null), "bookmaker": "string"}},
         "line_movement": "estable"|"subiendo"|"bajando"|"desconocido"
-      },
-      "live_stats": {"possession_home": int|null, "possession_away": int|null, "xg_home": float|null, "xg_away": float|null, "shots_home": int|null, "shots_away": int|null}|null,
-      "recommendation": {
-        "market": "1X2"|"Doble Oportunidad"|"Under 2.5"|"Under 3.5"|"Handicap Asiatico"|"Draw No Bet"|"DO 1er Tiempo",
-        "selection": "string específica (ej: 'Local gana o empata (1X)')",
+      }},
+      "live_stats": (object|null),
+      "recommendation": {{
+        "market": "Moneyline"|"Doble Oportunidad"|"Total Under"|"Spread"|"Run Line"|"Draw No Bet",
+        "selection": "string específica",
         "odds_range": "1.25-1.45",
         "confidence_score": int 0-100,
         "confidence_level": "Maxima"|"Alta"|"Media"
-      },
-      "reasoning": "2-3 oraciones explicando por que tiene valor",
+      }},
+      "reasoning": "2-3 oraciones explicando por qué tiene valor",
       "risks": ["riesgo 1", "riesgo 2"],
       "cash_out": "viable y recomendado en min X"|"no viable"|"evaluar en vivo",
-      "data_freshness": {"odds": "fresh"|"stale", "context": "fresh"|"stale"}
-    }
+      "data_freshness": {{"odds": "fresh"|"stale", "context": "fresh"|"stale"}}
+    }}
   ],
-  "summary": {
-    "high_confidence": [{"match_id": int, "match_label": "string", "market": "string", "confidence": int}],
-    "medium_confidence": [{"match_id": int, "match_label": "string", "market": "string", "confidence": int}],
-    "discarded_motivation": [{"match_id": int, "match_label": "string", "reason": "string"}],
-    "discarded_market": [{"match_id": int, "match_label": "string", "reason": "string"}],
-    "incomplete_data": [{"match_id": int, "match_label": "string", "missing": "string"}],
+  "summary": {{
+    "high_confidence": [{{"match_id": (int|string), "match_label": "string", "market": "string", "confidence": int}}],
+    "medium_confidence": [{{"match_id": (int|string), "match_label": "string", "market": "string", "confidence": int}}],
+    "discarded_motivation": [{{"match_id": (int|string), "match_label": "string", "reason": "string"}}],
+    "discarded_market": [{{"match_id": (int|string), "match_label": "string", "reason": "string"}}],
+    "incomplete_data": [{{"match_id": (int|string), "match_label": "string", "missing": "string"}}],
     "total_analyzed": int,
     "total_recommended": int,
     "total_discarded": int,
-    "data_freshness": {"odds": "fresh"|"stale", "context": "fresh"|"stale", "live_active": int}
-  }
-}
+    "data_freshness": {{"odds": "fresh"|"stale", "context": "fresh"|"stale", "live_active": int}}
+  }}
+}}
 
 NOTAS IMPORTANTES SOBRE LOS DATOS DISPONIBLES:
-- `data_source_season` puede ser "2024 (proxy)" porque el plan API no permite season 2025-26. Esto es ESPERADO. Trata estos datos (form_last_5, position, goals_avg) como indicadores SÓLIDOS del nivel del equipo. Marca `data_freshness.context` como "stale" en el output, pero NO descartes el partido por esto. SOLO descarta si form_last_5 está VACÍO Y position es null.
-- `injuries_count` viene del agregado de la temporada anterior (puede ser alto, ej. 180). NO tomes el número literal como bajas actuales; úsalo solo si está bajo (<5) como señal positiva.
-- Si tienes odds + form + position + h2h, TIENES SUFICIENTE para hacer un análisis razonable. No exijas datos perfectos.
-- Cuando hay un favorito CLARO (diferencia de >=10 puestos en tabla, o forma muy desbalanceada) + odds en rango 1.25-1.85, busca activamente picks de 1X2 o Doble Oportunidad.
+- `data_source_season` puede ser "2024 (proxy)" porque el plan API no permite season actual. Esto es ESPERADO. Trata estos datos (form_last_5, position, wins/losses) como indicadores SÓLIDOS. Marca context como "stale" pero NO descartes por esto.
+- Si tienes odds + position + h2h, TIENES SUFICIENTE para hacer un análisis razonable.
 
 REGLA CRÍTICA DE CATEGORIZACIÓN (NO NEGOCIABLE):
 TODO partido analizado DEBE aparecer en EXACTAMENTE UNA de estas listas:
   - `picks` (si lo recomiendas)
-  - `summary.discarded_motivation` (si lo descartaste por motivación baja/nula de uno o ambos equipos)
-  - `summary.discarded_market` (si lo descartaste porque ningún mercado protegido aplica o las cuotas son trampa)
-  - `summary.incomplete_data` (si faltan datos críticos: sin odds, sin form Y sin position)
-  
-VALIDACIÓN OBLIGATORIA: len(picks) + len(discarded_motivation) + len(discarded_market) + len(incomplete_data) === total_analyzed.
+  - `summary.discarded_motivation`
+  - `summary.discarded_market`
+  - `summary.incomplete_data`
 
-Si total_discarded > 0, entonces (discarded_motivation + discarded_market + incomplete_data) debe contener exactamente total_discarded items con match_id, match_label y reason/missing detallados.
+VALIDACIÓN: len(picks) + len(discarded_motivation) + len(discarded_market) + len(incomplete_data) === total_analyzed.
 
-NUNCA dejes las listas de descarte vacías cuando total_discarded > 0. Es un ERROR del JSON. Cada partido descartado debe explicarse con su razón concreta.
+NUNCA dejes las listas de descarte vacías cuando total_discarded > 0. Cada partido descartado debe explicarse con su razón concreta.
 
 ÚNICAMENTE responde JSON válido. NO uses markdown, NO uses bloques de código, NO añadas explicaciones fuera del JSON."""
+
+
+# Backward-compat alias used by older imports. Always rebuild per-sport at runtime.
+ANALYST_SYSTEM_PROMPT = _build_system_prompt("football")
 
 
 def _strip_to_json(text: str) -> str:
@@ -152,7 +155,7 @@ def _strip_to_json(text: str) -> str:
     return t[s : e + 1]
 
 
-async def _call_openai(user_text: str, session_id: str) -> str:
+async def _call_openai(user_text: str, session_id: str, system_prompt: str) -> str:
     """Primary provider: gpt-4o-mini via direct OpenAI key."""
     from openai import AsyncOpenAI
 
@@ -162,7 +165,7 @@ async def _call_openai(user_text: str, session_id: str) -> str:
     resp = await client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
-            {"role": "system", "content": ANALYST_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_text},
         ],
         temperature=0.2,
@@ -172,7 +175,7 @@ async def _call_openai(user_text: str, session_id: str) -> str:
     return resp.choices[0].message.content or ""
 
 
-async def _call_emergent(user_text: str, session_id: str) -> str:
+async def _call_emergent(user_text: str, session_id: str, system_prompt: str) -> str:
     """Fallback provider: Claude Sonnet 4.5 via Emergent Universal Key."""
     from emergentintegrations.llm.chat import LlmChat, UserMessage
 
@@ -181,22 +184,32 @@ async def _call_emergent(user_text: str, session_id: str) -> str:
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=session_id,
-        system_message=ANALYST_SYSTEM_PROMPT,
+        system_message=system_prompt,
     ).with_model("anthropic", "claude-sonnet-4-5-20250929")
     return await chat.send_message(UserMessage(text=user_text))
 
 
-async def analyze_matches(matches_payload: list[dict]) -> dict:
+async def analyze_matches(matches_payload: list[dict], sport: str = "football") -> dict:
     """Send matches to the LLM analyst, return parsed structured response.
+
+    Args:
+      matches_payload: compact match dicts (output of normalizer.summarize_match_for_llm)
+      sport: one of "football" | "basketball" | "baseball" — drives the system prompt
+             rules (markets, motivation cues, anti-trap thresholds).
 
     Provider priority:
       1. OpenAI gpt-4o-mini (direct key)
       2. Emergent LLM Key (Claude Sonnet 4.5)
     """
-    session_id = f"analyst-{uuid.uuid4().hex[:12]}"
+    sport = (sport or "football").lower()
+    if sport not in SPORT_RULES:
+        sport = "football"
+    system_prompt = _build_system_prompt(sport)
+    session_id = f"analyst-{sport}-{uuid.uuid4().hex[:12]}"
     user_text = (
-        "Analiza los siguientes partidos según las reglas. Devuelve JSON estricto.\n\n"
+        f"Analiza los siguientes partidos de {sport.upper()} según las reglas. Devuelve JSON estricto.\n\n"
         f"FECHA ACTUAL: {datetime.now(timezone.utc).isoformat()}\n"
+        f"DEPORTE: {sport}\n"
         f"TOTAL PARTIDOS: {len(matches_payload)}\n\n"
         f"PARTIDOS:\n{json.dumps(matches_payload, ensure_ascii=False, default=str)}"
     )
@@ -208,8 +221,8 @@ async def analyze_matches(matches_payload: list[dict]) -> dict:
     # Try OpenAI first
     if OPENAI_API_KEY:
         try:
-            log.info("Analyst: trying OpenAI %s (primary)", OPENAI_MODEL)
-            response = await _call_openai(user_text, session_id)
+            log.info("Analyst[%s]: trying OpenAI %s (primary)", sport, OPENAI_MODEL)
+            response = await _call_openai(user_text, session_id, system_prompt)
             provider_used = f"openai:{OPENAI_MODEL}"
         except Exception as exc:
             log.warning("OpenAI primary failed: %s — falling back to Emergent", exc)
@@ -218,8 +231,8 @@ async def analyze_matches(matches_payload: list[dict]) -> dict:
     # Fallback to Emergent
     if not response and EMERGENT_LLM_KEY:
         try:
-            log.info("Analyst: using Emergent LLM Key (fallback)")
-            response = await _call_emergent(user_text, session_id)
+            log.info("Analyst[%s]: using Emergent LLM Key (fallback)", sport)
+            response = await _call_emergent(user_text, session_id, system_prompt)
             provider_used = "emergent:claude-sonnet-4-5"
         except Exception as exc:
             log.error("Emergent fallback also failed: %s", exc)
@@ -269,4 +282,5 @@ async def analyze_matches(matches_payload: list[dict]) -> dict:
     parsed["_generated_at"] = datetime.now(timezone.utc).isoformat()
     parsed["_session_id"] = session_id
     parsed["_provider"] = provider_used
+    parsed["_sport"] = sport
     return parsed

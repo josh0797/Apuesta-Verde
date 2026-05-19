@@ -31,14 +31,18 @@ _status: dict[str, Any] = {
 
 
 async def _job_refresh_upcoming(db):
-    """Re-ingest top-league upcoming fixtures (refresh odds aggressively)."""
-    log.info("Scheduler: refresh_upcoming starting")
+    """Re-ingest top-league upcoming fixtures (football only, refresh odds aggressively).
+
+    NBA/MLB are NOT auto-refreshed: they're opt-in via explicit user analysis runs to
+    preserve the shared 10 req/min API-Sports quota. If users need automatic refresh
+    for those sports, multiple per-sport jobs can be added here.
+    """
+    log.info("Scheduler: refresh_upcoming (football) starting")
     started = datetime.now(timezone.utc)
     try:
         async with httpx.AsyncClient() as client:
-            # Drop odds cache so it refreshes (cache TTL handles context)
-            await db.cache_odds.delete_many({})
-            items = await data_ingestion.ingest_upcoming(client, db, max_per_league=2, max_total=8)
+            await db.cache_odds.delete_many({"$or": [{"sport": "football"}, {"sport": {"$exists": False}}]})
+            items = await data_ingestion.ingest_upcoming(client, db, sport="football", max_per_league=2, max_total=8)
         _status["last_run"]["upcoming"] = {
             "started_at": started.isoformat(),
             "finished_at": datetime.now(timezone.utc).isoformat(),
@@ -57,12 +61,12 @@ async def _job_refresh_upcoming(db):
 
 
 async def _job_refresh_live(db):
-    """Re-ingest live matches (more frequent for live stats)."""
-    log.info("Scheduler: refresh_live starting")
+    """Re-ingest live football matches (more frequent for live stats)."""
+    log.info("Scheduler: refresh_live (football) starting")
     started = datetime.now(timezone.utc)
     try:
         async with httpx.AsyncClient() as client:
-            items = await data_ingestion.ingest_live(client, db, max_total=15)
+            items = await data_ingestion.ingest_live(client, db, sport="football", max_total=15)
         _status["last_run"]["live"] = {
             "started_at": started.isoformat(),
             "finished_at": datetime.now(timezone.utc).isoformat(),

@@ -20,7 +20,7 @@ const MARKETS = [
   'Draw No Bet',
   'DO 1er Tiempo',
 ];
-const MIN_CONFIDENCES = [0, 68, 78, 88];
+const MIN_CONFIDENCES = [0, 60, 70, 80];
 
 export function PicksFilterBar({ filters, onChange, onExportCsv, totalCount, filteredCount }) {
   const { t } = useI18n();

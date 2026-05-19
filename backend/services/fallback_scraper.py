@@ -193,31 +193,58 @@ async def flashscore_today(client: httpx.AsyncClient) -> list[dict]:
 async def aggregate_fallback(client: httpx.AsyncClient, use_playwright: bool = False) -> dict:
     """Run all scrapers in parallel and return aggregated results.
 
-    use_playwright=True enables the heavier Playwright-based Sofascore/Flashscore
-    bypass. Only enable when the standard httpx scrapers return 0 and you need data.
+    use_playwright=True enables the heavier browser-based bypass via Crawlee
+    (with TLS fingerprinting + session pool). Only enable when the standard
+    httpx scrapers return 0 and you need data, since browser launches cost ~3s.
+
+    Notes:
+      - Sofascore's API blocks Kubernetes datacenter IPs at the application
+        layer (returns JSON 403 even after Cloudflare clearance). Without a
+        residential proxy this source will keep failing — kept for parity.
+      - Flashscore loads fine via Crawlee (no API gate, just CF Turnstile on
+        first hit which the fingerprinted browser passes through).
+      - Browser-based scrapers are run SEQUENTIALLY (not concurrently) because
+        Crawlee's PlaywrightCrawler uses global per-process configuration —
+        concurrent instances interfere with each other's session/storage.
     """
-    tasks = [
+    # Lightweight httpx scrapers always run in parallel
+    http_tasks = [
         espn_soccer_scoreboard(client),
         sofascore_today(client),
         sportytrader_today(client),
     ]
-    if use_playwright:
-        from . import playwright_scraper as pws
-        tasks.extend([
-            pws.sofascore_via_playwright(),
-            pws.flashscore_via_playwright(),
-        ])
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    http_results = await asyncio.gather(*http_tasks, return_exceptions=True)
 
     def _safe(x): return x if isinstance(x, list) else []
-    espn, sofa, sport = results[:3]
+
     out = {
-        "espn": _safe(espn),
-        "sofascore": _safe(sofa),
-        "sportytrader": _safe(sport),
+        "espn": _safe(http_results[0]),
+        "sofascore": _safe(http_results[1]),
+        "sportytrader": _safe(http_results[2]),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
-    if use_playwright and len(results) >= 5:
-        out["sofascore_pw"] = _safe(results[3])
-        out["flashscore_pw"] = _safe(results[4])
+
+    if use_playwright:
+        try:
+            from . import crawlee_scraper as cws
+            pw_module = "crawlee"
+            # Serial execution avoids Crawlee global-state conflicts
+            sofa_pw = await cws.sofascore_via_crawlee()
+            flash_pw = await cws.flashscore_via_crawlee()
+        except Exception as e:
+            log.warning("crawlee import/run failed (%s); falling back to playwright_scraper", e)
+            from . import playwright_scraper as pws
+            pw_module = "playwright_legacy"
+            sofa_pw, flash_pw = await asyncio.gather(
+                pws.sofascore_via_playwright(),
+                pws.flashscore_via_playwright(),
+                return_exceptions=True,
+            )
+
+        out["sofascore_crawlee"] = _safe(sofa_pw)
+        out["flashscore_crawlee"] = _safe(flash_pw)
+        # Legacy aliases for backward compatibility
+        out["sofascore_pw"] = out["sofascore_crawlee"]
+        out["flashscore_pw"] = out["flashscore_crawlee"]
+        out["browser_engine"] = pw_module
     return out

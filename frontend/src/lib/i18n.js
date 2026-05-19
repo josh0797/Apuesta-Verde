@@ -13,7 +13,8 @@ const STRINGS = {
     profile: { title: 'Perfil', signOut: 'Cerrar sesión', language: 'Idioma', emailLabel: 'Email', joinedOn: 'Miembro desde', stats: 'Estadísticas globales', upcomingPlaceholder: 'ROI próximamente.', system: 'Sistema', scheduler: 'Scheduler', providers: 'Proveedores LLM', schedulerEnabled: 'Activado', schedulerDisabled: 'Desactivado', nextRun: 'Próx. ejecución' },
     freshness: { fresh: 'datos frescos', stale: 'datos antiguos', missing: 'sin datos' },
     confidence: { Maxima: 'Máxima', Alta: 'Alta', Media: 'Media' },
-    common: { loading: 'Cargando…', error: 'Error', retry: 'Reintentar', save: 'Guardar', cancel: 'Cancelar', open: 'Abrir', close: 'Cerrar', all: 'Todos' }
+    common: { loading: 'Cargando…', error: 'Error', retry: 'Reintentar', save: 'Guardar', cancel: 'Cancelar', open: 'Abrir', close: 'Cerrar', all: 'Todos' },
+    sport: { label: 'Deporte', football: 'Fútbol', basketball: 'NBA / Basket', baseball: 'MLB / Béisbol' }
   },
   en: {
     appName: 'Value Bet Intelligence',
@@ -27,7 +28,8 @@ const STRINGS = {
     profile: { title: 'Profile', signOut: 'Sign out', language: 'Language', emailLabel: 'Email', joinedOn: 'Member since', stats: 'Overall stats', upcomingPlaceholder: 'ROI coming soon.', system: 'System', scheduler: 'Scheduler', providers: 'LLM Providers', schedulerEnabled: 'Enabled', schedulerDisabled: 'Disabled', nextRun: 'Next run' },
     freshness: { fresh: 'fresh data', stale: 'stale data', missing: 'missing data' },
     confidence: { Maxima: 'Max', Alta: 'High', Media: 'Medium' },
-    common: { loading: 'Loading…', error: 'Error', retry: 'Retry', save: 'Save', cancel: 'Cancel', open: 'Open', close: 'Close', all: 'All' }
+    common: { loading: 'Loading…', error: 'Error', retry: 'Retry', save: 'Save', cancel: 'Cancel', open: 'Open', close: 'Close', all: 'All' },
+    sport: { label: 'Sport', football: 'Football', basketball: 'NBA / Basketball', baseball: 'MLB / Baseball' }
   }
 };
 

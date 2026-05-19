@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Loader2, ChevronDown, ChevronUp, ExternalLink, Activity, Shield, TrendingDown, AlertCircle, Eye } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useI18n } from '@/lib/i18n';
+import { useSport, sportLabel } from '@/lib/sport';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -76,6 +77,8 @@ function DiscardedRow({ item, testId, type }) {
 
 export default function DashboardPage() {
   const { t, lang } = useI18n();
+  const { sport, sports } = useSport();
+  const currentSport = sports.find((s) => s.id === sport) || sports[0];
   const [running, setRunning] = useState(false);
   const [run, setRun] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -89,19 +92,19 @@ export default function DashboardPage() {
   const loadLast = useCallback(async () => {
     try {
       setLoading(true);
-      const r = await api.get('/picks/today');
+      const r = await api.get('/picks/today', { params: { sport } });
       setRun(r.data.pick_run);
     } catch (e) { /* noop */ }
     finally { setLoading(false); }
-  }, []);
+  }, [sport]);
 
   useEffect(() => { loadLast(); }, [loadLast]);
 
   const generate = async () => {
     setRunning(true);
     try {
-      const r = await api.post('/analysis/run', { refresh: true, include_live: true, max_matches: 8 });
-      setRun({ id: r.data.pick_run_id, generated_at: r.data.generated_at, payload: r.data.result });
+      const r = await api.post('/analysis/run', { refresh: true, include_live: true, max_matches: 8, sport });
+      setRun({ id: r.data.pick_run_id, sport: r.data.sport, generated_at: r.data.generated_at, payload: r.data.result });
       toast.success(t.dashboard.title + ' ✓');
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Error');
@@ -110,10 +113,10 @@ export default function DashboardPage() {
 
   const exportCsv = async () => {
     try {
-      const r = await api.get('/picks/today/export.csv', { responseType: 'blob' });
+      const r = await api.get('/picks/today/export.csv', { responseType: 'blob', params: { sport } });
       const url = URL.createObjectURL(new Blob([r.data], { type: 'text/csv' }));
       const a = document.createElement('a');
-      a.href = url; a.download = 'picks-today.csv';
+      a.href = url; a.download = `picks-${sport}-today.csv`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     } catch (e) { toast.error('Export failed'); }
@@ -133,8 +136,8 @@ export default function DashboardPage() {
   const { high, medium, discMot, discMkt, incomplete } = useMemo(() => {
     if (!data) return { high: [], medium: [], discMot: [], discMkt: [], incomplete: [] };
     return {
-      high: filteredPicks.filter((p) => (p.recommendation?.confidence_score || 0) >= 78),
-      medium: filteredPicks.filter((p) => { const c = p.recommendation?.confidence_score || 0; return c >= 68 && c < 78; }),
+      high: filteredPicks.filter((p) => (p.recommendation?.confidence_score || 0) >= 70).sort((a, b) => (b.recommendation?.confidence_score || 0) - (a.recommendation?.confidence_score || 0)),
+      medium: filteredPicks.filter((p) => { const c = p.recommendation?.confidence_score || 0; return c >= 60 && c < 70; }).sort((a, b) => (b.recommendation?.confidence_score || 0) - (a.recommendation?.confidence_score || 0)),
       discMot: data.summary?.discarded_motivation || [],
       discMkt: data.summary?.discarded_market || [],
       incomplete: data.summary?.incomplete_data || [],
@@ -154,7 +157,13 @@ export default function DashboardPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-6">
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">{t.dashboard.title}</h1>
+          <h1 className="text-3xl md:text-4xl font-semibold tracking-tight flex items-center gap-3">
+            <span className="text-3xl" aria-hidden>{currentSport?.icon}</span>
+            <span>{t.dashboard.title}</span>
+            <span className="text-xs font-normal text-muted-foreground border border-border rounded-md px-2 py-0.5 align-middle" data-testid="active-sport-pill">
+              {sportLabel(currentSport, lang)}
+            </span>
+          </h1>
           <p className="text-muted-foreground mt-1 text-sm">{t.dashboard.subtitle}</p>
         </div>
         <div className="flex items-center gap-3">

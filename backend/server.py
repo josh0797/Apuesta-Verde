@@ -53,8 +53,10 @@ async def on_startup() -> None:
     await db.users.create_index("email", unique=True)
     await db.matches.create_index("match_id", unique=True)
     await db.matches.create_index("kickoff_ts")
+    await db.matches.create_index("sport")
     await db.odds_snapshots.create_index([("match_id", 1), ("snapshot_at", -1)])
     await db.picks.create_index([("user_id", 1), ("generated_at", -1)])
+    await db.picks.create_index([("user_id", 1), ("sport", 1), ("generated_at", -1)])
     await db.pick_tracking.create_index([("user_id", 1), ("match_id", 1), ("pick_id", 1)], unique=True)
     await auth_module.seed_demo_user(db)
     scheduler_module.start_scheduler(db)
@@ -68,6 +70,24 @@ async def on_shutdown() -> None:
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+SUPPORTED_SPORTS = {"football", "basketball", "baseball"}
+
+
+def _norm_sport(sport: Optional[str]) -> str:
+    """Normalize/validate sport query param. Defaults to football."""
+    s = (sport or "football").lower()
+    return s if s in SUPPORTED_SPORTS else "football"
+
+
+def _sport_filter(sport: Optional[str]) -> dict:
+    """Build a Mongo filter that treats records without `sport` as football
+    (for backward compatibility with pre-multi-sport data)."""
+    s = _norm_sport(sport)
+    if s == "football":
+        return {"$or": [{"sport": "football"}, {"sport": {"$exists": False}}]}
+    return {"sport": s}
+
+
 def _clean(doc: dict | None) -> dict | None:
     """Strip Mongo's _id (ObjectId) which is not JSON serializable."""
     if not doc:
@@ -88,28 +108,31 @@ async def root():
 
 # ── Matches ──────────────────────────────────────────────────────────────────
 @api.get("/matches/upcoming")
-async def matches_upcoming(refresh: bool = False, user: dict = Depends(get_current_user)):
-    """List upcoming matches (next 48h)."""
+async def matches_upcoming(refresh: bool = False, sport: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """List upcoming matches (next 48h) for the given sport."""
+    s = _norm_sport(sport)
     if refresh:
         async with httpx.AsyncClient() as client:
-            await ingestion.ingest_upcoming(client, db)
-    cursor = db.matches.find({"is_live": False}).sort("kickoff_ts", 1).limit(60)
+            await ingestion.ingest_upcoming(client, db, sport=s)
+    query = {**_sport_filter(s), "is_live": False}
+    cursor = db.matches.find(query).sort("kickoff_ts", 1).limit(60)
     items = await cursor.to_list(length=60)
-    # Filter to future-only
     now_ts = datetime.now(timezone.utc).timestamp()
     items = [i for i in items if (i.get("kickoff_ts") or 0) >= now_ts - 600]
-    return {"count": len(items), "items": _clean_list(items)}
+    return {"count": len(items), "sport": s, "items": _clean_list(items)}
 
 
 @api.get("/matches/live")
-async def matches_live(refresh: bool = False, user: dict = Depends(get_current_user)):
-    """List current live matches."""
+async def matches_live(refresh: bool = False, sport: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """List current live matches for the given sport."""
+    s = _norm_sport(sport)
     if refresh:
         async with httpx.AsyncClient() as client:
-            await ingestion.ingest_live(client, db)
-    cursor = db.matches.find({"is_live": True}).sort("kickoff_ts", 1).limit(50)
+            await ingestion.ingest_live(client, db, sport=s)
+    query = {**_sport_filter(s), "is_live": True}
+    cursor = db.matches.find(query).sort("kickoff_ts", 1).limit(50)
     items = await cursor.to_list(length=50)
-    return {"count": len(items), "items": _clean_list(items)}
+    return {"count": len(items), "sport": s, "items": _clean_list(items)}
 
 
 @api.get("/matches/{match_id}")
@@ -133,108 +156,137 @@ class AnalysisRunIn(BaseModel):
     refresh: bool = True
     include_live: bool = True
     max_matches: int = Field(default=6, ge=1, le=20)
+    sport: Optional[str] = "football"
 
 
 @api.post("/analysis/run")
 async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_user)):
-    """Run the LLM analyst on currently ingested matches.
-
-    Steps:
-      1. (optional) refresh ingestion
-      2. Gather candidate matches (upcoming + optionally live)
-      3. Build compact LLM payload
-      4. Call Claude Sonnet 4.5 via Emergent
-      5. Persist picks
-    """
+    """Run the LLM analyst on currently ingested matches for the chosen sport."""
+    sport = _norm_sport(payload.sport)
     started = datetime.now(timezone.utc)
+    ingest_error: str | None = None
     async with httpx.AsyncClient() as client:
         if payload.refresh:
-            await ingestion.ingest_upcoming(client, db)
+            try:
+                await ingestion.ingest_upcoming(client, db, sport=sport)
+            except Exception as exc:
+                ingest_error = f"upcoming ingest failed: {exc}"
+                log.warning(ingest_error)
             if payload.include_live:
-                await ingestion.ingest_live(client, db)
+                try:
+                    await ingestion.ingest_live(client, db, sport=sport)
+                except Exception as exc:
+                    log.warning("live ingest failed: %s", exc)
 
-    # Top leagues priority (mirror ingestion list)
-    from services.data_ingestion import TOP_LEAGUES, enrich_fixture as enrich_fx
+    from services.data_ingestion import enrich_fixture as enrich_fx
     from services import api_football as af
+    from services import api_sports as aps
+    top_set = aps.SPORT_CONFIG.get(sport, {}).get("top_leagues", set())
 
-    # Gather candidates — prioritize WITH odds + TOP leagues
-    upcoming = await db.matches.find({"is_live": False}).sort("kickoff_ts", 1).limit(80).to_list(length=80)
+    query_upcoming = {**_sport_filter(sport), "is_live": False}
+    upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
     now_ts = datetime.now(timezone.utc).timestamp()
     upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
 
     def priority_score(m: dict) -> tuple:
         has_odds = 1 if (m.get("odds_snapshots") or []) else 0
-        is_top = 1 if (m.get("league_id") in TOP_LEAGUES) else 0
+        is_top = 1 if (m.get("league_id") in top_set) else 0
         return (-has_odds, -is_top, m.get("kickoff_ts") or 0)
 
     upcoming.sort(key=priority_score)
     candidates = upcoming[: payload.max_matches]
 
-    # Deep-enrich the top candidates (team stats etc) — best effort.
-    async with httpx.AsyncClient() as client:
-        for c in candidates[:6]:  # cap deep enrichment to first 6 to respect rate limits
-            try:
-                # Re-fetch raw fixture by id, then enrich deep
-                raw = await af.fixture_by_id(client, c["match_id"])
-                if raw:
-                    enriched = await enrich_fx(client, db, raw, c.get("is_live", False), deep=True)
-                    if enriched:
-                        # Replace candidate doc with enriched version
-                        for k in ["home_team", "away_team", "h2h_recent", "odds_snapshots", "data_complete"]:
-                            if k in enriched:
-                                c[k] = enriched[k]
-            except Exception as exc:
-                log.warning("deep enrich failed for %s: %s", c.get("match_id"), exc)
+    # Deep-enrich (only football for now — basketball/baseball not yet supported by deep path's fixture_by_id)
+    if sport == "football":
+        async with httpx.AsyncClient() as client:
+            for c in candidates[:6]:
+                try:
+                    raw = await af.fixture_by_id(client, c["match_id"])
+                    if raw:
+                        enriched = await enrich_fx(client, db, raw, c.get("is_live", False), sport=sport, deep=True)
+                        if enriched:
+                            for k in ["home_team", "away_team", "h2h_recent", "odds_snapshots", "data_complete"]:
+                                if k in enriched:
+                                    c[k] = enriched[k]
+                except Exception as exc:
+                    log.warning("deep enrich skipped for %s: %s", c.get("match_id"), exc)
+                    continue
+    else:
+        # For NBA/MLB, do best-effort deep enrich via api_sports
+        async with httpx.AsyncClient() as client:
+            for c in candidates[:4]:
+                try:
+                    raw = await aps.fixture_by_id(sport, client, c["match_id"])
+                    if raw:
+                        enriched = await enrich_fx(client, db, raw, c.get("is_live", False), sport=sport, deep=True)
+                        if enriched:
+                            for k in ["home_team", "away_team", "h2h_recent", "odds_snapshots", "data_complete"]:
+                                if k in enriched:
+                                    c[k] = enriched[k]
+                except Exception as exc:
+                    log.warning("deep enrich skipped for %s [%s]: %s", c.get("match_id"), sport, exc)
 
     if payload.include_live:
-        live = await db.matches.find({"is_live": True}).limit(10).to_list(length=10)
+        query_live = {**_sport_filter(sport), "is_live": True}
+        live = await db.matches.find(query_live).limit(10).to_list(length=10)
         candidates.extend(live)
 
     candidates = candidates[: payload.max_matches]
 
     if not candidates:
-        raise HTTPException(status_code=409, detail="no matches available — try refresh=true")
+        any_recent = await db.matches.find(_sport_filter(sport)).sort("updated_at", -1).limit(payload.max_matches).to_list(length=payload.max_matches)
+        candidates = any_recent
+    if not candidates:
+        detail = f"no {sport} matches available"
+        if ingest_error:
+            detail += f" — {ingest_error}"
+        raise HTTPException(status_code=409, detail=detail)
 
-    # Compact payload for LLM
     llm_payload = [nz.summarize_match_for_llm(_clean(c)) for c in candidates]
     try:
-        result = await analyst_engine.analyze_matches(llm_payload)
+        result = await analyst_engine.analyze_matches(llm_payload, sport=sport)
     except Exception as exc:
         log.exception("LLM analysis failed")
         raise HTTPException(status_code=502, detail=f"analyst engine error: {exc}")
 
-    # Persist run
     pick_id_base = uuid.uuid4().hex[:10]
     record = {
         "id": pick_id_base,
         "user_id": user["id"],
+        "sport": sport,
         "generated_at": started.isoformat(),
         "matches_analyzed": len(candidates),
         "payload": result,
     }
     await db.picks.insert_one(record)
-    return {"pick_run_id": pick_id_base, "generated_at": record["generated_at"], "result": result}
+    return {"pick_run_id": pick_id_base, "sport": sport, "generated_at": record["generated_at"], "result": result}
 
 
 @api.get("/picks/today")
-async def picks_today(user: dict = Depends(get_current_user)):
+async def picks_today(sport: Optional[str] = None, user: dict = Depends(get_current_user)):
     """Return the most recent pick run for this user (today's picks)."""
-    doc = await db.picks.find_one({"user_id": user["id"]}, sort=[("generated_at", -1)])
+    s = _norm_sport(sport)
+    query = {"user_id": user["id"], **({"sport": s} if s != "football" else {"$or": [{"sport": "football"}, {"sport": {"$exists": False}}]})}
+    doc = await db.picks.find_one(query, sort=[("generated_at", -1)])
     if not doc:
-        return {"pick_run": None}
-    return {"pick_run": _clean(doc)}
+        return {"pick_run": None, "sport": s}
+    return {"pick_run": _clean(doc), "sport": s}
 
 
 @api.get("/picks/history")
-async def picks_history(user: dict = Depends(get_current_user), limit: int = 50):
-    docs = await db.picks.find({"user_id": user["id"]}).sort("generated_at", -1).limit(limit).to_list(length=limit)
-    # Slim docs for list view
+async def picks_history(sport: Optional[str] = None, user: dict = Depends(get_current_user), limit: int = 50):
+    s = _norm_sport(sport) if sport else None
+    base = {"user_id": user["id"]}
+    if s:
+        base.update({"sport": s} if s != "football" else {"$or": [{"sport": "football"}, {"sport": {"$exists": False}}]})
+    docs = await db.picks.find(base).sort("generated_at", -1).limit(limit).to_list(length=limit)
     out = []
     for d in docs:
         d = _clean(d)
         payload = d.get("payload", {})
         out.append({
             "id": d.get("id"),
+            "sport": d.get("sport", "football"),
             "generated_at": d.get("generated_at"),
             "matches_analyzed": d.get("matches_analyzed"),
             "verdict": payload.get("verdict"),
@@ -337,7 +389,7 @@ async def stats_dashboard(user: dict = Depends(get_current_user), stake: float =
     sum_lost_odds = 0.0
     for d in docs:
         cs = d.get("confidence_score", 0) or 0
-        tier = "Maxima" if cs >= 88 else ("Alta" if cs >= 78 else ("Media" if cs >= 68 else None))
+        tier = "Maxima" if cs >= 80 else ("Alta" if cs >= 70 else ("Media" if cs >= 60 else None))
         outcome = d.get("outcome")
         if outcome not in ("won", "lost"):
             continue
@@ -419,30 +471,44 @@ async def system_status(user: dict = Depends(get_current_user)):
 
 
 @api.get("/system/fallback-sources")
-async def system_fallback_sources(user: dict = Depends(get_current_user), use_playwright: bool = False):
+async def system_fallback_sources(user: dict = Depends(get_current_user), use_playwright: bool = False, use_browser: bool = False):
     """Run all fallback scrapers and return aggregated public-source data.
 
-    Pass `?use_playwright=true` to enable the heavier Playwright-based Sofascore/Flashscore
-    bypass (takes ~5-10s to launch headless Chromium).
+    Pass `?use_browser=true` (alias: `use_playwright=true`) to enable the
+    heavier Crawlee/Playwright-based bypass for Sofascore/Flashscore
+    (takes ~5-10s to launch headless Chromium with fingerprint stealth).
+
+    Note: Sofascore's API blocks Kubernetes datacenter IPs at the application
+    layer, so it will likely return 0 events even with the browser engine.
+    Flashscore works reliably via Crawlee with fingerprinting.
     """
+    enable_browser = use_browser or use_playwright
     async with httpx.AsyncClient() as client:
-        data = await fallback_module.aggregate_fallback(client, use_playwright=use_playwright)
-    summary = {k: (len(v) if isinstance(v, list) else 0) for k, v in data.items() if k != "generated_at"}
-    return {"summary": summary, "data": data, "playwright_used": use_playwright}
+        data = await fallback_module.aggregate_fallback(client, use_playwright=enable_browser)
+    summary = {k: (len(v) if isinstance(v, list) else 0) for k, v in data.items() if k not in ("generated_at", "browser_engine")}
+    return {
+        "summary": summary,
+        "data": data,
+        "browser_used": enable_browser,
+        "browser_engine": data.get("browser_engine"),
+    }
 
 
 # ── Filters / CSV export ─────────────────────────────────────────────────────
 @api.get("/picks/today/filtered")
 async def picks_today_filtered(
     user: dict = Depends(get_current_user),
+    sport: Optional[str] = None,
     league: Optional[str] = None,
     market: Optional[str] = None,
     min_confidence: Optional[int] = None,
 ):
-    """Return today's pick_run filtered in-memory by league/market/min_confidence."""
-    doc = await db.picks.find_one({"user_id": user["id"]}, sort=[("generated_at", -1)])
+    """Return today's pick_run filtered in-memory by sport/league/market/min_confidence."""
+    s = _norm_sport(sport)
+    query = {"user_id": user["id"], **({"sport": s} if s != "football" else {"$or": [{"sport": "football"}, {"sport": {"$exists": False}}]})}
+    doc = await db.picks.find_one(query, sort=[("generated_at", -1)])
     if not doc:
-        return {"pick_run": None}
+        return {"pick_run": None, "sport": s}
     doc = _clean(doc)
     payload = doc.get("payload", {})
     picks = payload.get("picks", []) or []
@@ -459,26 +525,29 @@ async def picks_today_filtered(
     filtered = [p for p in picks if keep(p)]
     payload2 = dict(payload)
     payload2["picks"] = filtered
-    payload2["_filtered"] = {"league": league, "market": market, "min_confidence": min_confidence, "kept": len(filtered), "total": len(picks)}
+    payload2["_filtered"] = {"sport": s, "league": league, "market": market, "min_confidence": min_confidence, "kept": len(filtered), "total": len(picks)}
     doc["payload"] = payload2
-    return {"pick_run": doc}
+    return {"pick_run": doc, "sport": s}
 
 
 @api.get("/picks/today/export.csv")
-async def picks_today_export(user: dict = Depends(get_current_user)):
+async def picks_today_export(sport: Optional[str] = None, user: dict = Depends(get_current_user)):
     """Export today's picks as CSV."""
     from fastapi.responses import Response
     import csv, io
-    doc = await db.picks.find_one({"user_id": user["id"]}, sort=[("generated_at", -1)])
+    s = _norm_sport(sport)
+    query = {"user_id": user["id"], **({"sport": s} if s != "football" else {"$or": [{"sport": "football"}, {"sport": {"$exists": False}}]})}
+    doc = await db.picks.find_one(query, sort=[("generated_at", -1)])
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["generated_at", "league", "match_label", "kickoff", "market", "selection", "odds_range", "confidence", "confidence_level", "is_live", "reasoning"])
+    writer.writerow(["generated_at", "sport", "league", "match_label", "kickoff", "market", "selection", "odds_range", "confidence", "confidence_level", "is_live", "reasoning"])
     if doc:
         payload = doc.get("payload", {})
         for p in payload.get("picks", []) or []:
             rec = p.get("recommendation") or {}
             writer.writerow([
                 doc.get("generated_at", ""),
+                doc.get("sport", "football"),
                 p.get("league", ""),
                 p.get("match_label", ""),
                 p.get("kickoff_iso", ""),
@@ -490,7 +559,7 @@ async def picks_today_export(user: dict = Depends(get_current_user)):
                 p.get("is_live", False),
                 (p.get("reasoning") or "").replace("\n", " ")[:500],
             ])
-    return Response(content=buf.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=picks-today.csv"})
+    return Response(content=buf.getvalue(), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=picks-{s}-today.csv"})
 
 
 @api.get("/picks/tracked/export.csv")
@@ -537,10 +606,28 @@ async def stats_timeline(user: dict = Depends(get_current_user), limit: int = 50
     return {"count": len(timeline), "timeline": timeline[-limit:]}
 
 
+@api.get("/meta/sports")
+async def meta_sports(user: dict = Depends(get_current_user)):
+    """Available sports + labels. Used by the frontend sport selector."""
+    return {
+        "sports": [
+            {"id": "football", "label": "Fútbol", "label_en": "Football", "icon": "⚽"},
+            {"id": "basketball", "label": "NBA / Basket", "label_en": "NBA / Basketball", "icon": "🏀"},
+            {"id": "baseball", "label": "MLB / Béisbol", "label_en": "MLB / Baseball", "icon": "⚾"},
+        ],
+        "default": "football",
+    }
+
+
 @api.get("/meta/leagues")
-async def meta_leagues(user: dict = Depends(get_current_user)):
+async def meta_leagues(sport: Optional[str] = None, user: dict = Depends(get_current_user)):
     """Distinct leagues available in the matches collection (for filter UI)."""
-    leagues = await db.matches.distinct("league")
+    if sport:
+        s = _norm_sport(sport)
+        flt = _sport_filter(s)
+        leagues = await db.matches.distinct("league", flt)
+    else:
+        leagues = await db.matches.distinct("league")
     return {"leagues": sorted([l for l in leagues if l])}
 
 

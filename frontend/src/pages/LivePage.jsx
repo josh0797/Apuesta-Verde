@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Loader2, RefreshCcw } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
+import { useSport } from '@/lib/sport';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { LivePulse } from '@/components/LivePulse';
@@ -14,6 +15,7 @@ function stat(side, key) {
 
 export default function LivePage() {
   const { t } = useI18n();
+  const { sport } = useSport();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -21,12 +23,12 @@ export default function LivePage() {
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true); else setLoading(true);
     try {
-      const r = await api.get('/matches/live', { params: { refresh } });
+      const r = await api.get('/matches/live', { params: { refresh, sport } });
       setItems(r.data.items || []);
     } catch (e) {
       // noop
     } finally { setLoading(false); setRefreshing(false); }
-  }, []);
+  }, [sport]);
 
   useEffect(() => { load(true); const id = setInterval(() => load(true), 60_000); return () => clearInterval(id); }, [load]);
 

@@ -186,6 +186,7 @@ def summarize_match_for_llm(match_doc: dict) -> dict:
     """Strip a normalized match doc to a compact payload for the LLM."""
     return {
         "match_id": match_doc.get("match_id"),
+        "sport": match_doc.get("sport", "football"),
         "league": match_doc.get("league"),
         "league_id": match_doc.get("league_id"),
         "season": match_doc.get("season"),
@@ -197,4 +198,169 @@ def summarize_match_for_llm(match_doc: dict) -> dict:
         "odds_snapshots": match_doc.get("odds_snapshots", [])[-2:],
         "live_stats": match_doc.get("live_stats"),
         "h2h_recent": match_doc.get("h2h_recent", []),
+    }
+
+
+# ── Multi-sport helpers (basketball / baseball) ──────────────────────────────
+def normalize_odds_generic(odds_response: list[dict], sport: str) -> dict:
+    """Normalize odds for basketball or baseball.
+
+    API-Sports basketball/baseball share a similar bookmaker→bets→values structure
+    but use different market names (e.g. "Home/Away" for moneyline, "Asian Handicap",
+    "Over/Under"). We collect what's available and bucket into a generic schema.
+    """
+    if not odds_response:
+        return {"available": False, "snapshot_at": now_iso(), "bookmakers": [], "markets": {}}
+    item = odds_response[0]
+    bookmakers_data = item.get("bookmakers", []) or []
+    markets: dict[str, list[dict]] = {
+        "Moneyline": [],     # Home / Away
+        "Spread": [],        # Point spread / Run Line
+        "Total": [],         # Total Points / Total Runs
+    }
+    bm_names = []
+    for bm in bookmakers_data:
+        bm_name = bm.get("name", "Unknown")
+        bm_names.append(bm_name)
+        for bet in bm.get("bets", []) or []:
+            bname = (bet.get("name") or "").strip().lower()
+            values = bet.get("values", []) or []
+            # Moneyline (Home/Away)
+            if bname in ("home/away", "match winner", "moneyline", "winner"):
+                row = {"bookmaker": bm_name}
+                for v in values:
+                    val = (v.get("value") or "").lower()
+                    try:
+                        odd = float(v.get("odd", 0))
+                    except Exception:
+                        odd = 0.0
+                    if "home" in val or val in ("1", "local"):
+                        row["home"] = odd
+                    elif "away" in val or val in ("2", "visitor", "visiting"):
+                        row["away"] = odd
+                markets["Moneyline"].append(row)
+            # Spread (point spread / run line)
+            elif bname in ("asian handicap", "spread", "run line", "handicap"):
+                row = {"bookmaker": bm_name, "lines": []}
+                for v in values:
+                    try:
+                        row["lines"].append({"value": v.get("value"), "odd": float(v.get("odd", 0))})
+                    except Exception:
+                        pass
+                markets["Spread"].append(row)
+            # Total
+            elif bname in ("over/under", "total", "total points", "total runs"):
+                row = {"bookmaker": bm_name, "lines": {}}
+                for v in values:
+                    try:
+                        row["lines"][v.get("value")] = float(v.get("odd", 0))
+                    except Exception:
+                        pass
+                markets["Total"].append(row)
+    return {
+        "available": bool(bm_names),
+        "snapshot_at": now_iso(),
+        "bookmakers": bm_names,
+        "markets": markets,
+    }
+
+
+def normalize_team_context_generic(stats: dict, standings_resp: list[dict], team_id: int, sport: str) -> dict:
+    """Normalize team context for basketball/baseball.
+
+    API-Sports basketball:
+      stats.games.wins.all.total, games.loses.all.total, points.{for,against}.average.all
+    API-Sports baseball:
+      stats.games.wins.all.total, games.loses.all.total, points.{for,against}.average.all
+    Standings: league.standings[][] with rank, points/wins/losses.
+    """
+    ctx: dict[str, Any] = {
+        "fetched_at": now_iso(),
+        "data_source_season": "2024 (proxy)",
+        "form_last_5": "",
+        "wins_total": None,
+        "losses_total": None,
+        "points_for_avg": None,
+        "points_against_avg": None,
+        "position": None,
+        "description": None,
+        "motivation_flags": {
+            "nothing_to_play_for": False,
+            "playoff_race": False,
+            "eliminated": False,
+        },
+    }
+    if stats:
+        games = stats.get("games") or {}
+        try:
+            ctx["wins_total"] = (games.get("wins") or {}).get("all", {}).get("total")
+        except Exception:
+            pass
+        try:
+            ctx["losses_total"] = (games.get("loses") or {}).get("all", {}).get("total")
+        except Exception:
+            pass
+        points = stats.get("points") or {}
+        try:
+            pfor = (points.get("for") or {}).get("average", {}).get("all")
+            if pfor:
+                ctx["points_for_avg"] = float(pfor)
+        except Exception:
+            pass
+        try:
+            pag = (points.get("against") or {}).get("average", {}).get("all")
+            if pag:
+                ctx["points_against_avg"] = float(pag)
+        except Exception:
+            pass
+    # Standings
+    try:
+        if standings_resp:
+            # API-basketball: response is list of group rows
+            # API-baseball: response is { league: { standings: [[rows]] } } variant
+            rows = []
+            for s in standings_resp:
+                if isinstance(s, dict) and "league" in s:
+                    league = s.get("league") or {}
+                    for g in league.get("standings", []) or []:
+                        if isinstance(g, list):
+                            rows.extend(g)
+                        else:
+                            rows.append(g)
+                elif isinstance(s, list):
+                    rows.extend(s)
+                else:
+                    rows.append(s)
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                team = (row.get("team") or {})
+                if team.get("id") == team_id:
+                    ctx["position"] = row.get("position") or row.get("rank")
+                    ctx["description"] = row.get("description") or row.get("form")
+                    break
+    except Exception:
+        pass
+    return ctx
+
+
+def normalize_live_stats_generic(game: dict, sport: str) -> dict | None:
+    """Live stats for basketball/baseball games."""
+    status = (game.get("status") or {})
+    short = status.get("short")
+    LIVE_HOOPS = {"Q1", "Q2", "Q3", "Q4", "OT", "BT", "HT", "LIVE"}
+    LIVE_BASEBALL = {"IN1", "IN2", "IN3", "IN4", "IN5", "IN6", "IN7", "IN8", "IN9", "LIVE", "IN"}
+    live_set = LIVE_HOOPS if sport == "basketball" else LIVE_BASEBALL
+    if short not in live_set and not (game.get("scores") and short in ("LIVE", None)):
+        return None
+    scores = game.get("scores") or {}
+    return {
+        "minute": status.get("timer") or status.get("long"),
+        "status": short,
+        "score": {
+            "home": (scores.get("home") or {}).get("total"),
+            "away": (scores.get("away") or {}).get("total"),
+        },
+        "quarter_or_inning": status.get("long"),
+        "fetched_at": now_iso(),
     }

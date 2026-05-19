@@ -1,22 +1,46 @@
 [
   {
-    "content": "#3 Drill-down: Always show analyzed/discarded sections + clickable KPIs + linking to match detail",
+    "content": "Refactor analyst_engine.py: usar SPORT_RULES por deporte (NBA/MLB/Fútbol)",
     "status": "completed"
   },
   {
-    "content": "#3 Enhance LLM prompt: include match_id + force categorization + server-side reconciliation fallback",
+    "content": "Extender data_ingestion.py: parámetro sport, multi-deporte vía api_sports.py",
     "status": "completed"
   },
   {
-    "content": "#2 ROI calculator: backend (stake * (odds-1)) + History UI with editable stake",
+    "content": "Extender normalizer.py: helpers para basketball y baseball",
     "status": "completed"
   },
   {
-    "content": "#1 Playwright Sofascore scraper (infra ready, CF blocks — needs proxy in prod)",
+    "content": "Update server.py: query param `sport` en endpoints relevantes; almacenar sport en docs",
     "status": "completed"
   },
   {
-    "content": "Final: testing_agent_v3 PASSED 16/16 (100%)",
+    "content": "Update scheduler.py: jobs por deporte",
+    "status": "completed"
+  },
+  {
+    "content": "Frontend: SportProvider context + selector en AppHeader",
+    "status": "completed"
+  },
+  {
+    "content": "Frontend: pasar sport a las llamadas API (DashboardPage, LivePage)",
+    "status": "completed"
+  },
+  {
+    "content": "Frontend: i18n strings para deportes",
+    "status": "completed"
+  },
+  {
+    "content": "Test backend: pulse cada deporte via curl - NBA y MLB devuelven picks reales",
+    "status": "completed"
+  },
+  {
+    "content": "Test frontend: screenshot + interacción del selector - todo OK",
+    "status": "completed"
+  },
+  {
+    "content": "Actualizar plan.md con Phase A completada",
     "status": "completed"
   }
 ]

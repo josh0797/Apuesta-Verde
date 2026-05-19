@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'rea
 import { Toaster } from '@/components/ui/sonner';
 import { I18nProvider } from '@/lib/i18n';
 import { AuthProvider, useAuth } from '@/lib/auth';
+import { SportProvider } from '@/lib/sport';
 import { AppHeader } from '@/components/AppHeader';
 import LoginPage from '@/pages/LoginPage';
 import DashboardPage from '@/pages/DashboardPage';
@@ -59,7 +60,9 @@ function App() {
   return (
     <I18nProvider>
       <AuthProvider>
-        <AppShell />
+        <SportProvider>
+          <AppShell />
+        </SportProvider>
       </AuthProvider>
     </I18nProvider>
   );

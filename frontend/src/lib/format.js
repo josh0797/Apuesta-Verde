@@ -25,9 +25,9 @@ export function relativeTime(iso, lang = 'es') {
 }
 
 export function confidenceTier(score) {
-  if (score >= 88) return 'Maxima';
-  if (score >= 78) return 'Alta';
-  if (score >= 68) return 'Media';
+  if (score >= 80) return 'Maxima';
+  if (score >= 70) return 'Alta';
+  if (score >= 60) return 'Media';
   return 'Below';
 }
 

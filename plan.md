@@ -1,80 +1,74 @@
-# plan.md — Value Bet Intelligence (Updated)
+# plan.md — Value Bet Intelligence (Actualizado)
 
-## 1) Objectives
-- ✅ **Core workflow proven end-to-end** with real data: fixtures/odds/context → normalized 3-layer schema → LLM produces **strict, risk-managed value picks** (max 3–5/day) or “Hoy no hay valor…”.
-- ✅ **MVP app delivered** with dark sportsbook-modern UI, bilingual ES/EN, match detail transparency, and pick tracking.
-- ✅ **Authentication included from day 1** (implemented as free email+password + JWT; demo user seeded).
-- 🔁 **Operational objective (current focus):** keep the system reliably generating picks despite:
-  - API-Football free plan constraints (10 req/min + season access limits)
-  - Emergent LLM key credit/budget constraints
+## 1) Objetivos
+- ✅ **Workflow core validado end-to-end** con datos reales: fixtures/odds/contexto → normalización → LLM produce picks **estrictos, gestionados por riesgo** (máx 3–8/día según reglas) o “Hoy no hay valor…”.
+- ✅ **MVP entregado** con UI tipo sportsbook en dark mode, ES/EN, transparencia por partido (match detail) y tracking de picks.
+- ✅ **Autenticación desde el día 1** (email+password + JWT; usuario demo sembrado).
+- ✅ **Resiliencia mejorada vía fallbacks**: cuando el proveedor principal no alcanza, el sistema sigue mostrando partidos desde fuentes públicas.
+- ✅ **Multi-deporte COMPLETO (P0)**: Fútbol + NBA/Basket + MLB/Béisbol con selector global en UI, prompts LLM por deporte, y persistencia/consulta por `sport`.
+- 🔁 **Objetivo operativo (en curso):** mantener generación de picks fiable pese a:
+  - límites de API-Sports (10 req/min) + bloqueo de temporadas actuales (usar 2024 como “proxy season”)
+  - costes/créditos LLM
+  - bloqueos anti-bot en fuentes web (Cloudflare)
 
 ---
 
-## 2) Implementation Steps
+## 2) Pasos de Implementación
 
-### Phase 1 — Core POC (isolation, do not proceed until green)
-**Goal:** `/app/poc/test_core.py` validates API-Football + fallback scraping + LLM JSON output.
+### Phase 1 — Core POC (aislado; no avanzar hasta verde)
+**Goal:** `/app/poc/test_core.py` valida API-Football + fallback scraping + salida JSON estricta del LLM.
 
-✅ **Status: COMPLETE**
+✅ **Estado: COMPLETADO**
 
-Completed items:
-1) **API-Football client + sampling**
-   - Fetch fixtures (next 48h) and live fixtures.
-   - Fetch odds for sample fixtures.
-   - Fetch team context where available.
+Completado:
+1) **Cliente API-Football + sampling**
+   - Fixtures (próx 48h) y live.
+   - Odds por fixture.
+   - Contexto de equipos cuando disponible.
 
-2) **Normalize to 3-layer schema**
+2) **Normalización a esquema de 3 capas**
    - `odds_snapshots`, `team_context`, `live_stats`.
-   - Data freshness flags and penalties support.
+   - Soporte de “data freshness” y penalizaciones.
 
-3) **LLM analysis pipeline (Emergent Universal Key, Claude Sonnet 4.5)**
-   - Full analyst persona implemented.
-   - Strict JSON output parsed/validated.
+3) **Pipeline de análisis LLM**
+   - Persona analista en español.
+   - Salida JSON estricta parseada/validada.
 
 4) **Fallback chain smoke test**
-   - ESPN public scoreboard fallback verified.
+   - ESPN scoreboard como fallback verificado.
 
 5) **POC acceptance loop**
-   - All 8 critical checks passed.
+   - Checks críticos completados.
 
-**Phase 1 user stories** (✅ validated)
-1. Fetch real fixtures for next 48 hours.
-2. Fetch multi-bookmaker odds snapshots.
-3. Label motivational urgency (1–5).
-4. Return strict structured JSON.
-5. Return explicit “Hoy no hay valor…” when applicable.
+**User stories Phase 1 (✅ validadas)**
+1. Obtener fixtures reales próximas 48h.
+2. Obtener odds multi-bookmaker.
+3. Etiquetar urgencia/motivación (1–5).
+4. Devolver JSON estructurado estricto.
+5. Devolver “Hoy no hay valor…” explícito.
 
 ---
 
-### Phase 2 — V1 App Development (MVP around proven core; auth included)
-**Goal:** Working app **with login**, dashboard + match detail + history, plus tracking.
+### Phase 2 — V1 App Development (MVP alrededor del core; auth incluido)
+**Goal:** App funcional con login, dashboard + match detail + histórico, tracking y KPIs.
 
-✅ **Status: COMPLETE**
+✅ **Estado: COMPLETADO**
 
 #### 2.1 Backend (FastAPI + MongoDB/Motor)
-Implemented:
+Implementado:
 - `/app/backend/server.py`
 - `/app/backend/services/`
   - `api_football.py`:
-    - **Token bucket rate limiter** (~8 req/min to stay below 10/min free plan)
-    - **Mongo cache**:
-      - Odds cache TTL: ~30 minutes
-      - Context cache TTL: ~6 hours (team_stats, standings, injuries, H2H)
-    - Uses **proxy season 2024** when current season access is blocked by plan.
-  - `data_ingestion.py`:
-    - Top-league prioritization
-    - Serial enrichment to respect rate limits
-    - Optional deep-enrichment for top candidates
-  - `analyst_engine.py`:
-    - Claude Sonnet 4.5 via Emergent Universal LLM key
-    - Full Spanish analyst persona prompt
-    - Strict JSON parsing
-    - Updated prompt guidance to treat proxy-season context as usable (not auto-incomplete)
-  - `normalizer.py`: 3-layer schema normalization
-  - `fallback_scraper.py`: ESPN fallback
-  - `auth.py`: JWT email+password auth + demo seed user
+    - rate limiting tipo token bucket (≈8 req/min para respetar 10/min)
+    - cache Mongo agresiva (odds TTL ~30m, contexto TTL ~6h)
+    - usa **proxy season 2024** cuando el plan bloquea temporadas actuales
+  - `data_ingestion.py`: priorización ligas + enriquecimiento serial (evolucionará en Phase A)
+  - `analyst_engine.py`: persona analista ES + JSON estricto
+  - `normalizer.py`: normalización a esquema interno
+  - `fallback_scraper.py`: ESPN + scrapers fallback
+  - `auth.py`: JWT + seed usuario demo
 
-Endpoints delivered (auth-protected unless noted):
+Endpoints entregados (auth salvo indicación):
 - Public:
   - `GET /api/` health
 - Auth:
@@ -97,109 +91,161 @@ Endpoints delivered (auth-protected unless noted):
   - `GET /api/picks/tracked`
 - Stats:
   - `GET /api/stats/dashboard`
+- System:
+  - `GET /api/system/fallback-sources` (fuentes públicas agregadas)
 
 #### 2.2 Frontend (React + Tailwind + shadcn/ui)
-✅ Dark sportsbook-modern theme applied using tokens from `design_guidelines.md`.
-✅ ES/EN language toggle in header.
-✅ Pages implemented:
-- `/login` (premium login, demo login)
-- `/` dashboard (picks grouped + summary)
-- `/live` live matches
-- `/match/:id` match detail (odds comparison + analysis + track buttons)
-- `/history` tracked picks + KPIs
-- `/profile` user profile + stats
-
-Key UI components implemented:
-- Confidence meter, motivation badge, freshness badges
-- Odds comparison table (best price highlight)
-- Risk chips and cash-out indicator
-- Framer-motion micro-animations
+✅ Dark sportsbook-modern theme (`design_guidelines.md`).
+✅ Toggle ES/EN.
+✅ Páginas: login, dashboard, live, match detail, history, profile.
 
 #### 2.3 Testing
-✅ Backend testing via `testing_agent_v3`: **19/20 tests passed**.
-- Only failure: **Emergent LLM key budget exceeded** during one run (billing/credits issue, not a code bug).
-- LLM integration verified working via multiple successful analysis runs.
-
-**Phase 2 user stories** (✅ delivered)
-1. See picks grouped by confidence.
-2. Match detail shows motivation + risks.
-3. Data freshness warnings visible.
-4. Mark picks as won/lost/push and track accuracy.
-5. ES/EN UI toggle.
+✅ Backend tests anteriores OK (histórico del proyecto).
 
 ---
 
-### Phase 3 — Operational Hardening + Optional Enhancements (Not started)
-**Goal:** Improve reliability, automation, and breadth of fallback sources.
+### Phase 3 — Operational Hardening + Optional Enhancements
+**Goal:** mejorar fiabilidad, automatización y amplitud de fuentes.
 
-🔲 **Status: NOT STARTED**
+🟨 **Estado: EN PROGRESO (Phase B completada; proxy residencial pendiente)**
 
-1) **Scheduler / refresh strategy**
-- Add background jobs to refresh:
-  - odds snapshots every 30 minutes
-  - team context every 6 hours
-- Store refresh metadata and show “last refresh” in UI.
+#### 3.1 Scheduler / refresh strategy
+✅ APScheduler activo (refresh upcoming/live y purge de contexto) ya integrado.
 
-2) **Fallback expansion (web search + scraping)**
-- Add additional sources as fallback layers:
-  - Sofascore, Flashscore, SportyTrader, ESPN
-- Persist provenance (`source`, `fallback_used`, `partial_data`) and display in UI.
+#### 3.2 Fallback expansion (Cloudflare + scraping)
+✅ **Phase B — Cloudflare bypass con Crawlee (COMPLETADA)**
 
-3) **User-facing filters & workflow improvements**
-- Filters by league / market / confidence
-- Saved preferences per user
+Cambios implementados:
+- ✅ Instalado `crawlee==1.7.0` + `browserforge` + `impit`.
+- ✅ Reinstalado Playwright Chromium **v1223** en `/pw-browsers`.
+- ✅ Nuevo módulo `/app/backend/services/crawlee_scraper.py`:
+  - `PlaywrightCrawler` + `DefaultFingerprintGenerator` (rotación browser/OS/locale)
+  - `--no-sandbox` para entorno root en contenedor
+  - **Reset por ejecución** del estado global de Crawlee (service locator):
+    - `service_locator.storage_instance_manager.clear_cache()`
+    - `service_locator.set_storage_client(MemoryStorageClient())`
+  - `sofascore_via_crawlee`: warm-up en dominio web + llamada API con `page.context.request.get`
+  - `flashscore_via_crawlee`: extracción robusta por `aria-label` desde `.event__match`, con live/minutos/scores
+  - Sanitización de scores (evita NaN/inf que rompían JSON)
+- ✅ `fallback_scraper.py` actualizado:
+  - scrapers httpx en paralelo
+  - scrapers browser **en serie** (evita conflictos de estado global de Crawlee)
+  - fallback automático a `playwright_scraper.py` legacy si Crawlee falla
+  - añade campo `browser_engine` en respuesta
+- ✅ `server.py` actualizado:
+  - `/api/system/fallback-sources` acepta `use_browser=true` (alias legacy `use_playwright=true`)
+  - retorna `browser_engine`
 
-4) **Export + reporting**
-- CSV export of picks and tracking
-- Basic ROI placeholder improvements
+Resultados y limitaciones:
+- ✅ ESPN (httpx): ~36 matches
+- ✅ Flashscore (Crawlee): ~106 matches con live/minuto/score
+- ❌ Sofascore: devuelve JSON 403 por **bloqueo por clase de IP (datacenter)** a nivel aplicación. **Requiere proxy residencial** (Bright Data/IPRoyal/Apify Proxy) para funcionar.
+- ✅ Smoke tests: endpoints críticos 200 OK, sin regresiones.
+- ⏱️ `use_browser=true` tarda ~21s (aceptable porque es explícito; no se usa por defecto).
 
-5) **Auth enhancement (optional)**
-- If required: replace/extend JWT auth with Emergent Google OAuth.
+#### 3.3 User-facing filters & workflow improvements
+✅ Filtros y export CSV ya existen.
 
-**Phase 3 user stories**
-1. Picks refresh automatically without manual action.
-2. App continues to function when API-Football fails via fallback.
-3. Users can filter to preferred leagues/markets.
-4. Users can export data for external analysis.
-5. Optionally: Google login for faster onboarding.
+#### 3.4 Export + reporting
+✅ CSV export y KPIs base (ROI/Winrate) ya integrados.
+
+#### 3.5 Auth enhancement (opcional)
+🔲 Google OAuth opcional (no prioritario).
+
+**User stories Phase 3 (parcialmente cumplidas)**
+1. ✅ App sigue funcionando si el proveedor primario falla (ESPN/Flashscore fallback disponible).
+2. ✅ Se puede inspeccionar el estado de fallback desde `/api/system/fallback-sources`.
+3. 🔲 Mostrar “provenance/fallback used” más visible en UI (opcional).
 
 ---
 
 ### Phase 4 — Polish (post-MVP)
-🔲 **Status: NOT STARTED**
-- Alerts for new high-confidence picks.
-- Advanced filters & saved views.
-- Richer stats dashboard (ROI, streaks, breakdown by market/league).
-- Performance enhancements (virtualized tables if needed).
-
-**Phase 4 user stories**
-1. Alerts when new high-confidence pick appears.
-2. League/market filters for fast scanning.
-3. Export to CSV.
-4. Rich performance stats.
-5. UI remains fast with many matches/picks.
+🔲 **Estado: NO INICIADO**
+- Alertas para picks nuevos.
+- Filtros avanzados + vistas guardadas.
+- Dashboard de stats enriquecido (ROI por mercado/liga, rachas).
+- Mejoras de rendimiento (virtualización de tablas si aplica).
 
 ---
 
-## 3) Next Actions (immediate)
-1) **LLM credits / budget**
-   - Ensure Emergent LLM key has sufficient credits to keep generating new picks.
-   - If budget exceeded: top up credits or replace with another key.
+## 3) Next Actions (inmediatas)
 
-2) **Stability improvements (recommended)**
-   - Keep `analysis/run` using `refresh:false` by default (cache-first) to avoid rate-limit churn.
-   - Consider reducing analysis match count and/or deep-enrichment count depending on observed API limits.
+### ✅ P0 — Phase A: Multi-deporte (Fútbol + NBA + MLB) — COMPLETADA
+**Estado:** ✅ DONE
 
-3) **Start Phase 3 if desired**
-   - Add scheduler for periodic refresh.
-   - Add additional fallback scrapers.
-   - Add filters + export.
+#### Backend (completado)
+- ✅ `api_sports.py` (hub central) usado para **basketball** y **baseball**.
+- ✅ `analyst_engine.py`:
+  - `analyze_matches(payload, sport)`
+  - prompt dinámico via `_build_system_prompt(sport)` con `SPORT_RULES`:
+    - football / basketball / baseball
+  - meta `_sport` en respuesta.
+- ✅ `data_ingestion.py` refactor completo:
+  - `ingest_upcoming/ingest_live/enrich_fixture` aceptan `sport`
+  - football usa `api_football` (compat)
+  - basketball/baseball usan `api_sports`
+  - `_enrich_generic` para NBA/MLB
+- ✅ `normalizer.py`:
+  - `normalize_odds_generic`, `normalize_team_context_generic`, `normalize_live_stats_generic`
+  - `summarize_match_for_llm` incluye `sport`
+- ✅ `server.py`:
+  - helpers `SUPPORTED_SPORTS`, `_norm_sport()`, `_sport_filter()` (compat: docs sin `sport` se tratan como football)
+  - nuevo endpoint `GET /api/meta/sports`
+  - soporte `?sport=` en:
+    - `/matches/upcoming`, `/matches/live`
+    - `/analysis/run`
+    - `/picks/today`, `/picks/history`, `/picks/today/filtered`, `/picks/today/export.csv`
+    - `/meta/leagues`
+  - persistencia de `sport` en matches/odds_snapshots/picks
+  - índices: `matches.sport` + `picks(user_id, sport, generated_at)`
+- ✅ `scheduler.py`:
+  - jobs explícitos para `sport="football"`
+  - NBA/MLB **opt-in** vía `analysis/run` para preservar cuota compartida 10 req/min.
+
+#### Frontend (completado)
+- ✅ `/app/frontend/src/lib/sport.jsx`:
+  - `SportProvider` + `useSport()`
+  - persistencia `localStorage`
+  - fetch de `/api/meta/sports`
+- ✅ `App.js`: app envuelta en `<SportProvider>`
+- ✅ `AppHeader.jsx`: SportSwitcher dropdown global (icono+label+activo)
+- ✅ `DashboardPage.jsx`: incluye `sport` en llamadas:
+  - `GET /picks/today?sport=`
+  - `POST /analysis/run` con `sport`
+  - `GET /picks/today/export.csv?sport=`
+  - badge + icono del deporte activo
+- ✅ `LivePage.jsx`: `GET /matches/live?sport=`
+- ✅ `i18n.js`: traducciones `sport.*` en ES/EN
+
+#### Verificación End-to-End (completado)
+- ✅ `/api/meta/sports` retorna 3 deportes
+- ✅ `GET /api/matches/upcoming?sport=basketball` devuelve partidos (incl. Knicks vs Cavaliers) + odds
+- ✅ `GET /api/matches/upcoming?sport=baseball` devuelve partidos (incl. Marlins vs Braves) + odds
+- ✅ `POST /api/analysis/run` con `sport=basketball` y `sport=baseball` completan:
+  - provider: OpenAI gpt-4o-mini
+  - prompts específicos por deporte aplican reglas/descartes correctos
+- ✅ UI: selector cambia deporte, dashboard se refresca con picks por deporte
+- ✅ Smoke tests: endpoints críticos 200 OK (sin regresiones)
+
+### P1 — Proxy residencial para Sofascore (si se desea)
+- Integrar proxy residencial en Crawlee/Playwright.
+- Añadir variables `.env` (host/usuario/pass o API key proveedor).
+- Re-test Sofascore scheduled-events.
+
+### P1 — Operación / estabilidad
+- Mantener `analysis/run` cache-first por defecto.
+- Ajustar límites de análisis/enriquecimiento para minimizar rate-limit churn.
+- Considerar cola/background para análisis multi-deporte (por latencias 80–120s en NBA/MLB).
+
+### P2 — Traducción / UX polish
+- Revisar labels que asumen fútbol (“partidos”, “goles”, etc.) y hacerlos neutros por deporte.
 
 ---
 
-## 4) Success Criteria
-- ✅ **POC:** Strict JSON picks/no-value output with motivation + risk + freshness.
-- ✅ **MVP App:** Dashboard + match detail + tracking + history + ES/EN + dark theme.
-- ✅ **Auth:** Free login available from day 1 (JWT email/password) + demo user.
-- ✅ **Resilience:** API-Football rate limits handled with token bucket + Mongo caching; ESPN fallback available.
-- 🔁 **Operational:** LLM credits maintained so pick generation remains available for end users.
+## 4) Criterios de Éxito
+- ✅ **POC:** picks/no-value en JSON estricto con motivación + riesgos + freshness.
+- ✅ **MVP App:** dashboard + match detail + tracking + history + ES/EN + dark theme.
+- ✅ **Auth:** login disponible (JWT) + usuario demo.
+- ✅ **Resiliencia:** rate-limit + cache; fallback robusto (ESPN + Flashscore via Crawlee).
+- ✅ **Multi-deporte:** usuario puede generar y trackear picks para Football/NBA/MLB con prompts específicos y selector en UI.
+- 🔁 **Operativo:** créditos LLM sostenibles para que análisis siga disponible.

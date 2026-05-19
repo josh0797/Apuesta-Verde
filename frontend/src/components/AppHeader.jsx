@@ -1,7 +1,8 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Activity, History, UserRound, LogOut } from 'lucide-react';
+import { LayoutDashboard, Activity, History, UserRound, LogOut, ChevronDown } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { useAuth } from '@/lib/auth';
+import { useSport, sportLabel } from '@/lib/sport';
 import { LanguageToggle } from './LanguageToggle';
 import {
   DropdownMenu,
@@ -11,6 +12,44 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+
+function SportSwitcher() {
+  const { lang } = useI18n();
+  const { sport, setSport, sports } = useSport();
+  const current = sports.find((s) => s.id === sport) || sports[0];
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          data-testid="sport-switcher-trigger"
+          className="inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-md border border-border bg-card/60 hover:border-cyan-500/30 transition-colors text-xs"
+        >
+          <span className="text-base leading-none" aria-hidden>{current?.icon}</span>
+          <span className="font-medium hidden sm:inline">{sportLabel(current, lang)}</span>
+          <ChevronDown className="h-3 w-3 opacity-70" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-[180px]">
+        <DropdownMenuLabel className="text-[10px] uppercase tracking-wide opacity-70">
+          {lang === 'es' ? 'Deporte' : 'Sport'}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {sports.map((s) => (
+          <DropdownMenuItem
+            key={s.id}
+            onClick={() => setSport(s.id)}
+            data-testid={`sport-option-${s.id}`}
+            className={`flex items-center gap-2 ${s.id === sport ? 'text-emerald-300 bg-emerald-500/5' : ''}`}
+          >
+            <span className="text-base leading-none" aria-hidden>{s.icon}</span>
+            <span className="flex-1">{sportLabel(s, lang)}</span>
+            {s.id === sport && <span className="text-[10px] opacity-70">●</span>}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 export function AppHeader() {
   const { t } = useI18n();
@@ -27,11 +66,12 @@ export function AppHeader() {
 
   return (
     <header className="sticky top-0 z-40 bg-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/50 border-b border-border">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center gap-4">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center gap-3">
         <Link to="/" className="flex items-center gap-2 shrink-0" data-testid="app-logo">
           <div className="h-7 w-7 rounded-md bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center text-background font-bold text-sm">V</div>
-          <span className="hidden sm:inline text-sm font-semibold tracking-tight">Value Bet Intelligence</span>
+          <span className="hidden lg:inline text-sm font-semibold tracking-tight">Value Bet Intelligence</span>
         </Link>
+        <SportSwitcher />
         <nav className="flex items-center gap-1 ml-2 overflow-x-auto">
           {tabs.map((tab) => {
             const Icon = tab.icon;
