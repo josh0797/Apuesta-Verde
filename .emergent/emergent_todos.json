@@ -1,0 +1,42 @@
+[
+  {
+    "content": "Phase 1: Get integration playbooks (Emergent LLM, API-Football research)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: Create POC script (test_core.py) - API-Football + normalization + LLM + fallback",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: Run POC and fix until producing valid pick JSON or 'no value' message",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: All POC user stories validated",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 2: Design guidelines via design_agent",
+    "status": "in_progress"
+  },
+  {
+    "content": "Phase 2: Backend implementation (auth bypass + ingestion + analyst engine + endpoints)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Frontend implementation (dark sportsbook UI, ES/EN, all pages)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: All user stories covered in development",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: End-to-end testing via testing_agent_v3",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Fix all reported issues",
+    "status": "pending"
+  }
+]
