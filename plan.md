@@ -8,7 +8,7 @@
 - ✅ **Multi-deporte COMPLETO (P0)**: Fútbol + NBA/Basket + MLB/Béisbol con selector global, prompts LLM por deporte, y persistencia/consulta por `sport`.
 - ✅ **UX mejorada para análisis lento (P2)**: `analysis/run` soporta ejecución en background con progreso persistido y modal de progreso en UI.
 - ✅ **Lenguaje neutro por deporte (P2)**: labels/copy se ajustan automáticamente (partidos/juegos; goles/puntos/carreras).
-- ✅ **Phase D — Decision Intelligence Terminal (NUEVO, COMPLETADO)**: evolución de UI/UX desde “predicciones” a **plataforma explicable de inteligencia contextual**:
+- ✅ **Phase D — Decision Intelligence Terminal (COMPLETADO)**: evolución de UI/UX desde “predicciones” a **plataforma explicable de inteligencia contextual**:
   - explica **por qué existe** el pick
   - explica **por qué** la confianza es alta/baja
   - explica **por qué** se evitaron mercados
@@ -19,6 +19,12 @@
   - límites de API-Sports (10 req/min) + bloqueo de temporadas actuales (usar 2024 como “proxy season”)
   - costes/créditos LLM
   - bloqueos anti-bot en fuentes web (Cloudflare)
+
+- 🟨 **Objetivo inmediato (P1, en progreso):** completar **Custom Saved Filter Views** como parte final del “Decision Intelligence Terminal”:
+  - Persistencia **multi-dispositivo** en Backend/MongoDB (vía JWT)
+  - Máximo **10** vistas por usuario
+  - Funciones: **aplicar + editar + eliminar**
+  - Campos: nombre + `sport` + filtros avanzados (ligas, motivación, mercado, odds, confianza mín, etc.)
 
 ---
 
@@ -150,7 +156,7 @@ Resultados y limitaciones:
 ---
 
 ### Phase 4 — Polish (post-MVP)
-🟨 **Estado: COMPLETADO (P2 + Phase D ejecutados)**
+🟨 **Estado: COMPLETADO (P2 + Phase D ejecutados); P1 Saved Views backend sync pendiente**
 
 #### 4.1 P2 — Background queue + UX neutral por deporte
 ✅ **Estado: DONE**
@@ -163,7 +169,7 @@ Backend:
 Frontend:
 - ✅ `AnalysisProgressModal` con polling + estados.
 
-#### 4.2 Phase D — Decision Intelligence Terminal (NUEVO)
+#### 4.2 Phase D — Decision Intelligence Terminal
 ✅ **Estado: DONE**
 
 **Objetivo:** transformar la app de “dashboard de predicciones” a **terminal profesional de decisión** con narrativa explicable y señales contextuales.
@@ -183,66 +189,87 @@ Cambios implementados (inspiración Apple + Stripe + Bloomberg + AI decision sys
 
 3) **Component upgrades (preservan exports + data-testid)**
 - ✅ **ConfidenceMeter → ConfidenceIntelligenceCard** (`ConfidenceMeter.jsx`)
-  - drivers + barras
-  - riesgo / volatilidad / fragilidad (con tooltips XAI)
-  - match state tag
-  - listas IDEAL PARA / EVITAR
-  - variante compacta inline para filas
-
 - ✅ **MotivationBadge → MotivationContextBlock** (`MotivationBadge.jsx`)
-  - detecta razones (8 tipos) por regex
-  - fuentes (quote del reason)
-  - impacto esperado (+/−) según nivel
-
 - ✅ **PicksFilterBar → FilterIntelligenceBar** (`PicksFilterBar.jsx`)
   - rail de presets de engine (5)
   - drawer (Sheet) con vistas (built-in + user)
-  - persistencia actual: localStorage (backend opcional pendiente)
-
+  - ⚠️ **persistencia actual:** LocalStorage (debe migrar a backend)
 - ✅ **EmptyStateNoValue → EmptyStateCoaching** (`EmptyStateNoValue.jsx`)
-  - diagnóstico WHY desde `summary` (motivación/mercado/datos)
-  - estrategia sugerida + tip educativo + disciplina bankroll
-
 - ✅ **MatchIntelligencePanel (NUEVO)** (`MatchIntelligencePanel.jsx`)
-  - strip de señales (state/conf/vol/frag)
-  - radar chart (Recharts) con escala inversa (mejor = mayor)
-  - timeline drivers (pos/neg/neutral)
-  - matriz mercados (best/avoid)
-  - desglose riesgo (banderas + cash-out)
 
 4) **Wiring en páginas**
-- ✅ `DashboardPage`:
-  - aplica `enginePreset` + filtros
-  - `MatchCard` recibe `sport`
-  - `MatchCard` muestra drivers preview + toggle “Inteligencia” + card expandida
-  - `EmptyStateNoValue` recibe `summary`
-
-- ✅ `MatchDetailPage`:
-  - muestra cadena completa: `ConfidenceIntelligenceCard → MotivationContextBlock → MatchIntelligencePanel`
+- ✅ `DashboardPage`: presets + filtros + secciones descartadas visibles + match cards con inteligencia.
+- ✅ `MatchDetailPage`: panel de inteligencia completo.
 
 **Verificación end-to-end (preview):**
-- ✅ Insertado pick de prueba (AFC Bournemouth vs Manchester City, conf=76, motivación 4 vs 5, razón derby+europa, riesgo + cash-out).
-- ✅ Dashboard renderiza: engine chips, drivers preview, expansión de inteligencia.
-- ✅ Match detail renderiza: radar + timeline + markets matrix + risk breakdown.
-- ✅ Lint: 0 issues en módulos nuevos.
+- ✅ Render de dashboard y match detail validado mediante screenshots.
 
 ---
 
 ## 3) Next Actions (inmediatas)
 
+### P1 — Custom Saved Filter Views (Backend/MongoDB) — FINALIZAR
+**Contexto actual (descubierto en exploración):**
+- ✅ Backend YA expone:
+  - `GET /api/profile/saved-views`
+  - `POST /api/profile/saved-views`
+  - `DELETE /api/profile/saved-views/{view_id}`
+  - colección Mongo: `saved_views` (con índices)
+- ✅ Frontend YA tiene UI (Sheet) para:
+  - aplicar
+  - guardar
+  - eliminar
+- ❌ Problema: Frontend usa LocalStorage (`vbi_saved_views`) y **no sincroniza con backend**.
+- ❌ Falta: endpoint de **edición** (PATCH/PUT) y UI de edición.
+- ❌ Ajustes: límite backend actualmente 12; requerido 10.
+
+**Objetivo P1 (acordado):**
+- Persistencia en backend (JWT) multi-dispositivo
+- Máximo 10 vistas por usuario
+- Aplicar + editar + eliminar
+- Campos: nombre, `sport` y `filters` flexible (incluye ligas/motivación/mercado/odds/confianza mínima, etc.)
+
+**Implementación propuesta (pasos):**
+1) Backend (FastAPI)
+   - Ajustar cap de vistas por usuario: **12 → 10** (evicción por `created_at`).
+   - Añadir endpoint de edición:
+     - `PATCH /api/profile/saved-views/{view_id}` (actualiza `name`, `filters`, `enginePreset`, `sport`).
+   - Validación mínima:
+     - `name` longitud 1–60
+     - `filters` debe ser dict
+     - `sport` opcional en {football,basketball,baseball}
+
+2) Frontend (React)
+   - Remover LocalStorage como fuente de verdad.
+   - Cargar vistas al montar:
+     - `api.get('/profile/saved-views')`
+   - Guardar vista actual:
+     - `api.post('/profile/saved-views', payload)`
+   - Eliminar vista:
+     - `api.delete('/profile/saved-views/{id}')`
+   - Editar vista:
+     - UI inline o modal en el Sheet para renombrar/actualizar filtros actuales
+     - `api.patch('/profile/saved-views/{id}', payload)`
+   - Respetar límite 10 desde UI (UX: mostrar contador 10/10 y mensaje si se evicta la más antigua).
+
+3) Modelo de filtros (frontend)
+   - Expandir `filters` más allá de {league, market, minConfidence}:
+     - soportar `leagues[]` (o `league`), `market`, `minConfidence`, `motivationMin`, `oddsMin`, `oddsMax`, etc.
+   - Mantener compatibilidad con filtros actuales (si no existen campos, fallback a defaults).
+
+4) Testing
+   - ✅ Usar **testing agent** al final.
+   - Cobertura mínima:
+     - guardar vista → aparece en listado
+     - recargar página → persiste
+     - editar nombre/filtros → persiste
+     - eliminar → desaparece
+     - crear >10 → se mantiene tope 10 (evicción o bloqueo coherente)
+
 ### P1 — Proxy residencial para Sofascore (si se desea)
 - Integrar proxy residencial en Crawlee/Playwright.
 - Añadir variables `.env` (host/usuario/pass o API key proveedor).
 - Re-test Sofascore scheduled-events.
-
-### P1 — Persistencia backend para Saved Views (opcional)
-**Estado actual:** localStorage suficiente para single-device.
-
-Si se requiere multi-device:
-- Añadir collection `saved_views` o campo `user.saved_views`.
-- Endpoints sugeridos:
-  - `GET /api/profile/saved-views`
-  - `PUT /api/profile/saved-views`
 
 ### P2 — LLM prompt extension (opcional)
 - Extender output para devolver nativamente:
@@ -266,4 +293,9 @@ Si se requiere multi-device:
 - ✅ **Multi-deporte:** Football/NBA/MLB con prompts específicos y selector UI.
 - ✅ **UX análisis largo:** background jobs + progreso persistido + modal.
 - ✅ **Decision Intelligence Terminal:** UI explica WHY/HOW con drivers, fragilidad/volatilidad, mercados evitados, motivación contextual y panel de inteligencia en detalle.
+- 🟨 **Saved Filter Views (P1):**
+  - Vistas de filtros persistidas en MongoDB por usuario (JWT)
+  - Límite 10, con UX clara
+  - Soporta aplicar + editar + eliminar
+  - Testing agent valida el flujo end-to-end
 - 🔁 **Operativo:** créditos LLM sostenibles para que análisis siga disponible.

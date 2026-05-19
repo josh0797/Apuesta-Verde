@@ -9,6 +9,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/lib/i18n';
 import { deriveIntelligence, DRIVER_META, MATCH_STATES } from '@/lib/intelligence';
+import { HistoricalPatternBadge } from './HistoricalPatternBadge';
 
 const ICON_MAP = { Activity, ShieldCheck, Target, Zap, Brain };
 
@@ -184,6 +185,12 @@ export function MatchIntelligencePanel({ pick, sport = 'football', match }) {
             empty={lang === 'en' ? 'No fragile markets to avoid right now.' : 'No hay mercados frágiles que evitar.'}
           />
         </div>
+      </div>
+
+      {/* Historical learning pattern for this (market, match_state) bucket */}
+      <div className="px-4 md:px-5 py-4 border-t border-border/40">
+        <div className="micro-label mb-2 flex items-center gap-1.5"><History className="h-3 w-3" />HISTORICAL LEARNING</div>
+        <HistoricalPatternBadge pick={pick} sport={sport} />
       </div>
 
       {/* Risk breakdown — risks list + cash-out */}

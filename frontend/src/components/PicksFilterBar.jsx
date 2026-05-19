@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Filter, Download, X, Shield, Lock, Layers, Search, Zap,
-  BookmarkPlus, Bookmark, Trash2, Save,
+  Bookmark, Trash2, Save, Pencil, Check, Loader2, AlertTriangle,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
+import { useSport } from '@/lib/sport';
 import { api } from '@/lib/api';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -20,17 +22,7 @@ import { ENGINE_STYLES, BUILTIN_VIEWS } from '@/lib/intelligence';
 const ICON_MAP = { Shield, Lock, Layers, Search, Zap };
 const MARKETS = ['1X2', 'Doble Oportunidad', 'Under 2.5', 'Under 3.5', 'Handicap Asiatico', 'Draw No Bet', 'DO 1er Tiempo', 'Moneyline'];
 const MIN_CONFIDENCES = [0, 60, 70, 80];
-
-const SAVED_VIEWS_KEY = 'vbi_saved_views';
-
-function loadSavedViews() {
-  try { return JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY) || '[]'); }
-  catch { return []; }
-}
-
-function saveSavedViews(views) {
-  try { localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(views)); } catch (_) {}
-}
+const SAVED_VIEWS_MAX = 10;
 
 function EnginePresetChip({ presetKey, active, onClick, lang }) {
   const meta = ENGINE_STYLES[presetKey];
@@ -74,14 +66,40 @@ function EnginePresetChip({ presetKey, active, onClick, lang }) {
  */
 export function PicksFilterBar({ filters, onChange, onExportCsv, totalCount, filteredCount }) {
   const { t, lang } = useI18n();
+  const { sport } = useSport();
   const [leagues, setLeagues] = useState([]);
-  const [savedViews, setSavedViews] = useState(loadSavedViews);
+  const [savedViews, setSavedViews] = useState([]);
+  const [loadingViews, setLoadingViews] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [newViewName, setNewViewName] = useState('');
+  const [savingNew, setSavingNew] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editingName, setEditingName] = useState('');
+  const [editingBusy, setEditingBusy] = useState(false);
 
   useEffect(() => {
     api.get('/meta/leagues').then((r) => setLeagues(r.data.leagues || [])).catch(() => {});
   }, []);
+
+  // Load saved views from backend (single source of truth)
+  const fetchViews = useCallback(async () => {
+    setLoadingViews(true);
+    try {
+      const r = await api.get('/profile/saved-views');
+      setSavedViews(r.data.items || []);
+    } catch (err) {
+      console.error('Failed to load saved views', err);
+    } finally {
+      setLoadingViews(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchViews(); }, [fetchViews]);
+
+  // Refresh views whenever the drawer opens (in case other tabs/devices changed them)
+  useEffect(() => {
+    if (sheetOpen) fetchViews();
+  }, [sheetOpen, fetchViews]);
 
   const enginePreset = filters.enginePreset || '';
   const active = useMemo(
@@ -100,34 +118,104 @@ export function PicksFilterBar({ filters, onChange, onExportCsv, totalCount, fil
       enginePreset: view.enginePreset || '',
     });
     setSheetOpen(false);
+    toast.success(lang === 'en' ? `View "${view.name || view.name_es || view.name_en}" applied` : `Vista "${view.name || view.name_es || view.name_en}" aplicada`);
   };
 
-  const saveCurrent = () => {
+  const atLimit = savedViews.length >= SAVED_VIEWS_MAX;
+
+  const saveCurrent = async () => {
     const name = newViewName.trim();
-    if (!name) return;
-    const id = `user:${Date.now().toString(36)}`;
-    const v = {
-      id,
-      name_es: name,
-      name_en: name,
-      builtin: false,
-      filters: {
-        league: filters.league || '',
-        market: filters.market || '',
-        minConfidence: filters.minConfidence || 0,
-      },
-      enginePreset: enginePreset || undefined,
-    };
-    const next = [v, ...savedViews].slice(0, 12);
-    setSavedViews(next);
-    saveSavedViews(next);
-    setNewViewName('');
+    if (!name || !active || savingNew) return;
+    setSavingNew(true);
+    try {
+      const payload = {
+        name,
+        filters: {
+          league: filters.league || '',
+          market: filters.market || '',
+          minConfidence: filters.minConfidence || 0,
+        },
+        enginePreset: enginePreset || undefined,
+        sport: sport || undefined,
+      };
+      const r = await api.post('/profile/saved-views', payload);
+      const evicted = r.data?._evicted_id;
+      setNewViewName('');
+      await fetchViews();
+      if (evicted) {
+        toast.success(lang === 'en'
+          ? `View saved. Oldest view was removed (limit ${SAVED_VIEWS_MAX}).`
+          : `Vista guardada. Se eliminó la más antigua (límite ${SAVED_VIEWS_MAX}).`);
+      } else {
+        toast.success(lang === 'en' ? 'View saved' : 'Vista guardada');
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || (lang === 'en' ? 'Failed to save view' : 'Error al guardar vista'));
+    } finally {
+      setSavingNew(false);
+    }
   };
 
-  const deleteView = (id) => {
-    const next = savedViews.filter((v) => v.id !== id);
-    setSavedViews(next);
-    saveSavedViews(next);
+  const deleteView = async (id) => {
+    try {
+      await api.delete(`/profile/saved-views/${id}`);
+      setSavedViews((prev) => prev.filter((v) => v.id !== id));
+      toast.success(lang === 'en' ? 'View deleted' : 'Vista eliminada');
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || (lang === 'en' ? 'Delete failed' : 'Error al eliminar'));
+    }
+  };
+
+  const startEdit = (view) => {
+    setEditingId(view.id);
+    setEditingName(view.name || view.name_es || view.name_en || '');
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditingName('');
+  };
+
+  const saveEditName = async (id) => {
+    const trimmed = editingName.trim();
+    if (!trimmed || editingBusy) return;
+    setEditingBusy(true);
+    try {
+      const r = await api.patch(`/profile/saved-views/${id}`, { name: trimmed });
+      setSavedViews((prev) => prev.map((v) => (v.id === id ? { ...v, ...r.data } : v)));
+      toast.success(lang === 'en' ? 'View renamed' : 'Vista renombrada');
+      cancelEdit();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || (lang === 'en' ? 'Edit failed' : 'Error al editar'));
+    } finally {
+      setEditingBusy(false);
+    }
+  };
+
+  const updateViewWithCurrentFilters = async (id) => {
+    if (!active) {
+      toast.error(lang === 'en' ? 'No active filters to save' : 'No hay filtros activos para guardar');
+      return;
+    }
+    setEditingBusy(true);
+    try {
+      const payload = {
+        filters: {
+          league: filters.league || '',
+          market: filters.market || '',
+          minConfidence: filters.minConfidence || 0,
+        },
+        enginePreset: enginePreset || '',
+        sport: sport || undefined,
+      };
+      const r = await api.patch(`/profile/saved-views/${id}`, payload);
+      setSavedViews((prev) => prev.map((v) => (v.id === id ? { ...v, ...r.data } : v)));
+      toast.success(lang === 'en' ? 'View updated with current filters' : 'Vista actualizada con filtros actuales');
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || (lang === 'en' ? 'Update failed' : 'Error al actualizar'));
+    } finally {
+      setEditingBusy(false);
+    }
   };
 
   const presetKeys = Object.keys(ENGINE_STYLES);
@@ -196,19 +284,24 @@ export function PicksFilterBar({ filters, onChange, onExportCsv, totalCount, fil
               <Bookmark className="h-3.5 w-3.5 mr-1.5" />
               {lang === 'en' ? 'Views' : 'Vistas'}
               {savedViews.length > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-background/50 text-[10px] font-mono-tabular">{savedViews.length}</span>
+                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-background/50 text-[10px] font-mono-tabular" data-testid="saved-views-count">
+                  {savedViews.length}
+                </span>
               )}
             </Button>
           </SheetTrigger>
-          <SheetContent side="right" className="glass-surface w-[360px] sm:w-[420px]">
+          <SheetContent side="right" className="glass-surface w-[360px] sm:w-[440px] flex flex-col">
             <SheetHeader>
               <SheetTitle>{lang === 'en' ? 'Filter views' : 'Vistas de filtros'}</SheetTitle>
               <SheetDescription>
-                {lang === 'en' ? 'Apply a built-in preset or save the current filters.' : 'Aplica un preset incluido o guarda los filtros actuales.'}
+                {lang === 'en'
+                  ? 'Built-in presets or your saved views (synced across devices).'
+                  : 'Presets incluidos o tus vistas guardadas (sincronizadas entre dispositivos).'}
               </SheetDescription>
             </SheetHeader>
 
-            <div className="py-4 space-y-4 overflow-y-auto">
+            <div className="py-4 space-y-5 overflow-y-auto flex-1">
+              {/* Built-in section */}
               <div>
                 <div className="micro-label mb-2">{lang === 'en' ? 'BUILT-IN' : 'INCLUIDAS'}</div>
                 <div className="flex flex-col gap-1.5">
@@ -232,40 +325,137 @@ export function PicksFilterBar({ filters, onChange, onExportCsv, totalCount, fil
                 </div>
               </div>
 
+              {/* User views section */}
               <div>
-                <div className="micro-label mb-2">{lang === 'en' ? 'YOUR VIEWS' : 'TUS VISTAS'}</div>
-                {savedViews.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground italic">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="micro-label">{lang === 'en' ? 'YOUR VIEWS' : 'TUS VISTAS'}</div>
+                  <span className="text-[10px] font-mono-tabular text-muted-foreground" data-testid="saved-views-counter">
+                    {savedViews.length}/{SAVED_VIEWS_MAX}
+                  </span>
+                </div>
+                {loadingViews ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {lang === 'en' ? 'Loading…' : 'Cargando…'}
+                  </div>
+                ) : savedViews.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground italic" data-testid="no-saved-views">
                     {lang === 'en' ? 'No saved views yet.' : 'Aún no guardaste vistas.'}
                   </p>
                 ) : (
                   <div className="flex flex-col gap-1.5">
-                    {savedViews.map((v) => (
-                      <div key={v.id} className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-secondary/30">
-                        <button
-                          type="button"
-                          onClick={() => applyView(v)}
-                          className="flex-1 text-left text-[12.5px] truncate"
-                          data-testid={`user-view-${v.id}`}
+                    {savedViews.map((v) => {
+                      const isEditing = editingId === v.id;
+                      const description = [
+                        v.filters?.league,
+                        v.filters?.market,
+                        v.filters?.minConfidence ? `≥${v.filters.minConfidence}` : null,
+                        v.enginePreset,
+                      ].filter(Boolean).join(' · ');
+                      return (
+                        <div
+                          key={v.id}
+                          className="flex flex-col gap-1 px-3 py-2 rounded-md border border-border bg-secondary/30 hover:border-border/80 transition-colors"
+                          data-testid={`saved-view-row-${v.id}`}
                         >
-                          <Bookmark className="h-3.5 w-3.5 inline mr-1.5 text-emerald-300" />
-                          {v.name_es || v.name_en}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteView(v.id)}
-                          className="p-1 rounded text-muted-foreground hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
-                          aria-label="Delete view"
-                          data-testid={`delete-view-${v.id}`}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
+                          {isEditing ? (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="text"
+                                value={editingName}
+                                onChange={(e) => setEditingName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveEditName(v.id);
+                                  if (e.key === 'Escape') cancelEdit();
+                                }}
+                                className="h-7 text-xs flex-1"
+                                autoFocus
+                                data-testid={`edit-view-name-input-${v.id}`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => saveEditName(v.id)}
+                                disabled={editingBusy || !editingName.trim()}
+                                className="p-1 rounded text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40"
+                                aria-label="Confirm rename"
+                                data-testid={`confirm-edit-${v.id}`}
+                              >
+                                {editingBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEdit}
+                                disabled={editingBusy}
+                                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-secondary/60"
+                                aria-label="Cancel rename"
+                                data-testid={`cancel-edit-${v.id}`}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => applyView(v)}
+                                className="flex-1 text-left text-[12.5px] truncate"
+                                data-testid={`user-view-${v.id}`}
+                              >
+                                <Bookmark className="h-3.5 w-3.5 inline mr-1.5 text-emerald-300" />
+                                {v.name || v.name_es || v.name_en}
+                              </button>
+                              <TooltipProvider delayDuration={150}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateViewWithCurrentFilters(v.id)}
+                                      disabled={!active || editingBusy}
+                                      className="p-1 rounded text-muted-foreground hover:text-cyan-300 hover:bg-cyan-500/10 transition-colors disabled:opacity-40"
+                                      aria-label="Update with current filters"
+                                      data-testid={`update-filters-${v.id}`}
+                                    >
+                                      <Save className="h-3.5 w-3.5" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="glass-surface text-xs max-w-[220px]">
+                                    {lang === 'en' ? 'Overwrite with current filters' : 'Sobrescribir con filtros actuales'}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(v)}
+                                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+                                aria-label="Rename view"
+                                data-testid={`rename-view-${v.id}`}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteView(v.id)}
+                                className="p-1 rounded text-muted-foreground hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
+                                aria-label="Delete view"
+                                data-testid={`delete-view-${v.id}`}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          )}
+                          {!isEditing && description && (
+                            <div className="text-[10.5px] text-muted-foreground truncate pl-[22px]" title={description}>
+                              {description}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
+              {/* Save current section */}
               <div>
                 <div className="micro-label mb-2">{lang === 'en' ? 'SAVE CURRENT FILTERS' : 'GUARDAR FILTROS ACTUALES'}</div>
                 <div className="flex items-center gap-2">
@@ -273,20 +463,22 @@ export function PicksFilterBar({ filters, onChange, onExportCsv, totalCount, fil
                     type="text"
                     value={newViewName}
                     onChange={(e) => setNewViewName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') saveCurrent(); }}
                     placeholder={lang === 'en' ? 'View name…' : 'Nombre de la vista…'}
                     className="h-8 text-xs"
                     data-testid="new-view-name-input"
+                    maxLength={60}
                   />
                   <Button
                     type="button"
                     size="sm"
                     variant="secondary"
                     onClick={saveCurrent}
-                    disabled={!newViewName.trim() || !active}
+                    disabled={!newViewName.trim() || !active || savingNew}
                     data-testid="save-view-button"
                     className="h-8 text-xs"
                   >
-                    <Save className="h-3.5 w-3.5 mr-1" />
+                    {savingNew ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Save className="h-3.5 w-3.5 mr-1" />}
                     {lang === 'en' ? 'Save' : 'Guardar'}
                   </Button>
                 </div>
@@ -295,12 +487,22 @@ export function PicksFilterBar({ filters, onChange, onExportCsv, totalCount, fil
                     {lang === 'en' ? 'Apply filters first, then save.' : 'Aplica filtros primero, luego guarda.'}
                   </p>
                 )}
+                {atLimit && active && (
+                  <div className="mt-1.5 flex items-start gap-1.5 text-[10.5px] text-amber-300/90" data-testid="saved-views-limit-warning">
+                    <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                    <span>
+                      {lang === 'en'
+                        ? `Limit reached (${SAVED_VIEWS_MAX}). Saving will remove your oldest view.`
+                        : `Límite alcanzado (${SAVED_VIEWS_MAX}). Guardar eliminará la vista más antigua.`}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
             <SheetFooter>
               <SheetClose asChild>
-                <Button variant="outline" size="sm" className="h-8 text-xs">
+                <Button variant="outline" size="sm" className="h-8 text-xs" data-testid="saved-views-close">
                   {lang === 'en' ? 'Close' : 'Cerrar'}
                 </Button>
               </SheetClose>

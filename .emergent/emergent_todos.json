@@ -1,42 +1,30 @@
 [
   {
-    "content": "Extender index.css con tokens semánticos + utilidades",
+    "content": "Backend: agregar endpoint PATCH /api/profile/saved-views/{view_id} para editar nombre/filtros/preset",
     "status": "completed"
   },
   {
-    "content": "Crear helper /app/frontend/src/lib/intelligence.js",
+    "content": "Backend: ajustar cap de vistas de 12 → 10 con evicción por created_at",
     "status": "completed"
   },
   {
-    "content": "Fase 1: ConfidenceIntelligenceCard",
+    "content": "Frontend: refactorizar PicksFilterBar para usar backend en vez de LocalStorage (load/save/delete via API)",
     "status": "completed"
   },
   {
-    "content": "Fase 2: MotivationContextBlock",
+    "content": "Frontend: agregar UI de edición de vistas (renombrar + actualizar filtros con los actuales)",
     "status": "completed"
   },
   {
-    "content": "Fase 3: FilterIntelligenceBar con presets + saved views",
+    "content": "Frontend: respetar límite 10/10 con feedback visual al usuario",
     "status": "completed"
   },
   {
-    "content": "Fase 4: EmptyStateCoaching",
+    "content": "Lint backend + frontend y verificar build sin errores",
     "status": "completed"
   },
   {
-    "content": "Fase 5: MatchIntelligencePanel",
-    "status": "completed"
-  },
-  {
-    "content": "Lint validation all new components",
-    "status": "completed"
-  },
-  {
-    "content": "End-to-end screenshots: todo renderizado correctamente",
-    "status": "completed"
-  },
-  {
-    "content": "Actualizar plan.md con la evolución Decision Intelligence completa",
-    "status": "completed"
+    "content": "Probar flow completo con testing agent (crear/aplicar/editar/eliminar/persistir)",
+    "status": "in_progress"
   }
 ]

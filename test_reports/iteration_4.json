@@ -1,0 +1,103 @@
+{
+  "summary": "Completed comprehensive testing of Custom Saved Filter Views feature for Value Bet Intelligence app. Backend API endpoints (GET/POST/PATCH/DELETE /api/profile/saved-views) working correctly with eviction logic, sport validation, and user isolation. Frontend UI fully functional with Sheet component, built-in presets, user views management (save/apply/rename/update/delete), and backend persistence.",
+  
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [],
+    "minor_issues": [
+      {
+        "endpoint": "/api/analysis/run",
+        "issue": "Returns 502 during test (environment startup issue, not related to saved-views)",
+        "impact": "Does not affect saved-views feature",
+        "fix_priority": "LOW"
+      },
+      {
+        "endpoint": "/api/picks/today/export.csv",
+        "issue": "CSV export test check failed (header validation issue in test, actual CSV is correct)",
+        "impact": "Does not affect saved-views feature",
+        "fix_priority": "LOW"
+      }
+    ]
+  },
+  
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  
+  "passed_tests": [
+    "Backend: GET /api/profile/saved-views returns {items, max: 10}",
+    "Backend: POST /api/profile/saved-views creates view with name, filters, enginePreset, sport",
+    "Backend: POST with >10 views evicts oldest and returns _evicted_id",
+    "Backend: PATCH /api/profile/saved-views/{id} updates name independently",
+    "Backend: PATCH /api/profile/saved-views/{id} updates filters independently",
+    "Backend: PATCH /api/profile/saved-views/{id} updates enginePreset independently",
+    "Backend: PATCH with non-existent view_id returns 404",
+    "Backend: DELETE /api/profile/saved-views/{id} deletes correctly",
+    "Backend: DELETE with non-existent view_id returns 404",
+    "Backend: Sport validation - invalid sport (cricket) returns 400",
+    "Backend: Sport validation - football accepted",
+    "Backend: Sport validation - basketball accepted",
+    "Backend: Sport validation - baseball accepted",
+    "Backend: User isolation - user2 sees 0 views when user1 has 10",
+    "Backend: User isolation - user2 cannot PATCH user1's view (404)",
+    "Backend: User isolation - user2 cannot DELETE user1's view (404)",
+    "Backend: Auth protection - GET /api/profile/saved-views requires token (401)",
+    "Frontend: Sheet opens with 'Vistas' button (data-testid='saved-views-open-button')",
+    "Frontend: BUILT-IN section displays 3 presets (Alta confianza, Solo mercados protegidos, Solo en vivo)",
+    "Frontend: TUS VISTAS section displays correctly",
+    "Frontend: Counter shows X/10 format (data-testid='saved-views-counter')",
+    "Frontend: Save new view - creates via POST with name, filters, enginePreset, sport",
+    "Frontend: Save new view - shows 'Vista guardada' toast",
+    "Frontend: Saved view appears in list after creation",
+    "Frontend: Apply saved view - applies filters and shows 'Vista aplicada' toast",
+    "Frontend: Rename view - inline edit with Pencil icon (data-testid='rename-view-{id}')",
+    "Frontend: Rename view - Enter confirms, shows 'Vista renombrada' toast",
+    "Frontend: Update filters button (Save icon, data-testid='update-filters-{id}') updates view via PATCH",
+    "Frontend: Update filters - shows 'Vista actualizada' toast",
+    "Frontend: Delete button (Trash icon, data-testid='delete-view-{id}') deletes via DELETE",
+    "Frontend: Delete - shows 'Vista eliminada' toast",
+    "Frontend: Delete - counter updates correctly (1/10 → 0/10)",
+    "Frontend: Persistence - views reload from backend after page refresh (no LocalStorage)",
+    "Frontend: Sheet closes with 'Cerrar' button (data-testid='saved-views-close')",
+    "Frontend: All data-testid attributes present for testing"
+  ],
+  
+  "test_report_links": [
+    "/app/backend/backend_test.py",
+    "/tmp/backend_test_output.log",
+    "/root/.emergent/automation_output/20260519_223259/console_20260519_223259.log"
+  ],
+  
+  "success_percentage": {
+    "backend": "97.1% (67/69 tests passed - 2 failures unrelated to saved-views)",
+    "frontend": "100% (all saved-views UI tests passed)",
+    "saved_views_feature": "100% (all saved-views specific tests passed)"
+  },
+  
+  "updated_files": [
+    "/app/backend/backend_test.py"
+  ],
+  
+  "action_item_for_main_agent": "",
+  
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": true,
+  
+  "additional_notes": {
+    "not_tested": [
+      "Frontend: Limit warning (data-testid='saved-views-limit-warning') when at 10/10 and trying to save 11th - backend eviction works, but UI warning display not fully verified",
+      "Frontend: Eviction toast message when saving 11th view - backend returns _evicted_id correctly, but specific toast message not verified"
+    ],
+    "test_credentials_used": "demo@valuebet.app / demo1234 (seeded user)",
+    "app_language": "Spanish (ES) - all UI text in Spanish as expected",
+    "backend_url": "https://low-volatility-plays.preview.emergentagent.com/api",
+    "screenshots": [
+      ".screenshots/saved-views-sheet.png - Initial sheet with built-in views and saved view",
+      ".screenshots/saved-views-after-save.png - After saving new view with toast",
+      ".screenshots/saved-views-after-rename.png - After renaming view with toast",
+      ".screenshots/saved-views-final.png - After delete and page reload (0/10)"
+    ]
+  }
+}

@@ -1,4 +1,4 @@
-"""Comprehensive backend test for Value Bet Intelligence Phase 3 features.
+"""Comprehensive backend test for Value Bet Intelligence Phase 3 + Saved Views features.
 
 Tests:
 1. AUTH - login, register, /me
@@ -10,7 +10,8 @@ Tests:
 7. TIMELINE - /api/stats/timeline
 8. META LEAGUES - /api/meta/leagues
 9. EXISTING ENDPOINTS - matches, picks, tracking, stats
-10. AUTHZ - 401 without token
+10. SAVED FILTER VIEWS - GET/POST/PATCH/DELETE /api/profile/saved-views, eviction, sport validation, user isolation
+11. AUTHZ - 401 without token
 """
 import requests
 import sys
@@ -55,6 +56,8 @@ class Phase3Tester:
                 resp = requests.post(url, json=data, headers=headers, timeout=timeout)
             elif method == "PATCH":
                 resp = requests.patch(url, json=data, headers=headers, timeout=timeout)
+            elif method == "DELETE":
+                resp = requests.delete(url, headers=headers, timeout=timeout)
             else:
                 raise ValueError(f"Unsupported method: {method}")
 
@@ -404,9 +407,219 @@ class Phase3Tester:
                     self.log(f"   ⚠ Timeline entry missing fields", "WARN")
 
         # ═══════════════════════════════════════════════════════════════════════
-        # 10. AUTHZ TESTS (401 without token)
+        # 10. SAVED FILTER VIEWS TESTS
         # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[10] AUTHZ TESTS (401 without token)", "SECTION")
+        self.log("\n[10] SAVED FILTER VIEWS TESTS", "SECTION")
+        
+        # Test GET /api/profile/saved-views (initially empty or existing)
+        success, result = self.test(
+            "GET /api/profile/saved-views",
+            "GET", "profile/saved-views", 200,
+            check_fn=lambda r: "items" in r and "max" in r and r["max"] == 10
+        )
+        initial_count = 0
+        if success and result:
+            initial_count = len(result["items"])
+            self.log(f"   Initial saved views: {initial_count}/10")
+        
+        # Test POST /api/profile/saved-views - create new view
+        view_name = f"Test View {int(time.time())}"
+        success, result = self.test(
+            "POST /api/profile/saved-views (create)",
+            "POST", "profile/saved-views", 200,
+            data={
+                "name": view_name,
+                "filters": {"league": "Premier League", "market": "1X2", "minConfidence": 70},
+                "enginePreset": "conservative",
+                "sport": "football"
+            },
+            check_fn=lambda r: (
+                "id" in r and
+                "name" in r and
+                r["name"] == view_name and
+                "filters" in r and
+                r["filters"]["league"] == "Premier League" and
+                "enginePreset" in r and
+                r["enginePreset"] == "conservative" and
+                "sport" in r and
+                r["sport"] == "football"
+            )
+        )
+        view_id = None
+        if success and result:
+            view_id = result["id"]
+            self.log(f"   Created view ID: {view_id}")
+        
+        # Test GET again to verify persistence
+        success, result = self.test(
+            "GET /api/profile/saved-views (verify creation)",
+            "GET", "profile/saved-views", 200,
+            check_fn=lambda r: len(r["items"]) == initial_count + 1
+        )
+        if success and result:
+            self.log(f"   Saved views after creation: {len(result['items'])}/10")
+        
+        # Test PATCH /api/profile/saved-views/{view_id} - update name
+        if view_id:
+            new_name = f"Updated View {int(time.time())}"
+            success, result = self.test(
+                "PATCH /api/profile/saved-views/{id} (rename)",
+                "PATCH", f"profile/saved-views/{view_id}", 200,
+                data={"name": new_name},
+                check_fn=lambda r: r["name"] == new_name and r["id"] == view_id
+            )
+            if success:
+                self.log(f"   Renamed view to: {new_name}")
+            
+            # Test PATCH - update filters
+            success, result = self.test(
+                "PATCH /api/profile/saved-views/{id} (update filters)",
+                "PATCH", f"profile/saved-views/{view_id}", 200,
+                data={
+                    "filters": {"league": "La Liga", "market": "Under 2.5", "minConfidence": 80},
+                    "enginePreset": "low-fragility"
+                },
+                check_fn=lambda r: (
+                    r["filters"]["league"] == "La Liga" and
+                    r["filters"]["minConfidence"] == 80 and
+                    r["enginePreset"] == "low-fragility"
+                )
+            )
+            if success:
+                self.log(f"   Updated filters and preset")
+        
+        # Test PATCH with non-existent view_id - should return 404
+        self.test(
+            "PATCH /api/profile/saved-views/nonexistent (404)",
+            "PATCH", "profile/saved-views/nonexistent123", 404,
+            data={"name": "Should fail"}
+        )
+        
+        # Test sport validation - invalid sport should return 400
+        self.test(
+            "POST /api/profile/saved-views (invalid sport - 400)",
+            "POST", "profile/saved-views", 400,
+            data={
+                "name": "Invalid Sport View",
+                "filters": {},
+                "sport": "cricket"
+            }
+        )
+        
+        # Test valid sports (football, basketball, baseball)
+        for sport in ["football", "basketball", "baseball"]:
+            success, result = self.test(
+                f"POST /api/profile/saved-views (valid sport: {sport})",
+                "POST", "profile/saved-views", 200,
+                data={
+                    "name": f"Test {sport} View",
+                    "filters": {"minConfidence": 60},
+                    "sport": sport
+                },
+                check_fn=lambda r, s=sport: r["sport"] == s
+            )
+            if success and result:
+                # Clean up - delete the test view
+                test_id = result["id"]
+                self.test(
+                    f"DELETE /api/profile/saved-views/{test_id} (cleanup)",
+                    "DELETE", f"profile/saved-views/{test_id}", 200,
+                    check_fn=lambda r: r.get("ok") == True
+                )
+        
+        # Test DELETE with non-existent view_id - should return 404
+        self.test(
+            "DELETE /api/profile/saved-views/nonexistent (404)",
+            "DELETE", "profile/saved-views/nonexistent123", 404
+        )
+        
+        # Test eviction when >10 views
+        self.log("   Testing eviction (creating 10+ views)...")
+        created_ids = []
+        for i in range(12):
+            success, result = self.test(
+                f"POST /api/profile/saved-views (view {i+1}/12)",
+                "POST", "profile/saved-views", 200,
+                data={
+                    "name": f"Eviction Test View {i+1}",
+                    "filters": {"minConfidence": 60 + i},
+                    "sport": "football"
+                }
+            )
+            if success and result:
+                created_ids.append(result["id"])
+                if "_evicted_id" in result:
+                    self.log(f"   ✓ Eviction detected: {result['_evicted_id']}")
+        
+        # Verify max 10 views
+        success, result = self.test(
+            "GET /api/profile/saved-views (verify max 10)",
+            "GET", "profile/saved-views", 200,
+            check_fn=lambda r: len(r["items"]) == 10
+        )
+        if success and result:
+            self.log(f"   ✓ Confirmed max 10 views after eviction")
+        
+        # Test user isolation - create second user
+        test_email2 = f"test2_{int(time.time())}@valuebet.app"
+        success, result = self.test(
+            "Register second user for isolation test",
+            "POST", "auth/register", 200,
+            data={"email": test_email2, "password": "test1234", "name": "Test User 2"}
+        )
+        user2_token = None
+        if success and result:
+            user2_token = result["token"]
+            self.log(f"   Second user created: {test_email2}")
+        
+        if user2_token:
+            # Switch to user2 token
+            saved_token = self.token
+            self.token = user2_token
+            
+            # User2 should see 0 views (isolation)
+            success, result = self.test(
+                "GET /api/profile/saved-views (user2 - should be empty)",
+                "GET", "profile/saved-views", 200,
+                check_fn=lambda r: len(r["items"]) == 0
+            )
+            if success:
+                self.log(f"   ✓ User isolation confirmed: user2 sees 0 views")
+            
+            # User2 tries to access user1's view - should fail
+            if created_ids:
+                self.test(
+                    "PATCH /api/profile/saved-views/{user1_view_id} (user2 - 404)",
+                    "PATCH", f"profile/saved-views/{created_ids[0]}", 404,
+                    data={"name": "Should fail"}
+                )
+                
+                self.test(
+                    "DELETE /api/profile/saved-views/{user1_view_id} (user2 - 404)",
+                    "DELETE", f"profile/saved-views/{created_ids[0]}", 404
+                )
+            
+            # Restore user1 token
+            self.token = saved_token
+        
+        # Cleanup - delete all test views
+        self.log("   Cleaning up test views...")
+        success, result = self.test(
+            "GET /api/profile/saved-views (for cleanup)",
+            "GET", "profile/saved-views", 200
+        )
+        if success and result:
+            for view in result["items"]:
+                if "Test" in view.get("name", "") or "Eviction" in view.get("name", ""):
+                    self.test(
+                        f"DELETE /api/profile/saved-views/{view['id']} (cleanup)",
+                        "DELETE", f"profile/saved-views/{view['id']}", 200
+                    )
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # 11. AUTHZ TESTS (401 without token)
+        # ═══════════════════════════════════════════════════════════════════════
+        self.log("\n[11] AUTHZ TESTS (401 without token)", "SECTION")
         
         # Temporarily clear token
         saved_token = self.token
@@ -421,6 +634,7 @@ class Phase3Tester:
             ("stats/timeline", "GET"),
             ("meta/leagues", "GET"),
             ("matches/upcoming", "GET"),
+            ("profile/saved-views", "GET"),
         ]
         
         for endpoint, method in endpoints_requiring_auth:

@@ -260,3 +260,131 @@ export const BUILTIN_VIEWS = [
   { id: 'builtin:protected', name_es: 'Solo mercados protegidos', name_en: 'Protected markets only', builtin: true, enginePreset: 'protected-markets' },
   { id: 'builtin:live', name_es: 'Solo en vivo', name_en: 'Live only', builtin: true, enginePreset: 'live-momentum' },
 ];
+
+
+/**
+ * deriveConfidenceBreakdown(pick) — Confidence Explanation Tree
+ *
+ * Decomposes the LLM's `confidence_score` into signed contributing factors
+ * (motivation, form, home advantage, injuries, volatility, freshness, market).
+ *
+ * Returns:
+ *   {
+ *     baseline: 50,                  // engine neutral starting point
+ *     items: [
+ *       { key: 'motivation', delta: +18, detail_es, detail_en },
+ *       { key: 'form',       delta: +12, ... },
+ *       ...
+ *     ],
+ *     computed_total: 84,            // baseline + sum(items.delta), clamped 0..100
+ *     reported: 76,                  // pick.recommendation.confidence_score
+ *     gap: -8                        // difference (computed_total - reported)
+ *   }
+ *
+ * The gap is shown to users as "Engine reconciliation" — if positive, our
+ * derived factors are MORE optimistic than the LLM (LLM saw a hidden risk);
+ * if negative, LLM was MORE optimistic than the explainability sums.
+ *
+ * IMPORTANT: This is an EXPLANATION layer, NOT a re-scoring layer. The
+ * confidence_score from the LLM remains the source of truth; this UI only
+ * tries to attribute pieces of it.
+ */
+export function deriveConfidenceBreakdown(pick) {
+  if (!pick) return null;
+  const motHome = pick.motivation?.home?.level ?? 3;
+  const motAway = pick.motivation?.away?.level ?? 3;
+  const key = pick.key_data || {};
+  const rec = pick.recommendation || {};
+  const freshness = pick.data_freshness || {};
+  const items = [];
+
+  // ── Motivation: +/− based on average and gap ─────────────────────────────
+  const motAvg = (motHome + motAway) / 2;
+  const motDelta = Math.round((motAvg - 3) * 9); // +18 if avg=5, -18 if avg=1
+  items.push({
+    key: 'motivation',
+    delta: motDelta,
+    detail_es: `Promedio motivacional ${motAvg.toFixed(1)}/5 → ${motDelta >= 0 ? '+' : ''}${motDelta}`,
+    detail_en: `Avg motivation ${motAvg.toFixed(1)}/5 → ${motDelta >= 0 ? '+' : ''}${motDelta}`,
+  });
+
+  // ── Form: ratio of W vs L across both teams ──────────────────────────────
+  const allForm = `${key.form_home || ''}${key.form_away || ''}`;
+  if (allForm) {
+    const W = (allForm.match(/W/g) || []).length;
+    const L = (allForm.match(/L/g) || []).length;
+    const formDelta = (W - L) * 2; // 5W vs 5L = ±10, capped naturally
+    items.push({
+      key: 'form',
+      delta: formDelta,
+      detail_es: `Forma combinada ${W}W − ${L}L → ${formDelta >= 0 ? '+' : ''}${formDelta}`,
+      detail_en: `Combined form ${W}W − ${L}L → ${formDelta >= 0 ? '+' : ''}${formDelta}`,
+    });
+  }
+
+  // ── Home advantage: small constant boost (+6) when home motivation ≥ away
+  if (motHome >= motAway) {
+    items.push({
+      key: 'home-advantage',
+      delta: 6,
+      detail_es: 'Localía aporta +6 en mercados protegidos.',
+      detail_en: 'Home edge contributes +6 in protected markets.',
+    });
+  }
+
+  // ── Injuries: −2 per absence (cap −12)
+  const injH = key.injuries_home ?? 0;
+  const injA = key.injuries_away ?? 0;
+  if (injH || injA) {
+    const injDelta = -Math.min(12, (injH + injA) * 2);
+    items.push({
+      key: 'absences',
+      delta: injDelta,
+      detail_es: `Bajas (local ${injH} / visita ${injA}) → ${injDelta}`,
+      detail_en: `Absences (home ${injH} / away ${injA}) → ${injDelta}`,
+    });
+  }
+
+  // ── Volatility / staleness penalties from freshness flags
+  let volPenalty = 0;
+  const odds = (freshness.odds || '').toLowerCase();
+  const ctx = (freshness.context || '').toLowerCase();
+  if (odds === 'stale') volPenalty -= 5;
+  if (ctx === 'stale') volPenalty -= 3;
+  if (!key.odds_1x2?.home) volPenalty -= 4;
+  if ((key.line_movement || 'desconocido').toLowerCase() === 'desconocido') volPenalty -= 3;
+  if (volPenalty < 0) {
+    items.push({
+      key: 'volatility',
+      delta: volPenalty,
+      detail_es: 'Penalización por datos viejos / pocas señales de mercado.',
+      detail_en: 'Penalty for stale data / sparse market signals.',
+    });
+  }
+
+  // ── Risk flags from the analyst itself: each risk = -3
+  const riskCount = (pick.risks || []).length;
+  if (riskCount > 0) {
+    const r = -riskCount * 3;
+    items.push({
+      key: 'risk-flags',
+      delta: r,
+      detail_es: `${riskCount} bandera${riskCount > 1 ? 's' : ''} de riesgo del motor.`,
+      detail_en: `${riskCount} engine risk flag${riskCount > 1 ? 's' : ''}.`,
+    });
+  }
+
+  const baseline = 50;
+  const sum = items.reduce((acc, it) => acc + (it.delta || 0), 0);
+  const computed_total = Math.max(0, Math.min(100, baseline + sum));
+  const reported = Math.max(0, Math.min(100, Number(rec.confidence_score) || 0));
+
+  return {
+    baseline,
+    items,
+    computed_total,
+    reported,
+    gap: reported - computed_total,
+  };
+}
+

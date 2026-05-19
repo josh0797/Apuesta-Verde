@@ -61,6 +61,8 @@ async def on_startup() -> None:
     await db.pick_tracking.create_index([("user_id", 1), ("match_id", 1), ("pick_id", 1)], unique=True)
     await db.analysis_jobs.create_index([("user_id", 1), ("created_at", -1)])
     await db.analysis_jobs.create_index("id", unique=True)
+    await db.saved_views.create_index([("user_id", 1), ("created_at", -1)])
+    await db.saved_views.create_index("id", unique=True)
     await auth_module.seed_demo_user(db)
     scheduler_module.start_scheduler(db)
     # Mark any jobs orphaned by the previous process as failed.
@@ -647,6 +649,231 @@ async def picks_today_filtered(
     payload2["_filtered"] = {"sport": s, "league": league, "market": market, "min_confidence": min_confidence, "kept": len(filtered), "total": len(picks)}
     doc["payload"] = payload2
     return {"pick_run": doc, "sport": s}
+
+
+# ── Saved Filter Views ───────────────────────────────────────────────────────
+class SavedViewIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    filters: dict = Field(default_factory=dict)
+    enginePreset: Optional[str] = None
+    sport: Optional[str] = None  # informational; reused on apply
+
+
+@api.get("/profile/saved-views")
+async def saved_views_list(user: dict = Depends(get_current_user)):
+    """Return user's saved filter views. Newest first, capped to SAVED_VIEWS_MAX."""
+    cursor = db.saved_views.find({"user_id": user["id"]}).sort("created_at", -1).limit(30)
+    items = await cursor.to_list(length=30)
+    return {"items": [_clean(it) for it in items], "max": 10}
+
+
+SAVED_VIEWS_MAX = 10
+
+
+@api.post("/profile/saved-views")
+async def saved_views_create(payload: SavedViewIn, user: dict = Depends(get_current_user)):
+    """Create a new saved view. Cap of SAVED_VIEWS_MAX per user — oldest gets evicted."""
+    if payload.sport and payload.sport not in SUPPORTED_SPORTS:
+        raise HTTPException(status_code=400, detail="invalid sport")
+    existing = await db.saved_views.count_documents({"user_id": user["id"]})
+    evicted_id = None
+    if existing >= SAVED_VIEWS_MAX:
+        oldest = await db.saved_views.find({"user_id": user["id"]}).sort("created_at", 1).limit(1).to_list(length=1)
+        if oldest:
+            evicted_id = oldest[0].get("id")
+            await db.saved_views.delete_one({"_id": oldest[0]["_id"]})
+    doc = {
+        "id": uuid.uuid4().hex[:14],
+        "user_id": user["id"],
+        "name": payload.name.strip()[:60],
+        "filters": payload.filters or {},
+        "enginePreset": payload.enginePreset or None,
+        "sport": payload.sport or None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.saved_views.insert_one(doc)
+    out = _clean(doc)
+    if evicted_id:
+        out["_evicted_id"] = evicted_id
+    return out
+
+
+class SavedViewPatch(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=60)
+    filters: Optional[dict] = None
+    enginePreset: Optional[str] = None
+    sport: Optional[str] = None
+
+
+@api.patch("/profile/saved-views/{view_id}")
+async def saved_views_update(view_id: str, payload: SavedViewPatch, user: dict = Depends(get_current_user)):
+    """Update an existing saved view (name / filters / preset / sport)."""
+    existing = await db.saved_views.find_one({"id": view_id, "user_id": user["id"]})
+    if not existing:
+        raise HTTPException(status_code=404, detail="view not found")
+    updates: dict = {}
+    if payload.name is not None:
+        updates["name"] = payload.name.strip()[:60]
+    if payload.filters is not None:
+        updates["filters"] = payload.filters
+    if payload.enginePreset is not None:
+        # Allow empty string to clear preset
+        updates["enginePreset"] = payload.enginePreset or None
+    if payload.sport is not None:
+        if payload.sport and payload.sport not in SUPPORTED_SPORTS:
+            raise HTTPException(status_code=400, detail="invalid sport")
+        updates["sport"] = payload.sport or None
+    if not updates:
+        return _clean(existing)
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.saved_views.update_one({"id": view_id, "user_id": user["id"]}, {"$set": updates})
+    fresh = await db.saved_views.find_one({"id": view_id, "user_id": user["id"]})
+    return _clean(fresh)
+
+
+@api.delete("/profile/saved-views/{view_id}")
+async def saved_views_delete(view_id: str, user: dict = Depends(get_current_user)):
+    res = await db.saved_views.delete_one({"id": view_id, "user_id": user["id"]})
+    if not res.deleted_count:
+        raise HTTPException(status_code=404, detail="view not found")
+    return {"ok": True, "id": view_id}
+
+
+# ── Historical Learning Layer ────────────────────────────────────────────────
+#
+# Aggregates user's tracked picks into pattern statistics:
+#   - winrate per (sport, market, match_state) bucket
+#   - sample size
+#   - market reliability score (winrate weighted by sample size)
+#   - engine_agreement: how often the same combination has been picked vs how
+#     many times it was a winning result (proxy for engine confidence in pattern)
+#
+# We compute on read with a small cache (60s) to keep it simple — there's no
+# need to schedule a heavy aggregation job for typical user volumes.
+_LEARNING_CACHE: dict[str, tuple[float, dict]] = {}
+_LEARNING_TTL = 60.0
+
+
+def _bucket_match_state(pick_payload: dict) -> str:
+    """Best-effort recovery of match_state from the LLM payload."""
+    if pick_payload.get("match_state"):
+        return pick_payload["match_state"]
+    mot = pick_payload.get("motivation") or {}
+    h = (mot.get("home") or {}).get("level") or 3
+    a = (mot.get("away") or {}).get("level") or 3
+    if h >= 4 and a >= 4: return "HIGH_MOTIVATION"
+    if h <= 2 and a <= 2: return "LOW_URGENCY"
+    return "CONTROLLED_MATCH"
+
+
+@api.get("/learning/stats")
+async def learning_stats(
+    sport: Optional[str] = None,
+    market: Optional[str] = None,
+    match_state: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Return historical patterns for the authenticated user.
+
+    Optional filters narrow down to a specific (sport, market, match_state).
+    The response always includes:
+      - `patterns`: list of buckets with winrate, sample size, reliability
+      - `summary`: top reliable market per match_state
+      - `total_tracked`: total settled tracked picks contributing
+    """
+    cache_key = f"{user['id']}|{sport or ''}|{market or ''}|{match_state or ''}"
+    import time
+    now = time.time()
+    cached = _LEARNING_CACHE.get(cache_key)
+    if cached and (now - cached[0] < _LEARNING_TTL):
+        return cached[1]
+
+    # Pull settled tracked picks for this user. `result` field holds 'win'|'lose'|'void'.
+    tracked = await db.pick_tracking.find({
+        "user_id": user["id"],
+        "result": {"$in": ["win", "lose", "void"]},
+    }).to_list(length=2000)
+
+    # Index pick_runs to enrich tracking entries with market + state context.
+    run_ids = list({t.get("pick_id") for t in tracked if t.get("pick_id")})
+    runs = await db.picks.find({"id": {"$in": run_ids}}).to_list(length=2000) if run_ids else []
+    run_by_id = {r.get("id"): r for r in runs}
+
+    # Walk tracked entries → derive (sport, market, match_state) bucket → win
+    buckets: dict[tuple, dict] = {}
+    settled_total = 0
+    for t in tracked:
+        run = run_by_id.get(t.get("pick_id"))
+        if not run:
+            continue
+        payload = (run.get("payload") or {})
+        run_sport = run.get("sport") or payload.get("_sport") or "football"
+        match_id = t.get("match_id")
+        target_pick = next((p for p in (payload.get("picks") or []) if p.get("match_id") == match_id), None)
+        if not target_pick:
+            continue
+        rec = (target_pick.get("recommendation") or {})
+        market_key = rec.get("market") or "Unknown"
+        state_key = _bucket_match_state(target_pick)
+        if sport and sport.lower() != run_sport.lower():
+            continue
+        if market and market.lower() not in market_key.lower():
+            continue
+        if match_state and match_state != state_key:
+            continue
+
+        bk = (run_sport, market_key, state_key)
+        b = buckets.setdefault(bk, {"sport": run_sport, "market": market_key, "match_state": state_key, "wins": 0, "losses": 0, "voids": 0, "samples": 0})
+        b["samples"] += 1
+        settled_total += 1
+        res = t.get("result")
+        if res == "win": b["wins"] += 1
+        elif res == "lose": b["losses"] += 1
+        elif res == "void": b["voids"] += 1
+
+    # Compute derived fields
+    patterns = []
+    for b in buckets.values():
+        decisive = b["wins"] + b["losses"]
+        winrate = (b["wins"] / decisive) if decisive else None
+        # Reliability = winrate weighted by sample-size confidence (cap at 30 samples)
+        weight = min(1.0, b["samples"] / 30)
+        reliability = round(((winrate or 0) * weight) * 100, 1) if winrate is not None else 0.0
+        # Engine agreement = how strongly the engine repeatedly picks this combo
+        # (samples * winrate gives a notion of consistent successful selection)
+        engine_agreement = round(min(100.0, b["samples"] * (winrate or 0) * 4.0), 1)
+        patterns.append({
+            **b,
+            "winrate": round(winrate * 100, 1) if winrate is not None else None,
+            "reliability": reliability,
+            "engine_agreement": engine_agreement,
+        })
+    patterns.sort(key=lambda p: (-(p["reliability"]), -p["samples"]))
+
+    # Summary: top market per match_state
+    summary_by_state: dict[str, dict] = {}
+    for p in patterns:
+        ms = p["match_state"]
+        if ms not in summary_by_state or p["reliability"] > summary_by_state[ms]["reliability"]:
+            summary_by_state[ms] = {
+                "match_state": ms,
+                "best_market": p["market"],
+                "winrate": p["winrate"],
+                "samples": p["samples"],
+                "reliability": p["reliability"],
+            }
+
+    out = {
+        "patterns": patterns,
+        "summary": list(summary_by_state.values()),
+        "total_tracked": settled_total,
+        "filters": {"sport": sport, "market": market, "match_state": match_state},
+    }
+    _LEARNING_CACHE[cache_key] = (now, out)
+    return out
+
+
 
 
 @api.get("/picks/today/export.csv")

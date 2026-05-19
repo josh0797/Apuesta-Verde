@@ -7,6 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { tierClass, confidenceTier } from '@/lib/format';
 import { DRIVER_META, MATCH_STATES, deriveIntelligence } from '@/lib/intelligence';
+import { ConfidenceBreakdown } from './ConfidenceBreakdown';
 
 const ICON_MAP = {
   TrendingUp, Target, Home, UserMinus, BatteryWarning, Shuffle,
@@ -209,6 +210,7 @@ export function ConfidenceIntelligenceCard({ pick, score, sport = 'football', co
           {intel?.reasoning && (
             <p className="text-[12px] text-muted-foreground leading-relaxed">{intel.reasoning}</p>
           )}
+          {pick && <ConfidenceBreakdown pick={pick} lang={lang} />}
         </div>
 
         {/* Column 2: Drivers */}
