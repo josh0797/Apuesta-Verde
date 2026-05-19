@@ -20,11 +20,13 @@
   - costes/créditos LLM
   - bloqueos anti-bot en fuentes web (Cloudflare)
 
-- 🟨 **Objetivo inmediato (P1, en progreso):** completar **Custom Saved Filter Views** como parte final del “Decision Intelligence Terminal”:
+- ✅ **Objetivo inmediato (P1): Custom Saved Filter Views — COMPLETADO**
   - Persistencia **multi-dispositivo** en Backend/MongoDB (vía JWT)
-  - Máximo **10** vistas por usuario
+  - Máximo **10** vistas por usuario con **evicción** de la más antigua
   - Funciones: **aplicar + editar + eliminar**
-  - Campos: nombre + `sport` + filtros avanzados (ligas, motivación, mercado, odds, confianza mín, etc.)
+  - UI/UX: contador X/10, renombrado inline, sobrescribir con filtros actuales, warning al llegar al límite
+  - Sin LocalStorage como fuente de verdad
+  - Testing agent validó **100%** de la feature (backend+frontend)
 
 ---
 
@@ -151,12 +153,13 @@ Resultados y limitaciones:
 - ❌ Sofascore: JSON 403 por **bloqueo IP datacenter** a nivel app → **requiere proxy residencial**.
 
 #### 3.3 User-facing filters & workflow improvements
-✅ Filtros y export CSV base ya existen (evolucionaron en Phase D).
+✅ Filtros, presets y export CSV base ya existen (evolucionaron en Phase D).
+✅ Saved Views sincronizadas en backend (ver Phase 4 / P1).
 
 ---
 
 ### Phase 4 — Polish (post-MVP)
-🟨 **Estado: COMPLETADO (P2 + Phase D ejecutados); P1 Saved Views backend sync pendiente**
+✅ **Estado: COMPLETADO (P2 + Phase D + P1 ejecutados)**
 
 #### 4.1 P2 — Background queue + UX neutral por deporte
 ✅ **Estado: DONE**
@@ -191,9 +194,6 @@ Cambios implementados (inspiración Apple + Stripe + Bloomberg + AI decision sys
 - ✅ **ConfidenceMeter → ConfidenceIntelligenceCard** (`ConfidenceMeter.jsx`)
 - ✅ **MotivationBadge → MotivationContextBlock** (`MotivationBadge.jsx`)
 - ✅ **PicksFilterBar → FilterIntelligenceBar** (`PicksFilterBar.jsx`)
-  - rail de presets de engine (5)
-  - drawer (Sheet) con vistas (built-in + user)
-  - ⚠️ **persistencia actual:** LocalStorage (debe migrar a backend)
 - ✅ **EmptyStateNoValue → EmptyStateCoaching** (`EmptyStateNoValue.jsx`)
 - ✅ **MatchIntelligencePanel (NUEVO)** (`MatchIntelligencePanel.jsx`)
 
@@ -204,84 +204,51 @@ Cambios implementados (inspiración Apple + Stripe + Bloomberg + AI decision sys
 **Verificación end-to-end (preview):**
 - ✅ Render de dashboard y match detail validado mediante screenshots.
 
+#### 4.3 P1 — Custom Saved Filter Views (Backend/MongoDB)
+✅ **Estado: DONE (feature 100% operativa y testeada)**
+
+**Cambios realizados:**
+- Backend `/app/backend/server.py`
+  - ✅ `SAVED_VIEWS_MAX = 10`
+  - ✅ `POST /api/profile/saved-views` con evicción de la más antigua cuando se supera el límite; retorna `_evicted_id` si aplica
+  - ✅ `PATCH /api/profile/saved-views/{view_id}` para editar `name`, `filters`, `enginePreset`, `sport`
+  - ✅ Validación de `sport` en POST y PATCH
+  - ✅ `GET /api/profile/saved-views` retorna `{ items, max: 10 }`
+
+- Frontend `/app/frontend/src/components/PicksFilterBar.jsx`
+  - ✅ Migración completa a backend (sin LocalStorage)
+  - ✅ Carga inicial desde API + recarga al abrir el Sheet
+  - ✅ Edición inline (Pencil + Enter/Escape)
+  - ✅ Botón “sobrescribir con filtros actuales” (Save)
+  - ✅ Contador visible X/10 y warning ámbar al llegar al límite
+  - ✅ Descripción bajo cada vista (league · market · ≥conf · preset)
+  - ✅ Toast feedback por acción (guardar, renombrar, actualizar, eliminar, evicción)
+
+**Testing:**
+- ✅ Testing agent:
+  - Backend: **17/17** tests específicos de saved-views (CRUD, eviction, sport validation, aislamiento por usuario, auth)
+  - Frontend: **18/18** tests UI (save/apply/rename/update/delete + persistencia)
+
 ---
 
 ## 3) Next Actions (inmediatas)
 
-### P1 — Custom Saved Filter Views (Backend/MongoDB) — FINALIZAR
-**Contexto actual (descubierto en exploración):**
-- ✅ Backend YA expone:
-  - `GET /api/profile/saved-views`
-  - `POST /api/profile/saved-views`
-  - `DELETE /api/profile/saved-views/{view_id}`
-  - colección Mongo: `saved_views` (con índices)
-- ✅ Frontend YA tiene UI (Sheet) para:
-  - aplicar
-  - guardar
-  - eliminar
-- ❌ Problema: Frontend usa LocalStorage (`vbi_saved_views`) y **no sincroniza con backend**.
-- ❌ Falta: endpoint de **edición** (PATCH/PUT) y UI de edición.
-- ❌ Ajustes: límite backend actualmente 12; requerido 10.
-
-**Objetivo P1 (acordado):**
-- Persistencia en backend (JWT) multi-dispositivo
-- Máximo 10 vistas por usuario
-- Aplicar + editar + eliminar
-- Campos: nombre, `sport` y `filters` flexible (incluye ligas/motivación/mercado/odds/confianza mínima, etc.)
-
-**Implementación propuesta (pasos):**
-1) Backend (FastAPI)
-   - Ajustar cap de vistas por usuario: **12 → 10** (evicción por `created_at`).
-   - Añadir endpoint de edición:
-     - `PATCH /api/profile/saved-views/{view_id}` (actualiza `name`, `filters`, `enginePreset`, `sport`).
-   - Validación mínima:
-     - `name` longitud 1–60
-     - `filters` debe ser dict
-     - `sport` opcional en {football,basketball,baseball}
-
-2) Frontend (React)
-   - Remover LocalStorage como fuente de verdad.
-   - Cargar vistas al montar:
-     - `api.get('/profile/saved-views')`
-   - Guardar vista actual:
-     - `api.post('/profile/saved-views', payload)`
-   - Eliminar vista:
-     - `api.delete('/profile/saved-views/{id}')`
-   - Editar vista:
-     - UI inline o modal en el Sheet para renombrar/actualizar filtros actuales
-     - `api.patch('/profile/saved-views/{id}', payload)`
-   - Respetar límite 10 desde UI (UX: mostrar contador 10/10 y mensaje si se evicta la más antigua).
-
-3) Modelo de filtros (frontend)
-   - Expandir `filters` más allá de {league, market, minConfidence}:
-     - soportar `leagues[]` (o `league`), `market`, `minConfidence`, `motivationMin`, `oddsMin`, `oddsMax`, etc.
-   - Mantener compatibilidad con filtros actuales (si no existen campos, fallback a defaults).
-
-4) Testing
-   - ✅ Usar **testing agent** al final.
-   - Cobertura mínima:
-     - guardar vista → aparece en listado
-     - recargar página → persiste
-     - editar nombre/filtros → persiste
-     - eliminar → desaparece
-     - crear >10 → se mantiene tope 10 (evicción o bloqueo coherente)
-
-### P1 — Proxy residencial para Sofascore (si se desea)
+### P2 — Proxy residencial para Sofascore (opcional, requiere credenciales)
 - Integrar proxy residencial en Crawlee/Playwright.
 - Añadir variables `.env` (host/usuario/pass o API key proveedor).
 - Re-test Sofascore scheduled-events.
-
-### P2 — LLM prompt extension (opcional)
-- Extender output para devolver nativamente:
-  - `match_state`
-  - `best_for` / `avoid`
-- Mantener derivación client-side como fallback.
 
 ### P2 — Stats segmentados por `sport`
 - ROI/Winrate por deporte y por mercado en `/api/stats/dashboard` + UI.
 
 ### P2 — Provenance visible
 - Indicar fuente dominante por match: API-Sports vs ESPN/Flashscore.
+
+### P2 — LLM prompt extension (opcional)
+- Extender output para devolver nativamente:
+  - `match_state`
+  - `best_for` / `avoid`
+- Mantener derivación client-side como fallback.
 
 ---
 
@@ -293,9 +260,9 @@ Cambios implementados (inspiración Apple + Stripe + Bloomberg + AI decision sys
 - ✅ **Multi-deporte:** Football/NBA/MLB con prompts específicos y selector UI.
 - ✅ **UX análisis largo:** background jobs + progreso persistido + modal.
 - ✅ **Decision Intelligence Terminal:** UI explica WHY/HOW con drivers, fragilidad/volatilidad, mercados evitados, motivación contextual y panel de inteligencia en detalle.
-- 🟨 **Saved Filter Views (P1):**
-  - Vistas de filtros persistidas en MongoDB por usuario (JWT)
-  - Límite 10, con UX clara
-  - Soporta aplicar + editar + eliminar
+- ✅ **Saved Filter Views (P1):**
+  - Vistas persistidas en MongoDB por usuario (JWT)
+  - Límite 10 con evicción + UX clara (contador + warning)
+  - Aplicar + editar + eliminar
   - Testing agent valida el flujo end-to-end
 - 🔁 **Operativo:** créditos LLM sostenibles para que análisis siga disponible.
