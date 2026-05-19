@@ -35,6 +35,8 @@ from services import data_ingestion as ingestion
 from services import analyst_engine
 from services import normalizer as nz
 from services import auth as auth_module
+from services import scheduler as scheduler_module
+from services import fallback_scraper as fallback_module
 
 # FastAPI app
 app = FastAPI(title="Value Bet Intelligence", version="1.0.0")
@@ -55,11 +57,13 @@ async def on_startup() -> None:
     await db.picks.create_index([("user_id", 1), ("generated_at", -1)])
     await db.pick_tracking.create_index([("user_id", 1), ("match_id", 1), ("pick_id", 1)], unique=True)
     await auth_module.seed_demo_user(db)
+    scheduler_module.start_scheduler(db)
     log.info("Startup complete")
 
 
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
+    scheduler_module.shutdown_scheduler()
     mongo_client.close()
 
 
@@ -349,6 +353,142 @@ async def stats_dashboard(user: dict = Depends(get_current_user)):
         "last10": last10,
         "accuracy_by_tier": accuracy_by_tier,
     }
+
+
+# ── Scheduler & fallback status ──────────────────────────────────────────────
+@api.get("/system/status")
+async def system_status(user: dict = Depends(get_current_user)):
+    return {
+        "scheduler": scheduler_module.status(),
+        "providers": {
+            "openai_configured": bool(os.environ.get("OPENAI_API_KEY")),
+            "emergent_configured": bool(os.environ.get("EMERGENT_LLM_KEY")),
+            "api_football_configured": bool(os.environ.get("API_FOOTBALL_KEY")),
+        },
+        "now": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@api.get("/system/fallback-sources")
+async def system_fallback_sources(user: dict = Depends(get_current_user)):
+    """Run all fallback scrapers and return aggregated public-source data."""
+    async with httpx.AsyncClient() as client:
+        data = await fallback_module.aggregate_fallback(client)
+    summary = {k: (len(v) if isinstance(v, list) else 0) for k, v in data.items() if k != "generated_at"}
+    return {"summary": summary, "data": data}
+
+
+# ── Filters / CSV export ─────────────────────────────────────────────────────
+@api.get("/picks/today/filtered")
+async def picks_today_filtered(
+    user: dict = Depends(get_current_user),
+    league: Optional[str] = None,
+    market: Optional[str] = None,
+    min_confidence: Optional[int] = None,
+):
+    """Return today's pick_run filtered in-memory by league/market/min_confidence."""
+    doc = await db.picks.find_one({"user_id": user["id"]}, sort=[("generated_at", -1)])
+    if not doc:
+        return {"pick_run": None}
+    doc = _clean(doc)
+    payload = doc.get("payload", {})
+    picks = payload.get("picks", []) or []
+
+    def keep(p: dict) -> bool:
+        if league and league.lower() not in (p.get("league") or "").lower():
+            return False
+        if market and market.lower() not in (p.get("recommendation", {}).get("market") or "").lower():
+            return False
+        if min_confidence is not None and (p.get("recommendation", {}).get("confidence_score") or 0) < min_confidence:
+            return False
+        return True
+
+    filtered = [p for p in picks if keep(p)]
+    payload2 = dict(payload)
+    payload2["picks"] = filtered
+    payload2["_filtered"] = {"league": league, "market": market, "min_confidence": min_confidence, "kept": len(filtered), "total": len(picks)}
+    doc["payload"] = payload2
+    return {"pick_run": doc}
+
+
+@api.get("/picks/today/export.csv")
+async def picks_today_export(user: dict = Depends(get_current_user)):
+    """Export today's picks as CSV."""
+    from fastapi.responses import Response
+    import csv, io
+    doc = await db.picks.find_one({"user_id": user["id"]}, sort=[("generated_at", -1)])
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["generated_at", "league", "match_label", "kickoff", "market", "selection", "odds_range", "confidence", "confidence_level", "is_live", "reasoning"])
+    if doc:
+        payload = doc.get("payload", {})
+        for p in payload.get("picks", []) or []:
+            rec = p.get("recommendation") or {}
+            writer.writerow([
+                doc.get("generated_at", ""),
+                p.get("league", ""),
+                p.get("match_label", ""),
+                p.get("kickoff_iso", ""),
+                rec.get("market", ""),
+                rec.get("selection", ""),
+                rec.get("odds_range", ""),
+                rec.get("confidence_score", ""),
+                rec.get("confidence_level", ""),
+                p.get("is_live", False),
+                (p.get("reasoning") or "").replace("\n", " ")[:500],
+            ])
+    return Response(content=buf.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=picks-today.csv"})
+
+
+@api.get("/picks/tracked/export.csv")
+async def picks_tracked_export(user: dict = Depends(get_current_user)):
+    from fastapi.responses import Response
+    import csv, io
+    docs = await db.pick_tracking.find({"user_id": user["id"]}).sort("tracked_at", -1).to_list(length=2000)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["tracked_at", "league", "match_label", "market", "selection", "confidence_score", "odds", "outcome", "notes"])
+    for d in docs:
+        writer.writerow([
+            d.get("tracked_at", ""), d.get("league", ""), d.get("match_label", ""),
+            d.get("market", ""), d.get("selection", ""), d.get("confidence_score", ""),
+            d.get("odds", ""), d.get("outcome", ""), (d.get("notes") or "")[:300],
+        ])
+    return Response(content=buf.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=picks-tracked.csv"})
+
+
+@api.get("/stats/timeline")
+async def stats_timeline(user: dict = Depends(get_current_user), limit: int = 50):
+    """Return chronological winrate evolution per settled pick (for chart)."""
+    docs = await db.pick_tracking.find({"user_id": user["id"]}).sort("tracked_at", 1).to_list(length=limit * 4)
+    cumulative_won = 0
+    cumulative_settled = 0
+    timeline = []
+    for d in docs:
+        out = d.get("outcome")
+        if out not in ("won", "lost"):
+            continue
+        cumulative_settled += 1
+        if out == "won":
+            cumulative_won += 1
+        rate = round((cumulative_won / cumulative_settled) * 100, 1) if cumulative_settled else 0.0
+        timeline.append({
+            "tracked_at": d.get("tracked_at"),
+            "match_label": d.get("match_label"),
+            "outcome": out,
+            "confidence_score": d.get("confidence_score"),
+            "cumulative_won": cumulative_won,
+            "cumulative_settled": cumulative_settled,
+            "win_rate": rate,
+        })
+    return {"count": len(timeline), "timeline": timeline[-limit:]}
+
+
+@api.get("/meta/leagues")
+async def meta_leagues(user: dict = Depends(get_current_user)):
+    """Distinct leagues available in the matches collection (for filter UI)."""
+    leagues = await db.matches.distinct("league")
+    return {"leagues": sorted([l for l in leagues if l])}
 
 
 # ── App registration ─────────────────────────────────────────────────────────

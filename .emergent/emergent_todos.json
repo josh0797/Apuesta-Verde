@@ -1,42 +1,34 @@
 [
   {
-    "content": "Phase 1: Get integration playbooks (Emergent LLM, API-Football research)",
+    "content": "A: Add OPENAI_API_KEY to .env + install openai SDK",
     "status": "completed"
   },
   {
-    "content": "Phase 1: Create POC script (test_core.py) - API-Football + normalization + LLM + fallback",
+    "content": "A: Refactor analyst_engine to use gpt-4o-mini primary + Emergent fallback",
     "status": "completed"
   },
   {
-    "content": "Phase 1: Run POC and fix until producing valid pick JSON or 'no value' message",
+    "content": "A: Test LLM fallback chain end-to-end (OpenAI confirmed working)",
     "status": "completed"
   },
   {
-    "content": "Phase 1: All POC user stories validated",
-    "status": "completed"
+    "content": "B1: Scheduler with APScheduler (odds 30min, context 6h)",
+    "status": "in_progress"
   },
   {
-    "content": "Phase 2: Design guidelines via design_agent",
-    "status": "completed"
+    "content": "B2: Additional scrapers (Sofascore, SportyTrader, Flashscore)",
+    "status": "in_progress"
   },
   {
-    "content": "Phase 2: Backend implementation (auth, ingestion, analyst engine, endpoints)",
-    "status": "completed"
+    "content": "B3: Filters (league/market/confidence) + CSV export endpoints + UI",
+    "status": "in_progress"
   },
   {
-    "content": "Phase 2: Frontend implementation (dark sportsbook UI, ES/EN, all pages)",
-    "status": "completed"
+    "content": "B4: Winrate evolution chart in History page (recharts)",
+    "status": "in_progress"
   },
   {
-    "content": "Phase 2: All user stories covered in development",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2: End-to-end testing via testing_agent_v3 (19/20 passed, only LLM budget issue)",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2: Fix all reported issues - no code issues found, only Emergent LLM budget exceeded",
-    "status": "completed"
+    "content": "Final: testing_agent_v3 for Phase 3 features",
+    "status": "pending"
   }
 ]

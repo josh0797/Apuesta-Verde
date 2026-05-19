@@ -1,0 +1,42 @@
+{
+  "summary": "Completed comprehensive Phase 3 backend testing for Value Bet Intelligence app. All 26 tests passed successfully (100% success rate). Tested AUTH, ANALYSIS provider chain (OpenAI gpt-4o-mini primary + Emergent fallback), SYSTEM STATUS (scheduler with 3 jobs), FALLBACK SOURCES (ESPN working, Sofascore/SportyTrader 0 as expected due to 403), FILTERS, CSV EXPORT, TIMELINE, META LEAGUES, existing endpoints, and AUTHZ. No issues found.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [],
+    "notes": [
+      "Sofascore and SportyTrader returning 0 entries is EXPECTED behavior (datacenter IPs blocked with 403)",
+      "ESPN fallback working correctly with 36 entries",
+      "Analysis run returned 'no_value' verdict which is valid (no value bets found in current matches)"
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "notes": ["Frontend testing skipped as per testing_type: 'backend only(skip frontend)'"]
+  },
+  "passed_tests": [
+    "AUTH: Login with demo@valuebet.app / demo1234 returns 200 + token",
+    "AUTH: GET /api/auth/me returns user correctly",
+    "AUTH: Register new user works",
+    "SYSTEM STATUS: GET /api/system/status returns scheduler.enabled=true, 3 jobs (refresh_upcoming, refresh_live, purge_context), all providers configured",
+    "FALLBACK SOURCES: GET /api/system/fallback-sources returns ESPN=36, Sofascore=0 (expected), SportyTrader=0 (expected), valid data structure",
+    "ANALYSIS: POST /api/analysis/run with refresh:false completes in 16s, returns _provider='openai:gpt-4o-mini', verdict='no_value'",
+    "META LEAGUES: GET /api/meta/leagues returns 14 leagues alphabetically sorted",
+    "FILTERS: GET /api/picks/today/filtered works with and without query params, returns _filtered metadata",
+    "CSV EXPORT: GET /api/picks/today/export.csv returns valid CSV with correct headers and Content-Disposition attachment",
+    "CSV EXPORT: GET /api/picks/tracked/export.csv returns valid CSV with correct headers",
+    "TIMELINE: GET /api/stats/timeline returns 2 entries with all required fields (tracked_at, match_label, outcome, confidence_score, cumulative_won, cumulative_settled, win_rate)",
+    "EXISTING ENDPOINTS: /api/matches/upcoming (8 matches), /api/matches/live (20 matches), /api/picks/today, /api/picks/history (8 runs), /api/picks/tracked (2 picks), /api/stats/dashboard (100% win rate)",
+    "AUTHZ: All 8 protected endpoints (/api/system/*, /api/picks/today/filtered, /api/picks/*/export.csv, /api/stats/timeline, /api/meta/leagues, /api/matches/*) return 401 without Bearer token"
+  ],
+  "test_report_links": ["/app/backend/backend_test.py"],
+  "success_percentage": {
+    "backend": "100% (26/26 tests passed)",
+    "frontend": "N/A (skipped)"
+  },
+  "updated_files": ["/app/backend/backend_test.py"],
+  "action_item_for_main_agent": "",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false
+}

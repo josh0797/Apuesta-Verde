@@ -2,33 +2,58 @@ import { useEffect, useState, useCallback } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { api } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
-import { tierClass, confidenceTier } from '@/lib/format';
-import { BadgeCheck, ThumbsDown, Equal, Clock } from 'lucide-react';
+import { tierClass } from '@/lib/format';
+import { BadgeCheck, ThumbsDown, Equal, Clock, Download } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { WinRateChart } from '@/components/WinRateChart';
+import { toast } from 'sonner';
 
 export default function HistoryPage() {
   const { t, lang } = useI18n();
   const [stats, setStats] = useState(null);
   const [tracked, setTracked] = useState([]);
+  const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, tr] = await Promise.all([api.get('/stats/dashboard'), api.get('/picks/tracked')]);
+      const [s, tr, tl] = await Promise.all([
+        api.get('/stats/dashboard'),
+        api.get('/picks/tracked'),
+        api.get('/stats/timeline'),
+      ]);
       setStats(s.data);
       setTracked(tr.data.items || []);
+      setTimeline(tl.data.timeline || []);
     } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
+  const exportCsv = async () => {
+    try {
+      const r = await api.get('/picks/tracked/export.csv', { responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([r.data], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = 'picks-tracked.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { toast.error('Export failed'); }
+  };
+
   if (loading) return <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"><Skeleton className="h-32 rounded-xl mb-4" /><Skeleton className="h-64 rounded-xl" /></div>;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-6">
-      <div>
-        <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">{t.history.title}</h1>
-        <p className="text-sm text-muted-foreground mt-1">{t.history.subtitle}</p>
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">{t.history.title}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t.history.subtitle}</p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={exportCsv} data-testid="history-export-csv-btn">
+          <Download className="h-3.5 w-3.5 mr-1.5" />{t.history.exportCsv}
+        </Button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="history-kpi-strip">
@@ -37,6 +62,11 @@ export default function HistoryPage() {
         <KPI label={t.history.streak} value={stats?.streak ?? 0} accent="amber" />
         <KPI label={t.history.last10} value={`${(stats?.last10 || []).filter(x => x.outcome === 'won').length}/${(stats?.last10 || []).length}`} />
       </div>
+
+      <section className="rounded-xl border border-border bg-card p-4" data-testid="winrate-evolution-section">
+        <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">{t.history.evolution}</div>
+        <WinRateChart data={timeline} />
+      </section>
 
       <section className="rounded-xl border border-border bg-card p-4">
         <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">{t.history.byTier}</div>

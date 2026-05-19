@@ -21,6 +21,8 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 log = logging.getLogger("analyst")
 
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
 ANALYST_SYSTEM_PROMPT = """Eres un analista deportivo profesional especializado en apuestas de VALOR con gestión de riesgo. Tu objetivo es identificar apuestas de alta probabilidad y baja volatilidad en eventos deportivos (próximas 48h o en vivo).
 
@@ -138,20 +140,48 @@ def _strip_to_json(text: str) -> str:
     return t[s : e + 1]
 
 
-async def analyze_matches(matches_payload: list[dict]) -> dict:
-    """Send matches to the LLM analyst, return parsed structured response."""
+async def _call_openai(user_text: str, session_id: str) -> str:
+    """Primary provider: gpt-4o-mini via direct OpenAI key."""
+    from openai import AsyncOpenAI
+
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY not configured")
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    resp = await client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": ANALYST_SYSTEM_PROMPT},
+            {"role": "user", "content": user_text},
+        ],
+        temperature=0.2,
+        max_tokens=4096,
+        response_format={"type": "json_object"},
+    )
+    return resp.choices[0].message.content or ""
+
+
+async def _call_emergent(user_text: str, session_id: str) -> str:
+    """Fallback provider: Claude Sonnet 4.5 via Emergent Universal Key."""
     from emergentintegrations.llm.chat import LlmChat, UserMessage
 
     if not EMERGENT_LLM_KEY:
         raise RuntimeError("EMERGENT_LLM_KEY not configured")
-
-    session_id = f"analyst-{uuid.uuid4().hex[:12]}"
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=session_id,
         system_message=ANALYST_SYSTEM_PROMPT,
     ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+    return await chat.send_message(UserMessage(text=user_text))
 
+
+async def analyze_matches(matches_payload: list[dict]) -> dict:
+    """Send matches to the LLM analyst, return parsed structured response.
+
+    Provider priority:
+      1. OpenAI gpt-4o-mini (direct key)
+      2. Emergent LLM Key (Claude Sonnet 4.5)
+    """
+    session_id = f"analyst-{uuid.uuid4().hex[:12]}"
     user_text = (
         "Analiza los siguientes partidos según las reglas. Devuelve JSON estricto.\n\n"
         f"FECHA ACTUAL: {datetime.now(timezone.utc).isoformat()}\n"
@@ -159,9 +189,36 @@ async def analyze_matches(matches_payload: list[dict]) -> dict:
         f"PARTIDOS:\n{json.dumps(matches_payload, ensure_ascii=False, default=str)}"
     )
 
-    response = await chat.send_message(UserMessage(text=user_text))
+    response: str = ""
+    provider_used: str = ""
+    last_error: Exception | None = None
+
+    # Try OpenAI first
+    if OPENAI_API_KEY:
+        try:
+            log.info("Analyst: trying OpenAI %s (primary)", OPENAI_MODEL)
+            response = await _call_openai(user_text, session_id)
+            provider_used = f"openai:{OPENAI_MODEL}"
+        except Exception as exc:
+            log.warning("OpenAI primary failed: %s — falling back to Emergent", exc)
+            last_error = exc
+
+    # Fallback to Emergent
+    if not response and EMERGENT_LLM_KEY:
+        try:
+            log.info("Analyst: using Emergent LLM Key (fallback)")
+            response = await _call_emergent(user_text, session_id)
+            provider_used = "emergent:claude-sonnet-4-5"
+        except Exception as exc:
+            log.error("Emergent fallback also failed: %s", exc)
+            last_error = exc
+
+    if not response:
+        raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
+
     raw = _strip_to_json(response)
     parsed = json.loads(raw)
     parsed["_generated_at"] = datetime.now(timezone.utc).isoformat()
     parsed["_session_id"] = session_id
+    parsed["_provider"] = provider_used
     return parsed

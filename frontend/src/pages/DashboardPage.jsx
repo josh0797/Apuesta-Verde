@@ -1,14 +1,14 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Loader2, RefreshCcw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Sparkles, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { MatchCard } from '@/components/MatchCard';
 import { EmptyStateNoValue } from '@/components/EmptyStateNoValue';
+import { PicksFilterBar } from '@/components/PicksFilterBar';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Link } from 'react-router-dom';
 import { formatDateTime, tierClass } from '@/lib/format';
 
 function GroupSection({ title, count, tier, children, defaultOpen = true, testId }) {
@@ -32,6 +32,7 @@ export default function DashboardPage() {
   const [running, setRunning] = useState(false);
   const [run, setRun] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState({ league: '', market: '', minConfidence: 0 });
 
   const loadLast = useCallback(async () => {
     try {
@@ -47,7 +48,7 @@ export default function DashboardPage() {
   const generate = async () => {
     setRunning(true);
     try {
-      const r = await api.post('/analysis/run', { refresh: true, include_live: true, max_matches: 15 });
+      const r = await api.post('/analysis/run', { refresh: true, include_live: true, max_matches: 8 });
       setRun({ id: r.data.pick_run_id, generated_at: r.data.generated_at, payload: r.data.result });
       toast.success(t.dashboard.title + ' ✓');
     } catch (err) {
@@ -55,18 +56,38 @@ export default function DashboardPage() {
     } finally { setRunning(false); }
   };
 
+  const exportCsv = async () => {
+    try {
+      const r = await api.get('/picks/today/export.csv', { responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([r.data], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = 'picks-today.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { toast.error('Export failed'); }
+  };
+
   const data = run?.payload;
+  const allPicks = useMemo(() => (data?.picks || []), [data]);
+  const filteredPicks = useMemo(() => {
+    return allPicks.filter((p) => {
+      if (filters.league && !(p.league || '').toLowerCase().includes(filters.league.toLowerCase())) return false;
+      if (filters.market && !(p.recommendation?.market || '').toLowerCase().includes(filters.market.toLowerCase())) return false;
+      if ((p.recommendation?.confidence_score || 0) < (filters.minConfidence || 0)) return false;
+      return true;
+    });
+  }, [allPicks, filters]);
+
   const { high, medium, discMot, discMkt, incomplete } = useMemo(() => {
     if (!data) return { high: [], medium: [], discMot: [], discMkt: [], incomplete: [] };
-    const picks = data.picks || [];
     return {
-      high: picks.filter((p) => (p.recommendation?.confidence_score || 0) >= 78),
-      medium: picks.filter((p) => { const c = p.recommendation?.confidence_score || 0; return c >= 68 && c < 78; }),
+      high: filteredPicks.filter((p) => (p.recommendation?.confidence_score || 0) >= 78),
+      medium: filteredPicks.filter((p) => { const c = p.recommendation?.confidence_score || 0; return c >= 68 && c < 78; }),
       discMot: data.summary?.discarded_motivation || [],
       discMkt: data.summary?.discarded_market || [],
       incomplete: data.summary?.incomplete_data || [],
     };
-  }, [data]);
+  }, [data, filteredPicks]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-6">
@@ -95,6 +116,16 @@ export default function DashboardPage() {
           <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3"><div className="text-[11px] uppercase text-red-200">{t.dashboard.discarded}</div><div className="text-2xl mono font-mono-tabular font-semibold text-red-300">{data.summary.total_discarded ?? 0}</div></div>
           <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3"><div className="text-[11px] uppercase text-cyan-200">Live</div><div className="text-2xl mono font-mono-tabular font-semibold text-cyan-300">{data.summary.data_freshness?.live_active ?? 0}</div></div>
         </div>
+      )}
+
+      {data && allPicks.length > 0 && (
+        <PicksFilterBar
+          filters={filters}
+          onChange={setFilters}
+          onExportCsv={exportCsv}
+          totalCount={allPicks.length}
+          filteredCount={filteredPicks.length}
+        />
       )}
 
       {loading && (

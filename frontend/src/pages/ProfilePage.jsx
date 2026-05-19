@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { LogOut } from 'lucide-react';
+import { SystemStatusCard } from '@/components/SystemStatusCard';
 
 export default function ProfilePage() {
   const { t, lang } = useI18n();
@@ -40,6 +41,7 @@ export default function ProfilePage() {
         </div>
         <p className="text-xs text-muted-foreground mt-3 italic">{t.profile.upcomingPlaceholder}</p>
       </div>
+      <SystemStatusCard />
     </div>
   );
 }
