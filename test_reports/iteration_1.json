@@ -1,0 +1,56 @@
+{
+  "summary": "Completed comprehensive backend API testing for Value Bet Intelligence. Tested all 12 endpoint groups (auth, matches, analysis, picks, tracking, stats, language). 19/20 tests passed (95%). All core functionality working correctly. One external dependency issue: Emergent LLM key budget exceeded.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "external_dependency_issues": [
+      {
+        "component": "Emergent LLM Key",
+        "issue": "Budget exceeded - Current cost: $1.17, Max budget: $1.00",
+        "impact": "Cannot run new analysis via /api/analysis/run",
+        "fix_priority": "HIGH",
+        "note": "LLM integration code is working correctly. Previous analysis runs succeeded (7 historical runs in DB). This is a budget/billing issue, not a code bug."
+      }
+    ],
+    "flaky_endpoints": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Public health endpoint (GET /api/) - 200 OK",
+    "Demo user login (POST /api/auth/login) with demo@valuebet.app / demo1234 - returns JWT",
+    "User registration (POST /api/auth/register) - creates new user and returns JWT",
+    "Login with newly registered user - authentication working",
+    "Get current user (GET /api/auth/me) - returns user profile",
+    "Authorization check - endpoints return 401 without Bearer token",
+    "Get upcoming matches (GET /api/matches/upcoming) - returns 7 matches with 3-layer schema",
+    "Get live matches (GET /api/matches/live) - returns empty array (no live games currently)",
+    "Get match detail (GET /api/matches/1379333) - returns full Chelsea vs Tottenham data with odds history",
+    "Get today's picks (GET /api/picks/today) - returns most recent pick run",
+    "Get picks history (GET /api/picks/history) - returns 7 historical pick runs",
+    "Track pick with pending outcome (POST /api/picks/track) - creates tracking record",
+    "Track pick with won outcome (POST /api/picks/track) - idempotent update working correctly",
+    "Get tracked picks (GET /api/picks/tracked) - returns user's tracked picks",
+    "Get stats dashboard (GET /api/stats/dashboard) - returns win_rate, streak, last10, accuracy_by_tier",
+    "Update language to EN (PATCH /api/auth/me/language) - updates user language",
+    "Update language to ES (PATCH /api/auth/me/language) - restores Spanish",
+    "Data persistence - MongoDB storing and retrieving data correctly",
+    "Cache system - API-Football rate limit hit, system using cached data successfully"
+  ],
+  "test_report_links": [
+    "/app/backend_test.py",
+    "/tmp/backend_test_results.txt"
+  ],
+  "success_percentage": {
+    "backend": "95% (19/20 tests passed)",
+    "frontend": "N/A (frontend testing skipped as requested)"
+  },
+  "updated_files": [
+    "/app/backend_test.py"
+  ],
+  "action_item_for_main_agent": "CRITICAL: Emergent LLM key budget exceeded ($1.17 spent, $1.00 limit). User needs to top up the Emergent LLM key budget or provide a new key. All backend endpoints are working correctly - this is purely a billing/budget issue. The /api/analysis/run endpoint worked in previous runs (7 successful analysis runs exist in database), but now fails with budget error. Inform user to check their Emergent account and add credits.",
+  "should_call_test_agent_after_fix": "false",
+  "should_main_agent_test_itself": "true"
+}

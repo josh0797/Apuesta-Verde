@@ -17,23 +17,23 @@
   },
   {
     "content": "Phase 2: Design guidelines via design_agent",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
-    "content": "Phase 2: Backend implementation (auth bypass + ingestion + analyst engine + endpoints)",
-    "status": "pending"
+    "content": "Phase 2: Backend implementation (auth, ingestion, analyst engine, endpoints)",
+    "status": "completed"
   },
   {
     "content": "Phase 2: Frontend implementation (dark sportsbook UI, ES/EN, all pages)",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "Phase 2: All user stories covered in development",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "Phase 2: End-to-end testing via testing_agent_v3",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "content": "Phase 2: Fix all reported issues",

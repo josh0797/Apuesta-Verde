@@ -1,0 +1,264 @@
+import { useEffect, useState, useCallback } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Clock, AlertOctagon, ShieldCheck, BadgeCheck, ThumbsDown, Equal } from 'lucide-react';
+import { useI18n } from '@/lib/i18n';
+import { api } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from 'sonner';
+import { MotivationBadge } from '@/components/MotivationBadge';
+import { FreshnessBadge } from '@/components/FreshnessBadge';
+import { LivePulse } from '@/components/LivePulse';
+import { ConfidenceMeter } from '@/components/ConfidenceMeter';
+import { OddsComparisonTable } from '@/components/OddsComparisonTable';
+import { LineMovement } from '@/components/LineMovement';
+import { formatDateTime } from '@/lib/format';
+
+export default function MatchDetailPage() {
+  const { id } = useParams();
+  const { t, lang } = useI18n();
+  const navigate = useNavigate();
+  const [match, setMatch] = useState(null);
+  const [pickRun, setPickRun] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [marking, setMarking] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [m, p] = await Promise.all([
+        api.get(`/matches/${id}`),
+        api.get('/picks/today').catch(() => ({ data: { pick_run: null } })),
+      ]);
+      setMatch(m.data);
+      setPickRun(p.data?.pick_run || null);
+    } catch (e) {
+      toast.error('Error');
+    } finally { setLoading(false); }
+  }, [id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const llmPick = (pickRun?.payload?.picks || []).find((p) => String(p.match_id) === String(id));
+
+  const markPick = async (outcome) => {
+    if (!llmPick || !pickRun) return;
+    setMarking(true);
+    try {
+      await api.post('/picks/track', {
+        run_id: pickRun.id,
+        match_id: llmPick.match_id,
+        market: llmPick.recommendation?.market,
+        selection: llmPick.recommendation?.selection,
+        confidence_score: llmPick.recommendation?.confidence_score || 0,
+        outcome,
+        league: llmPick.league,
+        match_label: llmPick.match_label,
+      });
+      toast.success(outcome === 'won' ? 'Pick marcado como Gané' : outcome === 'lost' ? 'Pick marcado como Perdí' : 'Pick marcado como Push');
+    } catch (e) { toast.error(e?.response?.data?.detail || 'Error'); }
+    finally { setMarking(false); }
+  };
+
+  if (loading) return <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"><Skeleton className="h-64 rounded-xl" /></div>;
+  if (!match) return null;
+
+  const home = match.home_team;
+  const away = match.away_team;
+  const odds = (match.odds_snapshots || [])[0];
+  const live = match.live_stats;
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-6">
+      <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="text-muted-foreground" data-testid="match-back-btn"><ArrowLeft className="h-4 w-4 mr-1" />{t.match.backToList}</Button>
+
+      {/* Header */}
+      <div className="card-glow rounded-xl border border-border/80 bg-card p-5 flex flex-col gap-3">
+        <div className="flex items-center flex-wrap gap-2">
+          {match.is_live ? <LivePulse minute={live?.minute} label={t.match.livePill} /> : (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 text-[11px] font-semibold"><Clock className="h-3 w-3" />{t.match.upcomingPill}</span>
+          )}
+          <span className="text-xs text-muted-foreground">{match.league}</span>
+          <span className="text-xs text-muted-foreground mono font-mono-tabular">{formatDateTime(match.kickoff_iso, lang)}</span>
+          {match.venue && <span className="text-xs text-muted-foreground">· {match.venue}</span>}
+          <div className="ml-auto flex items-center gap-2">
+            <FreshnessBadge status={odds?.available ? 'fresh' : 'missing'} kind="odds" />
+            <FreshnessBadge status={home?.context?.position ? 'fresh' : 'stale'} kind="ctx" />
+          </div>
+        </div>
+        <div className="grid grid-cols-3 items-center gap-3">
+          <div className="text-left"><div className="text-xs text-muted-foreground">{t.match.home}</div><div className="text-xl font-semibold mt-0.5">{home?.name}</div></div>
+          {match.is_live ? (
+            <div className="text-center mono font-mono-tabular text-4xl font-semibold">{live?.score?.home ?? 0} <span className="text-muted-foreground">–</span> {live?.score?.away ?? 0}</div>
+          ) : (
+            <div className="text-center text-xs text-muted-foreground"><div className="text-[10px] uppercase tracking-wide">{t.match.kickoff}</div><div className="mono font-mono-tabular text-foreground text-sm">{formatDateTime(match.kickoff_iso, lang)}</div></div>
+          )}
+          <div className="text-right"><div className="text-xs text-muted-foreground">{t.match.away}</div><div className="text-xl font-semibold mt-0.5">{away?.name}</div></div>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-12 gap-6">
+        {/* Main */}
+        <div className="lg:col-span-8 space-y-6">
+          {/* LLM pick or fallback */}
+          {llmPick ? (
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-5 space-y-4" data-testid="llm-pick-block">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-emerald-200">{t.match.recommendation}</div>
+                  <div className="text-lg font-semibold mt-1 flex items-center flex-wrap gap-2">
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 text-xs">{llmPick.recommendation?.market}</span>
+                    {llmPick.recommendation?.selection}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">{t.match.oddsRange}: <span className="text-foreground mono font-mono-tabular">{llmPick.recommendation?.odds_range}</span></div>
+                </div>
+                <ConfidenceMeter score={llmPick.recommendation?.confidence_score || 0} />
+              </div>
+              {llmPick.reasoning && <p className="text-sm text-muted-foreground leading-relaxed border-l-2 border-cyan-500/40 pl-3">{llmPick.reasoning}</p>}
+              {(llmPick.risks || []).length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {llmPick.risks.map((r, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-md bg-red-500/10 text-red-200 border border-red-500/25"><AlertOctagon className="h-3 w-3" />{r}</span>
+                  ))}
+                </div>
+              )}
+              {llmPick.cash_out && (
+                <div className="text-xs flex items-center gap-1.5 text-cyan-200"><ShieldCheck className="h-3.5 w-3.5" />{t.match.cashOut}: <span className="text-foreground">{llmPick.cash_out}</span></div>
+              )}
+              <LineMovement movement={llmPick.key_data?.line_movement} />
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border bg-card/40 p-5" data-testid="no-llm-pick">
+              <p className="text-sm text-muted-foreground">{t.match.noLLMPick}</p>
+              <Link to="/" className="text-cyan-300 text-sm hover:text-cyan-200">{t.match.generateForMatch}</Link>
+            </div>
+          )}
+
+          {/* Motivational context */}
+          <section className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">{t.match.motivationCtx}</h3>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <TeamMotivationBlock team={home} side="home" llmPick={llmPick} lang={lang} t={t} />
+              <TeamMotivationBlock team={away} side="away" llmPick={llmPick} lang={lang} t={t} />
+            </div>
+          </section>
+
+          {/* Key data */}
+          <section className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">{t.match.keyData}</h3>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <KeyDataBlock team={home} t={t} />
+              <KeyDataBlock team={away} t={t} />
+            </div>
+          </section>
+
+          {/* H2H */}
+          {match.h2h_recent?.length > 0 && (
+            <section className="rounded-xl border border-border bg-card p-5">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">{t.match.headToHead}</h3>
+              <div className="space-y-1">
+                {match.h2h_recent.map((h, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm border-b border-border/50 last:border-0 py-1.5" data-testid={`h2h-row-${i}`}>
+                    <span className="text-muted-foreground mono font-mono-tabular text-xs">{new Date(h.date).toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US')}</span>
+                    <span className="truncate">{h.home}</span>
+                    <span className="mono font-mono-tabular font-semibold mx-2">{h.score}</span>
+                    <span className="truncate text-right">{h.away}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Live stats (if live) */}
+          {match.is_live && live && (
+            <section className="rounded-xl border border-border bg-card p-5">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">Live Stats</h3>
+              <LiveStatsTable home={live.home_stats} away={live.away_stats} t={t} />
+            </section>
+          )}
+        </div>
+
+        {/* Right rail */}
+        <div className="lg:col-span-4 space-y-6">
+          <section>
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">{t.match.oddsTable}</div>
+            <OddsComparisonTable snapshot={odds} />
+          </section>
+          {llmPick && (
+            <section className="rounded-xl border border-border bg-card p-4">
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">{t.match.actions}</div>
+              <div className="flex flex-col gap-2">
+                <Button data-testid="mark-pick-won-button" onClick={() => markPick('won')} disabled={marking} className="bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 hover:bg-emerald-500/30"><BadgeCheck className="h-4 w-4 mr-2" />{t.match.markWon}</Button>
+                <Button data-testid="mark-pick-lost-button" onClick={() => markPick('lost')} disabled={marking} variant="secondary" className="bg-red-500/15 text-red-200 border border-red-500/30 hover:bg-red-500/25"><ThumbsDown className="h-4 w-4 mr-2" />{t.match.markLost}</Button>
+                <Button data-testid="mark-pick-push-button" onClick={() => markPick('push')} disabled={marking} variant="secondary" className=""><Equal className="h-4 w-4 mr-2" />{t.match.markPush}</Button>
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamMotivationBlock({ team, side, llmPick, lang, t }) {
+  const llmMot = llmPick?.motivation?.[side];
+  const level = llmMot?.level || 3;
+  return (
+    <div className="rounded-lg border border-border bg-secondary/30 p-3" data-testid={`motivation-${side}`}>
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">{team?.name}</span>
+        <MotivationBadge level={level} lang={lang} />
+      </div>
+      {llmMot?.reason && <p className="text-xs text-muted-foreground mt-2">{llmMot.reason}</p>}
+      {team?.context?.description && <p className="text-[11px] text-muted-foreground/80 mt-1">{team.context.description}</p>}
+    </div>
+  );
+}
+
+function KeyDataBlock({ team, t }) {
+  const c = team?.context || {};
+  const items = [
+    { label: t.match.form, value: c.form_last_5 || '—' },
+    { label: t.match.position, value: c.position ?? '—' },
+    { label: t.match.points, value: c.points ?? '—' },
+    { label: t.match.goalsForAvg, value: c.goals_for_avg ?? '—' },
+    { label: t.match.goalsAgainstAvg, value: c.goals_against_avg ?? '—' },
+    { label: t.match.injuries, value: c.injuries_count ?? 0 },
+  ];
+  return (
+    <div className="rounded-lg border border-border bg-secondary/30 p-3">
+      <div className="text-sm font-semibold mb-2">{team?.name}</div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+        {items.map((it, i) => (
+          <div key={i} className="flex items-center justify-between">
+            <span className="text-muted-foreground">{it.label}</span>
+            <span className="mono font-mono-tabular text-foreground">{String(it.value)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LiveStatsTable({ home, away, t }) {
+  const keys = [
+    ['Ball Possession', t.live.possession],
+    ['Total Shots', t.live.shots],
+    ['Shots on Goal', t.live.shotsOn],
+    ['Corner Kicks', t.live.corners],
+    ['expected_goals', t.live.xg],
+  ];
+  return (
+    <table className="w-full text-sm">
+      <tbody>
+        {keys.map(([k, label]) => (
+          <tr key={k} className="border-t border-border/60">
+            <td className="py-1.5 px-2 mono font-mono-tabular text-foreground text-right w-16">{(home || {})[k] ?? '—'}</td>
+            <td className="py-1.5 px-3 text-center text-muted-foreground text-xs">{label}</td>
+            <td className="py-1.5 px-2 mono font-mono-tabular text-foreground w-16">{(away || {})[k] ?? '—'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
