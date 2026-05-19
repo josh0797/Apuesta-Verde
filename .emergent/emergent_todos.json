@@ -8,15 +8,15 @@
     "status": "completed"
   },
   {
-    "content": "#2 ROI calculator: backend (avg odds * bankroll) + History UI",
+    "content": "#2 ROI calculator: backend (stake * (odds-1)) + History UI with editable stake",
     "status": "completed"
   },
   {
-    "content": "#1 Playwright Sofascore scraper with stealth (CF blocks; infra ready for proxy)",
+    "content": "#1 Playwright Sofascore scraper (infra ready, CF blocks — needs proxy in prod)",
     "status": "completed"
   },
   {
-    "content": "Final: testing_agent_v3 for new features",
-    "status": "in_progress"
+    "content": "Final: testing_agent_v3 PASSED 16/16 (100%)",
+    "status": "completed"
   }
 ]
