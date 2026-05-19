@@ -1,481 +1,480 @@
 {
-  "brand": {
-    "name": "Value Bet Intelligence",
-    "positioning": [
-      "Bloomberg-terminal clarity + sportsbook speed",
-      "Discipline-first: risk awareness, transparency, no-casino vibes",
-      "Data-dense, fast scanning, honest empty states"
+  "design_system_name": "Decision Intelligence Terminal (Sports) — Dark Emerald/Cyan",
+  "brand_attributes": [
+    "professional",
+    "disciplined",
+    "explainable",
+    "financial-terminal precise",
+    "Apple-level clarity",
+    "Stripe-like confidence visualization",
+    "Bloomberg-like contextual density"
+  ],
+  "non_goals_and_forbidden": {
+    "forbidden_visuals": [
+      "flashy sportsbook / casino aesthetics",
+      "aggressive high-risk cues (neon reds, flame icons, jackpot motifs)",
+      "oversized confidence circles",
+      "badge-on-badge stacking",
+      "gradient text headings",
+      "gradient buttons",
+      "heatmap rainbow palettes",
+      "purple as a primary accent"
     ],
-    "voice": {
-      "tone": ["analytical", "calm", "direct", "bilingual ES/EN"],
-      "copy_rules": [
-        "Avoid hype words (jackpot, insane, crazy).",
-        "Prefer analyst language: 'edge', 'risk', 'volatility', 'confidence', 'line movement'.",
-        "Empty state is a feature: reinforce discipline."
-      ]
+    "gradient_restrictions": {
+      "rule": "Gradients are decorative only and must not exceed 20% of viewport; never on text-heavy areas; never on small UI elements (<100px width); never stack multiple gradient layers.",
+      "prohibited_examples": [
+        "blue-500 to purple-600",
+        "purple-500 to pink-500",
+        "green-500 to blue-500",
+        "red to pink"
+      ],
+      "enforcement": "If gradient area exceeds 20% of viewport OR impacts readability, fallback to solid colors."
     }
   },
-
-  "visual_style": {
-    "style_keywords": [
-      "dark sportsbook modern",
-      "terminal grid",
-      "neon accents (small + purposeful)",
-      "bento + table hybrid",
-      "micro-glow borders",
-      "monospace numerics"
+  "inspiration_refs": {
+    "visual_targets": [
+      "Apple clarity (spacing, typography hierarchy, calm surfaces)",
+      "Stripe risk/confidence patterns (scores + reasons + drill-down)",
+      "Bloomberg terminal density tier (micro labels, mono numerals, aligned columns)",
+      "Modern XAI UI (every score answers 'why' via tooltip/popover)"
     ],
-    "layout_principles": [
-      "Mobile-first: stacked cards -> desktop: 12-col grid with sticky right rail",
-      "F-pattern reading: left-aligned headings, dense tables with strong row separators",
-      "Use color as status, not decoration (green/value, red/risk, amber/high confidence)",
-      "Degraded states must be explicit (stale/missing badges + skeletons)"
+    "web_refs": [
+      {
+        "title": "NN/g: Glassmorphism usability",
+        "url": "https://www.nngroup.com/articles/glassmorphism/"
+      },
+      {
+        "title": "Stripe: Fraud management guide (risk scores + drill-down patterns)",
+        "url": "https://stripe.com/ae/guides/improve-fraud-management-with-radar-for-fraud-teams-and-stripe-data"
+      },
+      {
+        "title": "Dribbble search: Bloomberg terminal",
+        "url": "https://dribbble.com/search/bloomberg-terminal"
+      }
     ]
   },
-
   "typography": {
-    "google_fonts": {
+    "fonts": {
       "heading": {
         "family": "Space Grotesk",
         "fallback": "ui-sans-serif, system-ui",
-        "weights": [500, 600, 700]
+        "usage": "Page titles, section headers, narrative headings"
       },
       "body": {
         "family": "Inter",
         "fallback": "ui-sans-serif, system-ui",
-        "weights": [400, 500, 600]
+        "usage": "Body copy, explanations, UI labels"
       },
-      "numeric": {
+      "mono": {
         "family": "IBM Plex Mono",
         "fallback": "ui-monospace, SFMono-Regular",
-        "weights": [400, 500, 600]
+        "usage": "Scores, percentages, timestamps, deltas, IDs; use tabular numerals"
       }
     },
-    "tailwind_mapping": {
-      "h1": "text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight",
-      "h2": "text-base md:text-lg font-medium text-muted-foreground",
-      "section_title": "text-lg md:text-xl font-semibold",
-      "card_title": "text-sm font-semibold tracking-wide",
-      "body": "text-sm md:text-base leading-relaxed",
-      "small": "text-xs text-muted-foreground",
-      "numeric": "font-mono tabular-nums"
+    "scale": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl",
+      "h2": "text-base md:text-lg",
+      "body": "text-sm md:text-base",
+      "micro_label": "text-[11px] uppercase tracking-[0.14em] text-muted-foreground",
+      "mono_numeric": "text-[12px] md:text-[13px] font-mono-tabular"
     },
-    "number_formatting": [
-      "Odds, confidence, xG, ROI, deltas must use tabular-nums + font-mono.",
-      "Use fixed decimals for odds (e.g., 1.85) and xG (e.g., 0.74)."
+    "narrative_rules": [
+      "Structure explanations as: Headline → 1-sentence reasoning → drivers list → tags → numeric evidence.",
+      "Use micro-labels for context (e.g., 'VOLATILIDAD', 'FRAGILIDAD', 'MERCADOS').",
+      "Numbers always in mono with tabular-nums; align decimals/percentages in columns.",
+      "Tooltips must answer 'por qué' in ≤140 chars (Spanish canonical)."
     ]
   },
-
   "color_system": {
-    "mode": "dark-default",
-    "tokens_css": {
-      "note": "Update /app/frontend/src/index.css :root and .dark tokens. App should run with .dark on html/body by default.",
-      "css": ":root{\n  --background: 220 26% 6%;\n  --foreground: 210 40% 98%;\n  --card: 220 24% 9%;\n  --card-foreground: 210 40% 98%;\n  --popover: 220 24% 9%;\n  --popover-foreground: 210 40% 98%;\n  --primary: 160 84% 45%;\n  --primary-foreground: 220 26% 6%;\n  --secondary: 220 18% 14%;\n  --secondary-foreground: 210 40% 98%;\n  --muted: 220 18% 14%;\n  --muted-foreground: 215 16% 70%;\n  --accent: 200 92% 55%;\n  --accent-foreground: 220 26% 6%;\n  --destructive: 0 84% 60%;\n  --destructive-foreground: 210 40% 98%;\n  --border: 220 16% 18%;\n  --input: 220 16% 18%;\n  --ring: 160 84% 45%;\n  --radius: 0.75rem;\n  --chart-1: 160 84% 45%;\n  --chart-2: 45 96% 55%;\n  --chart-3: 0 84% 60%;\n  --chart-4: 200 92% 55%;\n  --chart-5: 215 16% 70%;\n}\n.dark{\n  --background: 220 26% 6%;\n  --foreground: 210 40% 98%;\n  --card: 220 24% 9%;\n  --card-foreground: 210 40% 98%;\n  --popover: 220 24% 9%;\n  --popover-foreground: 210 40% 98%;\n  --primary: 160 84% 45%;\n  --primary-foreground: 220 26% 6%;\n  --secondary: 220 18% 14%;\n  --secondary-foreground: 210 40% 98%;\n  --muted: 220 18% 14%;\n  --muted-foreground: 215 16% 70%;\n  --accent: 200 92% 55%;\n  --accent-foreground: 220 26% 6%;\n  --destructive: 0 84% 60%;\n  --destructive-foreground: 210 40% 98%;\n  --border: 220 16% 18%;\n  --input: 220 16% 18%;\n  --ring: 160 84% 45%;\n }"
-    },
-    "semantic_colors": {
-      "value_positive": {
-        "name": "Neon Mint",
-        "hex": "#2EE59D",
-        "usage": "value edge, wins, positive deltas"
-      },
-      "risk_negative": {
-        "name": "Signal Red",
-        "hex": "#FF5A67",
-        "usage": "risks, losses, trap warnings"
-      },
-      "confidence_high": {
-        "name": "Analyst Amber",
-        "hex": "#F5B301",
-        "usage": "Alta confidence, premium highlights"
-      },
-      "info_cyan": {
-        "name": "Terminal Cyan",
-        "hex": "#35D3FF",
-        "usage": "info, selected states, links"
-      },
-      "surface_bg": { "hex": "#0B0F14" },
-      "surface_1": { "hex": "#111827" },
-      "surface_2": { "hex": "#172033" },
-      "border": { "hex": "#2A3441" },
-      "text": { "hex": "#F3F7FB" },
-      "text_muted": { "hex": "#9AA4B2" }
-    },
-    "motivation_badges_1_to_5": {
-      "rule": "Use color + label; do NOT rely on emoji. Provide 5 discrete levels.",
-      "levels": [
-        { "level": 1, "label": "Muy baja / Very low", "bg": "bg-red-500/15", "text": "text-red-300", "border": "border-red-500/30" },
-        { "level": 2, "label": "Baja / Low", "bg": "bg-orange-500/15", "text": "text-orange-300", "border": "border-orange-500/30" },
-        { "level": 3, "label": "Media / Medium", "bg": "bg-yellow-500/15", "text": "text-yellow-200", "border": "border-yellow-500/30" },
-        { "level": 4, "label": "Alta / High", "bg": "bg-emerald-500/15", "text": "text-emerald-200", "border": "border-emerald-500/30" },
-        { "level": 5, "label": "Máxima / Max", "bg": "bg-cyan-500/15", "text": "text-cyan-200", "border": "border-cyan-500/30" }
-      ]
-    },
-    "data_freshness": {
-      "fresh": { "bg": "bg-emerald-500/15", "text": "text-emerald-200", "border": "border-emerald-500/30" },
-      "stale": { "bg": "bg-amber-500/15", "text": "text-amber-200", "border": "border-amber-500/30" },
-      "missing": { "bg": "bg-slate-500/15", "text": "text-slate-200", "border": "border-slate-500/30" }
-    }
-  },
-
-  "gradients_and_textures": {
-    "compliance": {
-      "gradient_restriction_rule": [
-        "NEVER use dark/saturated gradient combos (e.g., purple/pink) on any UI element.",
-        "NEVER let gradients cover more than 20% of the viewport.",
-        "NEVER apply gradients to text-heavy content or reading areas.",
-        "NEVER use gradients on small UI elements (<100px width).",
-        "NEVER stack multiple gradient layers in the same viewport.",
-        "IF gradient area exceeds 20% of viewport OR impacts readability THEN fallback to solid colors."
-      ]
-    },
-    "allowed_usage": [
-      "Hero/login header background only (top 15–20vh)",
-      "Decorative corner glows behind charts (blurred, low opacity)",
-      "Selected tab underline glow (thin)"
-    ],
-    "approved_gradients": [
-      {
-        "name": "Terminal Glow",
-        "css": "radial-gradient(600px circle at 20% 0%, rgba(46,229,157,0.18), transparent 55%), radial-gradient(700px circle at 80% 10%, rgba(245,179,1,0.14), transparent 60%)",
-        "usage": "login + dashboard top header backdrop"
+    "foundation": {
+      "note": "Keep existing near-black + emerald/cyan accents. Evolve with semantic tiers; avoid replacing base tokens.",
+      "existing_tokens_from_index_css": {
+        "background": "hsl(220 26% 6%)",
+        "card": "hsl(220 24% 9%)",
+        "border": "hsl(220 16% 18%)",
+        "primary_accent": "hsl(160 84% 45%) (emerald)",
+        "accent": "hsl(200 92% 55%) (cyan)",
+        "muted_foreground": "hsl(215 16% 70%)"
       }
-    ],
-    "noise_overlay": {
-      "css_snippet": ".noise::before{content:'';position:absolute;inset:0;background-image:url('https://images.pexels.com/photos/7641028/pexels-photo-7641028.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940');opacity:.06;mix-blend-mode:overlay;pointer-events:none;border-radius:inherit;}",
-      "rule": "Use very low opacity (0.04–0.08). Apply to large containers only."
+    },
+    "semantic_tokens_to_add": {
+      "volatility": {
+        "low": "hsl(160 84% 45%) with 12–18% alpha on dark surfaces",
+        "medium": "hsl(45 96% 55%) with 12–18% alpha (amber warning, not gambling)",
+        "high": "hsl(0 84% 60%) with 10–14% alpha (use sparingly; never neon)"
+      },
+      "fragility": {
+        "stable": "emerald tint",
+        "sensitive": "amber tint",
+        "fragile": "muted rose tint (desaturated)"
+      },
+      "match_state": {
+        "CONTROLLED_MATCH": {
+          "label": "CONTROLADO",
+          "icon": "ShieldCheck",
+          "tone": "emerald"
+        },
+        "CHAOTIC_MATCH": {
+          "label": "CAÓTICO",
+          "icon": "Activity",
+          "tone": "amber"
+        },
+        "HIGH_MOTIVATION": {
+          "label": "ALTA MOTIVACIÓN",
+          "icon": "Flame",
+          "tone": "cyan"
+        },
+        "LOW_URGENCY": {
+          "label": "BAJA URGENCIA",
+          "icon": "Clock",
+          "tone": "slate"
+        }
+      },
+      "market_reco": {
+        "best_for": "emerald",
+        "avoid": "muted rose (not bright red)"
+      }
+    },
+    "glassmorphism_rules": {
+      "allowed_surfaces_only": [
+        "modals",
+        "dropdowns",
+        "tooltips",
+        "hover-cards",
+        "drawers/sheets"
+      ],
+      "settings": {
+        "blur": "backdrop-blur-[12px] to backdrop-blur-[18px]",
+        "tint": "bg-white/[0.06] (≤8% white tint)",
+        "border": "border-white/[0.08]",
+        "shadow": "shadow-[0_18px_60px_rgba(0,0,0,0.55)]"
+      },
+      "not_allowed": [
+        "base cards",
+        "tables",
+        "list rows"
+      ]
     }
   },
-
-  "grid_and_spacing": {
-    "container": {
-      "max_width": "max-w-7xl",
-      "padding": "px-4 sm:px-6 lg:px-8",
-      "vertical_rhythm": "space-y-6 md:space-y-8"
+  "design_tokens_css": {
+    "instructions": "Main agent should extend /app/frontend/src/index.css :root with these tokens (do not remove existing).",
+    "css": ":root {\n  /* Density */\n  --density-compact: 0.875; /* used as multiplier in component spacing */\n\n  /* Terminal micro-typography */\n  --label-tracking: 0.14em;\n\n  /* Semantic tiers (use with opacity on dark surfaces) */\n  --vol-low: 160 84% 45%;\n  --vol-med: 45 96% 55%;\n  --vol-high: 0 84% 60%;\n\n  --frag-stable: 160 84% 45%;\n  --frag-sensitive: 45 96% 55%;\n  --frag-fragile: 350 70% 62%; /* muted rose */\n\n  /* Tooltip/overlay glass */\n  --glass-bg: 0 0% 100%;\n  --glass-alpha: 0.06;\n  --glass-border-alpha: 0.08;\n}\n\n/* Utility: micro label */\n.micro-label {\n  font-size: 11px;\n  text-transform: uppercase;\n  letter-spacing: var(--label-tracking);\n  color: hsl(var(--muted-foreground));\n}\n\n/* Utility: overlay glass surface */\n.glass-surface {\n  background: rgba(255,255,255,var(--glass-alpha));\n  border: 1px solid rgba(255,255,255,var(--glass-border-alpha));\n  backdrop-filter: blur(14px);\n}\n"
+  },
+  "layout_and_grid": {
+    "dashboard": {
+      "pattern": "Breathable cards + terminal-density inner rows",
+      "container": "max-w-[1280px] 2xl:max-w-[1440px] px-4 md:px-6",
+      "grid": "grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6",
+      "zones": {
+        "left_main": "lg:col-span-8",
+        "right_context": "lg:col-span-4 (watchlist-like context: KPIs, engine notes, saved views)"
+      }
     },
-    "desktop_layout": {
-      "grid": "lg:grid lg:grid-cols-12 lg:gap-6",
-      "main": "lg:col-span-8",
-      "rail": "lg:col-span-4 lg:sticky lg:top-20"
+    "density_tier": {
+      "when_to_use": [
+        "tables",
+        "filter bars",
+        "pick rows",
+        "history lists",
+        "live page"
+      ],
+      "rules": [
+        "Use micro-labels + mono numerals.",
+        "Reduce vertical padding: py-2 instead of py-4.",
+        "Prefer separators over heavy card borders.",
+        "Keep dashboard cards breathable; density lives inside them."
+      ]
     },
-    "cards": {
-      "radius": "rounded-xl",
-      "padding": "p-4 md:p-5",
-      "density": "Use compact typography but generous spacing between groups (gap-3/4)."
+    "mobile_rules": {
+      "filters": "Filter bar becomes horizontally-scrollable chip rail (ScrollArea) with snap-like spacing.",
+      "intelligence_panel": "Stacks single column; timeline becomes accordion; radar chart collapses to summary stats below 640px.",
+      "tables": "Use responsive table: key columns only + row expand (Collapsible) for details."
     }
   },
-
+  "component_taxonomy": {
+    "chips_and_tags": {
+      "base_style": "text-[12px] leading-5 px-2.5 py-1 rounded-full border bg-secondary/40",
+      "icon_size": "h-3.5 w-3.5",
+      "driver_tags": [
+        {
+          "key": "form",
+          "label_es": "Forma",
+          "icon": "TrendingUp",
+          "tone": "emerald"
+        },
+        {
+          "key": "motivation",
+          "label_es": "Motivación",
+          "icon": "Target",
+          "tone": "cyan"
+        },
+        {
+          "key": "home-advantage",
+          "label_es": "Localía",
+          "icon": "Home",
+          "tone": "slate"
+        },
+        {
+          "key": "absences",
+          "label_es": "Bajas",
+          "icon": "UserMinus",
+          "tone": "amber"
+        },
+        {
+          "key": "fatigue",
+          "label_es": "Fatiga",
+          "icon": "BatteryWarning",
+          "tone": "amber"
+        },
+        {
+          "key": "rotation-risk",
+          "label_es": "Rotación",
+          "icon": "Shuffle",
+          "tone": "muted-rose"
+        }
+      ],
+      "engine_styles": [
+        {
+          "key": "conservative",
+          "label_es": "Conservador",
+          "icon": "Shield",
+          "tone": "slate"
+        },
+        {
+          "key": "protected-markets",
+          "label_es": "Mercados Protegidos",
+          "icon": "Lock",
+          "tone": "emerald"
+        },
+        {
+          "key": "low-fragility",
+          "label_es": "Baja Fragilidad",
+          "icon": "Layers",
+          "tone": "cyan"
+        },
+        {
+          "key": "value-hunting",
+          "label_es": "Caza de Valor",
+          "icon": "Search",
+          "tone": "amber"
+        },
+        {
+          "key": "live-momentum",
+          "label_es": "Momentum en Vivo",
+          "icon": "Zap",
+          "tone": "cyan"
+        }
+      ]
+    }
+  },
   "components": {
     "component_path": {
-      "shadcn_ui": {
-        "button": "/app/frontend/src/components/ui/button.jsx",
-        "badge": "/app/frontend/src/components/ui/badge.jsx",
-        "card": "/app/frontend/src/components/ui/card.jsx",
-        "tabs": "/app/frontend/src/components/ui/tabs.jsx",
-        "table": "/app/frontend/src/components/ui/table.jsx",
-        "progress": "/app/frontend/src/components/ui/progress.jsx",
-        "tooltip": "/app/frontend/src/components/ui/tooltip.jsx",
-        "dropdown_menu": "/app/frontend/src/components/ui/dropdown-menu.jsx",
-        "sheet": "/app/frontend/src/components/ui/sheet.jsx",
-        "dialog": "/app/frontend/src/components/ui/dialog.jsx",
-        "select": "/app/frontend/src/components/ui/select.jsx",
-        "switch": "/app/frontend/src/components/ui/switch.jsx",
-        "separator": "/app/frontend/src/components/ui/separator.jsx",
-        "scroll_area": "/app/frontend/src/components/ui/scroll-area.jsx",
-        "skeleton": "/app/frontend/src/components/ui/skeleton.jsx",
-        "sonner": "/app/frontend/src/components/ui/sonner.jsx",
-        "calendar": "/app/frontend/src/components/ui/calendar.jsx"
-      },
-      "recommended_new_components_to_create": [
-        "/app/frontend/src/components/ConfidenceMeter.jsx",
-        "/app/frontend/src/components/ValueEdgePill.jsx",
-        "/app/frontend/src/components/MotivationBadge.jsx",
-        "/app/frontend/src/components/FreshnessBadge.jsx",
-        "/app/frontend/src/components/LineMovement.jsx",
-        "/app/frontend/src/components/LivePulse.jsx",
-        "/app/frontend/src/components/OddsComparisonTable.jsx",
-        "/app/frontend/src/components/MatchCard.jsx",
-        "/app/frontend/src/components/EmptyStateNoValue.jsx",
-        "/app/frontend/src/components/LanguageToggle.jsx",
-        "/app/frontend/src/components/StickyFilterBar.jsx"
-      ]
-    },
-
-    "buttons": {
-      "shape": "Professional / Corporate (radius 10–12px via --radius 0.75rem)",
-      "variants": {
-        "primary": {
-          "use": "Generate picks / main CTA",
-          "classes": "bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring",
-          "micro_interaction": "hover: subtle glow via shadow + translate-y-0.5; active: scale-[0.98]"
-        },
-        "secondary": {
-          "use": "Filters, secondary actions",
-          "classes": "bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border",
-          "micro_interaction": "hover: border becomes accent/40"
-        },
-        "ghost": {
-          "use": "Table row actions, icon buttons",
-          "classes": "hover:bg-white/5 text-foreground",
-          "micro_interaction": "hover: show underline indicator or left border"
-        },
-        "danger": {
-          "use": "Mark lost / delete",
-          "classes": "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-        }
-      },
-      "data_testid_rule": "All buttons must include data-testid like generate-picks-button, login-google-button, mark-pick-won-button"
-    },
-
-    "badges_and_chips": {
-      "confidence_group_badges": {
-        "alta": "bg-amber-500/15 text-amber-200 border border-amber-500/30",
-        "media": "bg-cyan-500/15 text-cyan-200 border border-cyan-500/30",
-        "descartados": "bg-red-500/15 text-red-300 border border-red-500/30",
-        "incompletos": "bg-slate-500/15 text-slate-200 border border-slate-500/30"
-      },
-      "market_allowed_badge": "bg-emerald-500/10 text-emerald-200 border border-emerald-500/25",
-      "market_forbidden_badge": "bg-red-500/10 text-red-200 border border-red-500/25 line-through"
-    },
-
-    "tables": {
-      "odds_comparison": {
-        "pattern": "Sticky first column (bookmaker) on desktop; horizontal scroll on mobile via ScrollArea",
-        "row_density": "text-xs md:text-sm",
-        "classes": "w-full border-separate border-spacing-0",
-        "row_hover": "hover:bg-white/3",
-        "best_price_highlight": "ring-1 ring-emerald-500/40 bg-emerald-500/8"
-      },
-      "line_movement": {
-        "pattern": "Show arrow up/down + delta; color-coded; tooltip explains movement window",
-        "classes": "font-mono tabular-nums"
+      "shadcn_primary": "/app/frontend/src/components/ui/",
+      "use_these": {
+        "Card": "card.jsx",
+        "Badge": "badge.jsx",
+        "Button": "button.jsx",
+        "Tooltip": "tooltip.jsx",
+        "HoverCard": "hover-card.jsx",
+        "Popover": "popover.jsx",
+        "Tabs": "tabs.jsx",
+        "Separator": "separator.jsx",
+        "ScrollArea": "scroll-area.jsx",
+        "Collapsible": "collapsible.jsx",
+        "Accordion": "accordion.jsx",
+        "Sheet": "sheet.jsx",
+        "Drawer": "drawer.jsx",
+        "Table": "table.jsx",
+        "Progress": "progress.jsx",
+        "Skeleton": "skeleton.jsx",
+        "Sonner": "sonner.jsx"
       }
     },
-
-    "cards": {
-      "match_card": {
-        "layout": [
-          "Header: teams + league + kickoff/live minute + freshness badges",
-          "Middle: recommended market + odds + confidence meter + value edge pill",
-          "Footer: risks chips + cash-out viability + anti-trap indicator"
+    "ConfidenceIntelligenceCard": {
+      "purpose": "Replace simple meter with explainable confidence + drivers + volatility/fragility + market guidance.",
+      "backward_compat": {
+        "required_prop": "score (existing)",
+        "optional_props": [
+          "drivers[]",
+          "risk_score",
+          "volatility_score",
+          "fragility_score",
+          "reasoning_summary",
+          "match_state",
+          "best_for[]",
+          "avoid[]"
         ],
-        "classes": "rounded-xl bg-card border border-border/80 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]",
-        "interaction": "Entire card clickable; hover shows subtle border glow (accent/20) and lifts 1px"
+        "testid": "confidence-meter (must remain)"
+      },
+      "layout": {
+        "desktop": "Card with 3 columns: (1) score + label, (2) drivers list, (3) risk/volatility/fragility + best/avoid",
+        "mobile": "Stack: score → reasoning → drivers chips rail → risk/volatility/fragility → best/avoid"
+      },
+      "visual": {
+        "score_viz": "Use Progress bar + numeric score (mono). Avoid giant circles. Add thin tick marks (CSS) for 0/25/50/75/100.",
+        "confidence_label": "Map score to: Alta / Media / Baja (Spanish).",
+        "driver_rows": "Each driver row: icon + label + contribution bar (tiny) + tooltip 'por qué'.",
+        "states": "Use semantic tints for volatility/fragility; never rely on color alone—include label text."
+      },
+      "tooltips": {
+        "pattern": "TooltipProvider + TooltipTrigger wrapping every numeric and chip.",
+        "copy_limit": "≤140 chars",
+        "example_es": "Volatilidad alta: señales contradictorias y rotación probable. Reduce stake o evita mercados sensibles."
+      },
+      "data_testids": {
+        "score": "confidence-intelligence-score",
+        "progress": "confidence-intelligence-progress",
+        "drivers": "confidence-intelligence-drivers",
+        "best_for": "confidence-intelligence-best-for",
+        "avoid": "confidence-intelligence-avoid"
       }
     },
-
-    "charts_and_meters": {
-      "confidence_meter": {
-        "type": "Gauge-like bar + numeric",
-        "implementation": "Use Progress (shadcn) + custom ticks (0/50/78/100).",
-        "color_logic": {
-          "gte_78": "amber",
-          "68_77": "cyan",
-          "lt_68": "muted",
-          "discarded": "red"
-        }
+    "MotivationContextBlock": {
+      "purpose": "Explain motivation with reasons, sources, urgency, and gameplay impact.",
+      "layout": {
+        "header": "Motivación (micro-label) + MotivationBadge summary",
+        "body": "Two-column: reasons/sources on left; gameplay impact (+/-) on right",
+        "mobile": "Accordion: Razones → Fuentes → Impacto"
       },
-      "live_momentum": {
-        "library": "recharts",
-        "install": "npm i recharts",
-        "use": "Small sparkline for momentum/xG trend in /live and /match/:id",
-        "empty_state": "If no live_stats, show Skeleton + 'Datos en vivo no disponibles'"
+      "visual": {
+        "badge": "Use Badge with icon + short label; avoid stacking multiple badges.",
+        "impact_list": "Use + / − indicators with lucide icons (Plus, Minus) and muted semantic tints."
+      },
+      "data_testids": {
+        "block": "motivation-context-block",
+        "badge": "motivation-badge",
+        "reasons": "motivation-reasons",
+        "impact": "motivation-impact"
+      }
+    },
+    "FilterIntelligenceBar": {
+      "purpose": "Smart filters with dynamic counts, engine-style presets, saved views.",
+      "layout": {
+        "top_row": "Engine style preset chips (h-scroll on mobile)",
+        "second_row": "Filter chips with counts + 'Saved views' button opens Sheet/Drawer",
+        "right": "Compact summary: active filters count + reset"
+      },
+      "interaction": {
+        "chips": "Use ToggleGroup for multi-select chips; each chip shows count in mono.",
+        "saved_views": "Use Sheet (desktop) / Drawer (mobile) with glass surface.",
+        "micro_motion": "Hover: border brighten + slight translate-y-[-1px]; Active: inset ring. No list-wide animations."
+      },
+      "mobile": {
+        "pattern": "ScrollArea horizontal rail; keep touch targets min-h-10; show fade edges using mask-image."
+      },
+      "data_testids": {
+        "bar": "picks-filter-bar",
+        "engine_presets": "engine-style-presets",
+        "saved_views_button": "saved-views-open-button",
+        "reset": "filters-reset-button"
+      }
+    },
+    "EmptyStateCoaching": {
+      "purpose": "Replace 'no picks' with engine reasoning + bankroll discipline + suggested waiting strategy.",
+      "layout": {
+        "hero": "Short headline + 1 sentence: 'No apostar también es una decisión ganadora.'",
+        "reasons": "Bulleted structured reasons (chips + explanation)",
+        "tips": "Educational tips card + suggested filters/presets",
+        "cta": "Primary: 'Ver mercados protegidos' / Secondary: 'Guardar vista'"
+      },
+      "tone": {
+        "copy": "Calm, disciplined, non-judgmental. Avoid hype.",
+        "visual": "Use Card + Separator; include subtle terminal-glow background only behind the empty state header (≤20% viewport)."
+      },
+      "data_testids": {
+        "empty_state": "empty-state-no-value",
+        "headline": "empty-state-headline",
+        "reasons": "empty-state-reasons",
+        "cta_primary": "empty-state-primary-cta"
+      }
+    },
+    "MatchIntelligencePanel": {
+      "purpose": "Terminal-style enriched match detail: narrative drivers timeline + volatility radar + key signals + best/avoid + fragility breakdown.",
+      "layout": {
+        "desktop": "Two-column: left narrative timeline; right analytics stack (radar + best/avoid + fragility)",
+        "mobile": "Tabs: Resumen / Señales / Mercados / Riesgo"
+      },
+      "charts": {
+        "library": "Recharts (already installed)",
+        "radar": "RadarChart for drivers strength + volatility; keep strokes thin; fill opacity 0.12; use emerald/cyan only.",
+        "fallback_under_640": "Replace radar with 3 summary stats rows (Volatilidad, Fragilidad, Riesgo) + top 3 drivers."
+      },
+      "timeline": {
+        "pattern": "Vertical list with timestamps/labels in mono; each event has a tooltip 'por qué'.",
+        "interaction": "Collapsible per driver for evidence bullets."
+      },
+      "data_testids": {
+        "panel": "match-intelligence-panel",
+        "radar": "match-intelligence-radar",
+        "best_avoid": "match-intelligence-best-avoid",
+        "timeline": "match-intelligence-timeline"
+      }
+    },
+    "PickCard_or_PickRow_Evolution": {
+      "goal": "Surface drivers + tags inline without visual noise.",
+      "pattern": {
+        "row": "Left: teams + market; Middle: driver chips (max 3 visible + '+N'); Right: confidence score + volatility label",
+        "expand": "Row expands (Collapsible) to show reasoning summary + best/avoid + fragility breakdown"
+      },
+      "density": "Use micro-labels and mono numerals; keep row height compact (min-h-14).",
+      "data_testids": {
+        "row": "pick-row",
+        "expand_button": "pick-row-expand-button"
       }
     }
   },
-
-  "page_blueprints": {
-    "global_shell": {
-      "header": {
-        "left": "Logo + app name + environment badge (LIVE/48H)",
-        "center": "Primary nav tabs: Dashboard / Live / History / Profile",
-        "right": "Language toggle (ES/EN) + user menu",
-        "behavior": "Sticky header with subtle backdrop blur; on scroll add border + shadow",
-        "classes": "sticky top-0 z-40 bg-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/50 border-b border-border"
-      },
-      "sticky_filter_bar": {
-        "use": "Dashboard + Live",
-        "filters": ["Confidence group", "Market", "Freshness", "Anti-trap", "League"],
-        "behavior": "Sticky below header; chips wrap on mobile; shows active filter count",
-        "classes": "sticky top-14 z-30 bg-background/80 backdrop-blur border-b border-border"
-      }
-    },
-
-    "/login": {
-      "goal": "Premium + trustworthy Google auth",
-      "layout": "Split-screen on desktop (left brand panel, right auth card). Single column on mobile.",
-      "left_panel": [
-        "Brand headline: 'Value Bet Intelligence'",
-        "Subhead: 'Disciplina. Transparencia. Valor real.'",
-        "3 bullets: Allowed markets only, Anti-trap detection, Track accuracy",
-        "Background: Terminal Glow gradient + subtle stadium image masked"
-      ],
-      "auth_card": [
-        "Google button (primary)",
-        "Security note: 'No guardamos tu contraseña'",
-        "Terms/Privacy links"
-      ],
-      "data_testids": ["login-google-button", "language-toggle", "login-terms-link"]
-    },
-
-    "/dashboard": {
-      "hero_row": [
-        "Left: 'Picks del día' + date + freshness summary",
-        "Right: CTA 'Generar picks del día' + last run timestamp"
-      ],
-      "grouping": [
-        "Alta (>=78)",
-        "Media (68-77)",
-        "Descartados",
-        "Datos incompletos"
-      ],
-      "cards": "Use MatchCard; group sections are collapsible on mobile (Collapsible).",
-      "empty_state": "Use EmptyStateNoValue component with strong copy."
-    },
-
-    "/live": {
-      "layout": "Two-column on desktop: live list + selected match panel. Mobile: tabs (List/Details).",
-      "live_row": [
-        "Pulsing live dot + minute",
-        "Scoreline",
-        "Key stats chips: possession, shots, xG",
-        "Momentum sparkline"
-      ],
-      "data_testids": ["live-match-row", "live-match-details-panel"]
-    },
-
-    "/match/:id": {
-      "layout": "Desktop: main (analysis) + right rail (odds + actions).",
-      "sections": [
-        "1) Summary strip: confidence meter, recommended market, odds, anti-trap badge",
-        "2) Odds snapshots: bookmaker comparison table + line movement",
-        "3) Team context: form, injuries, schedule congestion, motivation scoring 1-5 per team",
-        "4) Live stats (if live): possession/xG/momentum + event timeline",
-        "5) Analyst reasoning paragraph",
-        "6) Risks list (bulleted, severity chips)",
-        "7) Cash-out viability indicator"
-      ],
-      "actions": [
-        "Mark pick: won/lost/push",
-        "Add note",
-        "Copy share summary"
-      ],
-      "data_testids": ["match-confidence-meter", "odds-comparison-table", "mark-pick-won-button", "mark-pick-lost-button", "mark-pick-push-button"]
-    },
-
-    "/history": {
-      "layout": "Top KPI strip + table of picks",
-      "kpis": ["Win rate %", "Streak", "Last 10", "ROI (placeholder)"]
-    },
-
-    "/profile": {
-      "layout": "Profile card + stats dashboard",
-      "stats": ["Win rate", "Accuracy by confidence group", "Market breakdown", "Trap-avoidance rate (placeholder)"]
-    }
-  },
-
-  "motion_and_microinteractions": {
-    "library": {
-      "name": "framer-motion",
-      "install": "npm i framer-motion",
-      "use_cases": [
-        "Section entrance (fade+slide 8px)",
-        "Card hover lift (translateY -1) + border glow",
-        "Live pulse dot animation",
-        "Collapsible group expand/collapse"
-      ]
-    },
-    "rules": [
-      "No universal transition: never use transition-all.",
-      "Prefer transition-colors, transition-shadow, transition-opacity.",
-      "Respect prefers-reduced-motion: disable pulsing + entrance animations."
+  "motion_and_micro_interactions": {
+    "principles": [
+      "Use transform/opacity only; avoid animating large lists.",
+      "No transition: all. Only transition border-color, background-color, box-shadow, color.",
+      "Duration 120–220ms; never >300ms.",
+      "Prefer subtle hover lift (translateY -1px) on cards/chips; press scale 0.98 on buttons."
     ],
-    "snippets": {
-      "card_hover": "transition-shadow transition-colors duration-200 hover:shadow-[0_0_0_1px_rgba(53,211,255,0.18),0_10px_30px_rgba(0,0,0,0.35)] hover:border-cyan-500/25",
-      "live_pulse": "relative before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-2 before:w-2 before:rounded-full before:bg-emerald-400 before:shadow-[0_0_0_6px_rgba(46,229,157,0.12)] motion-safe:before:animate-pulse"
+    "framer_motion_usage": {
+      "where": [
+        "modal entrances",
+        "drawer/sheet",
+        "single card reveal",
+        "tooltip/hover-card subtle fade"
+      ],
+      "avoid": [
+        "animating entire pick lists",
+        "continuous looping animations except live pulse dot"
+      ]
     }
   },
-
   "accessibility": {
     "requirements": [
-      "WCAG AA contrast for text and interactive controls.",
-      "Visible focus rings: focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-      "Do not rely on color alone: add icons/labels for value/risk/trap.",
-      "Keyboard navigation for tabs, tables, dialogs, dropdowns.",
-      "All interactive + key informational elements MUST include data-testid (kebab-case)."
-    ],
-    "table_a11y": [
-      "Use <Table> semantics from shadcn.",
-      "Provide aria-label for odds tables and tooltips for abbreviations (DNB, 1X2)."
+      "Every numeric score and every chip/tag must have a tooltip explaining meaning (≤140 chars).",
+      "Color is not the only signal: include icon + label for states.",
+      "Focus-visible ring must remain (already defined in index.css).",
+      "Touch targets: min-h-10 for chips/buttons on mobile.",
+      "Respect prefers-reduced-motion (already used for live pulse)."
     ]
   },
-
-  "performance": {
-    "dashboard": [
-      "Use Skeleton for loading states; avoid layout shift.",
-      "Virtualize long tables if needed (optional later).",
-      "Prefer memoized MatchCard; keep charts tiny (sparklines)."
-    ]
-  },
-
-  "image_urls": {
-    "login_background": [
+  "images_and_textures": {
+    "image_urls": [
       {
-        "url": "https://images.unsplash.com/photo-1556056504-5c7696c4c28d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwxfHxkYXJrJTIwZm9vdGJhbGwlMjBzdGFkaXVtJTIwbGlnaHRzJTIwYWJzdHJhY3R8ZW58MHx8fGdyZWVufDE3NzkyMDY5NTB8MA&ixlib=rb-4.1.0&q=85",
-        "description": "Aerial football field at night; use as masked/blurred background behind login left panel.",
-        "category": "background"
+        "category": "background_texture",
+        "description": "Subtle noise/grain overlay (CSS preferred). No large photos; keep terminal feel.",
+        "url": "(use CSS noise; no external image required)"
       }
     ],
-    "texture_noise": [
-      {
-        "url": "https://images.pexels.com/photos/7641028/pexels-photo-7641028.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-        "description": "Dark mesh texture; use at 4–8% opacity as noise overlay on large containers.",
-        "category": "texture"
-      }
-    ],
-    "accent_visual": [
-      {
-        "url": "https://images.unsplash.com/photo-1631507366288-c8153653c9dd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwxfHxnb2xkJTIwYWJzdHJhY3QlMjBsaWdodCUyMHN0cmVha3xlbnwwfHx8eWVsbG93fDE3NzkyMDY5NTZ8MA&ixlib=rb-4.1.0&q=85",
-        "description": "Gold light streak; use as subtle blurred corner glow behind 'Alta' section header (very low opacity).",
-        "category": "decorative"
-      }
-    ]
+    "css_noise_snippet": "/* Add to a top-level container (e.g., DashboardPage wrapper) */\n.noise-overlay {\n  position: relative;\n}\n.noise-overlay:before {\n  content: '';\n  pointer-events: none;\n  position: absolute;\n  inset: 0;\n  opacity: 0.06;\n  mix-blend-mode: overlay;\n  background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"120\"><filter id=\"n\"><feTurbulence type=\"fractalNoise\" baseFrequency=\"0.9\" numOctaves=\"3\" stitchTiles=\"stitch\"/></filter><rect width=\"120\" height=\"120\" filter=\"url(%23n)\" opacity=\"0.35\"/></svg>');\n}\n"
   },
-
-  "instructions_to_main_agent": {
-    "global": [
-      "Remove default CRA centered header styles in App.css; do not center the app container.",
-      "Set dark theme as default by adding class 'dark' to <html> or root wrapper.",
-      "Implement bilingual toggle in header; store language in localStorage; all labels must have ES/EN strings.",
-      "Use shadcn components from /app/frontend/src/components/ui (no raw HTML dropdown/calendar/toast).",
-      "Use Sonner for toasts (already present).",
-      "Every interactive and key informational element must include data-testid (kebab-case)."
-    ],
-    "dashboard": [
-      "StickyFilterBar below header with chips + Select for leagues.",
-      "Group picks by confidence; each group has count + collapse on mobile.",
-      "MatchCard must show: confidence meter, market, odds (mono), motivation badges (both teams), freshness, anti-trap, risks, cash-out viability."
-    ],
-    "match_detail": [
-      "Right rail: OddsComparisonTable + actions (mark won/lost/push).",
-      "Main: 3-layer data sections with explicit missing/stale states.",
-      "LineMovement component: arrow + delta + tooltip."
-    ],
-    "history_profile": [
-      "Use Table for history; top KPI strip uses Cards.",
-      "Add placeholder ROI but visually de-emphasize (muted + 'Próximamente')."
-    ],
-    "libraries": [
-      "Install: framer-motion, recharts.",
-      "Use lucide-react for icons (no emoji icons)."
-    ],
-    "tailwind_utilities": {
-      "app_background": "bg-background text-foreground",
-      "panel": "bg-card border border-border rounded-xl",
-      "muted_text": "text-muted-foreground",
-      "mono": "font-mono tabular-nums",
-      "focus": "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-    }
+  "implementation_notes_js": {
+    "note": "Project uses .js (not .tsx). Keep components in JS, named exports for components, default exports for pages.",
+    "tooltip_scaffold": "// Example pattern (JS)\nimport { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';\n\nexport const ExplainableMetric = ({ label, value, why, testId }) => (\n  <div className=\"flex items-center justify-between gap-3\" data-testid={testId}>\n    <span className=\"micro-label\">{label}</span>\n    <TooltipProvider delayDuration={120}>\n      <Tooltip>\n        <TooltipTrigger asChild>\n          <span className=\"font-mono-tabular text-[13px] text-foreground\">{value}</span>\n        </TooltipTrigger>\n        <TooltipContent className=\"glass-surface text-xs max-w-[260px]\">{why}</TooltipContent>\n      </Tooltip>\n    </TooltipProvider>\n  </div>\n);\n"
   },
-
-  "general_ui_ux_design_guidelines_appendix": "- You must **not** apply universal transition. Eg: `transition: all`. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms\n- You must **not** center align the app container, ie do not add `.App { text-align: center; }` in the css file. This disrupts the human natural reading flow of text\n- NEVER: use AI assistant Emoji characters like`🤖🧠💭💡🔮🎯📚🎭🎬🎪🎉🎊🎁🎀🎂🍰🎈🎨🎰💰💵💳🏦💎🪙💸🤑📊📈📉💹🔢🏆🥇 etc for icons. Always use **FontAwesome cdn** or **lucid-react** library already installed in the package.json\n\n **GRADIENT RESTRICTION RULE**\nNEVER use dark/saturated gradient combos (e.g., purple/pink) on any UI element.  Prohibited gradients: blue-500 to purple 600, purple 500 to pink-500, green-500 to blue-500, red to pink etc\nNEVER use dark gradients for logo, testimonial, footer etc\nNEVER let gradients cover more than 20% of the viewport.\nNEVER apply gradients to text-heavy content or reading areas.\nNEVER use gradients on small UI elements (<100px width).\nNEVER stack multiple gradient layers in the same viewport.\n\n**ENFORCEMENT RULE:**\n    • Id gradient area exceeds 20% of viewport OR affects readability, **THEN** use solid colors\n\n**How and where to use:**\n   • Section backgrounds (not content backgrounds)\n   • Hero section header content. Eg: dark to light to dark color\n   • Decorative overlays and accent elements only\n   • Hero section with 2-3 mild color\n   • Gradients creation can be done for any angle say horizontal, vertical or diagonal\n\n- For AI chat, voice application, **do not use purple color. Use color like light green, ocean blue, peach orange etc**\n\n</Font Guidelines>\n\n- Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead. \n   \n- Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.\n\n- Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.\n   \n- Before generating UI, infer the visual style from the problem statement (palette, contrast, mood, motion) and immediately instantiate it by setting global design tokens (primary, secondary/accent, background, foreground, ring, state colors), rather than relying on any library defaults. Don't make the background dark as a default step, always understand problem first and define colors accordingly\n    Eg: - if it implies playful/energetic, choose a colorful scheme\n           - if it implies monochrome/minimal, choose a black–white/neutral scheme\n\n**Component Reuse:**\n\t- Prioritize using pre-existing components from src/components/ui when applicable\n\t- Create new components that match the style and conventions of existing components when needed\n\t- Examine existing components to understand the project's component patterns before creating new ones\n\n**IMPORTANT**: Do not use HTML based component like dropdown, calendar, toast etc. You **MUST** always use `/app/frontend/src/components/ui/ ` only as a primary components as these are modern and stylish component\n\n**Best Practices:**\n\t- Use Shadcn/UI as the primary component library for consistency and accessibility\n\t- Import path: ./components/[component-name]\n\n**Export Conventions:**\n\t- Components MUST use named exports (export const ComponentName = ...)\n\t- Pages MUST use default exports (export default function PageName() {...})\n\n**Toasts:**\n  - Use `sonner` for toasts\"\n  - Sonner component are located in `/app/src/components/ui/sonner.tsx`\n\nUse 2–4 color gradients, subtle textures/noise overlays, or CSS-based noise to avoid flat visuals."
+  "instructions_to_main_agent": [
+    "Preserve existing dark theme tokens; only extend with semantic tokens for volatility/fragility/match_state.",
+    "Implement the 5 artifacts using shadcn components listed; overlays (tooltips/sheets/dialogs) use glass-surface only.",
+    "Ensure every interactive and key informational element has data-testid (kebab-case). Preserve existing testids like data-testid=\"confidence-meter\".",
+    "ConfidenceIntelligenceCard must accept existing score prop and gracefully degrade when optional fields missing.",
+    "Filter bar on mobile must be horizontal ScrollArea chip rail; counts in mono.",
+    "Match detail: use Recharts RadarChart on desktop; collapse to summary stats under 640px.",
+    "No gradient buttons; no gradient text; keep gradients only as subtle background glow (≤20% viewport).",
+    "Avoid animating large lists; keep transitions specific (border-color, background-color, box-shadow, color)."
+  ],
+  "General UI UX Design Guidelines": "- You must **not** apply universal transition. Eg: `transition: all`. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms\n    - You must **not** center align the app container, ie do not add `.App { text-align: center; }` in the css file. This disrupts the human natural reading flow of text\n   - NEVER: use AI assistant Emoji characters like`🤖🧠💭💡🔮🎯📚🎭🎬🎪🎉🎊🎁🎀🎂🍰🎈🎨🎰💰💵💳🏦💎🪙💸🤑📊📈📉💹🔢🏆🥇 etc for icons. Always use **FontAwesome cdn** or **lucid-react** library already installed in the package.json\n\n **GRADIENT RESTRICTION RULE**\nNEVER use dark/saturated gradient combos (e.g., purple/pink) on any UI element.  Prohibited gradients: blue-500 to purple 600, purple 500 to pink-500, green-500 to blue-500, red to pink etc\nNEVER use dark gradients for logo, testimonial, footer etc\nNEVER let gradients cover more than 20% of the viewport.\nNEVER apply gradients to text-heavy content or reading areas.\nNEVER use gradients on small UI elements (<100px width).\nNEVER stack multiple gradient layers in the same viewport.\n\n**ENFORCEMENT RULE:**\n    • Id gradient area exceeds 20% of viewport OR affects readability, **THEN** use solid colors\n\n**How and where to use:**\n   • Section backgrounds (not content backgrounds)\n   • Hero section header content. Eg: dark to light to dark color\n   • Decorative overlays and accent elements only\n   • Hero section with 2-3 mild color\n   • Gradients creation can be done for any angle say horizontal, vertical or diagonal\n\n- For AI chat, voice application, **do not use purple color. Use color like light green, ocean blue, peach orange etc**\n\n</Font Guidelines>\n\n- Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead. \n   \n- Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.\n\n- Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.\n   \n- Before generating UI, infer the visual style from the problem statement (palette, contrast, mood, motion) and immediately instantiate it by setting global design tokens (primary, secondary/accent, background, foreground, ring, state colors), rather than relying on any library defaults. Don't make the background dark as a default step, always understand problem first and define colors accordingly\n    Eg: - if it implies playful/energetic, choose a colorful scheme\n           - if it implies monochrome/minimal, choose a black–white/neutral scheme\n\n**Component Reuse:**\n\t- Prioritize using pre-existing components from src/components/ui when applicable\n\t- Create new components that match the style and conventions of existing components when needed\n\t- Examine existing components to understand the project's component patterns before creating new ones\n\n**IMPORTANT**: Do not use HTML based component like dropdown, calendar, toast etc. You **MUST** always use `/app/frontend/src/components/ui/ ` only as a primary components as these are modern and stylish component\n\n**Best Practices:**\n\t- Use Shadcn/UI as the primary component library for consistency and accessibility\n\t- Import path: ./components/[component-name]\n\n**Export Conventions:**\n\t- Components MUST use named exports (export const ComponentName = ...)\n\t- Pages MUST use default exports (export default function PageName() {...})\n\n**Toasts:**\n  - Use `sonner` for toasts\"\n  - Sonner component are located in `/app/src/components/ui/sonner.tsx`\n\nUse 2–4 color gradients, subtle textures/noise overlays, or CSS-based noise to avoid flat visuals."
 }
