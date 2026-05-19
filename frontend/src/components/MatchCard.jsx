@@ -1,19 +1,25 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Clock, AlertOctagon, ShieldCheck } from 'lucide-react';
+import { Clock, AlertOctagon, ShieldCheck, ChevronDown, Gauge } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { formatDateTime, formatOdd, tierClass, confidenceTier } from '@/lib/format';
-import { ConfidenceMeter } from './ConfidenceMeter';
+import { ConfidenceMeter, ConfidenceIntelligenceCard } from './ConfidenceMeter';
 import { MotivationBadge } from './MotivationBadge';
 import { FreshnessBadge } from './FreshnessBadge';
 import { LivePulse } from './LivePulse';
 import { LineMovement } from './LineMovement';
+import { deriveIntelligence, DRIVER_META } from '@/lib/intelligence';
 
-export function MatchCard({ pick, idx = 0 }) {
+export function MatchCard({ pick, idx = 0, sport = 'football' }) {
   const { lang, t } = useI18n();
   const m = pick;
   const tier = confidenceTier(m.recommendation?.confidence_score || 0);
   const tierCls = tierClass(tier);
+  const intel = deriveIntelligence(m, sport);
+  const [expanded, setExpanded] = useState(false);
+  const visibleDrivers = (intel?.drivers || []).slice(0, 3);
+  const remainingDrivers = Math.max(0, (intel?.drivers || []).length - visibleDrivers.length);
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -63,7 +69,7 @@ export function MatchCard({ pick, idx = 0 }) {
             <LineMovement movement={m.key_data?.line_movement} />
           </div>
         </div>
-        <ConfidenceMeter score={m.recommendation?.confidence_score || 0} testId={`pick-conf-${m.match_id}`} />
+        <ConfidenceMeter score={m.recommendation?.confidence_score || 0} size="inline" testId={`pick-conf-${m.match_id}`} />
       </div>
 
       {/* Reasoning */}
@@ -86,6 +92,46 @@ export function MatchCard({ pick, idx = 0 }) {
           </span>
         )}
       </div>
+
+      {/* Inline drivers preview + expand */}
+      {intel && (visibleDrivers.length > 0 || intel.bestFor?.length > 0) && (
+        <div className="pt-2 border-t border-border/40">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            data-testid={`pick-row-expand-button-${m.match_id}`}
+            className="w-full flex items-center justify-between gap-2 text-left group"
+            aria-expanded={expanded}
+          >
+            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+              <span className="micro-label">DRIVERS</span>
+              {visibleDrivers.map((d) => {
+                const meta = DRIVER_META[d.key] || {};
+                const label = lang === 'en' ? meta.label_en : meta.label_es;
+                const tone = d.sign === 'positive' ? 'emerald' : d.sign === 'negative' ? 'rose' : 'slate';
+                return (
+                  <span key={d.key} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] border tone-${tone}`}>
+                    {label}
+                  </span>
+                );
+              })}
+              {remainingDrivers > 0 && (
+                <span className="text-[10px] text-muted-foreground font-mono-tabular">+{remainingDrivers}</span>
+              )}
+            </div>
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground shrink-0 group-hover:text-foreground transition-colors">
+              <Gauge className="h-3 w-3" />
+              <span className="hidden sm:inline">{expanded ? 'Ocultar' : 'Inteligencia'}</span>
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+            </span>
+          </button>
+          {expanded && (
+            <div className="mt-3" data-testid={`pick-intel-expanded-${m.match_id}`}>
+              <ConfidenceIntelligenceCard pick={m} sport={sport} />
+            </div>
+          )}
+        </div>
+      )}
     </motion.div>
   );
 }

@@ -6,12 +6,13 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { MotivationBadge } from '@/components/MotivationBadge';
+import { MotivationBadge, MotivationContextBlock } from '@/components/MotivationBadge';
 import { FreshnessBadge } from '@/components/FreshnessBadge';
 import { LivePulse } from '@/components/LivePulse';
-import { ConfidenceMeter } from '@/components/ConfidenceMeter';
+import { ConfidenceMeter, ConfidenceIntelligenceCard } from '@/components/ConfidenceMeter';
 import { OddsComparisonTable } from '@/components/OddsComparisonTable';
 import { LineMovement } from '@/components/LineMovement';
+import { MatchIntelligencePanel } from '@/components/MatchIntelligencePanel';
 import { formatDateTime } from '@/lib/format';
 
 export default function MatchDetailPage() {
@@ -125,7 +126,7 @@ export default function MatchDetailPage() {
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">{t.match.oddsRange}: <span className="text-foreground mono font-mono-tabular">{llmPick.recommendation?.odds_range}</span></div>
                 </div>
-                <ConfidenceMeter score={llmPick.recommendation?.confidence_score || 0} />
+                <ConfidenceMeter score={llmPick.recommendation?.confidence_score || 0} size="inline" />
               </div>
               {llmPick.reasoning && <p className="text-sm text-muted-foreground leading-relaxed border-l-2 border-cyan-500/40 pl-3">{llmPick.reasoning}</p>}
               {(llmPick.risks || []).length > 0 && (
@@ -138,6 +139,22 @@ export default function MatchDetailPage() {
               {llmPick.cash_out && (
                 <div className="text-xs flex items-center gap-1.5 text-cyan-200"><ShieldCheck className="h-3.5 w-3.5" />{t.match.cashOut}: <span className="text-foreground">{llmPick.cash_out}</span></div>
               )}
+
+              {/* Full intelligence card */}
+              <ConfidenceIntelligenceCard pick={llmPick} sport={sport} />
+
+              {/* Motivation context block */}
+              {llmPick.motivation && (
+                <MotivationContextBlock
+                  motivation={llmPick.motivation}
+                  homeName={home?.name}
+                  awayName={away?.name}
+                  lang={lang}
+                />
+              )}
+
+              {/* Decision Intelligence Panel (radar + drivers timeline + markets matrix + risk breakdown) */}
+              <MatchIntelligencePanel pick={llmPick} sport={sport} match={match} />
               <LineMovement movement={llmPick.key_data?.line_movement} />
             </div>
           ) : (

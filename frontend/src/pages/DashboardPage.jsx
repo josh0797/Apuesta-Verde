@@ -5,7 +5,9 @@ import { Link } from 'react-router-dom';
 import { useI18n, sportTerms } from '@/lib/i18n';
 import { useSport, sportLabel } from '@/lib/sport';
 import { api } from '@/lib/api';
+import { applyEnginePreset } from '@/lib/intelligence';
 import { AnalysisProgressModal } from '@/components/AnalysisProgressModal';
+
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { MatchCard } from '@/components/MatchCard';
@@ -87,7 +89,7 @@ export default function DashboardPage() {
   const [running, setRunning] = useState(false);
   const [run, setRun] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ league: '', market: '', minConfidence: 0 });
+  const [filters, setFilters] = useState({ league: '', market: '', minConfidence: 0, enginePreset: '' });
   const [activeJobId, setActiveJobId] = useState(null);
 
   const refs = {
@@ -167,12 +169,16 @@ export default function DashboardPage() {
   const data = run?.payload;
   const allPicks = useMemo(() => (data?.picks || []), [data]);
   const filteredPicks = useMemo(() => {
-    return allPicks.filter((p) => {
+    // First apply field filters, then apply engine preset (composable).
+    const fieldFiltered = allPicks.filter((p) => {
       if (filters.league && !(p.league || '').toLowerCase().includes(filters.league.toLowerCase())) return false;
       if (filters.market && !(p.recommendation?.market || '').toLowerCase().includes(filters.market.toLowerCase())) return false;
       if ((p.recommendation?.confidence_score || 0) < (filters.minConfidence || 0)) return false;
       return true;
     });
+    return filters.enginePreset
+      ? applyEnginePreset(fieldFiltered, filters.enginePreset)
+      : fieldFiltered;
   }, [allPicks, filters]);
 
   const { high, medium, discMot, discMkt, incomplete } = useMemo(() => {
@@ -279,12 +285,12 @@ export default function DashboardPage() {
         <div className="space-y-6">
           {high.length > 0 && (
             <GroupSection title={t.dashboard.groupHigh} count={high.length} tier="Alta" testId="group-high" sectionRef={refs.high} icon={Activity}>
-              <div className="grid gap-3">{high.map((p, i) => <MatchCard key={p.match_id || i} pick={p} idx={i} />)}</div>
+              <div className="grid gap-3">{high.map((p, i) => <MatchCard key={p.match_id || i} pick={p} idx={i} sport={sport} />)}</div>
             </GroupSection>
           )}
           {medium.length > 0 && (
             <GroupSection title={t.dashboard.groupMedium} count={medium.length} tier="Media" testId="group-medium" sectionRef={refs.medium} icon={Activity}>
-              <div className="grid gap-3">{medium.map((p, i) => <MatchCard key={p.match_id || i} pick={p} idx={i} />)}</div>
+              <div className="grid gap-3">{medium.map((p, i) => <MatchCard key={p.match_id || i} pick={p} idx={i} sport={sport} />)}</div>
             </GroupSection>
           )}
         </div>
@@ -292,7 +298,7 @@ export default function DashboardPage() {
 
       {/* No-value message — ONLY shown when no picks; discarded sections still appear below */}
       {!loading && data && data.verdict === 'no_value' && high.length === 0 && medium.length === 0 && (
-        <EmptyStateNoValue />
+        <EmptyStateNoValue summary={data.summary} />
       )}
 
       {/* ALWAYS show discarded/incomplete sections when data exists — this was the missing UX */}

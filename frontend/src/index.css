@@ -141,3 +141,79 @@ h1, h2, h3, h4 {
     box-shadow: 0 0 0 2px hsl(220 26% 6%), 0 0 0 4px hsl(var(--ring));
     border-radius: var(--radius);
 }
+
+/* ────────────────────────────────────────────────────────────────────
+   Decision Intelligence Terminal — semantic tokens & utility classes
+   These extend the base palette without overriding it.
+   ──────────────────────────────────────────────────────────────────── */
+:root {
+    /* Density multiplier (used for compact terminal rows) */
+    --density-compact: 0.875;
+
+    /* Terminal micro-typography */
+    --label-tracking: 0.14em;
+
+    /* Volatility tiers (hsl trio for use with opacity overlays on dark) */
+    --vol-low: 160 84% 45%;
+    --vol-med: 45 96% 55%;
+    --vol-high: 0 84% 60%;
+
+    /* Fragility tiers */
+    --frag-stable: 160 84% 45%;
+    --frag-sensitive: 45 96% 55%;
+    --frag-fragile: 350 70% 62%;
+
+    /* Tooltip / overlay glass surfaces */
+    --glass-alpha: 0.06;
+    --glass-border-alpha: 0.08;
+}
+
+/* Micro-label: monospace-leaning uppercase tracking, used for terminal section heads */
+.micro-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: var(--label-tracking);
+    color: hsl(var(--muted-foreground));
+    font-weight: 500;
+}
+
+/* Mono numeric with tabular figures — for scores, percentages, deltas */
+.font-mono-tabular {
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+}
+
+/* Overlay glass surface — modals, tooltips, drawers ONLY (NOT base cards) */
+.glass-surface {
+    background: rgba(255, 255, 255, var(--glass-alpha));
+    border: 1px solid rgba(255, 255, 255, var(--glass-border-alpha));
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+}
+
+/* Terminal density row — compact, separator-driven */
+.terminal-row {
+    padding-block: 0.5rem;
+    border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+.terminal-row:last-child { border-bottom: 0; }
+
+/* Subtle noise overlay for hero sections — keep ≤20% viewport */
+.noise-overlay { position: relative; }
+.noise-overlay::before {
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    opacity: 0.05;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='0.35'/></svg>");
+}
+
+/* Tone helpers — used by tag/chip components. All use semantic tokens. */
+.tone-emerald     { color: hsl(var(--primary)); background: hsl(var(--primary) / 0.10); border-color: hsl(var(--primary) / 0.30); }
+.tone-cyan        { color: hsl(var(--accent)); background: hsl(var(--accent) / 0.10); border-color: hsl(var(--accent) / 0.28); }
+.tone-amber       { color: hsl(var(--vol-med)); background: hsl(var(--vol-med) / 0.10); border-color: hsl(var(--vol-med) / 0.30); }
+.tone-rose        { color: hsl(var(--frag-fragile)); background: hsl(var(--frag-fragile) / 0.10); border-color: hsl(var(--frag-fragile) / 0.30); }
+.tone-slate       { color: hsl(var(--muted-foreground)); background: hsl(var(--secondary) / 0.6); border-color: hsl(var(--border)); }
