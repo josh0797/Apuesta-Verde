@@ -147,6 +147,7 @@ export default function MatchDetailPage() {
               {llmPick.motivation && (
                 <MotivationContextBlock
                   motivation={llmPick.motivation}
+                  motivationState={llmPick.motivation_state}
                   homeName={home?.name}
                   awayName={away?.name}
                   lang={lang}

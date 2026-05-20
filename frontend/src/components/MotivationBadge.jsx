@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import {
   Activity, Trophy, ShieldOff, ShieldHalf, Star, Crown,
-  HeartCrack, Flame, Clock, Plus, Minus, ChevronDown, Info,
+  HeartCrack, Flame, Clock, Plus, Minus, ChevronDown, TrendingUp,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { MOTIVATION_STATES, resolveMotivationState } from '@/lib/intelligence';
+
+const STATE_ICON_MAP = { Flame, TrendingUp, Clock, Activity };
 
 /** Compact badge — kept for legacy callers (MatchCard, MatchDetail) */
 const LEVELS = {
@@ -111,10 +114,11 @@ function impactForLevel(level) {
 /**
  * Props
  *   - motivation: { home: { level, label, reason }, away: { level, label, reason } }
+ *   - motivationState: optional override 'HIGH_BOTH' | 'ASYMMETRIC_HIGH_LOW' | 'LOW_BOTH' | 'NORMAL'
  *   - homeName / awayName: optional team display names
  *   - lang: 'es' | 'en'
  */
-export function MotivationContextBlock({ motivation, homeName, awayName, lang = 'es' }) {
+export function MotivationContextBlock({ motivation, motivationState, homeName, awayName, lang = 'es' }) {
   const [open, setOpen] = useState(true);
   if (!motivation) return null;
   const home = motivation.home || {};
@@ -124,12 +128,18 @@ export function MotivationContextBlock({ motivation, homeName, awayName, lang = 
   const homeImpact = impactForLevel(home.level || 3);
   const awayImpact = impactForLevel(away.level || 3);
 
+  // Resolve the motivation_state for the whole match (LLM-provided > derived)
+  const resolvedState = motivationState
+    || resolveMotivationState({ motivation_state: undefined, motivation });
+  const stateMeta = MOTIVATION_STATES[resolvedState] || MOTIVATION_STATES.NORMAL;
+  const StateIcon = STATE_ICON_MAP[stateMeta.icon] || Activity;
+
   const t = lang === 'en'
     ? { header: 'Motivation context', reasons: 'REASONS', sources: 'SOURCES', impact: 'EXPECTED GAMEPLAY IMPACT', unknown: 'No specific reason detected' }
     : { header: 'Contexto motivacional', reasons: 'RAZONES', sources: 'FUENTES', impact: 'IMPACTO ESPERADO EN JUEGO', unknown: 'Sin razón específica detectada' };
 
   return (
-    <div data-testid="motivation-context-block" className="rounded-xl border border-border/80 bg-card/60 overflow-hidden">
+    <div data-testid="motivation-context-block" data-motivation-state={resolvedState} className="rounded-xl border border-border/80 bg-card/60 overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -137,8 +147,26 @@ export function MotivationContextBlock({ motivation, homeName, awayName, lang = 
         aria-expanded={open}
         data-testid="motivation-context-toggle"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <span className="micro-label">{t.header}</span>
+          {/* Motivation state badge — the new v2 contextual classifier */}
+          <TooltipProvider delayDuration={140}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  data-testid="motivation-state-badge"
+                  data-state={resolvedState}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-medium border tone-${stateMeta.tone}`}
+                >
+                  <StateIcon className="h-3 w-3" />
+                  <span>{lang === 'en' ? stateMeta.label_en : stateMeta.label_es}</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="glass-surface text-xs max-w-[280px] leading-relaxed">
+                {lang === 'en' ? stateMeta.hint_en : stateMeta.hint_es}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <div className="flex items-center gap-1.5">
             <MotivationBadge level={home.level || 3} lang={lang} />
             <span className="text-[10px] text-muted-foreground">vs</span>

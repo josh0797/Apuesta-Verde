@@ -1,7 +1,28 @@
-"""LLM Analyst Engine.
+"""LLM Analyst Engine — two-stage hybrid pipeline.
 
-Wraps the betting-analyst persona (full Spanish system prompt) around
-Claude Sonnet 4.5 via Emergent Universal Key. Parses strict JSON output.
+Architecture:
+  Stage 1 (PRE-FILTER) — fast/cheap model (default: gpt-4o-mini)
+    • Normalizes raw match payloads
+    • Classifies accessory signals (motivation context, market viability)
+    • Returns a shortlist of candidate match_ids to deeply analyze
+
+  Stage 2 (FINAL ANALYSIS) — strong reasoning model (default: gpt-4o)
+    • Receives ONLY the shortlisted matches
+    • Produces the strict-JSON picks output the rest of the app consumes
+
+Motivation logic upgrade (v2):
+  • Motivation is CONTEXTUAL and STANDINGS-AWARE (relegation, playoffs,
+    European spots, title race, seeding, survival all bump 4-5).
+  • Low table position does NOT auto-imply low motivation.
+  • LOW_BOTH is the ONLY motivation state that may trigger automatic discard
+    (and only when no other edge exists).
+  • ASYMMETRIC_HIGH_LOW is treated as a SIGNAL, often creating value in
+    protected markets — never as a kill switch.
+
+Backwards compatibility:
+  • `analyze_matches(payload, sport)` keeps the same signature and returns the
+    same top-level JSON shape (with new optional fields `motivation_state` per
+    pick and `_pipeline` metadata at the root).
 """
 from __future__ import annotations
 
@@ -22,7 +43,20 @@ log = logging.getLogger("analyst")
 
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+# Two-stage model selection (both configurable). Defaults:
+#   MINI  → gpt-4o-mini   (pre-filter, normalization, accessory classification)
+#   FULL  → gpt-4o        (final deep analysis on candidates only)
+# Legacy var `OPENAI_MODEL` still respected as MINI default for backward compat.
+OPENAI_MODEL_MINI = os.environ.get("OPENAI_MODEL_MINI") or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_MODEL_FULL = os.environ.get("OPENAI_MODEL_FULL", "gpt-4o")
+
+# How aggressively to shortlist: at most this many matches reach Stage 2.
+# Tunable via env so prod can lower it if costs spike.
+TWO_STAGE_MAX_CANDIDATES = int(os.environ.get("TWO_STAGE_MAX_CANDIDATES", "6"))
+# Below this batch size the pre-filter adds latency without saving cost,
+# so we skip Stage 1 and go straight to Stage 2.
+TWO_STAGE_MIN_INPUT = int(os.environ.get("TWO_STAGE_MIN_INPUT", "3"))
 
 
 SPORT_RULES = {
@@ -40,6 +74,65 @@ SPORT_RULES = {
 }
 
 
+# ───────────────────────────────────────────────────────────────────────────
+# Motivation v2 — shared instruction block reused by BOTH prompts so the
+# pre-filter and the final analysis classify motivation identically.
+# ───────────────────────────────────────────────────────────────────────────
+MOTIVATION_RULES_V2 = """REGLAS DE MOTIVACIÓN v2 (CONTEXTUAL Y STANDINGS-AWARE):
+
+La motivación NO se deduce solo del nombre del equipo ni de la posición de tabla.
+Debe inferirse del CONTEXTO COMPETITIVO real (qué se juega cada equipo HOY).
+
+Clasifica cada equipo 1–5 según escenario real:
+  5 — Urgencia máxima: lucha directa por descenso/permanencia matemática,
+      partido decisivo de playoff, final/semifinal eliminatoria, definición
+      de título, partido a vida o muerte por clasificación europea/copas,
+      o seeding crítico en cierre de temporada NBA/MLB.
+  4 — Alta motivación: zona de playoffs / clasificación europea / wildcard
+      / playoffs MLB, racha de pelea por puesto, derbi o rivalidad fuerte,
+      necesidad de puntos para alcanzar objetivo aún vivo.
+  3 — Normal: temporada normal sin urgencia particular, mediación de
+      tabla sin objetivos ni amenazas inmediatas.
+  2 — Baja: objetivo ya prácticamente asegurado o ya eliminado pero
+      jugando por dignidad/rachas; equipo desconectado del objetivo.
+  1 — Sin motivación REAL: campeón ya confirmado, eliminado matemáticamente,
+      tanking deliberado en NBA, equipo ya descendido sin nada por jugar,
+      o rotación masiva confirmada (descanso de titulares pre-copa).
+
+REGLAS NEGATIVAS CRÍTICAS (no negociables):
+- Posición baja en tabla NO IMPLICA motivación baja. Si está en zona de descenso
+  y la temporada aún no terminó, motivación = 4–5 (lucha por supervivencia).
+- "Equipo grande" o "equipo pequeño" NO determina la motivación. El contexto sí.
+- Equipo fuera de Champions/playoffs pero peleando el último puesto = 4–5.
+- Equipo cómodo en zona media sin nada por jugar = 2–3 según rotación.
+- Si NO tienes información de standings/contexto suficiente, asigna 3 (Normal)
+  y reflejalo en el campo `reason`. NUNCA asumas motivación baja por defecto.
+
+CLASIFICA TAMBIÉN motivation_state DEL PARTIDO:
+  HIGH_BOTH         — ambos equipos en 4–5 (ambos tienen mucho por jugar)
+  ASYMMETRIC_HIGH_LOW — uno en 4–5, otro en 1–2 (asimetría motivacional)
+  LOW_BOTH          — ambos equipos en 1–2 (ninguno tiene algo real por jugar)
+  NORMAL            — el resto (incluye combinaciones con 3)
+
+POLÍTICA DE DESCARTE POR MOTIVACIÓN:
+- motivation_state = LOW_BOTH → solo descarta si NO hay ningún otro edge
+  (mercado protegido viable, asimetría de talento, valor en cuota, etc.).
+- motivation_state = ASYMMETRIC_HIGH_LOW → NO descartes. Considera el lado
+  con motivación 4–5 como favorito psicológico/táctico. Puede generar VALOR
+  real en mercados protegidos (Doble Oportunidad, Draw No Bet, 1X2 del lado
+  motivado, Under si el lado desmotivado defenderá replegado).
+- motivation_state = HIGH_BOTH → el partido puede ser caótico; usa Under
+  si hay defensa fuerte o evita Over por intensidad inestable.
+- motivation_state = NORMAL → trata el partido con los criterios estándar.
+
+La motivación es una SEÑAL ponderada, NO un kill switch. Si crees que vale
+la pena recomendar un pick con LOW_BOTH apoyado en un mercado protegido +
+otra evidencia, hazlo y lista el rationale en `reasoning`."""
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Stage 2 system prompt — full analysis (gpt-4o by default)
+# ───────────────────────────────────────────────────────────────────────────
 def _build_system_prompt(sport: str) -> str:
     sport_rules = SPORT_RULES.get(sport, SPORT_RULES["football"])
     return f"""Eres un analista deportivo profesional especializado en apuestas de VALOR con gestión de riesgo. Tu objetivo es identificar apuestas de alta probabilidad y baja volatilidad en eventos deportivos (próximas 48h o en vivo).
@@ -48,21 +141,16 @@ DEPORTE A ANALIZAR: {sport.upper()}
 
 {sport_rules}
 
-REGLAS GENERALES (todos los deportes):
-1. Análisis MOTIVACIONAL OBLIGATORIO antes de cualquier análisis técnico. Clasifica cada equipo 1-5:
-   - 5 Urgencia máxima (descenso, playoffs, final clasificación)
-   - 4 Alta motivación (puesto playoffs, semifinal)
-   - 3 Normal
-   - 2 Baja (objetivo asegurado, ya eliminado pero juega por dignidad)
-   - 1 Sin motivación (campeón, eliminado, tanking en NBA, descansando titulares)
+{MOTIVATION_RULES_V2}
 
-   Si equipo.motivacion <= 2: reducir confianza victoria 15-25% y NO recomendar como pick principal.
-   Si AMBOS equipos motivacion <= 2: DESCARTAR partido entero.
+REGLAS GENERALES (todos los deportes):
+1. Análisis MOTIVACIONAL OBLIGATORIO antes de cualquier análisis técnico, siguiendo el bloque de REGLAS DE MOTIVACIÓN v2 anterior.
 
 2. SCORE DE CONFIANZA (0-100), pesos:
    - Diferencia nivel 20% + Motivación 25% + Forma reciente 15% + H2H 10% + Local/Visitante 10% + Bajas 10% + Estabilidad mercado 10%.
    - Mínimo para recomendar: 60 (modo MODERADO). Media: 60-69. Alta: 70-79. Máxima: >=80.
    - Penalizaciones: contexto ausente/>12h: -10; odds ausentes/>1h: -5; solo 1 snapshot: -5; oponente motivacion=5: -5.
+   - BONIFICACIÓN por ASYMMETRIC_HIGH_LOW: +3 a +6 si el pick favorece al lado motivado en mercado protegido.
 
 3. ANTI-TRAMPA cuotas:
    - Cuota <1.15 DESCARTAR. Cuota >2.20 para favorito sospechoso, investigar.
@@ -85,9 +173,10 @@ REGLAS GENERALES (todos los deportes):
       "live_minute": (int|null),
       "live_score": ("X-Y"|null),
       "motivation": {{
-        "home": {{"level": 1-5, "label": "string", "reason": "string"}},
-        "away": {{"level": 1-5, "label": "string", "reason": "string"}}
+        "home": {{"level": 1-5, "label": "string", "reason": "string", "context": "string breve del escenario competitivo"}},
+        "away": {{"level": 1-5, "label": "string", "reason": "string", "context": "string breve del escenario competitivo"}}
       }},
+      "motivation_state": "HIGH_BOTH" | "ASYMMETRIC_HIGH_LOW" | "LOW_BOTH" | "NORMAL",
       "key_data": {{
         "form_home": "WDWLW",
         "form_away": "WDWLW",
@@ -112,7 +201,7 @@ REGLAS GENERALES (todos los deportes):
   "summary": {{
     "high_confidence": [{{"match_id": (int|string), "match_label": "string", "market": "string", "confidence": int}}],
     "medium_confidence": [{{"match_id": (int|string), "match_label": "string", "market": "string", "confidence": int}}],
-    "discarded_motivation": [{{"match_id": (int|string), "match_label": "string", "reason": "string"}}],
+    "discarded_motivation": [{{"match_id": (int|string), "match_label": "string", "reason": "string", "motivation_state": "LOW_BOTH"}}],
     "discarded_market": [{{"match_id": (int|string), "match_label": "string", "reason": "string"}}],
     "incomplete_data": [{{"match_id": (int|string), "match_label": "string", "missing": "string"}}],
     "total_analyzed": int,
@@ -122,14 +211,20 @@ REGLAS GENERALES (todos los deportes):
   }}
 }}
 
+POLÍTICA DE DESCARTE POR MOTIVACIÓN (recordatorio crítico):
+- SOLO listar un partido en `summary.discarded_motivation` cuando motivation_state = LOW_BOTH Y no encontraste ningún otro edge razonable.
+- NUNCA listes un ASYMMETRIC_HIGH_LOW en discarded_motivation. Si lo descartas, debe ir en discarded_market (mercado no viable) o incomplete_data (datos insuficientes).
+- NUNCA listes un HIGH_BOTH en discarded_motivation.
+
 NOTAS IMPORTANTES SOBRE LOS DATOS DISPONIBLES:
 - `data_source_season` puede ser "2024 (proxy)" porque el plan API no permite season actual. Esto es ESPERADO. Trata estos datos (form_last_5, position, wins/losses) como indicadores SÓLIDOS. Marca context como "stale" pero NO descartes por esto.
 - Si tienes odds + position + h2h, TIENES SUFICIENTE para hacer un análisis razonable.
+- Si recibes un campo `prefilter_hint` con motivation_state precomputado, úsalo como punto de partida pero recalcula tú mismo si la evidencia lo contradice.
 
 REGLA CRÍTICA DE CATEGORIZACIÓN (NO NEGOCIABLE):
 TODO partido analizado DEBE aparecer en EXACTAMENTE UNA de estas listas:
   - `picks` (si lo recomiendas)
-  - `summary.discarded_motivation`
+  - `summary.discarded_motivation` (solo si LOW_BOTH sin otro edge)
   - `summary.discarded_market`
   - `summary.incomplete_data`
 
@@ -144,6 +239,56 @@ NUNCA dejes las listas de descarte vacías cuando total_discarded > 0. Cada part
 ANALYST_SYSTEM_PROMPT = _build_system_prompt("football")
 
 
+# ───────────────────────────────────────────────────────────────────────────
+# Stage 1 system prompt — pre-filter (gpt-4o-mini)
+# ───────────────────────────────────────────────────────────────────────────
+def _build_prefilter_prompt(sport: str) -> str:
+    sport_rules = SPORT_RULES.get(sport, SPORT_RULES["football"])
+    return f"""Eres un PRE-FILTRO rápido para un sistema de apuestas de valor. Tu trabajo NO es recomendar picks — es preseleccionar candidatos y normalizar contexto.
+
+DEPORTE: {sport.upper()}
+
+{sport_rules}
+
+{MOTIVATION_RULES_V2}
+
+TU TRABAJO (en 3 pasos):
+
+1) Para CADA partido recibido, clasifica motivation_state aplicando las reglas anteriores.
+
+2) Marca cada partido con un `viability_tag`:
+   - "STRONG"   — claramente apto: motivation_state != LOW_BOTH, odds presentes, mercado protegido viable.
+   - "BORDERLINE" — apto pero con dudas: motivación parcial, datos incompletos pero contexto suficiente.
+   - "DISCARD" — descartable sin necesidad de análisis profundo: LOW_BOTH sin edge, odds ausentes Y forma ausente, mercado fragil sin alternativa.
+
+3) Devuelve JSON ESTRICTO:
+{{
+  "candidates": [
+    {{
+      "match_id": (int|string),
+      "match_label": "Equipo A vs Equipo B",
+      "motivation_state": "HIGH_BOTH" | "ASYMMETRIC_HIGH_LOW" | "LOW_BOTH" | "NORMAL",
+      "motivation_home_level": 1-5,
+      "motivation_away_level": 1-5,
+      "motivation_summary": "1 oración explicando el contexto motivacional",
+      "viability_tag": "STRONG" | "BORDERLINE" | "DISCARD",
+      "viability_reason": "string corto explicando la clasificación",
+      "preliminary_market_hint": "Doble Oportunidad" | "Under 2.5" | "Moneyline" | "Draw No Bet" | "Total Under" | "Spread" | "Run Line" | "ninguno",
+      "skip_deep_analysis": bool
+    }}
+  ]
+}}
+
+REGLAS DEL PRE-FILTRO:
+- skip_deep_analysis = true SOLO si viability_tag = "DISCARD" Y motivation_state = LOW_BOTH.
+- Si motivation_state = ASYMMETRIC_HIGH_LOW: viability_tag SIEMPRE es "STRONG" o "BORDERLINE", NUNCA "DISCARD" por motivo motivacional.
+- Si tienes posiciones/standings que indican lucha por descenso, playoffs, copa, título → motivación 4–5, viability_tag "STRONG".
+- Sé ESTRICTO con las cuotas: cuota <1.15 o >2.20 sospechosa → viability_tag "BORDERLINE" o "DISCARD".
+- Devuelve TODOS los partidos recibidos (no omitas ninguno). El sistema decide qué hacer.
+
+ÚNICAMENTE JSON válido. SIN markdown, SIN explicaciones fuera del JSON."""
+
+
 def _strip_to_json(text: str) -> str:
     t = text.strip()
     if t.startswith("```"):
@@ -155,15 +300,17 @@ def _strip_to_json(text: str) -> str:
     return t[s : e + 1]
 
 
-async def _call_openai(user_text: str, session_id: str, system_prompt: str) -> str:
-    """Primary provider: gpt-4o-mini via direct OpenAI key."""
+async def _call_openai_with_model(
+    user_text: str, session_id: str, system_prompt: str, model: str
+) -> str:
+    """Call OpenAI Chat Completions for a specific model with JSON-mode."""
     from openai import AsyncOpenAI
 
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY not configured")
     client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     resp = await client.chat.completions.create(
-        model=OPENAI_MODEL,
+        model=model,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_text},
@@ -189,51 +336,203 @@ async def _call_emergent(user_text: str, session_id: str, system_prompt: str) ->
     return await chat.send_message(UserMessage(text=user_text))
 
 
+async def _run_prefilter(
+    matches_payload: list[dict], sport: str, session_id: str
+) -> dict[str, dict]:
+    """Stage 1: cheap model classifies viability + motivation_state.
+
+    Returns a dict keyed by str(match_id) with the prefilter signal per match.
+    On any failure returns {} so the caller falls through to full analysis on
+    all input matches.
+    """
+    if not OPENAI_API_KEY:
+        return {}
+    system_prompt = _build_prefilter_prompt(sport)
+    user_text = (
+        f"Pre-filtra los siguientes partidos de {sport.upper()}. "
+        f"Devuelve JSON con todos los partidos clasificados.\n\n"
+        f"FECHA ACTUAL: {datetime.now(timezone.utc).isoformat()}\n"
+        f"TOTAL PARTIDOS: {len(matches_payload)}\n\n"
+        f"PARTIDOS:\n{json.dumps(matches_payload, ensure_ascii=False, default=str)}"
+    )
+    try:
+        raw = await _call_openai_with_model(
+            user_text, session_id, system_prompt, OPENAI_MODEL_MINI
+        )
+        parsed = json.loads(_strip_to_json(raw))
+        candidates = parsed.get("candidates") or []
+        index: dict[str, dict] = {}
+        for c in candidates:
+            mid = c.get("match_id")
+            if mid is None:
+                continue
+            index[str(mid)] = c
+        return index
+    except Exception as exc:
+        log.warning("Pre-filter failed (%s) — falling back to single-stage", exc)
+        return {}
+
+
+def _select_candidates(
+    matches_payload: list[dict], prefilter: dict[str, dict]
+) -> tuple[list[dict], list[dict]]:
+    """Split input matches into (to_analyze_deeply, auto_discarded).
+
+    auto_discarded carries enough info to populate
+    `summary.discarded_motivation` directly without a second LLM call.
+    Only matches the pre-filter explicitly tags as `skip_deep_analysis=true`
+    AND motivation_state == 'LOW_BOTH' get auto-discarded.
+    """
+    if not prefilter:
+        return list(matches_payload), []
+
+    to_analyze: list[dict] = []
+    auto_discarded: list[dict] = []
+
+    # Score function for ranking when we exceed TWO_STAGE_MAX_CANDIDATES
+    def viability_score(c: dict) -> int:
+        return {"STRONG": 3, "BORDERLINE": 2, "DISCARD": 1}.get(c.get("viability_tag", "BORDERLINE"), 2)
+
+    annotated: list[tuple[int, dict, dict]] = []  # (score, match_payload, prefilter_hint)
+    for m in matches_payload:
+        mid = str(m.get("match_id"))
+        hint = prefilter.get(mid) or {}
+        if hint.get("skip_deep_analysis") and hint.get("motivation_state") == "LOW_BOTH":
+            home = (m.get("home_team") or {}).get("name", "?")
+            away = (m.get("away_team") or {}).get("name", "?")
+            auto_discarded.append({
+                "match_id": m.get("match_id"),
+                "match_label": f"{home} vs {away}",
+                "reason": hint.get("viability_reason") or "LOW_BOTH sin edge alternativo",
+                "motivation_state": "LOW_BOTH",
+            })
+            continue
+        # Attach hint so Stage 2 sees the prefilter classification
+        enriched = {**m, "prefilter_hint": hint} if hint else m
+        annotated.append((viability_score(hint), enriched, hint))
+
+    # If we have more candidates than the cap, keep top-scored
+    annotated.sort(key=lambda t: -t[0])
+    selected = annotated[:TWO_STAGE_MAX_CANDIDATES]
+    overflow = annotated[TWO_STAGE_MAX_CANDIDATES:]
+
+    to_analyze = [t[1] for t in selected]
+    for _score, m, hint in overflow:
+        home = (m.get("home_team") or {}).get("name", "?")
+        away = (m.get("away_team") or {}).get("name", "?")
+        auto_discarded.append({
+            "match_id": m.get("match_id"),
+            "match_label": f"{home} vs {away}",
+            "reason": (hint.get("viability_reason") if hint else None) or "Overflow del pre-filtro (capacidad)",
+            "motivation_state": hint.get("motivation_state") if hint else None,
+            "_overflow": True,
+        })
+    return to_analyze, auto_discarded
+
+
 async def analyze_matches(matches_payload: list[dict], sport: str = "football") -> dict:
-    """Send matches to the LLM analyst, return parsed structured response.
+    """Two-stage hybrid analyst.
 
     Args:
       matches_payload: compact match dicts (output of normalizer.summarize_match_for_llm)
-      sport: one of "football" | "basketball" | "baseball" — drives the system prompt
-             rules (markets, motivation cues, anti-trap thresholds).
+      sport: 'football' | 'basketball' | 'baseball'
 
-    Provider priority:
-      1. OpenAI gpt-4o-mini (direct key)
-      2. Emergent LLM Key (Claude Sonnet 4.5)
+    Pipeline:
+      Stage 1 (when input >= TWO_STAGE_MIN_INPUT and OPENAI_API_KEY present):
+        OPENAI_MODEL_MINI normalizes context + classifies motivation_state +
+        viability_tag, returning a shortlist of candidates.
+      Stage 2:
+        OPENAI_MODEL_FULL produces the strict-JSON picks output on the
+        shortlist (or on the full payload if Stage 1 was skipped / failed).
+      Fallback:
+        If OpenAI is unavailable, Claude Sonnet 4.5 via Emergent runs Stage 2.
     """
     sport = (sport or "football").lower()
     if sport not in SPORT_RULES:
         sport = "football"
     system_prompt = _build_system_prompt(sport)
     session_id = f"analyst-{sport}-{uuid.uuid4().hex[:12]}"
+
+    # ── Stage 1 ── pre-filter (skipped for very small batches)
+    prefilter: dict[str, dict] = {}
+    pipeline_meta: dict[str, Any] = {
+        "stage1_model": None,
+        "stage2_model": None,
+        "stage1_skipped_reason": None,
+        "stage1_candidates": None,
+        "stage1_auto_discarded": 0,
+    }
+    if len(matches_payload) >= TWO_STAGE_MIN_INPUT and OPENAI_API_KEY:
+        log.info("Analyst[%s]: Stage 1 pre-filter via %s on %d matches",
+                 sport, OPENAI_MODEL_MINI, len(matches_payload))
+        prefilter = await _run_prefilter(matches_payload, sport, session_id)
+        if prefilter:
+            pipeline_meta["stage1_model"] = OPENAI_MODEL_MINI
+            pipeline_meta["stage1_candidates"] = len(prefilter)
+        else:
+            pipeline_meta["stage1_skipped_reason"] = "prefilter_failed_or_empty"
+    elif len(matches_payload) < TWO_STAGE_MIN_INPUT:
+        pipeline_meta["stage1_skipped_reason"] = f"input_below_threshold_{TWO_STAGE_MIN_INPUT}"
+    else:
+        pipeline_meta["stage1_skipped_reason"] = "openai_unavailable"
+
+    to_analyze, auto_discarded = _select_candidates(matches_payload, prefilter)
+    pipeline_meta["stage1_auto_discarded"] = len(auto_discarded)
+
+    if not to_analyze:
+        # Pre-filter classified everything as LOW_BOTH-with-no-edge.
+        # Emit a no_value verdict directly, no Stage 2 needed.
+        log.info("Analyst[%s]: pre-filter discarded all %d matches", sport, len(matches_payload))
+        return _emit_no_value_response(
+            matches_payload, auto_discarded, sport, session_id, pipeline_meta
+        )
+
+    # ── Stage 2 ── full analysis on shortlist
     user_text = (
         f"Analiza los siguientes partidos de {sport.upper()} según las reglas. Devuelve JSON estricto.\n\n"
         f"FECHA ACTUAL: {datetime.now(timezone.utc).isoformat()}\n"
         f"DEPORTE: {sport}\n"
-        f"TOTAL PARTIDOS: {len(matches_payload)}\n\n"
-        f"PARTIDOS:\n{json.dumps(matches_payload, ensure_ascii=False, default=str)}"
+        f"TOTAL PARTIDOS: {len(to_analyze)}\n"
+        f"PRE-FILTRO APLICADO: {'sí' if prefilter else 'no'}\n\n"
+        f"PARTIDOS:\n{json.dumps(to_analyze, ensure_ascii=False, default=str)}"
     )
 
     response: str = ""
     provider_used: str = ""
     last_error: Exception | None = None
 
-    # Try OpenAI first
     if OPENAI_API_KEY:
         try:
-            log.info("Analyst[%s]: trying OpenAI %s (primary)", sport, OPENAI_MODEL)
-            response = await _call_openai(user_text, session_id, system_prompt)
-            provider_used = f"openai:{OPENAI_MODEL}"
+            log.info(
+                "Analyst[%s]: Stage 2 deep analysis via %s on %d candidates",
+                sport, OPENAI_MODEL_FULL, len(to_analyze),
+            )
+            response = await _call_openai_with_model(
+                user_text, session_id, system_prompt, OPENAI_MODEL_FULL
+            )
+            provider_used = f"openai:{OPENAI_MODEL_FULL}"
+            pipeline_meta["stage2_model"] = OPENAI_MODEL_FULL
         except Exception as exc:
-            log.warning("OpenAI primary failed: %s — falling back to Emergent", exc)
+            log.warning("OpenAI Stage 2 (%s) failed: %s — trying mini", OPENAI_MODEL_FULL, exc)
             last_error = exc
+            # Cost-aware retry on mini (still better than nothing)
+            if OPENAI_MODEL_FULL != OPENAI_MODEL_MINI:
+                try:
+                    response = await _call_openai_with_model(
+                        user_text, session_id, system_prompt, OPENAI_MODEL_MINI
+                    )
+                    provider_used = f"openai:{OPENAI_MODEL_MINI} (fallback from {OPENAI_MODEL_FULL})"
+                    pipeline_meta["stage2_model"] = OPENAI_MODEL_MINI
+                    pipeline_meta["stage2_degraded"] = True
+                except Exception as exc2:
+                    last_error = exc2
 
-    # Fallback to Emergent
     if not response and EMERGENT_LLM_KEY:
         try:
-            log.info("Analyst[%s]: using Emergent LLM Key (fallback)", sport)
+            log.info("Analyst[%s]: Stage 2 via Emergent Claude Sonnet 4.5", sport)
             response = await _call_emergent(user_text, session_id, system_prompt)
             provider_used = "emergent:claude-sonnet-4-5"
+            pipeline_meta["stage2_model"] = "claude-sonnet-4-5"
         except Exception as exc:
             log.error("Emergent fallback also failed: %s", exc)
             last_error = exc
@@ -244,25 +543,45 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football") 
     raw = _strip_to_json(response)
     parsed = json.loads(raw)
 
-    # Reconciliation: if total_discarded > 0 but all discard lists are empty,
-    # auto-fill incomplete_data with the input matches that did NOT make it to picks.
+    # Merge auto_discarded from pre-filter into the summary so the
+    # categorization invariant len(picks)+lists == total_analyzed still holds
+    # against the ORIGINAL input size (not just the shortlist).
     summary = parsed.get("summary") or {}
     picks = parsed.get("picks") or []
-    picked_ids = {p.get("match_id") for p in picks}
     disc_mot = summary.get("discarded_motivation") or []
     disc_mkt = summary.get("discarded_market") or []
     incomp = summary.get("incomplete_data") or []
-    total_listed = len(picks) + len(disc_mot) + len(disc_mkt) + len(incomp)
-    expected = summary.get("total_analyzed") or len(matches_payload)
-    if total_listed < expected:
-        # Build a missing-matches fallback list using the original payload
-        existing_in_lists = {x.get("match_id") for x in (disc_mot + disc_mkt + incomp)}
+
+    if auto_discarded:
+        for d in auto_discarded:
+            if d.get("_overflow"):
+                # Overflow → categorize as market (no deep analysis run on it)
+                disc_mkt.append({
+                    "match_id": d["match_id"],
+                    "match_label": d["match_label"],
+                    "reason": d.get("reason") or "No analizado por capacidad — viability baja",
+                })
+            else:
+                # Motivation auto-discard (LOW_BOTH no-edge)
+                disc_mot.append({
+                    "match_id": d["match_id"],
+                    "match_label": d["match_label"],
+                    "reason": d.get("reason") or "LOW_BOTH sin edge alternativo",
+                    "motivation_state": "LOW_BOTH",
+                })
+        summary["discarded_motivation"] = disc_mot
+        summary["discarded_market"] = disc_mkt
+
+    # Reconciliation against the FULL input set
+    picked_ids = {p.get("match_id") for p in picks}
+    listed_ids = picked_ids | {x.get("match_id") for x in (disc_mot + disc_mkt + incomp)}
+    expected_total = len(matches_payload)
+    if (len(picks) + len(disc_mot) + len(disc_mkt) + len(incomp)) < expected_total:
         for m in matches_payload:
             mid = m.get("match_id")
-            if mid in picked_ids or mid in existing_in_lists:
+            if mid in listed_ids:
                 continue
             label = f"{(m.get('home_team') or {}).get('name','?')} vs {(m.get('away_team') or {}).get('name','?')}"
-            # Heuristic: if no odds → incomplete; if form missing on both → incomplete; else market
             home_ctx = (m.get('home_team') or {}).get('context') or {}
             away_ctx = (m.get('away_team') or {}).get('context') or {}
             has_odds = bool(m.get('odds_snapshots'))
@@ -272,15 +591,76 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football") 
             elif not has_form:
                 incomp.append({"match_id": mid, "match_label": label, "missing": "Sin forma reciente ni posición"})
             else:
-                disc_mkt.append({"match_id": mid, "match_label": label, "reason": "No cumple criterios de valor (cuotas/motivación insuficientes para mercados protegidos)"})
-        summary["discarded_motivation"] = disc_mot
-        summary["discarded_market"] = disc_mkt
+                disc_mkt.append({
+                    "match_id": mid, "match_label": label,
+                    "reason": "No cumple criterios de valor (cuotas/mercados protegidos insuficientes)",
+                })
         summary["incomplete_data"] = incomp
-        summary["total_discarded"] = len(disc_mot) + len(disc_mkt) + len(incomp)
-        parsed["summary"] = summary
+        summary["discarded_market"] = disc_mkt
+
+    summary["total_analyzed"] = expected_total
+    summary["total_recommended"] = len(picks)
+    summary["total_discarded"] = len(disc_mot) + len(disc_mkt) + len(incomp)
+    parsed["summary"] = summary
 
     parsed["_generated_at"] = datetime.now(timezone.utc).isoformat()
     parsed["_session_id"] = session_id
     parsed["_provider"] = provider_used
     parsed["_sport"] = sport
+    parsed["_pipeline"] = pipeline_meta
     return parsed
+
+
+def _emit_no_value_response(
+    matches_payload: list[dict],
+    auto_discarded: list[dict],
+    sport: str,
+    session_id: str,
+    pipeline_meta: dict,
+) -> dict:
+    """Build a synthetic no_value response when Stage 1 discards everything.
+
+    Saves a full Stage 2 LLM call when the pre-filter has already determined
+    no candidate matches deserve deep analysis.
+    """
+    disc_mot = [
+        {
+            "match_id": d["match_id"],
+            "match_label": d["match_label"],
+            "reason": d.get("reason") or "LOW_BOTH sin edge alternativo",
+            "motivation_state": d.get("motivation_state") or "LOW_BOTH",
+        }
+        for d in auto_discarded
+        if not d.get("_overflow")
+    ]
+    disc_mkt = [
+        {
+            "match_id": d["match_id"],
+            "match_label": d["match_label"],
+            "reason": d.get("reason") or "Pre-filtro: sin candidatos viables",
+        }
+        for d in auto_discarded
+        if d.get("_overflow")
+    ]
+    total = len(matches_payload)
+    return {
+        "verdict": "no_value",
+        "no_value_message": "Hoy no hay valor. No apostar es la mejor apuesta.",
+        "picks": [],
+        "summary": {
+            "high_confidence": [],
+            "medium_confidence": [],
+            "discarded_motivation": disc_mot,
+            "discarded_market": disc_mkt,
+            "incomplete_data": [],
+            "total_analyzed": total,
+            "total_recommended": 0,
+            "total_discarded": len(disc_mot) + len(disc_mkt),
+            "data_freshness": {"odds": "fresh", "context": "fresh", "live_active": 0},
+        },
+        "_generated_at": datetime.now(timezone.utc).isoformat(),
+        "_session_id": session_id,
+        "_provider": f"prefilter-only:{OPENAI_MODEL_MINI}",
+        "_sport": sport,
+        "_pipeline": pipeline_meta,
+    }

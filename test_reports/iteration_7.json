@@ -1,0 +1,47 @@
+{
+  "summary": "Completed comprehensive testing of Motivation v2 + Two-Stage LLM Pipeline. Verified backend analyst_engine.py two-stage architecture (gpt-4o-mini → gpt-4o), MOTIVATION_RULES_V2 contextual logic, motivation_state field in picks (HIGH_BOTH, ASYMMETRIC_HIGH_LOW, LOW_BOTH, NORMAL), and frontend MotivationContextBlock UI integration. All critical requirements validated.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Backend: analyst_engine.py module imports successfully with all required exports (SPORT_RULES, MOTIVATION_RULES_V2, _build_system_prompt, _build_prefilter_prompt, _run_prefilter, _select_candidates, analyze_matches)",
+    "Backend: Env var defaults working (OPENAI_MODEL_MINI=gpt-4o-mini, OPENAI_MODEL_FULL=gpt-4o, TWO_STAGE_MAX_CANDIDATES=6, TWO_STAGE_MIN_INPUT=3)",
+    "Backend: MOTIVATION_RULES_V2 contains all critical keywords ('CONTEXTUAL Y STANDINGS-AWARE', 'Posición baja en tabla NO IMPLICA motivación baja')",
+    "Backend: Stage 2 prompt includes critical instruction 'NUNCA listes un ASYMMETRIC_HIGH_LOW en discarded_motivation'",
+    "Backend: POST /api/analysis/run response includes _pipeline metadata (stage1_model, stage2_model, stage1_candidates, stage1_auto_discarded)",
+    "Backend: All picks have motivation_state field with valid values (ASYMMETRIC_HIGH_LOW, HIGH_BOTH)",
+    "Backend: discarded_motivation ONLY contains LOW_BOTH (verified: SC Freiburg vs Aston Villa with state=LOW_BOTH)",
+    "Backend: Total categorization math correct (picks=2, disc_mot=1, disc_mkt=5, incomplete=0, total_analyzed=8)",
+    "Backend: Backward compatibility verified (GET /api/learning/stats, /api/stats/timeline, /api/profile/saved-views all working)",
+    "Frontend: intelligence.js exports MOTIVATION_STATES with all 4 keys (HIGH_BOTH, ASYMMETRIC_HIGH_LOW, LOW_BOTH, NORMAL)",
+    "Frontend: resolveMotivationState function correctly uses LLM-provided value or derives from home/away levels",
+    "Frontend: MotivationContextBlock accepts motivationState prop and renders with correct data-motivation-state attribute",
+    "Frontend: motivation-state-badge has data-testid='motivation-state-badge' and data-state attribute",
+    "Frontend: Badge displays correct label ('Asimetría motivacional' for ASYMMETRIC_HIGH_LOW in Spanish)",
+    "Frontend: Badge has correct tone class (tone-amber for ASYMMETRIC_HIGH_LOW)",
+    "Frontend: Tooltip displays correct hint ('Un lado urge, el otro no — puede generar valor en mercados protegidos.')",
+    "Frontend: State consistency verified (container and badge both show ASYMMETRIC_HIGH_LOW)",
+    "Frontend: MatchDetailPage correctly passes llmPick.motivation_state to MotivationContextBlock",
+    "Frontend: Individual team motivation badges render correctly (6 badges found)"
+  ],
+  "test_report_links": [
+    "/app/backend/test_motivation_v2.py",
+    "/app/.screenshots/motivation-context-verified.png"
+  ],
+  "success_percentage": {
+    "backend": "100% (6/6 tests passed)",
+    "frontend": "100% (all UI elements verified)"
+  },
+  "action_item_for_main_agent": "",
+  "updated_files": [
+    "/app/backend/test_motivation_v2.py"
+  ],
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false
+}

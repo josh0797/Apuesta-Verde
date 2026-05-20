@@ -44,6 +44,73 @@ export const MATCH_STATES = {
   LOW_URGENCY:      { icon: 'Clock',       tone: 'slate',   label_es: 'Baja urgencia',   label_en: 'Low urgency' },
 };
 
+// ─── Motivation state taxonomy (v2) ─────────────────────────────────────────
+// Emitted by the analyst engine for each pick. Used to surface the contextual
+// motivation pattern rather than reducing it to a single 1–5 number per team.
+//
+//   HIGH_BOTH          — both teams have plenty to play for
+//   ASYMMETRIC_HIGH_LOW — one side is highly motivated, the other has little
+//                         left to play for; often creates value in protected
+//                         markets favoring the motivated side
+//   LOW_BOTH           — neither team has anything real on the line; the only
+//                         state that may justify auto-discard (and only when
+//                         no other edge exists)
+//   NORMAL             — anything else, treated with the standard rules
+export const MOTIVATION_STATES = {
+  HIGH_BOTH: {
+    icon: 'Flame',
+    tone: 'cyan',
+    label_es: 'Ambos motivados',
+    label_en: 'Both motivated',
+    hint_es: 'Los dos equipos tienen algo importante por jugar.',
+    hint_en: 'Both sides have meaningful stakes.',
+  },
+  ASYMMETRIC_HIGH_LOW: {
+    icon: 'TrendingUp',
+    tone: 'amber',
+    label_es: 'Asimetría motivacional',
+    label_en: 'Asymmetric motivation',
+    hint_es: 'Un lado urge, el otro no — puede generar valor en mercados protegidos.',
+    hint_en: 'One side urgent, the other not — possible edge in protected markets.',
+  },
+  LOW_BOTH: {
+    icon: 'Clock',
+    tone: 'slate',
+    label_es: 'Sin urgencia bilateral',
+    label_en: 'No bilateral urgency',
+    hint_es: 'Ninguno tiene algo real por jugar — descartar salvo otro edge claro.',
+    hint_en: 'Neither side has real stakes — discard unless a clear edge exists.',
+  },
+  NORMAL: {
+    icon: 'Activity',
+    tone: 'emerald',
+    label_es: 'Motivación normal',
+    label_en: 'Normal motivation',
+    hint_es: 'Partido sin patrón motivacional extremo. Aplicar reglas estándar.',
+    hint_en: 'No extreme motivation pattern. Apply standard rules.',
+  },
+};
+
+/** Resolve motivation_state from a pick — uses LLM-provided value if present,
+ * else derives from the per-team levels with the same rules as the backend.
+ */
+export function resolveMotivationState(pick) {
+  if (!pick) return 'NORMAL';
+  if (pick.motivation_state && MOTIVATION_STATES[pick.motivation_state]) {
+    return pick.motivation_state;
+  }
+  const h = pick.motivation?.home?.level ?? 3;
+  const a = pick.motivation?.away?.level ?? 3;
+  const highH = h >= 4;
+  const highA = a >= 4;
+  const lowH = h <= 2;
+  const lowA = a <= 2;
+  if (highH && highA) return 'HIGH_BOTH';
+  if (lowH && lowA) return 'LOW_BOTH';
+  if ((highH && lowA) || (lowH && highA)) return 'ASYMMETRIC_HIGH_LOW';
+  return 'NORMAL';
+}
+
 // ─── Engine style presets ──────────────────────────────────────────────────
 export const ENGINE_STYLES = {
   conservative:        { icon: 'Shield',  tone: 'slate',   label_es: 'Conservador',        label_en: 'Conservative' },

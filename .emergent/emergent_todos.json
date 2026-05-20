@@ -1,30 +1,26 @@
 [
   {
-    "content": "FASE 1: Backend auto-promoción SYNC→background cuando max_matches>4 (fix 502)",
+    "content": "FASE 1: Reescribir prompt con nuevas reglas de motivación contextual + motivation_state field",
     "status": "completed"
   },
   {
-    "content": "FASE 2: Extender intelligence.js con deriveHistoricalSignal + detectContradictions",
+    "content": "FASE 2: Implementar prompt de pre-filtrado para gpt-4o-mini",
     "status": "completed"
   },
   {
-    "content": "FASE 3: Crear ContradictionWarnings.jsx y EngineNarrativeBlock.jsx",
+    "content": "FASE 3: Two-stage pipeline en analyze_matches (mini pre-filter → full analysis)",
     "status": "completed"
   },
   {
-    "content": "FASE 4: Refactor HistoricalPatternBadge para mostrar historical_signal v2",
+    "content": "FASE 4: Env vars OPENAI_MODEL_MINI / OPENAI_MODEL_FULL configurables",
     "status": "completed"
   },
   {
-    "content": "FASE 5: Integrar todo en MatchIntelligencePanel (fix History import + nuevos bloques)",
+    "content": "FASE 5: Frontend - MotivationContextBlock muestra motivation_state badge + intelligence.js MOTIVATION_STATES",
     "status": "completed"
   },
   {
-    "content": "FASE 6: WinRateChart con CSS tokens + tooltip enriquecido (market/state/confidence/outcome/odds)",
-    "status": "completed"
-  },
-  {
-    "content": "FASE 7: Lint + build verify + testing agent E2E",
-    "status": "completed"
+    "content": "FASE 6: Lint + curl test + testing agent E2E",
+    "status": "in_progress"
   }
 ]
