@@ -303,13 +303,34 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
     """Run the LLM analyst on currently ingested matches for the chosen sport.
 
     Two modes:
-      - SYNC (default): blocks until completion, returns full result (60-120s for NBA/MLB).
+      - SYNC (default): blocks until completion, returns full result.
       - BACKGROUND (`background=true`): returns immediately with `job_id`;
         client polls `/api/analysis/jobs/{job_id}` for progress + final result.
+
+    Auto-promotion: SYNC mode with `max_matches > 4` is automatically promoted
+    to BACKGROUND because the ingress timeout (~60s) is shorter than the
+    analysis duration for larger batches. The response in that case carries the
+    same shape as a normal background submission, plus `_auto_promoted: true`
+    so any legacy client can detect the switch.
     """
     sport = _norm_sport(payload.sport)
 
-    if payload.background:
+    # ── Auto-promote heavy SYNC requests to BACKGROUND to avoid 502s ────────
+    # The Kubernetes ingress cuts requests around 60s; a 6-8 match analysis
+    # routinely takes 60-120s. We transparently promote and let the client
+    # poll. The frontend already uses background=true, so this only affects
+    # external/test callers using SYNC.
+    auto_promoted = False
+    effective_background = payload.background
+    if not effective_background and payload.max_matches > 4:
+        effective_background = True
+        auto_promoted = True
+        log.info(
+            "analysis_run: auto-promoting SYNC→background (sport=%s max_matches=%d) to avoid ingress timeout",
+            sport, payload.max_matches,
+        )
+
+    if effective_background:
         async def _job(job_id: str) -> None:
             async def progress(stage: str, pct: int, msg: str):
                 await job_queue.update_progress(db, job_id, stage, pct, msg)
@@ -341,15 +362,22 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
                 "max_matches": payload.max_matches,
             },
         )
-        return {
+        response = {
             "job_id": job_id,
             "status": "queued",
             "sport": sport,
             "stage": "queued",
             "progress": 0,
         }
+        if auto_promoted:
+            response["_auto_promoted"] = True
+            response["_auto_promoted_reason"] = (
+                "SYNC requests with max_matches > 4 are automatically promoted to "
+                "background to avoid ingress timeout. Poll /api/analysis/jobs/{job_id}."
+            )
+        return response
 
-    # SYNC path
+    # SYNC path (only when max_matches <= 4)
     return await _run_analysis_pipeline(
         user_id=user["id"],
         sport=sport,
@@ -927,24 +955,41 @@ async def picks_tracked_export(user: dict = Depends(get_current_user)):
 
 @api.get("/stats/timeline")
 async def stats_timeline(user: dict = Depends(get_current_user), limit: int = 50):
-    """Return chronological winrate evolution per settled pick (for chart)."""
+    """Return chronological winrate evolution per settled pick (for chart).
+
+    Backward-compatible with two schemas in pick_tracking:
+      - newer flow:  field `outcome` in {'won','lost','push','pending'}
+      - older seed:  field `result`  in {'win','lose','void'}
+
+    Each timeline entry carries (market, selection, odds, confidence, league)
+    so the chart tooltip can show full context for any data point.
+    """
     docs = await db.pick_tracking.find({"user_id": user["id"]}).sort("tracked_at", 1).to_list(length=limit * 4)
     cumulative_won = 0
     cumulative_settled = 0
     timeline = []
     for d in docs:
-        out = d.get("outcome")
-        if out not in ("won", "lost"):
-            continue
+        # Normalize outcome across both schemas
+        raw_out = d.get("outcome") or d.get("result")
+        if raw_out in ("won", "win"):
+            norm_out = "won"
+        elif raw_out in ("lost", "lose"):
+            norm_out = "lost"
+        else:
+            continue  # skip pending/push/void/None for timeline math
         cumulative_settled += 1
-        if out == "won":
+        if norm_out == "won":
             cumulative_won += 1
         rate = round((cumulative_won / cumulative_settled) * 100, 1) if cumulative_settled else 0.0
         timeline.append({
             "tracked_at": d.get("tracked_at"),
             "match_label": d.get("match_label"),
-            "outcome": out,
+            "league": d.get("league"),
+            "market": d.get("market"),
+            "selection": d.get("selection"),
+            "outcome": norm_out,
             "confidence_score": d.get("confidence_score"),
+            "odds": d.get("odds"),
             "cumulative_won": cumulative_won,
             "cumulative_settled": cumulative_settled,
             "win_rate": rate,

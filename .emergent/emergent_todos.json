@@ -1,30 +1,30 @@
 [
   {
-    "content": "Backend: agregar endpoint PATCH /api/profile/saved-views/{view_id} para editar nombre/filtros/preset",
+    "content": "FASE 1: Backend auto-promoción SYNC→background cuando max_matches>4 (fix 502)",
     "status": "completed"
   },
   {
-    "content": "Backend: ajustar cap de vistas de 12 → 10 con evicción por created_at",
+    "content": "FASE 2: Extender intelligence.js con deriveHistoricalSignal + detectContradictions",
     "status": "completed"
   },
   {
-    "content": "Frontend: refactorizar PicksFilterBar para usar backend en vez de LocalStorage (load/save/delete via API)",
+    "content": "FASE 3: Crear ContradictionWarnings.jsx y EngineNarrativeBlock.jsx",
     "status": "completed"
   },
   {
-    "content": "Frontend: agregar UI de edición de vistas (renombrar + actualizar filtros con los actuales)",
+    "content": "FASE 4: Refactor HistoricalPatternBadge para mostrar historical_signal v2",
     "status": "completed"
   },
   {
-    "content": "Frontend: respetar límite 10/10 con feedback visual al usuario",
+    "content": "FASE 5: Integrar todo en MatchIntelligencePanel (fix History import + nuevos bloques)",
     "status": "completed"
   },
   {
-    "content": "Lint backend + frontend y verificar build sin errores",
+    "content": "FASE 6: WinRateChart con CSS tokens + tooltip enriquecido (market/state/confidence/outcome/odds)",
     "status": "completed"
   },
   {
-    "content": "Probar flow completo con testing agent (crear/aplicar/editar/eliminar/persistir)",
-    "status": "completed"
+    "content": "FASE 7: Lint + build verify + testing agent E2E",
+    "status": "in_progress"
   }
 ]

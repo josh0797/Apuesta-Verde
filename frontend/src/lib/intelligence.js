@@ -262,6 +262,314 @@ export const BUILTIN_VIEWS = [
 ];
 
 
+// ───────────────────────────────────────────────────────────────────────────
+// Historical Learning v2 — derives a decision-support signal from /learning/stats
+// ───────────────────────────────────────────────────────────────────────────
+//
+// PHILOSOPHY:
+//   - Read-only learning. NEVER mutates picks or auto-overrides the LLM score.
+//   - Output is a SUGGESTION layer for the user/UI, not an actuator.
+//   - Always surfaces low-sample warnings to prevent over-trust on noise.
+//
+// The signal is consumed by HistoricalPatternBadge + EngineNarrativeBlock.
+
+/**
+ * deriveHistoricalSignal(stat, pick)
+ *
+ * @param {object|null} stat — a single pattern row from /api/learning/stats
+ *        e.g. { market, match_state, samples, wins, losses, winrate,
+ *               reliability, engine_agreement }
+ * @param {object|null} pick — the analyst pick (used for visual_confidence
+ *        cross-check; optional).
+ * @returns {object} historical_signal
+ *
+ *   {
+ *     status: 'no-data' | 'low-sample' | 'weak' | 'neutral' | 'strong' | 'elite',
+ *     pattern_strength: 0..100,                  // composite score
+ *     sample_size: number,
+ *     winrate: number|null,                      // 0..100
+ *     reliability: number,                       // 0..100
+ *     engine_agreement: number,                  // 0..100
+ *     confidence_modifier_suggestion: -10..+10,  // pure UI hint, never applied
+ *     warning_if_low_sample: boolean,
+ *     trust_label_es / trust_label_en: short label for the badge tier
+ *   }
+ */
+export function deriveHistoricalSignal(stat, pick = null) {
+  if (!stat || typeof stat !== 'object') {
+    return {
+      status: 'no-data',
+      pattern_strength: 0,
+      sample_size: 0,
+      winrate: null,
+      reliability: 0,
+      engine_agreement: 0,
+      confidence_modifier_suggestion: 0,
+      warning_if_low_sample: true,
+      trust_label_es: 'Sin datos',
+      trust_label_en: 'No data',
+    };
+  }
+  const samples = Number(stat.samples || 0);
+  const winrate = stat.winrate == null ? null : Number(stat.winrate);
+  const reliability = Number(stat.reliability || 0);
+  const engineAgreement = Number(stat.engine_agreement || 0);
+
+  // ── Pattern strength composite (0..100) ──
+  // 50% reliability + 30% engine_agreement + 20% sample-coverage (capped at 30).
+  const sampleCoverage = Math.min(100, (samples / 30) * 100);
+  const patternStrength = Math.round(
+    0.50 * reliability + 0.30 * engineAgreement + 0.20 * sampleCoverage
+  );
+
+  // ── Status tier ──
+  let status;
+  if (samples <= 2) status = 'low-sample';
+  else if (patternStrength >= 60) status = 'elite';
+  else if (patternStrength >= 40) status = 'strong';
+  else if (patternStrength >= 22) status = 'neutral';
+  else status = 'weak';
+
+  // ── Confidence modifier suggestion (display-only) ──
+  // Caps at ±10 to prevent any temptation of auto-overriding the LLM.
+  // Requires BOTH meaningful reliability AND meaningful sample size.
+  let modifier = 0;
+  if (samples >= 5 && winrate != null) {
+    if (winrate >= 70 && reliability >= 20) modifier = +6;
+    else if (winrate >= 60 && reliability >= 15) modifier = +3;
+    else if (winrate <= 35) modifier = -6;
+    else if (winrate <= 45) modifier = -3;
+  }
+  // High engine agreement adds a small extra nudge in the same direction
+  if (modifier > 0 && engineAgreement >= 50) modifier = Math.min(10, modifier + 2);
+  if (modifier < 0 && engineAgreement >= 50) modifier = Math.max(-10, modifier - 2);
+
+  // ── Cross-check vs visual confidence (don't change the value, just warn) ──
+  // Used by detectContradictions(); we just expose flags here.
+  const visualConf = Number(pick?.recommendation?.confidence_score) || 0;
+  const visualHighButPatternWeak = (
+    visualConf >= 70 && (status === 'weak' || status === 'low-sample')
+  );
+
+  const trustLabels = {
+    'no-data':    { es: 'Sin datos',          en: 'No data' },
+    'low-sample': { es: 'Muestra insuficiente', en: 'Low sample' },
+    weak:         { es: 'Patrón débil',       en: 'Weak pattern' },
+    neutral:      { es: 'Patrón neutro',      en: 'Neutral pattern' },
+    strong:       { es: 'Patrón fuerte',      en: 'Strong pattern' },
+    elite:        { es: 'Patrón élite',       en: 'Elite pattern' },
+  };
+
+  return {
+    status,
+    pattern_strength: Math.max(0, Math.min(100, patternStrength)),
+    sample_size: samples,
+    winrate,
+    reliability: Math.round(reliability * 10) / 10,
+    engine_agreement: Math.round(engineAgreement * 10) / 10,
+    confidence_modifier_suggestion: modifier,
+    warning_if_low_sample: samples <= 4,
+    visual_high_pattern_weak: visualHighButPatternWeak,
+    trust_label_es: trustLabels[status].es,
+    trust_label_en: trustLabels[status].en,
+  };
+}
+
+
+// ───────────────────────────────────────────────────────────────────────────
+// Contradiction Detection v1 — surfaces conflicts between independent signals
+// ───────────────────────────────────────────────────────────────────────────
+//
+// Returns a list of contradictions, each with severity {info|warn|critical}.
+// Each contradiction is fully translatable and self-explanatory in the UI.
+//
+// We DO NOT auto-discard picks based on these — we just surface them so the
+// user can override their own bias. The engine remains the analyst, not the
+// arbitrator.
+
+const OVER_MARKET_RE = /(^|\s)(over|btts|goleador|total\s+over|gg)/i;
+
+export function detectContradictions(pick, intel, historicalSignal = null) {
+  if (!pick || !intel) return [];
+  const out = [];
+  const rec = pick.recommendation || {};
+  const market = String(rec.market || '');
+  const conf = Number(rec.confidence_score) || 0;
+
+  // 1) High confidence + high volatility → unstable conviction
+  if (conf >= 70 && intel.volatility >= 55) {
+    out.push({
+      id: 'high-conf-high-volatility',
+      severity: 'warn',
+      key: 'high-conf-high-volatility',
+      title_es: 'Alta confianza con alta volatilidad',
+      title_en: 'High confidence with high volatility',
+      detail_es: `Confianza ${conf} sobre un escenario con volatilidad ${intel.volatility}. Las señales son contradictorias — el upside puede colapsar rápido.`,
+      detail_en: `Confidence ${conf} on a scenario with volatility ${intel.volatility}. Signals conflict — the upside may collapse fast.`,
+    });
+  }
+
+  // 2) Over market in a CONTROLLED_MATCH (or LOW_URGENCY) → market mismatch
+  if (OVER_MARKET_RE.test(market) && (intel.matchState === 'CONTROLLED_MATCH' || intel.matchState === 'LOW_URGENCY')) {
+    out.push({
+      id: 'over-in-controlled',
+      severity: 'critical',
+      key: 'over-in-controlled',
+      title_es: 'Mercado Over en partido controlado',
+      title_en: 'Over market in a controlled match',
+      detail_es: 'El motor recomienda un mercado de goles altos en un escenario que estadísticamente tiende a producir pocos goles. Considerar mercados Under / Doble Oportunidad.',
+      detail_en: 'The engine suggests a high-goals market in a scenario that statistically trends low. Consider Under / Double Chance markets instead.',
+    });
+  }
+
+  // 3) Low sample historical pattern + high visual confidence
+  if (historicalSignal && historicalSignal.visual_high_pattern_weak) {
+    out.push({
+      id: 'low-sample-high-conf',
+      severity: 'warn',
+      key: 'low-sample-high-conf',
+      title_es: 'Confianza alta sin respaldo histórico',
+      title_en: 'High confidence without historical backing',
+      detail_es: `Confianza visual ${conf} pero el patrón histórico (${market} / ${intel.matchState}) tiene solo ${historicalSignal.sample_size} muestras o reliability baja. Tratar el pick como exploratorio.`,
+      detail_en: `Visual confidence ${conf} but the historical pattern (${market} / ${intel.matchState}) has only ${historicalSignal.sample_size} samples or low reliability. Treat the pick as exploratory.`,
+    });
+  }
+
+  // 4) High fragility + protected-market boast → questionable safety claim
+  if (intel.fragility >= 55 && PROTECTED_MARKETS.some((m) => market.toLowerCase().includes(m.toLowerCase()))) {
+    out.push({
+      id: 'fragile-protected',
+      severity: 'info',
+      key: 'fragile-protected',
+      title_es: 'Mercado "protegido" con alta fragilidad',
+      title_en: 'Protected market under high fragility',
+      detail_es: `${market} suele ser estable, pero los datos actuales muestran fragilidad ${intel.fragility}. Validar bajas/odds antes de apostar.`,
+      detail_en: `${market} is usually stable, but current data shows fragility ${intel.fragility}. Validate absences/odds before betting.`,
+    });
+  }
+
+  // 5) Negative drivers dominate while confidence is high
+  const negCount = (intel.drivers || []).filter((d) => d.sign === 'negative').length;
+  const posCount = (intel.drivers || []).filter((d) => d.sign === 'positive').length;
+  if (conf >= 70 && negCount > posCount && negCount >= 2) {
+    out.push({
+      id: 'negative-drivers-dominant',
+      severity: 'warn',
+      key: 'negative-drivers-dominant',
+      title_es: 'Drivers negativos dominan',
+      title_en: 'Negative drivers dominate',
+      detail_es: `${negCount} drivers negativos vs ${posCount} positivos, aún con confianza ${conf}. La narrativa del motor puede estar sobreponderando un factor único.`,
+      detail_en: `${negCount} negative vs ${posCount} positive drivers, yet confidence is ${conf}. The engine's narrative may be over-weighting a single factor.`,
+    });
+  }
+
+  // 6) Stale data + confidence ≥ 70 → freshness risk
+  const fresh = pick.data_freshness || {};
+  if (conf >= 70 && (String(fresh.odds || '').toLowerCase() === 'stale' || String(fresh.context || '').toLowerCase() === 'stale')) {
+    out.push({
+      id: 'stale-high-conf',
+      severity: 'info',
+      key: 'stale-high-conf',
+      title_es: 'Confianza alta con datos viejos',
+      title_en: 'High confidence on stale data',
+      detail_es: 'Los snapshots de odds o contexto están marcados como stale. Re-validar antes de tomar acción.',
+      detail_en: 'Odds or context snapshots are stale. Re-validate before acting.',
+    });
+  }
+
+  return out;
+}
+
+
+// ───────────────────────────────────────────────────────────────────────────
+// Engine Narrative — assembles short professional sentences for the UI
+// ───────────────────────────────────────────────────────────────────────────
+//
+// Returns three buckets: says (engine endorses), avoids (engine recommends NOT
+// touching), cautious (engine is conditionally positive but flagging risks).
+// All strings are localized and grounded on the derived intel + contradictions.
+
+export function buildEngineNarrative(pick, intel, historicalSignal, contradictions = []) {
+  if (!pick || !intel) return { says: [], avoids: [], cautious: [] };
+  const rec = pick.recommendation || {};
+  const market = rec.market || '';
+  const conf = Number(rec.confidence_score) || 0;
+  const ms = MATCH_STATES[intel.matchState] || MATCH_STATES.CONTROLLED_MATCH;
+
+  const says = [];
+  const avoids = [];
+  const cautious = [];
+
+  // SAYS (positive endorsement)
+  if (conf >= 60 && market) {
+    says.push({
+      es: `Recomienda "${market}" con confianza ${conf} en escenario ${(ms.label_es || '').toLowerCase()}.`,
+      en: `Recommends "${market}" with confidence ${conf} in a ${(ms.label_en || '').toLowerCase()} scenario.`,
+    });
+  }
+  if (intel.bestFor && intel.bestFor.length > 0) {
+    says.push({
+      es: `Mercados con mejor ajuste contextual: ${intel.bestFor.slice(0, 3).join(', ')}.`,
+      en: `Best-fitting protected markets: ${intel.bestFor.slice(0, 3).join(', ')}.`,
+    });
+  }
+  if (historicalSignal && (historicalSignal.status === 'strong' || historicalSignal.status === 'elite')) {
+    const w = historicalSignal.winrate;
+    says.push({
+      es: `Patrón histórico ${historicalSignal.status === 'elite' ? 'élite' : 'fuerte'}: ${market} en ${intel.matchState} ganó ${w}% (n=${historicalSignal.sample_size}).`,
+      en: `${historicalSignal.status === 'elite' ? 'Elite' : 'Strong'} historical pattern: ${market} in ${intel.matchState} won ${w}% (n=${historicalSignal.sample_size}).`,
+    });
+  }
+
+  // AVOIDS (negative guidance)
+  if (intel.avoid && intel.avoid.length > 0) {
+    avoids.push({
+      es: `Evitar mercados frágiles: ${intel.avoid.slice(0, 3).join(', ')}.`,
+      en: `Avoid fragile markets: ${intel.avoid.slice(0, 3).join(', ')}.`,
+    });
+  }
+  if (intel.fragility >= 60) {
+    avoids.push({
+      es: 'Mantener stake bajo o pasar: fragilidad sobre el umbral seguro.',
+      en: 'Keep stake low or pass: fragility above the safe threshold.',
+    });
+  }
+  contradictions
+    .filter((c) => c.severity === 'critical')
+    .forEach((c) => {
+      avoids.push({ es: c.title_es, en: c.title_en });
+    });
+
+  // CAUTIOUS (conditional positives)
+  if (intel.volatility >= 40 && intel.volatility < 60) {
+    cautious.push({
+      es: `Volatilidad media (${intel.volatility}): vigilar movimiento de cuotas las próximas horas.`,
+      en: `Medium volatility (${intel.volatility}): monitor odds movement over the next hours.`,
+    });
+  }
+  if (historicalSignal && historicalSignal.warning_if_low_sample && historicalSignal.status !== 'no-data') {
+    cautious.push({
+      es: `Patrón aún con muestra pequeña (n=${historicalSignal.sample_size}): tratar como observacional.`,
+      en: `Pattern sample still small (n=${historicalSignal.sample_size}): treat as observational.`,
+    });
+  }
+  if ((pick.risks || []).length > 0) {
+    cautious.push({
+      es: `${pick.risks.length} bandera${pick.risks.length > 1 ? 's' : ''} de riesgo detectada${pick.risks.length > 1 ? 's' : ''} por el analista.`,
+      en: `${pick.risks.length} analyst risk flag${pick.risks.length > 1 ? 's' : ''} detected.`,
+    });
+  }
+  contradictions
+    .filter((c) => c.severity !== 'critical')
+    .forEach((c) => {
+      cautious.push({ es: c.title_es, en: c.title_en });
+    });
+
+  return { says, avoids, cautious };
+}
+
+
+
 /**
  * deriveConfidenceBreakdown(pick) — Confidence Explanation Tree
  *

@@ -1,37 +1,51 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer,
 } from 'recharts';
 import {
-  Activity, AlertTriangle, Brain, ShieldCheck, Target, TrendingUp, Zap,
-  Lock, Layers, X, Check, BadgeAlert,
+  Activity, AlertTriangle, Brain, ShieldCheck, Target, Zap,
+  Layers, X, Check, BadgeAlert, History,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useI18n } from '@/lib/i18n';
-import { deriveIntelligence, DRIVER_META, MATCH_STATES } from '@/lib/intelligence';
+import {
+  deriveIntelligence, DRIVER_META, MATCH_STATES,
+  detectContradictions,
+} from '@/lib/intelligence';
 import { HistoricalPatternBadge } from './HistoricalPatternBadge';
+import { ContradictionWarnings } from './ContradictionWarnings';
+import { EngineNarrativeBlock } from './EngineNarrativeBlock';
+import { ConfidenceBreakdown } from './ConfidenceBreakdown';
 
 const ICON_MAP = { Activity, ShieldCheck, Target, Zap, Brain };
 
 /**
  * MatchIntelligencePanel — terminal-style narrative breakdown of a pick.
  *
- * Sections:
- *   • Signals strip (4 key tags: match_state, confidence tier, volatility tier, fragility tier)
- *   • Risk radar (5-axis: confidence, calm-market, signal-clarity, motivation-stability, data-freshness)
- *   • Drivers timeline (positive vs negative chronological list)
- *   • Best for / Avoid market matrix
- *   • Risk breakdown table (volatility, fragility, risks list, cash-out advice)
- *
- * Designed to live below the ConfidenceIntelligenceCard in MatchDetailPage.
- * Reads from the analyst `pick` shape — degrades gracefully when fields are missing.
+ * Sections (top → bottom):
+ *   1. Contradiction warnings (only when present)
+ *   2. Engine narrative (says / avoids / cautious because)
+ *   3. Signals strip (4 key tags)
+ *   4. Risk radar + Drivers timeline
+ *   5. Confidence breakdown (decomposed factors)
+ *   6. Markets matrix (best for / avoid)
+ *   7. Historical learning v2 (HistoricalPatternBadge)
+ *   8. Risk breakdown (analyst risks + cash-out advice)
  */
-export function MatchIntelligencePanel({ pick, sport = 'football', match }) {
+export function MatchIntelligencePanel({ pick, sport = 'football' }) {
   const { lang } = useI18n();
   const intel = useMemo(() => (pick ? deriveIntelligence(pick, sport) : null), [pick, sport]);
+  const [historicalSignal, setHistoricalSignal] = useState(null);
 
-  // Radar data — convert volatility/fragility/risk to inverse "positive" scale
-  // where higher = better, so the radar shape grows OUTWARD for a strong pick.
+  const onHistoricalSignal = useCallback((sig) => {
+    setHistoricalSignal(sig);
+  }, []);
+
+  const contradictions = useMemo(
+    () => (pick && intel ? detectContradictions(pick, intel, historicalSignal) : []),
+    [pick, intel, historicalSignal],
+  );
+
   const radarData = useMemo(() => {
     if (!intel) return [];
     return [
@@ -50,40 +64,28 @@ export function MatchIntelligencePanel({ pick, sport = 'football', match }) {
 
   const labels = lang === 'en'
     ? {
-        signals: 'Key signals',
-        radar: 'Risk radar',
-        timeline: 'Drivers timeline',
-        markets: 'Markets matrix',
-        breakdown: 'Risk breakdown',
-        risks: 'Risk flags',
-        cashOut: 'Cash-out advice',
-        bestFor: 'Best for',
-        avoid: 'Avoid',
-        positive: 'Positive contributions',
-        negative: 'Negative contributions',
+        signals: 'Key signals', radar: 'Risk radar', timeline: 'Drivers timeline',
+        markets: 'Markets matrix', breakdown: 'Risk breakdown', risks: 'Risk flags',
+        cashOut: 'Cash-out advice', bestFor: 'Best for', avoid: 'Avoid',
+        positive: 'Positive contributions', negative: 'Negative contributions',
         noPositive: 'No strong positive driver detected.',
         noNegative: 'No critical negative driver detected.',
         noFlags: 'No risk flags emitted by the engine.',
         noCashOut: 'No cash-out advice for this pick.',
         scoreUnit: '/ 100',
+        historical: 'HISTORICAL LEARNING v2',
       }
     : {
-        signals: 'Señales clave',
-        radar: 'Radar de riesgo',
-        timeline: 'Línea de drivers',
-        markets: 'Matriz de mercados',
-        breakdown: 'Desglose de riesgo',
-        risks: 'Banderas de riesgo',
-        cashOut: 'Consejo de cash-out',
-        bestFor: 'Ideal para',
-        avoid: 'Evitar',
-        positive: 'Contribuciones positivas',
-        negative: 'Contribuciones negativas',
+        signals: 'Señales clave', radar: 'Radar de riesgo', timeline: 'Línea de drivers',
+        markets: 'Matriz de mercados', breakdown: 'Desglose de riesgo', risks: 'Banderas de riesgo',
+        cashOut: 'Consejo de cash-out', bestFor: 'Ideal para', avoid: 'Evitar',
+        positive: 'Contribuciones positivas', negative: 'Contribuciones negativas',
         noPositive: 'Sin driver positivo fuerte.',
         noNegative: 'Sin driver negativo crítico.',
         noFlags: 'El motor no emitió banderas de riesgo.',
         noCashOut: 'Sin consejo de cash-out para este pick.',
         scoreUnit: '/ 100',
+        historical: 'APRENDIZAJE HISTÓRICO v2',
       };
 
   const driversPos = intel.drivers.filter((d) => d.sign === 'positive');
@@ -101,7 +103,24 @@ export function MatchIntelligencePanel({ pick, sport = 'football', match }) {
         <span className="micro-label tracking-[0.18em] text-foreground/90">DECISION INTELLIGENCE</span>
       </div>
 
-      {/* Signals strip */}
+      {/* (1) Contradictions banner — only renders when contradictions exist */}
+      {contradictions.length > 0 && (
+        <div className="px-4 md:px-5 py-4 border-b border-border/40">
+          <ContradictionWarnings contradictions={contradictions} />
+        </div>
+      )}
+
+      {/* (2) Engine narrative */}
+      <div className="px-4 md:px-5 py-4 border-b border-border/40">
+        <EngineNarrativeBlock
+          pick={pick}
+          intel={intel}
+          historicalSignal={historicalSignal}
+          contradictions={contradictions}
+        />
+      </div>
+
+      {/* (3) Signals strip */}
       <div className="px-4 md:px-5 py-3 border-b border-border/40">
         <div className="micro-label mb-2">{labels.signals}</div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2" data-testid="signals-strip">
@@ -130,24 +149,24 @@ export function MatchIntelligencePanel({ pick, sport = 'football', match }) {
         </div>
       </div>
 
-      {/* Radar + breakdown */}
-      <div className="grid md:grid-cols-2 gap-0 md:gap-0">
+      {/* (4) Radar + drivers timeline */}
+      <div className="grid md:grid-cols-2">
         <div className="p-4 md:p-5 md:border-r md:border-border/40" data-testid="risk-radar">
           <div className="micro-label mb-2">{labels.radar}</div>
           <div className="h-[230px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={radarData} margin={{ top: 8, right: 12, bottom: 8, left: 12 }} outerRadius="72%">
-                <PolarGrid stroke="hsl(220 18% 26%)" radialLines={false} />
+                <PolarGrid stroke="hsl(var(--border))" radialLines={false} />
                 <PolarAngleAxis
                   dataKey="axis"
-                  tick={{ fill: 'hsl(220 14% 64%)', fontSize: 10 }}
+                  tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
                   tickLine={false}
                 />
                 <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
                 <Radar
                   dataKey="value"
-                  stroke="hsl(160 84% 45%)"
-                  fill="hsl(160 84% 45%)"
+                  stroke="hsl(var(--chart-positive))"
+                  fill="hsl(var(--chart-positive))"
                   fillOpacity={0.18}
                   strokeWidth={1.5}
                   isAnimationActive={false}
@@ -157,7 +176,6 @@ export function MatchIntelligencePanel({ pick, sport = 'football', match }) {
           </div>
         </div>
 
-        {/* Drivers timeline */}
         <div className="p-4 md:p-5" data-testid="drivers-timeline">
           <div className="micro-label mb-2">{labels.timeline}</div>
           <DriverList title={labels.positive} drivers={driversPos} fallback={labels.noPositive} sign="positive" lang={lang} />
@@ -168,7 +186,12 @@ export function MatchIntelligencePanel({ pick, sport = 'football', match }) {
         </div>
       </div>
 
-      {/* Markets matrix */}
+      {/* (5) Confidence breakdown */}
+      <div className="px-4 md:px-5 py-4 border-t border-border/40" data-testid="confidence-breakdown-section">
+        <ConfidenceBreakdown pick={pick} />
+      </div>
+
+      {/* (6) Markets matrix */}
       <div className="px-4 md:px-5 py-4 border-t border-border/40">
         <div className="micro-label mb-2">{labels.markets}</div>
         <div className="grid md:grid-cols-2 gap-3" data-testid="markets-matrix">
@@ -187,13 +210,15 @@ export function MatchIntelligencePanel({ pick, sport = 'football', match }) {
         </div>
       </div>
 
-      {/* Historical learning pattern for this (market, match_state) bucket */}
+      {/* (7) Historical learning v2 */}
       <div className="px-4 md:px-5 py-4 border-t border-border/40">
-        <div className="micro-label mb-2 flex items-center gap-1.5"><History className="h-3 w-3" />HISTORICAL LEARNING</div>
-        <HistoricalPatternBadge pick={pick} sport={sport} />
+        <div className="micro-label mb-2 flex items-center gap-1.5">
+          <History className="h-3 w-3" />{labels.historical}
+        </div>
+        <HistoricalPatternBadge pick={pick} sport={sport} onSignal={onHistoricalSignal} />
       </div>
 
-      {/* Risk breakdown — risks list + cash-out */}
+      {/* (8) Risk breakdown */}
       <div className="px-4 md:px-5 py-4 border-t border-border/40">
         <div className="micro-label mb-2">{labels.breakdown}</div>
         <div className="grid md:grid-cols-2 gap-4">
