@@ -1,0 +1,51 @@
+{
+  "summary": "Completed comprehensive backend testing for football competition filtering optimization. All 49 tests passed (100% success rate). Verified module exports, tier matching, priority ordering, research query budgets, injury sources disabled behavior, and API regression. Confirmed 88.7% reduction in matches to hydrate (230→26) and competition_* fields correctly stored in MongoDB.",
+  
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [],
+    "notes": [
+      "competition_* fields are stored in MongoDB but not exposed in /api/matches/upcoming response (by design - not a bug)"
+    ]
+  },
+  
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  
+  "passed_tests": [
+    "Module imports: All 10 exports available (FOOTBALL_COMPETITION_TIERS, ALLOWED_TIERS, MAX_MATCHES_TO_HYDRATE, MAX_MATCHES_TO_ANALYZE, normalize_competition_name, get_competition_tier, is_allowed_competition, get_competition_priority, get_competition_meta, annotate_match_competition)",
+    "Competition tier matching: 12/12 tests passed (tier_1: Premier League/EPL/LaLiga/Liga MX/UCL, tier_2: Ligue 1/Copa Libertadores/Eurocopa, disallowed: Eredivisie/Championship)",
+    "Priority ordering: tier_1=100 > tier_2=70 > tier_3=40 > unknown=0",
+    "Competition metadata: canonical_name, tier, priority, type, region all correct for EPL→Premier League",
+    "Match annotation: All 6 fields added (competition_tier, competition_priority, competition_canonical_name, competition_type, competition_region, allowed_competition)",
+    "Research queries: tier_1 budget ≤8, tier_3 budget ≤3, team_news always included, live budget ≤8",
+    "Injury sources: INJURY_SOURCES_ENABLED=false by default, fetch_team_news returns {_disabled: true, home: {}, away: {}}",
+    "API /api/picks/today: Returns dict with pick_run.payload.picks structure (2 picks found)",
+    "API /api/matches/upcoming: Returns 200 with {count, sport, items} structure",
+    "API /api/profile/saved-views: Returns 200 (regression test passed)",
+    "Pytest suite: 15/15 unit tests passed in services/test_football_competitions.py",
+    "Backend logs: Confirmed 'Scraper fetched 230 football events. Allowed competition filter kept 26 matches. Removed 204 matches. Tier 1: 17 Tier 2: 9 Tier 3: 0. Hydrating 16 / analyzing up to 8'",
+    "MongoDB verification: 18 matches have competition_* fields correctly stored (verified UEFA Europa League: tier_2, priority=70, type=continental, region=Europe)"
+  ],
+  
+  "test_report_links": [
+    "/app/football_competition_test.py",
+    "/app/backend/services/test_football_competitions.py"
+  ],
+  
+  "success_percentage": {
+    "backend": "100% (49/49 tests passed)",
+    "frontend": "N/A (backend-only testing)",
+    "overall": "100%"
+  },
+  
+  "updated_files": [],
+  
+  "action_item_for_main_agent": "",
+  
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false
+}

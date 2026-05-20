@@ -2,11 +2,16 @@
 
 Flow:
   1) Try API-Sports for fixtures/odds/context (football | basketball | baseball).
-  2) If API fails entirely, fallback to ESPN public scoreboard (football only).
-  3) Persist normalized docs in MongoDB collections.
+  2) Filter early via the football competition allowlist (services.football_competitions)
+     to avoid wasting hydration + LLM budget on lower divisions.
+  3) Sort retained matches by competition tier priority (Tier 1 → Tier 2 → Tier 3),
+     then kickoff time, with a live-boost.
+  4) Hydrate odds + context + standings for the top FOOTBALL_MAX_MATCHES_TO_HYDRATE.
+  5) If API fails entirely, fallback to ESPN public scoreboard (football only).
+  6) Persist normalized docs in MongoDB collections.
 
 Collections:
-  matches          (key: match_id) — now also stores `sport`
+  matches          (key: match_id) — now also stores `sport` + competition_* fields
   odds_snapshots   (history of odds per fixture)
   picks            (LLM output) — also stores `sport`
   pick_tracking    (user marks) — also stores `sport`
@@ -24,6 +29,7 @@ import httpx
 from . import api_football as af  # legacy football-only client (kept for backward compat)
 from . import api_sports as aps    # generic multi-sport client
 from . import fallback_scraper as fb
+from . import football_competitions as fc
 from . import normalizer as nz
 
 log = logging.getLogger("ingestion")
@@ -108,6 +114,8 @@ async def ingest_upcoming(
         fallback_used = True
         minimal = []
         now = datetime.now(timezone.utc)
+        before_filter = 0
+        kept_filter = 0
         for ev in fb_data:
             if ev.get("is_live"):
                 continue
@@ -118,7 +126,14 @@ async def ingest_upcoming(
                     continue
             except Exception:
                 pass
-            minimal.append({
+            before_filter += 1
+            # Apply the same allowlist on the fallback path
+            league_name = (ev.get("league") or "").strip()
+            meta = fc.get_competition_meta(league_name)
+            if not (meta and meta["tier"] in fc.ALLOWED_TIERS):
+                continue
+            kept_filter += 1
+            doc = {
                 "match_id": ev["id"],
                 "sport": "football",
                 "source": "espn_fallback",
@@ -136,26 +151,83 @@ async def ingest_upcoming(
                 "data_complete": False,
                 "fallback_used": True,
                 "updated_at": nz.now_iso(),
-            })
+            }
+            fc.annotate_match_competition(doc, league_name)
+            minimal.append(doc)
+        log.info(
+            "ESPN fallback: %d events -> %d kept after allowlist filter",
+            before_filter, kept_filter,
+        )
+        # Sort by tier priority then kickoff
+        minimal.sort(key=lambda d: (-d.get("competition_priority", 0), d.get("kickoff_iso") or ""))
+        # Apply hydration cap on fallback too
+        minimal = minimal[:fc.MAX_MATCHES_TO_HYDRATE]
         for m in minimal:
             await db.matches.update_one({"match_id": m["match_id"]}, {"$set": m}, upsert=True)
         return minimal
 
-    top_set = _top_leagues_for(sport)
-    top = [f for f in upcoming_raw if _fx_league(sport, f).get("id") in top_set]
-    others = [f for f in upcoming_raw if _fx_league(sport, f).get("id") not in top_set]
-    top.sort(key=lambda f: _fx_timestamp(sport, f) or 0)
-    others.sort(key=lambda f: _fx_timestamp(sport, f) or 0)
-    per_league: dict[int, int] = {}
-    selected = []
-    for f in top + others:
-        lid = _fx_league(sport, f).get("id")
-        if per_league.get(lid, 0) >= max_per_league:
-            continue
-        per_league[lid] = per_league.get(lid, 0) + 1
-        selected.append(f)
-        if len(selected) >= max_total:
-            break
+    # ── Tier-based competition filtering (football only) ──────────────────
+    # Drops 95%+ of global lower-division noise BEFORE any hydration/LLM work.
+    # Non-football sports keep the legacy top_leagues behavior.
+    if sport == "football":
+        before = len(upcoming_raw)
+        kept: list[dict] = []
+        tier_counts = {"tier_1": 0, "tier_2": 0, "tier_3": 0}
+        removed_leagues: dict[str, int] = {}
+        for f in upcoming_raw:
+            league_name = (_fx_league(sport, f).get("name") or "").strip()
+            meta = fc.get_competition_meta(league_name)
+            if meta and meta["tier"] in fc.ALLOWED_TIERS:
+                tier_counts[meta["tier"]] = tier_counts.get(meta["tier"], 0) + 1
+                # Attach metadata to the raw payload for later annotation.
+                f["_competition_meta"] = meta
+                kept.append(f)
+            else:
+                removed_leagues[league_name or "?"] = removed_leagues.get(league_name or "?", 0) + 1
+        log.info(
+            "Scraper fetched %d football events. Allowed competition filter kept %d matches. "
+            "Removed %d matches from non-priority leagues.",
+            before, len(kept), before - len(kept),
+        )
+        log.info(
+            "Tier 1: %d  Tier 2: %d  Tier 3: %d  (allowed_tiers=%s)",
+            tier_counts["tier_1"], tier_counts["tier_2"], tier_counts["tier_3"],
+            sorted(fc.ALLOWED_TIERS),
+        )
+
+        # Sort: tier priority desc → kickoff time asc → (live boost handled in ingest_live)
+        kept.sort(key=lambda f: (
+            -((f.get("_competition_meta") or {}).get("priority", 0)),
+            _fx_timestamp(sport, f) or 0,
+        ))
+
+        # Hydrate at most FOOTBALL_MAX_MATCHES_TO_HYDRATE; analyze at most _TO_ANALYZE.
+        hydrate_cap = min(fc.MAX_MATCHES_TO_HYDRATE, max_total * 2 if max_total else fc.MAX_MATCHES_TO_HYDRATE)
+        analyze_cap = min(fc.MAX_MATCHES_TO_ANALYZE, max_total or fc.MAX_MATCHES_TO_ANALYZE)
+        selected = kept[:hydrate_cap]
+        # Final analyzable cohort = top-N within the hydrated set.
+        # (The LLM stage caps `max_matches` itself; this is just an upper bound.)
+        log.info(
+            "Hydrating %d / analyzing up to %d football matches",
+            len(selected), analyze_cap,
+        )
+    else:
+        # Non-football: keep legacy top_leagues-set behavior.
+        top_set = _top_leagues_for(sport)
+        top = [f for f in upcoming_raw if _fx_league(sport, f).get("id") in top_set]
+        others = [f for f in upcoming_raw if _fx_league(sport, f).get("id") not in top_set]
+        top.sort(key=lambda f: _fx_timestamp(sport, f) or 0)
+        others.sort(key=lambda f: _fx_timestamp(sport, f) or 0)
+        per_league: dict[int, int] = {}
+        selected = []
+        for f in top + others:
+            lid = _fx_league(sport, f).get("id")
+            if per_league.get(lid, 0) >= max_per_league:
+                continue
+            per_league[lid] = per_league.get(lid, 0) + 1
+            selected.append(f)
+            if len(selected) >= max_total:
+                break
 
     log.info("Ingesting %d selected fixtures for sport=%s (top-league priority)", len(selected), sport)
     enriched: list[dict] = []
@@ -163,9 +235,25 @@ async def ingest_upcoming(
         try:
             res = await enrich_fixture(client, db, fx, False, sport=sport)
             if res:
+                # Attach tier metadata if computed at filter time
+                if sport == "football":
+                    fc.annotate_match_competition(res, res.get("league"))
+                    # Persist back to DB so picks/today and other endpoints can read it
+                    await db.matches.update_one(
+                        {"match_id": res["match_id"]},
+                        {"$set": {
+                            "competition_tier": res.get("competition_tier"),
+                            "competition_priority": res.get("competition_priority"),
+                            "competition_canonical_name": res.get("competition_canonical_name"),
+                            "competition_type": res.get("competition_type"),
+                            "competition_region": res.get("competition_region"),
+                            "allowed_competition": res.get("allowed_competition"),
+                        }},
+                    )
                 enriched.append(res)
         except Exception as exc:
             log.exception("ingest enrich failed [%s]: %s", sport, exc)
+    log.info("Sent %d candidates downstream after enrichment (sport=%s)", len(enriched), sport)
     return enriched
 
 
@@ -179,15 +267,46 @@ async def ingest_live(client: httpx.AsyncClient, db, sport: str = "football", ma
     except Exception as exc:
         log.error("API[%s] live failed: %s", sport, exc)
         return []
-    top_set = _top_leagues_for(sport)
-    top = [f for f in live_raw if _fx_league(sport, f).get("id") in top_set]
-    others = [f for f in live_raw if _fx_league(sport, f).get("id") not in top_set]
-    selected = (top + others)[:max_total]
+
+    if sport == "football":
+        before = len(live_raw)
+        kept: list[dict] = []
+        for f in live_raw:
+            league_name = (_fx_league(sport, f).get("name") or "").strip()
+            meta = fc.get_competition_meta(league_name)
+            if meta and meta["tier"] in fc.ALLOWED_TIERS:
+                f["_competition_meta"] = meta
+                kept.append(f)
+        kept.sort(key=lambda f: -((f.get("_competition_meta") or {}).get("priority", 0)))
+        selected = kept[:max_total]
+        log.info(
+            "Live scraper: %d events -> %d kept after tier filter (allowed_tiers=%s)",
+            before, len(selected), sorted(fc.ALLOWED_TIERS),
+        )
+    else:
+        top_set = _top_leagues_for(sport)
+        top = [f for f in live_raw if _fx_league(sport, f).get("id") in top_set]
+        others = [f for f in live_raw if _fx_league(sport, f).get("id") not in top_set]
+        selected = (top + others)[:max_total]
+
     # Serial for non-football to respect single shared rate limit
     enriched: list[dict] = []
     if sport == "football":
         enriched_results = await asyncio.gather(*[enrich_fixture(client, db, f, True, sport=sport) for f in selected])
         enriched = [e for e in enriched_results if e]
+        for m in enriched:
+            fc.annotate_match_competition(m, m.get("league"))
+            await db.matches.update_one(
+                {"match_id": m["match_id"]},
+                {"$set": {
+                    "competition_tier": m.get("competition_tier"),
+                    "competition_priority": m.get("competition_priority"),
+                    "competition_canonical_name": m.get("competition_canonical_name"),
+                    "competition_type": m.get("competition_type"),
+                    "competition_region": m.get("competition_region"),
+                    "allowed_competition": m.get("allowed_competition"),
+                }},
+            )
     else:
         for f in selected:
             try:

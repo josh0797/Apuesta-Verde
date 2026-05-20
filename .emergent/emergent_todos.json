@@ -1,26 +1,30 @@
 [
   {
-    "content": "FASE 1: Reescribir prompt con nuevas reglas de motivación contextual + motivation_state field",
+    "content": "FASE 1: Crear services/football_competitions.py con allowlist + helpers (tiers, aliases, priority, matching)",
     "status": "completed"
   },
   {
-    "content": "FASE 2: Implementar prompt de pre-filtrado para gpt-4o-mini",
+    "content": "FASE 2: Crear services/research_queries.py con build_match_research_queries() + intent/budget per tier",
     "status": "completed"
   },
   {
-    "content": "FASE 3: Two-stage pipeline en analyze_matches (mini pre-filter → full analysis)",
+    "content": "FASE 3: Crear services/injury_sources.py - hooks opcionales para rotowire/sportsgambler/promiedos (behind feature flag)",
     "status": "completed"
   },
   {
-    "content": "FASE 4: Env vars OPENAI_MODEL_MINI / OPENAI_MODEL_FULL configurables",
+    "content": "FASE 4: Integrar filtros tier en data_ingestion.py (filter early, sort by priority, env vars FOOTBALL_*)",
     "status": "completed"
   },
   {
-    "content": "FASE 5: Frontend - MotivationContextBlock muestra motivation_state badge + intelligence.js MOTIVATION_STATES",
+    "content": "FASE 5: Logging + metrics (total scraped/allowed/removed/by tier/sent to LLM)",
     "status": "completed"
   },
   {
-    "content": "FASE 6: Lint + curl test + testing agent E2E",
+    "content": "FASE 6: Unit tests del competition matcher (case-insensitive, accent-insensitive, formats varios)",
+    "status": "completed"
+  },
+  {
+    "content": "FASE 7: Lint + curl test + testing agent E2E",
     "status": "in_progress"
   }
 ]
