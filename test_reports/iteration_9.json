@@ -1,0 +1,57 @@
+{
+  "summary": "Completed comprehensive testing of Competition Stage Override + Motivation v2 feature. All backend unit tests (19/19), guard tests, regression tests, and frontend UI tests passed successfully.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Backend: pytest 19/19 tests passed in services/test_match_stage_detector.py",
+    "Backend: _apply_stage_correction guard correctly moves finals from discarded_motivation to discarded_market",
+    "Backend: _apply_stage_correction guard rewrites 'motivación normal' reasons for finals/knockouts",
+    "Backend: data_ingestion.py persists 'round' field (line 394)",
+    "Backend: test_football_competitions.py 15/15 tests passed (regression)",
+    "Backend: API endpoints working - /api/learning/stats, /api/profile/saved-views, /api/stats/timeline, /api/picks/today",
+    "Frontend: intelligence.js exports PRESSURE_STATES with 5 keys (FINAL, KNOCKOUT_HIGH_PRESSURE, LEAGUE_URGENCY, NORMAL_LEAGUE, LOW_STAKES)",
+    "Frontend: MotivationContextBlock accepts pressureState prop and renders pressure badge correctly",
+    "Frontend: Motivation state badge renders with correct data-testid and data-state attributes",
+    "Frontend: Pressure state badge only renders when pressureState is not NORMAL_LEAGUE (correctly hidden for normal league matches)",
+    "Frontend: MatchDetailPage passes pressure_state to MotivationContextBlock (line 151)",
+    "Code Review: MOTIVATION_RULES_V2 contains 'COMPETITION STAGE OVERRIDE — NO NEGOCIABLE' section",
+    "Code Review: _build_prefilter_prompt() prevents DISCARD for finals/knockouts",
+    "Code Review: _build_system_prompt() includes 'REGLAS DE MERCADOS PROTEGIDOS PARA FINALES Y KNOCKOUTS'",
+    "Code Review: _hydrate_team_news respects INJURY_SOURCES_ENABLED flag (disabled by default)",
+    "Code Review: _select_candidates applies +5 viability boost to finals/knockouts to survive cap",
+    "Code Review: normalizer.summarize_match_for_llm includes stage info (competition_stage, pressure_state, is_final, etc.)"
+  ],
+  "test_report_links": [
+    "/app/backend/services/test_match_stage_detector.py",
+    "/app/backend/test_stage_correction_guard.py",
+    "/app/backend/test_stage_correction_guard_2.py",
+    "/app/backend/test_backend_api.py"
+  ],
+  "success_percentage": {
+    "backend": "100% (all unit tests, guard tests, and regression tests passed)",
+    "frontend": "100% (UI components render correctly, badges display as expected)"
+  },
+  "updated_files": [
+    "/app/backend/test_stage_correction_guard.py",
+    "/app/backend/test_stage_correction_guard_2.py",
+    "/app/backend/test_backend_api.py"
+  ],
+  "action_item_for_main_agent": "",
+  "should_call_test_agent_after_fix": "false",
+  "should_main_agent_test_itself": "false",
+  "notes": [
+    "As per main agent's instructions, did NOT call /api/analysis/run with refresh=true to avoid consuming LLM credits",
+    "Did NOT test injury_sources scraping (rotowire/sportsgambler/promiedos) as INJURY_SOURCES_ENABLED=false by default",
+    "Verified via synthetic test that the guard correctly handles the exact scenario reported by user (SC Freiburg vs Aston Villa - Europa League Final)",
+    "All 8 test cases from the feature spec (A-H) are covered by the 19 unit tests in test_match_stage_detector.py",
+    "Frontend pressure badge correctly hidden for normal league matches (Superliga) and only shows for finals/knockouts",
+    "Backend API regression tests confirm no breaking changes to existing endpoints"
+  ]
+}

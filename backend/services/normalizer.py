@@ -183,13 +183,24 @@ def normalize_live_stats(fixture: dict) -> dict | None:
 
 
 def summarize_match_for_llm(match_doc: dict) -> dict:
-    """Strip a normalized match doc to a compact payload for the LLM."""
+    """Strip a normalized match doc to a compact payload for the LLM.
+
+    Now ALSO computes a competition_stage / pressure_state / is_final block via
+    services.match_stage_detector. This block is fed to BOTH the pre-filter
+    (Stage 1) and the deep analyst (Stage 2) so motivation classification is
+    stage-aware before standings-based heuristics kick in.
+    """
+    # Local import to avoid an import cycle at module load time.
+    from . import match_stage_detector as msd
+
+    stage_info = msd.detect_match_stage(match_doc)
     return {
         "match_id": match_doc.get("match_id"),
         "sport": match_doc.get("sport", "football"),
         "league": match_doc.get("league"),
         "league_id": match_doc.get("league_id"),
         "season": match_doc.get("season"),
+        "round": match_doc.get("round"),
         "kickoff_iso": match_doc.get("kickoff_iso"),
         "is_live": match_doc.get("is_live"),
         "venue": match_doc.get("venue"),
@@ -198,6 +209,24 @@ def summarize_match_for_llm(match_doc: dict) -> dict:
         "odds_snapshots": match_doc.get("odds_snapshots", [])[-2:],
         "live_stats": match_doc.get("live_stats"),
         "h2h_recent": match_doc.get("h2h_recent", []),
+        # Competition metadata (set by data_ingestion via football_competitions)
+        "competition_canonical_name": match_doc.get("competition_canonical_name"),
+        "competition_tier": match_doc.get("competition_tier"),
+        "competition_type": match_doc.get("competition_type"),
+        "competition_region": match_doc.get("competition_region"),
+        # Stage / importance block — drives the COMPETITION_STAGE_OVERRIDE rules
+        "competition_stage": stage_info["competition_stage"],
+        "match_importance": stage_info["match_importance"],
+        "is_knockout": stage_info["is_knockout"],
+        "is_final": stage_info["is_final"],
+        "is_two_legged_tie": stage_info["is_two_legged_tie"],
+        "leg": stage_info["leg"],
+        "aggregate_score": stage_info["aggregate_score"],
+        "pressure_state": stage_info["pressure_state"],
+        # Optional: external injury/team-news snippets (only attached when the
+        # injury_sources hook is enabled; otherwise the analyst engine adds
+        # nothing here and the LLM treats it as missing context).
+        "team_news_snippets": match_doc.get("team_news_snippets"),
     }
 
 

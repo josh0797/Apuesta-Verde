@@ -391,6 +391,7 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             "league": fx_raw["league"]["name"],
             "league_id": lid,
             "league_logo": fx_raw["league"].get("logo"),
+            "round": fx_raw["league"].get("round"),
             "season": season,
             "kickoff_iso": kickoff,
             "kickoff_ts": fx_raw["fixture"]["timestamp"],

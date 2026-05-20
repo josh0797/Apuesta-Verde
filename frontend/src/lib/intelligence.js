@@ -111,6 +111,54 @@ export function resolveMotivationState(pick) {
   return 'NORMAL';
 }
 
+// ─── Pressure state taxonomy (competition stage layer) ──────────────────────
+// Emitted by the analyst engine when a match is identified as a final or
+// knockout. Distinct from `motivation_state` because pressure derives from
+// the STAGE of the competition (final / semifinal / playoff), not from how
+// much each side has on the line.
+export const PRESSURE_STATES = {
+  FINAL: {
+    icon: 'Trophy',
+    tone: 'cyan',
+    label_es: 'Final',
+    label_en: 'Final',
+    hint_es: 'Final del torneo: motivación máxima en ambos lados; vigilar volatilidad de presión.',
+    hint_en: 'Tournament final: maximum motivation on both sides; watch pressure volatility.',
+  },
+  KNOCKOUT_HIGH_PRESSURE: {
+    icon: 'Flame',
+    tone: 'amber',
+    label_es: 'Eliminatoria',
+    label_en: 'Knockout',
+    hint_es: 'Eliminatoria de alta presión: ambos equipos juegan supervivencia.',
+    hint_en: 'High-pressure knockout: both teams play for survival.',
+  },
+  LEAGUE_URGENCY: {
+    icon: 'TrendingUp',
+    tone: 'amber',
+    label_es: 'Urgencia de liga',
+    label_en: 'League urgency',
+    hint_es: 'Partido de liga con descenso/título/europa en juego.',
+    hint_en: 'League fixture with relegation/title/european qualification at stake.',
+  },
+  NORMAL_LEAGUE: {
+    icon: 'Activity',
+    tone: 'emerald',
+    label_es: 'Liga normal',
+    label_en: 'Normal league',
+    hint_es: 'Partido de liga sin presión externa particular.',
+    hint_en: 'Standard league fixture without external pressure.',
+  },
+  LOW_STAKES: {
+    icon: 'Clock',
+    tone: 'slate',
+    label_es: 'Sin riesgo deportivo',
+    label_en: 'Low stakes',
+    hint_es: 'Ninguno de los dos equipos tiene algo real por jugar.',
+    hint_en: 'Neither side has anything real on the line.',
+  },
+};
+
 // ─── Engine style presets ──────────────────────────────────────────────────
 export const ENGINE_STYLES = {
   conservative:        { icon: 'Shield',  tone: 'slate',   label_es: 'Conservador',        label_en: 'Conservative' },

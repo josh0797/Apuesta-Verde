@@ -4,9 +4,9 @@ import {
   HeartCrack, Flame, Clock, Plus, Minus, ChevronDown, TrendingUp,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { MOTIVATION_STATES, resolveMotivationState } from '@/lib/intelligence';
+import { MOTIVATION_STATES, PRESSURE_STATES, resolveMotivationState } from '@/lib/intelligence';
 
-const STATE_ICON_MAP = { Flame, TrendingUp, Clock, Activity };
+const STATE_ICON_MAP = { Flame, TrendingUp, Clock, Activity, Trophy };
 
 /** Compact badge — kept for legacy callers (MatchCard, MatchDetail) */
 const LEVELS = {
@@ -118,7 +118,7 @@ function impactForLevel(level) {
  *   - homeName / awayName: optional team display names
  *   - lang: 'es' | 'en'
  */
-export function MotivationContextBlock({ motivation, motivationState, homeName, awayName, lang = 'es' }) {
+export function MotivationContextBlock({ motivation, motivationState, pressureState, homeName, awayName, lang = 'es' }) {
   const [open, setOpen] = useState(true);
   if (!motivation) return null;
   const home = motivation.home || {};
@@ -133,6 +133,12 @@ export function MotivationContextBlock({ motivation, motivationState, homeName, 
     || resolveMotivationState({ motivation_state: undefined, motivation });
   const stateMeta = MOTIVATION_STATES[resolvedState] || MOTIVATION_STATES.NORMAL;
   const StateIcon = STATE_ICON_MAP[stateMeta.icon] || Activity;
+
+  // Pressure state (competition-stage layer) — optional; shown only when
+  // the backend provided it and it's not the "NORMAL_LEAGUE" default.
+  const pressureMeta = pressureState && PRESSURE_STATES[pressureState];
+  const showPressure = pressureMeta && pressureState !== 'NORMAL_LEAGUE';
+  const PressureIcon = showPressure ? (STATE_ICON_MAP[pressureMeta.icon] || Trophy) : null;
 
   const t = lang === 'en'
     ? { header: 'Motivation context', reasons: 'REASONS', sources: 'SOURCES', impact: 'EXPECTED GAMEPLAY IMPACT', unknown: 'No specific reason detected' }
@@ -167,6 +173,26 @@ export function MotivationContextBlock({ motivation, motivationState, homeName, 
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          {/* Pressure state badge — competition-stage layer (final/knockout) */}
+          {showPressure && (
+            <TooltipProvider delayDuration={140}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    data-testid="pressure-state-badge"
+                    data-state={pressureState}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-semibold border tone-${pressureMeta.tone}`}
+                  >
+                    <PressureIcon className="h-3 w-3" />
+                    <span>{lang === 'en' ? pressureMeta.label_en : pressureMeta.label_es}</span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="glass-surface text-xs max-w-[280px] leading-relaxed">
+                  {lang === 'en' ? pressureMeta.hint_en : pressureMeta.hint_es}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           <div className="flex items-center gap-1.5">
             <MotivationBadge level={home.level || 3} lang={lang} />
             <span className="text-[10px] text-muted-foreground">vs</span>

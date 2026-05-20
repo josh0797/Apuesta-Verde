@@ -1,30 +1,34 @@
 [
   {
-    "content": "FASE 1: Crear services/football_competitions.py con allowlist + helpers (tiers, aliases, priority, matching)",
+    "content": "FASE 1: Crear services/match_stage_detector.py con detect_match_stage() + keyword maps multilingual",
     "status": "completed"
   },
   {
-    "content": "FASE 2: Crear services/research_queries.py con build_match_research_queries() + intent/budget per tier",
+    "content": "FASE 2: Inyectar competition_stage/match_importance/is_final en el compact payload del LLM (normalizer)",
     "status": "completed"
   },
   {
-    "content": "FASE 3: Crear services/injury_sources.py - hooks opcionales para rotowire/sportsgambler/promiedos (behind feature flag)",
+    "content": "FASE 3: Actualizar MOTIVATION_RULES_V2 + prefilter + system prompt con COMPETITION_STAGE_OVERRIDE",
     "status": "completed"
   },
   {
-    "content": "FASE 4: Integrar filtros tier en data_ingestion.py (filter early, sort by priority, env vars FOOTBALL_*)",
+    "content": "FASE 4: Añadir validation guard post-LLM (force HIGH_BOTH en finales, limpiar reasons, mover de discarded_motivation)",
     "status": "completed"
   },
   {
-    "content": "FASE 5: Logging + metrics (total scraped/allowed/removed/by tier/sent to LLM)",
+    "content": "FASE 5: Activar injury_sources hook opcional en analyst_engine.py (Tier 1, feature flag, soft-fail)",
     "status": "completed"
   },
   {
-    "content": "FASE 6: Unit tests del competition matcher (case-insensitive, accent-insensitive, formats varios)",
+    "content": "FASE 6: Tests unitarios match_stage_detector (final/semi/QF/2nd-leg/mid-table/already-champion)",
     "status": "completed"
   },
   {
-    "content": "FASE 7: Lint + curl test + testing agent E2E",
+    "content": "FASE 7: Frontend - mostrar pressure_state badge en MotivationContextBlock (opcional pero útil)",
     "status": "completed"
+  },
+  {
+    "content": "FASE 8: Lint + curl test + testing agent E2E",
+    "status": "in_progress"
   }
 ]

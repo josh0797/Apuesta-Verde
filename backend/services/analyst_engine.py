@@ -80,6 +80,48 @@ SPORT_RULES = {
 # ───────────────────────────────────────────────────────────────────────────
 MOTIVATION_RULES_V2 = """REGLAS DE MOTIVACIÓN v2 (CONTEXTUAL Y STANDINGS-AWARE):
 
+══════ COMPETITION STAGE OVERRIDE — NO NEGOCIABLE (evaluar PRIMERO) ══════
+
+Antes de mirar standings, posición de tabla, forma reciente, tamaño del
+club o contexto genérico, evalúa SIEMPRE el campo `competition_stage` /
+`is_final` / `pressure_state` que viene en el payload.
+
+Si `is_final == true` o `competition_stage == "final"`:
+  - home.level = 5  AND  away.level = 5
+  - motivation_state = HIGH_BOTH
+  - pressure_state = FINAL
+  - PROHIBIDO clasificar como NORMAL motivation.
+  - PROHIBIDO listarlo en `summary.discarded_motivation`.
+  - PROHIBIDO usar la palabra "normal" en `motivation.home.label/away.label`.
+  - El riesgo correcto a destacar NO es baja motivación; es "volatilidad de
+    final" (presión, decisiones inestables, sustituciones tácticas).
+  - Si decides descartarlo, va a `discarded_market` o `incomplete_data`,
+    NUNCA a `discarded_motivation`.
+
+Si `competition_stage == "semifinal"` o `pressure_state == KNOCKOUT_HIGH_PRESSURE`:
+  - Ambos equipos normalmente motivation = 5.
+  - motivation_state = HIGH_BOTH.
+  - SOLO baja a 4 si hay evidencia explícita de:
+      a) rotación masiva confirmada, o
+      b) eliminatoria ya decidida en el global, o
+      c) un lado matemáticamente clasificado y el otro no.
+
+Si `competition_stage in {"quarterfinal", "round_of_16", "playoff"}`:
+  - Ambos equipos motivation = 4–5 según decisividad.
+  - Si `is_two_legged_tie == true` y hay `aggregate_score`:
+      • equipo perdiendo en el global → motivation = 5
+      • equipo ganando estrechamente (≤1) → motivation = 4–5
+      • equipo ganando por margen amplio (≥2) → puede ser 3–4 (riesgo
+        rotación), nunca 1–2 salvo evidencia clara.
+  - NO clasifiques estos partidos como LOW_BOTH.
+
+Si `competition_stage` es `"unknown"` pero el nombre de liga/torneo o `round`
+contiene "final", "semifinal", "playoff", "knockout", "eliminatoria", "ida",
+"vuelta", "octavos", "cuartos", "liguilla", o "repechaje", INFIERE el stage
+apropiado en lugar de caer en NORMAL.
+
+══════ ESCALA 1-5 (solo se aplica DESPUÉS del override anterior) ══════
+
 La motivación NO se deduce solo del nombre del equipo ni de la posición de tabla.
 Debe inferirse del CONTEXTO COMPETITIVO real (qué se juega cada equipo HOY).
 
@@ -105,14 +147,23 @@ REGLAS NEGATIVAS CRÍTICAS (no negociables):
 - "Equipo grande" o "equipo pequeño" NO determina la motivación. El contexto sí.
 - Equipo fuera de Champions/playoffs pero peleando el último puesto = 4–5.
 - Equipo cómodo en zona media sin nada por jugar = 2–3 según rotación.
-- Si NO tienes información de standings/contexto suficiente, asigna 3 (Normal)
-  y reflejalo en el campo `reason`. NUNCA asumas motivación baja por defecto.
+- Si NO tienes información de standings/contexto suficiente PERO conoces el
+  stage (final/semi/playoff), aplica el OVERRIDE. Si tampoco tienes stage,
+  asigna 3 (Normal) y reflejalo en el campo `reason`. NUNCA asumas motivación
+  baja por defecto.
 
 CLASIFICA TAMBIÉN motivation_state DEL PARTIDO:
   HIGH_BOTH         — ambos equipos en 4–5 (ambos tienen mucho por jugar)
   ASYMMETRIC_HIGH_LOW — uno en 4–5, otro en 1–2 (asimetría motivacional)
   LOW_BOTH          — ambos equipos en 1–2 (ninguno tiene algo real por jugar)
   NORMAL            — el resto (incluye combinaciones con 3)
+
+Y CLASIFICA pressure_state:
+  FINAL                   — final de cualquier competición
+  KNOCKOUT_HIGH_PRESSURE  — semi/cuartos/octavos/playoff eliminatorio
+  LEAGUE_URGENCY          — partido de liga con lucha por descenso/título/Europa
+  NORMAL_LEAGUE           — partido de liga sin urgencia particular
+  LOW_STAKES              — partido sin nada por jugar
 
 POLÍTICA DE DESCARTE POR MOTIVACIÓN:
 - motivation_state = LOW_BOTH → solo descarta si NO hay ningún otro edge
@@ -124,6 +175,7 @@ POLÍTICA DE DESCARTE POR MOTIVACIÓN:
 - motivation_state = HIGH_BOTH → el partido puede ser caótico; usa Under
   si hay defensa fuerte o evita Over por intensidad inestable.
 - motivation_state = NORMAL → trata el partido con los criterios estándar.
+- FINAL / KNOCKOUT_HIGH_PRESSURE → NUNCA en discarded_motivation.
 
 La motivación es una SEÑAL ponderada, NO un kill switch. Si crees que vale
 la pena recomendar un pick con LOW_BOTH apoyado en un mercado protegido +
@@ -177,6 +229,7 @@ REGLAS GENERALES (todos los deportes):
         "away": {{"level": 1-5, "label": "string", "reason": "string", "context": "string breve del escenario competitivo"}}
       }},
       "motivation_state": "HIGH_BOTH" | "ASYMMETRIC_HIGH_LOW" | "LOW_BOTH" | "NORMAL",
+      "pressure_state": "FINAL" | "KNOCKOUT_HIGH_PRESSURE" | "LEAGUE_URGENCY" | "NORMAL_LEAGUE" | "LOW_STAKES",
       "key_data": {{
         "form_home": "WDWLW",
         "form_away": "WDWLW",
@@ -215,6 +268,26 @@ POLÍTICA DE DESCARTE POR MOTIVACIÓN (recordatorio crítico):
 - SOLO listar un partido en `summary.discarded_motivation` cuando motivation_state = LOW_BOTH Y no encontraste ningún otro edge razonable.
 - NUNCA listes un ASYMMETRIC_HIGH_LOW en discarded_motivation. Si lo descartas, debe ir en discarded_market (mercado no viable) o incomplete_data (datos insuficientes).
 - NUNCA listes un HIGH_BOTH en discarded_motivation.
+- NUNCA listes un partido con pressure_state = FINAL o KNOCKOUT_HIGH_PRESSURE en discarded_motivation. Si una final no tiene valor, va en discarded_market con razón basada en MERCADO (cuotas pobres, alta volatilidad, falta de mercado protegido, datos faltantes).
+
+REGLAS DE MERCADOS PROTEGIDOS PARA FINALES Y KNOCKOUTS:
+- Las finales NO son automáticamente buenas apuestas, pero SÍ son automáticamente máxima motivación.
+- Mercados PREFERIDOS en finales/knockouts:
+    • Doble Oportunidad del lado superior técnicamente
+    • Draw No Bet
+    • Under 3.5 si el partido es táctico/controlado (sin lluvia de goles esperada)
+- Mercados a EVITAR en finales/knockouts:
+    • Over 2.5 / BTTS agresivos salvo que el partido sea claramente caótico/abierto
+    • Hándicaps frágiles (>-1.0) salvo brecha de talento muy clara
+    • Goleador, exact score, props individuales
+- Razones VÁLIDAS para descartar una final (van a discarded_market):
+    • Cuotas pobres / sin valor (anti-trampa)
+    • Alta volatilidad / signal contradictorio
+    • No hay mercado protegido viable
+    • Datos faltantes / team news incierto (entonces → incomplete_data)
+- Razones INVÁLIDAS para descartar una final:
+    • "Ambos equipos tienen motivación normal" (CONTRADICE el override; PROHIBIDO)
+    • "Sin urgencia" / "Sin nada por jugar"
 
 NOTAS IMPORTANTES SOBRE LOS DATOS DISPONIBLES:
 - `data_source_season` puede ser "2024 (proxy)" porque el plan API no permite season actual. Esto es ESPERADO. Trata estos datos (form_last_5, position, wins/losses) como indicadores SÓLIDOS. Marca context como "stale" pero NO descartes por esto.
@@ -268,6 +341,7 @@ TU TRABAJO (en 3 pasos):
       "match_id": (int|string),
       "match_label": "Equipo A vs Equipo B",
       "motivation_state": "HIGH_BOTH" | "ASYMMETRIC_HIGH_LOW" | "LOW_BOTH" | "NORMAL",
+      "pressure_state": "FINAL" | "KNOCKOUT_HIGH_PRESSURE" | "LEAGUE_URGENCY" | "NORMAL_LEAGUE" | "LOW_STAKES",
       "motivation_home_level": 1-5,
       "motivation_away_level": 1-5,
       "motivation_summary": "1 oración explicando el contexto motivacional",
@@ -282,6 +356,11 @@ TU TRABAJO (en 3 pasos):
 REGLAS DEL PRE-FILTRO:
 - skip_deep_analysis = true SOLO si viability_tag = "DISCARD" Y motivation_state = LOW_BOTH.
 - Si motivation_state = ASYMMETRIC_HIGH_LOW: viability_tag SIEMPRE es "STRONG" o "BORDERLINE", NUNCA "DISCARD" por motivo motivacional.
+- Si el payload tiene `is_final == true` o `competition_stage in ("final", "semifinal", "quarterfinal", "round_of_16", "playoff")`:
+    • viability_tag NUNCA puede ser DISCARD por motivación.
+    • motivation_state DEBE ser HIGH_BOTH (a menos que tengas evidencia explícita de rotación masiva o eliminatoria ya cerrada).
+    • PROHIBIDO escribir "ambos equipos tienen motivación normal" para una final/knockout.
+    • Si las cuotas no son atractivas, marca "BORDERLINE" y el motor principal lo categorizará como discarded_market después.
 - Si tienes posiciones/standings que indican lucha por descenso, playoffs, copa, título → motivación 4–5, viability_tag "STRONG".
 - Sé ESTRICTO con las cuotas: cuota <1.15 o >2.20 sospechosa → viability_tag "BORDERLINE" o "DISCARD".
 - Devuelve TODOS los partidos recibidos (no omitas ninguno). El sistema decide qué hacer.
@@ -397,7 +476,13 @@ def _select_candidates(
     for m in matches_payload:
         mid = str(m.get("match_id"))
         hint = prefilter.get(mid) or {}
-        if hint.get("skip_deep_analysis") and hint.get("motivation_state") == "LOW_BOTH":
+        # ── Stage-aware guard: NEVER auto-discard finals/knockouts ──
+        # Even if the pre-filter said skip_deep_analysis=true and LOW_BOTH,
+        # a final / semifinal / playoff must always reach the deep analyst.
+        is_final = bool(m.get("is_final"))
+        pressure = m.get("pressure_state")
+        is_high_pressure = is_final or pressure in ("FINAL", "KNOCKOUT_HIGH_PRESSURE")
+        if hint.get("skip_deep_analysis") and hint.get("motivation_state") == "LOW_BOTH" and not is_high_pressure:
             home = (m.get("home_team") or {}).get("name", "?")
             away = (m.get("away_team") or {}).get("name", "?")
             auto_discarded.append({
@@ -409,7 +494,12 @@ def _select_candidates(
             continue
         # Attach hint so Stage 2 sees the prefilter classification
         enriched = {**m, "prefilter_hint": hint} if hint else m
-        annotated.append((viability_score(hint), enriched, hint))
+        # Boost viability score for high-pressure matches so they survive
+        # the TWO_STAGE_MAX_CANDIDATES cap.
+        score = viability_score(hint)
+        if is_high_pressure:
+            score += 5
+        annotated.append((score, enriched, hint))
 
     # If we have more candidates than the cap, keep top-scored
     annotated.sort(key=lambda t: -t[0])
@@ -428,6 +518,176 @@ def _select_candidates(
             "_overflow": True,
         })
     return to_analyze, auto_discarded
+
+
+async def _hydrate_team_news(matches_payload: list[dict]) -> int:
+    """Best-effort: enrich the LLM payload with team-news snippets from
+    rotowire / sportsgambler / promiedos for Tier-1 + high-pressure matches.
+
+    Disabled by default (env INJURY_SOURCES_ENABLED). When disabled, returns
+    0 and leaves the payload untouched. Always fail-soft.
+
+    Returns the number of matches successfully enriched.
+    """
+    from . import injury_sources as ij  # local import to keep optional
+    if not ij.INJURY_SOURCES_ENABLED:
+        return 0
+    enriched = 0
+    for m in matches_payload:
+        tier = m.get("competition_tier")
+        pressure = m.get("pressure_state")
+        # Only spend latency on Tier-1 OR high-pressure matches.
+        if tier != "tier_1" and pressure not in ("FINAL", "KNOCKOUT_HIGH_PRESSURE"):
+            continue
+        home = (m.get("home_team") or {}).get("name")
+        away = (m.get("away_team") or {}).get("name")
+        comp = m.get("competition_canonical_name") or m.get("league") or ""
+        if not home or not away:
+            continue
+        try:
+            news = await ij.fetch_team_news(home, away, comp, timeout=10)
+        except Exception as exc:
+            log.info("injury_sources hydration failed for %s vs %s: %s", home, away, exc)
+            continue
+        if news and not news.get("_disabled"):
+            # Compact down to short bullet lists per side so the LLM payload
+            # stays small. Cap at 3 snippets per source per side.
+            def _compact(side: dict) -> dict:
+                return {src: snips[:3] for src, snips in (side or {}).items() if snips}
+            m["team_news_snippets"] = {
+                "home": _compact(news.get("home", {})),
+                "away": _compact(news.get("away", {})),
+                "sources": news.get("sources_attempted", []),
+                "errors": list((news.get("errors") or {}).keys()),
+            }
+            enriched += 1
+    if enriched:
+        log.info("injury_sources: enriched %d matches with external team news", enriched)
+    return enriched
+
+
+# ── Post-LLM correction guard ──────────────────────────────────────────────
+# After the LLM returns its JSON we apply a deterministic correction layer:
+#   • Finals must NEVER live in discarded_motivation.
+#   • Finals must have motivation_state = HIGH_BOTH + pressure_state = FINAL.
+#   • Any "motivación normal" reason on a final gets rewritten.
+#   • Knockout matches cannot be LOW_BOTH unless aggregate evidence proves it.
+#
+# This is the safety net for prompt drift: even if the LLM forgets the
+# override, the engine still emits correct output.
+def _apply_stage_correction(parsed: dict, input_payload: list[dict]) -> dict:
+    """Mutate the parsed LLM response so finals/knockouts are stage-correct."""
+    if not parsed or not isinstance(parsed, dict):
+        return parsed
+
+    # Build a {match_id: stage_info} lookup from the INPUT (authoritative).
+    stage_by_id: dict[str, dict] = {}
+    for m in input_payload:
+        mid = m.get("match_id")
+        if mid is None:
+            continue
+        # Re-detect from the raw input rather than trusting the LLM echo
+        from . import match_stage_detector as msd
+        stage_by_id[str(mid)] = msd.detect_match_stage(m)
+
+    summary = parsed.get("summary") or {}
+    disc_mot = list(summary.get("discarded_motivation") or [])
+    disc_mkt = list(summary.get("discarded_market") or [])
+    moved = 0
+    fixed_reasons = 0
+    fixed_state = 0
+
+    # 1) Re-route finals/knockouts wrongly listed in discarded_motivation
+    new_disc_mot: list[dict] = []
+    for entry in disc_mot:
+        sid = str(entry.get("match_id"))
+        info = stage_by_id.get(sid)
+        if info and (info["is_final"] or info["pressure_state"] == "KNOCKOUT_HIGH_PRESSURE"):
+            new_reason = (
+                "Final/eliminatoria: motivación máxima en ambos equipos; "
+                "descartado por mercado/cuotas/volatilidad, no por motivación."
+            ) if info["is_final"] else (
+                "Eliminatoria de alta presión: motivación alta en ambos "
+                "equipos; descartado por mercado/cuotas/volatilidad, no por motivación."
+            )
+            disc_mkt.append({
+                "match_id": entry.get("match_id"),
+                "match_label": entry.get("match_label"),
+                "reason": new_reason,
+                "pressure_state": info["pressure_state"],
+                "_stage_corrected": True,
+            })
+            moved += 1
+        else:
+            new_disc_mot.append(entry)
+    summary["discarded_motivation"] = new_disc_mot
+
+    # 2) Sanitize reasons in discarded_market too (the bug we saw on screen)
+    NORMAL_RE = re.compile(r"motivaci(?:o|ó)n\s+normal|normal\s+motivation", re.IGNORECASE)
+    for entry in disc_mkt:
+        sid = str(entry.get("match_id"))
+        info = stage_by_id.get(sid)
+        if info and (info["is_final"] or info["pressure_state"] == "KNOCKOUT_HIGH_PRESSURE"):
+            reason = str(entry.get("reason") or "")
+            if NORMAL_RE.search(reason):
+                if info["is_final"]:
+                    entry["reason"] = (
+                        "Final: motivación máxima en ambos equipos. Descartado "
+                        "por mercado frágil / cuotas no atractivas / volatilidad."
+                    )
+                else:
+                    entry["reason"] = (
+                        "Eliminatoria de alta presión: motivación alta en ambos "
+                        "equipos. Descartado por mercado frágil / cuotas / volatilidad."
+                    )
+                entry["pressure_state"] = info["pressure_state"]
+                entry["_stage_corrected"] = True
+                fixed_reasons += 1
+    summary["discarded_market"] = disc_mkt
+
+    # 3) Fix motivation_state + pressure_state on every pick listed
+    picks = parsed.get("picks") or []
+    for p in picks:
+        sid = str(p.get("match_id"))
+        info = stage_by_id.get(sid)
+        if not info:
+            continue
+        if info["is_final"]:
+            if p.get("motivation_state") != "HIGH_BOTH":
+                p["motivation_state"] = "HIGH_BOTH"
+                fixed_state += 1
+            p.setdefault("pressure_state", "FINAL")
+            p["pressure_state"] = "FINAL"
+            mot = p.get("motivation") or {}
+            for side in ("home", "away"):
+                s = mot.get(side) or {}
+                if (s.get("level") or 0) < 5:
+                    s["level"] = 5
+                    s["label"] = s.get("label") or "Final: motivación máxima"
+                    s["reason"] = "Final del torneo: ambos equipos juegan con motivación máxima."
+                    mot[side] = s
+            p["motivation"] = mot
+        elif info["pressure_state"] == "KNOCKOUT_HIGH_PRESSURE":
+            if p.get("motivation_state") not in ("HIGH_BOTH", "ASYMMETRIC_HIGH_LOW"):
+                # Two-leg ties may legitimately be asymmetric; never NORMAL here.
+                p["motivation_state"] = "HIGH_BOTH"
+                fixed_state += 1
+            p["pressure_state"] = "KNOCKOUT_HIGH_PRESSURE"
+
+    parsed["summary"] = summary
+    parsed.setdefault("_pipeline", {})
+    parsed["_pipeline"]["stage_corrections"] = {
+        "moved_finals_to_market": moved,
+        "rewrote_normal_reasons": fixed_reasons,
+        "forced_motivation_state": fixed_state,
+    }
+    if moved or fixed_reasons or fixed_state:
+        log.info(
+            "stage_correction: moved %d finals→market, fixed %d reasons, "
+            "forced %d motivation_states",
+            moved, fixed_reasons, fixed_state,
+        )
+    return parsed
 
 
 async def analyze_matches(matches_payload: list[dict], sport: str = "football") -> dict:
@@ -487,6 +747,14 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football") 
             matches_payload, auto_discarded, sport, session_id, pipeline_meta
         )
 
+    # ── Optional Stage 1.5 ── external team-news hydration (opt-in)
+    # Adds rotowire/sportsgambler/promiedos snippets to high-pressure / Tier-1
+    # matches when INJURY_SOURCES_ENABLED=true. Disabled by default so it
+    # never adds latency unless explicitly turned on.
+    enriched_count = await _hydrate_team_news(to_analyze)
+    if enriched_count:
+        pipeline_meta["stage1_5_team_news_enriched"] = enriched_count
+
     # ── Stage 2 ── full analysis on shortlist
     user_text = (
         f"Analiza los siguientes partidos de {sport.upper()} según las reglas. Devuelve JSON estricto.\n\n"
@@ -542,6 +810,14 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football") 
 
     raw = _strip_to_json(response)
     parsed = json.loads(raw)
+
+    # ── Post-LLM deterministic correction layer ──
+    # Even if the LLM forgets the COMPETITION_STAGE_OVERRIDE, we re-detect
+    # the stage from the original input and fix:
+    #   • finals incorrectly listed in discarded_motivation
+    #   • "motivación normal" reasons attached to finals/knockouts
+    #   • picks whose motivation_state is not HIGH_BOTH on a final
+    parsed = _apply_stage_correction(parsed, matches_payload)
 
     # Merge auto_discarded from pre-filter into the summary so the
     # categorization invariant len(picks)+lists == total_analyzed still holds
