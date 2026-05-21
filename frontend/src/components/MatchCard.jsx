@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Clock, AlertOctagon, ShieldCheck, ChevronDown, Gauge } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
-import { formatDateTime, formatOdd, tierClass, confidenceTier } from '@/lib/format';
+import { formatDateTime, formatOdd, tierClass, confidenceTier, humanizeSelection } from '@/lib/format';
 import { ConfidenceMeter, ConfidenceIntelligenceCard } from './ConfidenceMeter';
 import { MotivationBadge } from './MotivationBadge';
 import { FreshnessBadge } from './FreshnessBadge';
@@ -62,7 +62,7 @@ export function MatchCard({ pick, idx = 0, sport = 'football' }) {
           <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.match.recommendation}</div>
           <div className="text-sm font-semibold mt-0.5 flex flex-wrap items-center gap-2">
             <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-200 border border-emerald-500/25 text-[11px]">{m.recommendation?.market}</span>
-            <span className="text-foreground">{m.recommendation?.selection}</span>
+            <span className="text-foreground">{humanizeSelection(m.recommendation?.selection, m.recommendation?.market, m.home_team?.name || m.match_label?.split(/\s+vs\s+/i)[0], m.away_team?.name || m.match_label?.split(/\s+vs\s+/i)[1], lang, sport)}</span>
           </div>
           <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3">
             <span className="mono font-mono-tabular">{t.match.oddsRange}: <span className="text-foreground">{m.recommendation?.odds_range || '—'}</span></span>

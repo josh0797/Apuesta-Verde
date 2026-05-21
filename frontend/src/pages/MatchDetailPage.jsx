@@ -13,7 +13,7 @@ import { ConfidenceMeter, ConfidenceIntelligenceCard } from '@/components/Confid
 import { OddsComparisonTable } from '@/components/OddsComparisonTable';
 import { LineMovement } from '@/components/LineMovement';
 import { MatchIntelligencePanel } from '@/components/MatchIntelligencePanel';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, humanizeSelection } from '@/lib/format';
 
 export default function MatchDetailPage() {
   const { id } = useParams();
@@ -30,12 +30,18 @@ export default function MatchDetailPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [m, p] = await Promise.all([
-        api.get(`/matches/${id}`),
-        api.get('/picks/today').catch(() => ({ data: { pick_run: null } })),
-      ]);
+      // 1) Fetch the match first so we know its sport, then fetch /picks/today
+      //    for THAT sport. This makes the Acciones panel (Gané/Perdí/Push)
+      //    work for NBA + MLB picks, not just football.
+      const m = await api.get(`/matches/${id}`);
       setMatch(m.data);
-      setPickRun(p.data?.pick_run || null);
+      const matchSport = (m.data?.sport || 'football').toLowerCase();
+      try {
+        const p = await api.get('/picks/today', { params: { sport: matchSport } });
+        setPickRun(p.data?.pick_run || null);
+      } catch {
+        setPickRun(null);
+      }
     } catch (e) {
       toast.error('Error');
     } finally { setLoading(false); }
@@ -68,6 +74,7 @@ export default function MatchDetailPage() {
         odds: oddsValue,
         league: llmPick.league,
         match_label: llmPick.match_label,
+        sport,
       });
       toast.success(outcome === 'won' ? 'Pick marcado como Gané' : outcome === 'lost' ? 'Pick marcado como Perdí' : 'Pick marcado como Push');
     } catch (e) { toast.error(e?.response?.data?.detail || 'Error'); }
@@ -122,7 +129,7 @@ export default function MatchDetailPage() {
                   <div className="text-[11px] uppercase tracking-wide text-emerald-200">{t.match.recommendation}</div>
                   <div className="text-lg font-semibold mt-1 flex items-center flex-wrap gap-2">
                     <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 text-xs">{llmPick.recommendation?.market}</span>
-                    {llmPick.recommendation?.selection}
+                    {humanizeSelection(llmPick.recommendation?.selection, llmPick.recommendation?.market, home?.name, away?.name, lang, sport)}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">{t.match.oddsRange}: <span className="text-foreground mono font-mono-tabular">{llmPick.recommendation?.odds_range}</span></div>
                 </div>

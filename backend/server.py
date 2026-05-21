@@ -465,11 +465,16 @@ class TrackIn(BaseModel):
     league: Optional[str] = None
     match_label: Optional[str] = None
     notes: Optional[str] = None
+    sport: Optional[str] = None  # football | basketball | baseball
 
 
 @api.post("/picks/track")
 async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
     pick_uid = f"{payload.run_id}-{payload.match_id}"
+    # Validate sport (best-effort — accept anything but default to football)
+    sport = (payload.sport or "football").lower()
+    if sport not in SUPPORTED_SPORTS:
+        sport = "football"
     doc = {
         "user_id": user["id"],
         "pick_id": pick_uid,
@@ -483,6 +488,7 @@ async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
         "outcome": payload.outcome,
         "odds": payload.odds,
         "notes": payload.notes,
+        "sport": sport,
         "tracked_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.pick_tracking.update_one(
@@ -490,7 +496,7 @@ async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
         {"$set": doc},
         upsert=True,
     )
-    return {"ok": True, "pick_id": pick_uid, "outcome": payload.outcome}
+    return {"ok": True, "pick_id": pick_uid, "outcome": payload.outcome, "sport": sport}
 
 
 @api.get("/picks/tracked")

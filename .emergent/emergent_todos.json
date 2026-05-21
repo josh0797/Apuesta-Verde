@@ -1,34 +1,22 @@
 [
   {
-    "content": "FASE 1: Crear services/match_stage_detector.py con detect_match_stage() + keyword maps multilingual",
+    "content": "FASE 1: lib/format.js - helper humanizeSelection() para nombres reales (1X2, DC, Moneyline, Spread, Over/Under)",
     "status": "completed"
   },
   {
-    "content": "FASE 2: Inyectar competition_stage/match_importance/is_final en el compact payload del LLM (normalizer)",
+    "content": "FASE 2: Aplicar humanizeSelection en MatchCard.jsx y MatchDetailPage.jsx",
     "status": "completed"
   },
   {
-    "content": "FASE 3: Actualizar MOTIVATION_RULES_V2 + prefilter + system prompt con COMPETITION_STAGE_OVERRIDE",
+    "content": "FASE 3: Backend - TrackIn acepta sport, /picks/track lo guarda en pick_tracking",
     "status": "completed"
   },
   {
-    "content": "FASE 4: Añadir validation guard post-LLM (force HIGH_BOTH en finales, limpiar reasons, mover de discarded_motivation)",
+    "content": "FASE 4: Frontend MatchDetailPage - cargar /picks/today filtrado por sport correcto + pasar sport al track",
     "status": "completed"
   },
   {
-    "content": "FASE 5: Activar injury_sources hook opcional en analyst_engine.py (Tier 1, feature flag, soft-fail)",
-    "status": "completed"
-  },
-  {
-    "content": "FASE 6: Tests unitarios match_stage_detector (final/semi/QF/2nd-leg/mid-table/already-champion)",
-    "status": "completed"
-  },
-  {
-    "content": "FASE 7: Frontend - mostrar pressure_state badge en MotivationContextBlock (opcional pero útil)",
-    "status": "completed"
-  },
-  {
-    "content": "FASE 8: Lint + curl test + testing agent E2E",
-    "status": "completed"
+    "content": "FASE 5: lint + screenshot + testing agent E2E",
+    "status": "in_progress"
   }
 ]
