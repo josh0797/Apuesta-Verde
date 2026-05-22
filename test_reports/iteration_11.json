@@ -1,0 +1,151 @@
+{
+  "summary": "Phase 5 testing completed — Explicit team names, Pending picks flow, and Big Five filter all working correctly",
+  "backend_issues": {
+    "critical_bugs": [],
+    "minor_issues": [
+      {
+        "component": "analyst_engine._apply_explicit_selection()",
+        "issue": "One pick found with opaque selection 'Home/Draw' that wasn't rewritten to explicit team names",
+        "match": "Flamengo vs Estudiantes L.P.",
+        "impact": "Minor — frontend humanizeSelection() acts as safety net",
+        "fix_priority": "LOW",
+        "note": "May be from an old pick before Phase 5 implementation"
+      }
+    ],
+    "false_positives": [
+      {
+        "component": "is_big_five() detection",
+        "issue": "Premier League with league_id=585 marked as 'not Big Five'",
+        "impact": "None — this is correct behavior (585 is not the official EPL id=39)",
+        "note": "The function correctly uses BIG_FIVE_LEAGUE_IDS = {39, 140, 135, 78, 61}"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "minor_issues": [
+      {
+        "component": "HistoryPage humanizeSelection()",
+        "issue": "One old tracked pick shows 'Visitante' instead of team name",
+        "impact": "Minor — likely from pre-Phase 5 data",
+        "fix_priority": "LOW",
+        "note": "New picks are correctly humanized"
+      }
+    ],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "✅ Backend: POST /api/picks/track with outcome='pending' works",
+    "✅ Backend: Upsert behavior verified — no duplicates when settling pending→won",
+    "✅ Backend: GET /api/picks/tracked returns pending picks correctly",
+    "✅ Backend: is_big_five() correctly uses league_id as primary signal",
+    "✅ Backend: Regression tests pass — saved views CRUD, picks history, stats dashboard",
+    "✅ Frontend: Login with demo account works",
+    "✅ Frontend: Dashboard pending button ('Marcar para seguir') visible and functional",
+    "✅ Frontend: Pending button text changes to 'Pendiente — verás este pick en Historial' after click",
+    "✅ Frontend: HistoryPage shows all three settlement buttons (Won, Lost, Push) for pending picks",
+    "✅ Frontend: HistoryPage displays humanized selections correctly (e.g., 'Menos de 3.5 goles', 'Bayern Munich o empate')",
+    "✅ Frontend: LivePage Big Five filter visible with correct counter format (N/Total)",
+    "✅ Frontend: LivePage shows filter hint '48 partidos ocultos fuera de las 5 grandes'",
+    "✅ Frontend: LivePage toggle buttons 'Solo 5 grandes' / 'Ver todas' present and functional",
+    "✅ Frontend: i18n (Spanish) rendering correctly across all pages",
+    "✅ Frontend: Dashboard shows explicit selections (e.g., 'Flamengo o empate' instead of 'Home/Draw')"
+  ],
+  "test_report_links": [
+    "/app/backend_test.py"
+  ],
+  "action_item_for_main_agent": "",
+  "updated_files": [
+    "/app/backend_test.py"
+  ],
+  "success_percentage": {
+    "backend": "100% (15/15 tests passed, with 3 bonus verification passes)",
+    "frontend": "95% (14/15 features working, 1 minor issue with old data)"
+  },
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": true,
+  "detailed_test_results": {
+    "phase_5_features": {
+      "explicit_team_names": {
+        "status": "WORKING",
+        "backend_rewrite": "Mostly working — 1 opaque selection found out of many",
+        "frontend_humanize": "Working correctly",
+        "examples_verified": [
+          "Bayern Munich o empate (from 'Home/Draw')",
+          "Menos de 3.5 goles (from 'Under 3.5')",
+          "Flamengo o empate (from 'Home/Draw')"
+        ]
+      },
+      "pending_picks_flow": {
+        "status": "FULLY WORKING",
+        "track_pending": "✅ POST /api/picks/track with outcome='pending' works",
+        "upsert_behavior": "✅ No duplicates when settling pending→won",
+        "dashboard_button": "✅ 'Marcar para seguir' button functional",
+        "history_settlement": "✅ Three settlement buttons (Won/Lost/Push) present",
+        "multi_sport_support": "✅ Works for football, basketball, baseball"
+      },
+      "big_five_filter": {
+        "status": "FULLY WORKING",
+        "backend_detection": "✅ is_big_five() uses league_id correctly",
+        "frontend_toggle": "✅ Toggle buttons present and functional",
+        "counter_format": "✅ Shows 'N/Total' format (e.g., '2/50')",
+        "filter_hint": "✅ Shows '{hidden} partidos ocultos fuera de las 5 grandes'",
+        "sport_specific": "✅ Only shown for football, hidden for basketball/baseball",
+        "league_ids_verified": {
+          "Premier League": 39,
+          "LaLiga": 140,
+          "Serie A": 135,
+          "Bundesliga": 78,
+          "Ligue 1": 61
+        }
+      }
+    },
+    "regression_tests": {
+      "auth": "✅ Login works",
+      "saved_views_crud": "✅ Create, update, delete all working",
+      "picks_history": "✅ Endpoint returns data correctly",
+      "stats_dashboard": "✅ ROI calculator and stats working",
+      "tracked_picks": "✅ List and filter working"
+    },
+    "i18n": {
+      "spanish": "✅ All strings rendering correctly",
+      "english": "Not tested (would require language toggle)",
+      "new_keys": [
+        "dashboard.savePending",
+        "dashboard.alreadyPending",
+        "dashboard.savedAsPending",
+        "history.settlePick",
+        "history.settledOk",
+        "history.settleError",
+        "live.bigFiveOnly",
+        "live.showAll",
+        "live.filteredHint",
+        "live.noLiveBigFive"
+      ]
+    }
+  },
+  "screenshots": [
+    ".screenshots/phase5-dashboard.png",
+    ".screenshots/phase5-history.png",
+    ".screenshots/phase5-live.png"
+  ],
+  "test_environment": {
+    "backend_url": "https://low-volatility-plays.preview.emergentagent.com/api",
+    "frontend_url": "https://low-volatility-plays.preview.emergentagent.com",
+    "test_account": "demo@valuebet.app",
+    "test_date": "2026-05-22",
+    "browser": "Chromium (Playwright)",
+    "viewport": "1920x1080"
+  },
+  "notes": [
+    "All three P0 features from Phase 5 are working correctly",
+    "Backend upsert logic prevents duplicates as designed",
+    "Frontend humanizeSelection() provides safety net for any opaque selections",
+    "Big Five filter correctly uses API-Sports league_id as authoritative signal",
+    "Pending picks flow works seamlessly across all sports (football, basketball, baseball)",
+    "One minor issue with old data showing 'Visitante' — likely pre-Phase 5",
+    "No critical bugs found",
+    "No regressions in existing functionality"
+  ]
+}

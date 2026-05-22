@@ -285,12 +285,12 @@ export default function DashboardPage() {
         <div className="space-y-6">
           {high.length > 0 && (
             <GroupSection title={t.dashboard.groupHigh} count={high.length} tier="Alta" testId="group-high" sectionRef={refs.high} icon={Activity}>
-              <div className="grid gap-3">{high.map((p, i) => <MatchCard key={p.match_id || i} pick={p} idx={i} sport={sport} />)}</div>
+              <div className="grid gap-3">{high.map((p, i) => <MatchCard key={p.match_id || i} pick={p} idx={i} sport={sport} runId={run?.id} />)}</div>
             </GroupSection>
           )}
           {medium.length > 0 && (
             <GroupSection title={t.dashboard.groupMedium} count={medium.length} tier="Media" testId="group-medium" sectionRef={refs.medium} icon={Activity}>
-              <div className="grid gap-3">{medium.map((p, i) => <MatchCard key={p.match_id || i} pick={p} idx={i} sport={sport} />)}</div>
+              <div className="grid gap-3">{medium.map((p, i) => <MatchCard key={p.match_id || i} pick={p} idx={i} sport={sport} runId={run?.id} />)}</div>
             </GroupSection>
           )}
         </div>

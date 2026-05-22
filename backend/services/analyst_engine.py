@@ -265,7 +265,7 @@ REGLAS GENERALES (todos los deportes):
       "live_stats": (object|null),
       "recommendation": {{
         "market": "Moneyline"|"Doble Oportunidad"|"Total Under"|"Spread"|"Run Line"|"Draw No Bet",
-        "selection": "string específica",
+        "selection": "string con NOMBRE EXPLÍCITO del equipo cuando aplique (ver REGLAS DE SELECTION)",
         "odds_range": "1.25-1.45",
         "confidence_score": int 0-100,
         "confidence_level": "Maxima"|"Alta"|"Media"
@@ -318,6 +318,52 @@ NOTAS IMPORTANTES SOBRE LOS DATOS DISPONIBLES:
 - `data_source_season` puede ser "2024 (proxy)" porque el plan API no permite season actual. Esto es ESPERADO. Trata estos datos (form_last_5, position, wins/losses) como indicadores SÓLIDOS. Marca context como "stale" pero NO descartes por esto.
 - Si tienes odds + position + h2h, TIENES SUFICIENTE para hacer un análisis razonable.
 - Si recibes un campo `prefilter_hint` con motivation_state precomputado, úsalo como punto de partida pero recalcula tú mismo si la evidencia lo contradice.
+
+REGLAS DE `recommendation.selection` (NO NEGOCIABLE — CLARIDAD PARA EL USUARIO):
+La `selection` SIEMPRE debe ser legible y específica. NUNCA uses códigos opacos
+ni placeholders tipo "Home", "Away", "Local", "Visitante", "1", "X", "2", "1X",
+"X2", "12", "Home/Draw", "Draw or Away". El usuario debe entender QUIÉN está
+siendo apostado sin abrir el detalle.
+
+FORMATO REQUERIDO POR TIPO DE MERCADO (usa el `home_team.name`/`away_team.name`
+recibidos en el payload — no inventes nombres):
+
+  • Moneyline / 1X2 / Draw No Bet (un solo lado):
+      ✅ "Bayern Munich gana"           (favorito local)
+      ✅ "Bayer Leverkusen gana"        (favorito visitante)
+      ✅ "Knicks gana"                  (NBA)
+      ❌ "Home" / "Away" / "1" / "2" / "Local" / "Visitante"
+
+  • Doble Oportunidad / Double Chance:
+      ✅ "Bayern Munich o empate"       (1X con nombre)
+      ✅ "Empate o Bremen"              (X2 con nombre)
+      ✅ "Bayern Munich o Bremen"       (12 con nombre)
+      ❌ "Home/Draw" / "1X" / "X2" / "12" / "Draw or Away"
+
+  • Spread / Hándicap / Run Line:
+      ✅ "Bayern Munich -1.5"
+      ✅ "Bremen +1.5"
+      ✅ "Yankees -1.5 carreras"        (MLB)
+      ❌ "Home -1.5" / "Visitante +1.5" / "1 -1.5"
+
+  • Total Over / Total Under:
+      ✅ "Más de 2.5 goles"             (fútbol ES)
+      ✅ "Menos de 9.5 carreras"        (MLB ES)
+      ✅ "Over 220.5 puntos"            (NBA, válido también)
+      ❌ "Over 2.5" sin unidad / "Under" sin número
+
+EJEMPLO DE PICK CORRECTO (Bayern Munich vs Werder Bremen, Doble Oportunidad):
+  "recommendation": {{
+    "market": "Doble Oportunidad",
+    "selection": "Bayern Munich o empate",   ← nombre del equipo, no "Home/Draw"
+    "odds_range": "1.20-1.28",
+    "confidence_score": 78,
+    "confidence_level": "Alta"
+  }}
+
+Si por cualquier razón no recuerdas el nombre exacto, usa el equipo tal como
+aparece en `match_label` o en `home_team.name`/`away_team.name` del payload.
+NUNCA uses "Home", "Local", "Visitante" como sustitutos.
 
 REGLA CRÍTICA DE CATEGORIZACIÓN (NO NEGOCIABLE):
 TODO partido analizado DEBE aparecer en EXACTAMENTE UNA de estas listas:
@@ -716,6 +762,149 @@ def _apply_stage_correction(parsed: dict, input_payload: list[dict]) -> dict:
         )
     return parsed
 
+def _apply_explicit_selection(parsed: dict, input_payload: list[dict], sport: str = "football") -> dict:
+    """Rewrite opaque `recommendation.selection` codes using real team names.
+
+    Even when the prompt forbids them, models occasionally emit "Home/Draw",
+    "1X", "Home", "Visitante", etc. This deterministic post-processor rewrites
+    those into selections the user can understand at a glance:
+
+        "Home/Draw"        + Bayern vs Bremen        → "Bayern Munich o empate"
+        "1X"                                          → "Bayern Munich o empate"
+        "Home"             + Moneyline                → "Bayern Munich gana"
+        "Visitante"        + Draw No Bet              → "Bremen gana"
+        "Home -1.5"        + Spread                   → "Bayern Munich -1.5"
+        "Under 2.5"        + Total Under (football)   → "Menos de 2.5 goles"
+
+    Only rewrites when the original token clearly matches a placeholder; never
+    mangles selections that already contain a literal team name.
+
+    Mirror of the frontend `humanizeSelection()` so both sides stay coherent
+    even for old picks loaded from history.
+    """
+    if not parsed or not isinstance(parsed, dict):
+        return parsed
+
+    # Build {match_id: (home_name, away_name)} from authoritative input.
+    teams_by_id: dict[str, tuple[str, str]] = {}
+    for m in input_payload:
+        mid = m.get("match_id")
+        if mid is None:
+            continue
+        home = (m.get("home_team") or {}).get("name") or ""
+        away = (m.get("away_team") or {}).get("name") or ""
+        teams_by_id[str(mid)] = (home, away)
+
+    sport = (sport or "football").lower()
+    if sport == "basketball":
+        score_unit = "puntos"
+    elif sport == "baseball":
+        score_unit = "carreras"
+    else:
+        score_unit = "goles"
+
+    DRAW = "empate"
+    HOME_TOKENS = {"home", "local", "1", "h", "casa"}
+    AWAY_TOKENS = {"away", "visitor", "visitante", "2", "v", "a", "road"}
+    DRAW_TOKENS = {"draw", "empate", "x", "tie", "d"}
+
+    def _resolve_side(token: str, home_name: str, away_name: str) -> str:
+        tok = (token or "").strip()
+        low = tok.lower()
+        if not tok:
+            return tok
+        if low in DRAW_TOKENS:
+            return DRAW
+        if low in HOME_TOKENS:
+            return home_name or "Local"
+        if low in AWAY_TOKENS:
+            return away_name or "Visitante"
+        return tok  # already a literal — leave alone
+
+    rewrites = 0
+    picks = parsed.get("picks") or []
+    for p in picks:
+        rec = p.get("recommendation") or {}
+        sel = rec.get("selection")
+        if not sel or not isinstance(sel, str):
+            continue
+        market = (rec.get("market") or "").lower()
+        sid = str(p.get("match_id"))
+        home_name, away_name = teams_by_id.get(sid, ("", ""))
+        original = sel.strip()
+        new_sel = original
+
+        # 1) Short 1X2 codes — "1X", "X2", "12", "1", "X", "2"
+        compact = original.replace(" ", "").upper()
+        if compact == "1X":
+            new_sel = f"{home_name or 'Local'} o {DRAW}"
+        elif compact == "X2":
+            new_sel = f"{DRAW} o {away_name or 'Visitante'}"
+        elif compact == "12":
+            new_sel = f"{home_name or 'Local'} o {away_name or 'Visitante'}"
+        elif compact == "1":
+            new_sel = f"{home_name or 'Local'} gana"
+        elif compact == "X":
+            new_sel = DRAW
+        elif compact == "2":
+            new_sel = f"{away_name or 'Visitante'} gana"
+        else:
+            # 2) Spread/Run Line side prefix: "Home -1.5", "Visitante +1.5"
+            spread_m = re.match(
+                r"^(home|local|away|visitor|visitante|h|v|1|2)\s*([+-]?\d+(?:\.\d+)?)\s*$",
+                original, flags=re.IGNORECASE,
+            )
+            if spread_m and ("spread" in market or "handicap" in market or "hándicap" in market or "run line" in market or not market):
+                side = _resolve_side(spread_m.group(1), home_name, away_name)
+                new_sel = f"{side} {spread_m.group(2)}"
+            else:
+                # 3) Double Chance pairs: "Home/Draw", "Draw or Away", "Local, Empate"
+                dc_parts = re.split(r"\s*(?:/|\s+or\s+|\s+o\s+|,)\s*", original)
+                dc_parts = [pp for pp in dc_parts if pp]
+                if (
+                    len(dc_parts) == 2
+                    and ("doble" in market or "double chance" in market or "/" in original
+                         or any(p.lower() in HOME_TOKENS | AWAY_TOKENS | DRAW_TOKENS for p in dc_parts))
+                ):
+                    a = _resolve_side(dc_parts[0], home_name, away_name)
+                    b = _resolve_side(dc_parts[1], home_name, away_name)
+                    if a and b:
+                        new_sel = f"{a} o {b}"
+                else:
+                    # 4) Single-side Moneyline/DNB token: "Home", "Visitante"
+                    if original.lower() in (HOME_TOKENS | AWAY_TOKENS | DRAW_TOKENS):
+                        resolved = _resolve_side(original, home_name, away_name)
+                        if "moneyline" in market or "draw no bet" in market or market.startswith("1x2") or not market:
+                            if resolved == DRAW:
+                                new_sel = DRAW
+                            else:
+                                new_sel = f"{resolved} gana"
+                        else:
+                            new_sel = resolved
+                    else:
+                        # 5) Totals — "Over 2.5", "Under 8.5" without unit
+                        tot_m = re.match(
+                            r"^(under|over|menos|m[aá]s)\s*(\d+(?:\.\d+)?)\s*$",
+                            original, flags=re.IGNORECASE,
+                        )
+                        if tot_m:
+                            is_under = bool(re.match(r"under|menos", tot_m.group(1), flags=re.IGNORECASE))
+                            word = "Menos de" if is_under else "Más de"
+                            new_sel = f"{word} {tot_m.group(2)} {score_unit}"
+
+        if new_sel and new_sel != original:
+            rec["selection"] = new_sel
+            p["recommendation"] = rec
+            p["_selection_rewritten"] = {"from": original, "to": new_sel}
+            rewrites += 1
+
+    parsed.setdefault("_pipeline", {})
+    parsed["_pipeline"]["explicit_selection_rewrites"] = rewrites
+    if rewrites:
+        log.info("explicit_selection: rewrote %d opaque selection codes", rewrites)
+    return parsed
+
+
 def _apply_form_correction(parsed: dict, input_payload: list[dict]) -> dict:
     """Detect and mitigate picks that endorse a team on a 3+ loss streak.
 
@@ -953,6 +1142,12 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football") 
     #   • "motivación normal" reasons attached to finals/knockouts
     #   • picks whose motivation_state is not HIGH_BOTH on a final
     parsed = _apply_stage_correction(parsed, matches_payload)
+
+    # ── Explicit-team-name rewrite ──
+    # Rewrite opaque selection codes ("Home/Draw", "1X", "Home") into
+    # human-readable selections using the real team names from the payload.
+    # Mirrors the frontend humanizeSelection() so old picks stay coherent too.
+    parsed = _apply_explicit_selection(parsed, matches_payload, sport)
 
     # ── Form-recency safety net ──
     # Penalize / re-route picks that endorse a team on a 3+ loss streak.

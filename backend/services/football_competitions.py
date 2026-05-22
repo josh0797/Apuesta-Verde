@@ -310,9 +310,30 @@ BIG_FIVE_LEAGUES: tuple[str, ...] = (
     "Ligue 1",
 )
 
+# API-Sports league IDs for the Big Five — the AUTHORITATIVE source of truth.
+# Name-based matching alone is brittle because "Bundesliga" matches both the
+# German top tier AND the Austrian top tier. Use the league_id whenever the
+# match payload exposes it.
+#   • Premier League (England) → 39
+#   • LaLiga (Spain)           → 140
+#   • Serie A (Italy)          → 135
+#   • Bundesliga (Germany)     → 78
+#   • Ligue 1 (France)         → 61
+BIG_FIVE_LEAGUE_IDS: set[int] = {39, 140, 135, 78, 61}
 
-def is_big_five(league_name: Optional[str]) -> bool:
-    """True iff the league resolves to one of the top-5 European leagues."""
+
+def is_big_five(league_name: Optional[str], league_id: Optional[int] = None) -> bool:
+    """True iff the league resolves to one of the top-5 European leagues.
+
+    Prefer `league_id` (deterministic) when available; fall back to canonical
+    name matching for older code paths that haven't been threaded through with
+    the id yet.
+    """
+    if league_id is not None:
+        try:
+            return int(league_id) in BIG_FIVE_LEAGUE_IDS
+        except (TypeError, ValueError):
+            pass
     meta = get_competition_meta(league_name)
     return bool(meta and meta["canonical_name"] in BIG_FIVE_LEAGUES)
 

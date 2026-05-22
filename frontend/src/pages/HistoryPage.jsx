@@ -2,8 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { api } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
-import { tierClass } from '@/lib/format';
-import { BadgeCheck, ThumbsDown, Equal, Clock, Download, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
+import { tierClass, humanizeSelection } from '@/lib/format';
+import { BadgeCheck, ThumbsDown, Equal, Clock, Download, DollarSign, TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { WinRateChart } from '@/components/WinRateChart';
@@ -16,6 +16,7 @@ export default function HistoryPage() {
   const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stake, setStake] = useState(() => Number(localStorage.getItem('vbi_stake') || '10'));
+  const [settling, setSettling] = useState({}); // { [pick_id]: true } while updating
 
   const load = useCallback(async (currentStake) => {
     setLoading(true);
@@ -48,6 +49,38 @@ export default function HistoryPage() {
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     } catch (e) { toast.error('Export failed'); }
+  };
+
+  // Settle a pending pick by upserting it through the same /picks/track endpoint.
+  // The server uses (user_id, match_id, pick_id) as the upsert key so we only
+  // need to resend the existing fields plus the new outcome.
+  const settlePick = async (row, outcome) => {
+    if (!row || settling[row.pick_id]) return;
+    setSettling((m) => ({ ...m, [row.pick_id]: true }));
+    try {
+      await api.post('/picks/track', {
+        run_id: row.run_id,
+        match_id: row.match_id,
+        market: row.market,
+        selection: row.selection,
+        confidence_score: row.confidence_score || 0,
+        outcome,
+        odds: row.odds ?? null,
+        league: row.league || null,
+        match_label: row.match_label || null,
+        sport: row.sport || 'football',
+      });
+      toast.success(t.history.settledOk);
+      await load(stake);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || t.history.settleError);
+    } finally {
+      setSettling((m) => {
+        const next = { ...m };
+        delete next[row.pick_id];
+        return next;
+      });
+    }
   };
 
   if (loading) return <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"><Skeleton className="h-32 rounded-xl mb-4" /><Skeleton className="h-64 rounded-xl" /></div>;
@@ -139,20 +172,83 @@ export default function HistoryPage() {
                 <th className="text-left px-3 py-2 text-[11px] uppercase tracking-wide text-muted-foreground font-medium">Match</th>
                 <th className="text-left px-3 py-2 text-[11px] uppercase tracking-wide text-muted-foreground font-medium">Market</th>
                 <th className="text-right px-3 py-2 text-[11px] uppercase tracking-wide text-muted-foreground font-medium">Confidence</th>
-                <th className="text-right px-3 py-2 text-[11px] uppercase tracking-wide text-muted-foreground font-medium">Outcome</th>
+                <th className="text-right px-3 py-2 text-[11px] uppercase tracking-wide text-muted-foreground font-medium">{t.history.actions}</th>
                 <th className="text-right px-3 py-2 text-[11px] uppercase tracking-wide text-muted-foreground font-medium">Date</th>
               </tr>
             </thead>
             <tbody>
-              {tracked.map((t2, i) => (
-                <tr key={i} className="border-t border-border hover:bg-white/[0.03]" data-testid={`tracked-row-${i}`}>
-                  <td className="px-3 py-2">{t2.match_label || t2.match_id}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{t2.market}: {t2.selection}</td>
-                  <td className="px-3 py-2 text-right mono font-mono-tabular">{t2.confidence_score}</td>
-                  <td className="px-3 py-2 text-right"><OutcomePill outcome={t2.outcome} /></td>
-                  <td className="px-3 py-2 text-right text-muted-foreground mono font-mono-tabular text-xs">{new Date(t2.tracked_at).toLocaleString(lang === 'es' ? 'es-ES' : 'en-US')}</td>
-                </tr>
-              ))}
+              {tracked.map((row, i) => {
+                // Split "Bayern vs Bremen" so humanizeSelection has home/away to work with.
+                const parts = String(row.match_label || '').split(/\s+vs\s+/i);
+                const homeName = parts[0]?.trim() || '';
+                const awayName = parts[1]?.trim() || '';
+                const humanSelection = humanizeSelection(
+                  row.selection,
+                  row.market,
+                  homeName,
+                  awayName,
+                  lang,
+                  row.sport || 'football',
+                );
+                const isPending = row.outcome === 'pending';
+                const busy = !!settling[row.pick_id];
+                return (
+                  <tr key={row.pick_id || i} className="border-t border-border hover:bg-white/[0.03]" data-testid={`tracked-row-${i}`}>
+                    <td className="px-3 py-2">{row.match_label || row.match_id}</td>
+                    <td className="px-3 py-2 text-muted-foreground" data-testid={`tracked-selection-${i}`}>
+                      <span className="text-foreground/80 font-medium">{row.market}</span>
+                      <span className="text-muted-foreground/80">: </span>
+                      <span className="text-foreground">{humanSelection}</span>
+                    </td>
+                    <td className="px-3 py-2 text-right mono font-mono-tabular">{row.confidence_score}</td>
+                    <td className="px-3 py-2 text-right">
+                      {isPending ? (
+                        <div className="inline-flex items-center gap-1 justify-end" data-testid={`settle-actions-${i}`}>
+                          {busy ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                          ) : (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => settlePick(row, 'won')}
+                                className="h-7 px-2 text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/10"
+                                data-testid={`settle-won-${i}`}
+                                title={t.history.markWon}
+                              >
+                                <BadgeCheck className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => settlePick(row, 'lost')}
+                                className="h-7 px-2 text-red-300 hover:text-red-200 hover:bg-red-500/10"
+                                data-testid={`settle-lost-${i}`}
+                                title={t.history.markLost}
+                              >
+                                <ThumbsDown className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => settlePick(row, 'push')}
+                                className="h-7 px-2 text-muted-foreground hover:text-foreground hover:bg-white/[0.06]"
+                                data-testid={`settle-push-${i}`}
+                                title={t.history.markPush}
+                              >
+                                <Equal className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <OutcomePill outcome={row.outcome} t={t} />
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right text-muted-foreground mono font-mono-tabular text-xs">{new Date(row.tracked_at).toLocaleString(lang === 'es' ? 'es-ES' : 'en-US')}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -175,9 +271,9 @@ function KPI({ label, value, accent, icon: Icon, hint }) {
   );
 }
 
-function OutcomePill({ outcome }) {
-  if (outcome === 'won') return <span className="inline-flex items-center gap-1 text-emerald-300 text-xs"><BadgeCheck className="h-3.5 w-3.5" />Won</span>;
-  if (outcome === 'lost') return <span className="inline-flex items-center gap-1 text-red-300 text-xs"><ThumbsDown className="h-3.5 w-3.5" />Lost</span>;
-  if (outcome === 'push') return <span className="inline-flex items-center gap-1 text-muted-foreground text-xs"><Equal className="h-3.5 w-3.5" />Push</span>;
-  return <span className="inline-flex items-center gap-1 text-cyan-300 text-xs"><Clock className="h-3.5 w-3.5" />Pending</span>;
+function OutcomePill({ outcome, t }) {
+  if (outcome === 'won') return <span className="inline-flex items-center gap-1 text-emerald-300 text-xs"><BadgeCheck className="h-3.5 w-3.5" />{t.history.markWon}</span>;
+  if (outcome === 'lost') return <span className="inline-flex items-center gap-1 text-red-300 text-xs"><ThumbsDown className="h-3.5 w-3.5" />{t.history.markLost}</span>;
+  if (outcome === 'push') return <span className="inline-flex items-center gap-1 text-muted-foreground text-xs"><Equal className="h-3.5 w-3.5" />{t.history.markPush}</span>;
+  return <span className="inline-flex items-center gap-1 text-cyan-300 text-xs"><Clock className="h-3.5 w-3.5" />{t.history.outcomePending}</span>;
 }

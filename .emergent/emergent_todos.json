@@ -1,30 +1,42 @@
 [
   {
-    "content": "FASE 1: services/form_guard.py - analiza form_last_5, detecta streaks negativos, calcula form_score",
+    "content": "Actualizar prompts del LLM en analyst_engine.py para forzar nombres explícitos de equipo en `selection`",
+    "status": "completed"
+  },
+  {
+    "content": "Arreglar HistoryPage para humanizar el campo `selection` en la tabla tracked picks",
+    "status": "completed"
+  },
+  {
+    "content": "Añadir botón 'Marcar para seguir' (pending) en MatchCard del dashboard",
+    "status": "completed"
+  },
+  {
+    "content": "Añadir botones de settlement (Gané/Perdí/Push) por fila en HistoryPage para picks pending",
+    "status": "completed"
+  },
+  {
+    "content": "Crear helper frontend `lib/competitions.js` con `isBigFive()` (puerto del backend)",
+    "status": "completed"
+  },
+  {
+    "content": "Filtrar lista 'Live now' en LivePage por Big Five cuando sport=football",
+    "status": "completed"
+  },
+  {
+    "content": "Cambiar Big Five a league_id (preferred) en backend+frontend para evitar falsos positivos",
+    "status": "completed"
+  },
+  {
+    "content": "Smoke test backend (selection rewrite + pending upsert) - PASS",
+    "status": "completed"
+  },
+  {
+    "content": "Smoke test frontend (isBigFive con ids) - PASS 13/13",
+    "status": "completed"
+  },
+  {
+    "content": "Testing agent backend + frontend (selection humanization, pending flow, big five filter)",
     "status": "in_progress"
-  },
-  {
-    "content": "FASE 2: analyst_engine - reforzar prompt con regla 'no recomendar side con racha negativa sin justificar' + guard post-LLM que penalice o reclasifique",
-    "status": "pending"
-  },
-  {
-    "content": "FASE 3: football_competitions - constante BIG_FIVE_LEAGUES + helper is_big_five()",
-    "status": "pending"
-  },
-  {
-    "content": "FASE 4: Backend - /api/analysis/run acepta live_only y big_five_only en AnalysisRunIn",
-    "status": "pending"
-  },
-  {
-    "content": "FASE 5: Frontend LivePage - botón 'Analizar Big Five' + listado de picks live + reuso AnalysisProgressModal",
-    "status": "pending"
-  },
-  {
-    "content": "FASE 6: Tests unitarios form_guard + is_big_five",
-    "status": "pending"
-  },
-  {
-    "content": "FASE 7: Lint + screenshot + testing agent E2E",
-    "status": "pending"
   }
 ]

@@ -232,7 +232,7 @@ async def _run_analysis_pipeline(
     # Big-Five filter (football only) — surfaces only Premier/LaLiga/Serie A/Bundesliga/Ligue 1.
     if big_five_only and sport == "football":
         from services.football_competitions import is_big_five  # local import to avoid cycle
-        upcoming = [m for m in upcoming if is_big_five(m.get("league"))]
+        upcoming = [m for m in upcoming if is_big_five(m.get("league"), m.get("league_id"))]
 
     def priority_score(m: dict) -> tuple:
         has_odds = 1 if (m.get("odds_snapshots") or []) else 0
@@ -279,7 +279,7 @@ async def _run_analysis_pipeline(
         live = await db.matches.find(query_live).limit(10).to_list(length=10)
         if big_five_only and sport == "football":
             from services.football_competitions import is_big_five  # noqa: F811
-            live = [m for m in live if is_big_five(m.get("league"))]
+            live = [m for m in live if is_big_five(m.get("league"), m.get("league_id"))]
         candidates.extend(live)
 
     candidates = candidates[: max_matches]

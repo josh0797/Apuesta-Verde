@@ -1,25 +1,68 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Clock, AlertOctagon, ShieldCheck, ChevronDown, Gauge } from 'lucide-react';
+import { Clock, AlertOctagon, ShieldCheck, ChevronDown, Gauge, BookmarkPlus, BookmarkCheck, Loader2 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
-import { formatDateTime, formatOdd, tierClass, confidenceTier, humanizeSelection } from '@/lib/format';
+import { formatDateTime, tierClass, confidenceTier, humanizeSelection } from '@/lib/format';
 import { ConfidenceMeter, ConfidenceIntelligenceCard } from './ConfidenceMeter';
 import { MotivationBadge } from './MotivationBadge';
 import { FreshnessBadge } from './FreshnessBadge';
 import { LivePulse } from './LivePulse';
 import { LineMovement } from './LineMovement';
 import { deriveIntelligence, DRIVER_META } from '@/lib/intelligence';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
+import { api } from '@/lib/api';
 
-export function MatchCard({ pick, idx = 0, sport = 'football' }) {
+export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
   const { lang, t } = useI18n();
   const m = pick;
   const tier = confidenceTier(m.recommendation?.confidence_score || 0);
   const tierCls = tierClass(tier);
   const intel = deriveIntelligence(m, sport);
   const [expanded, setExpanded] = useState(false);
+  const [pendingSaving, setPendingSaving] = useState(false);
+  const [savedPending, setSavedPending] = useState(false);
   const visibleDrivers = (intel?.drivers || []).slice(0, 3);
   const remainingDrivers = Math.max(0, (intel?.drivers || []).length - visibleDrivers.length);
+
+  // "Marcar para seguir" — store the pick with outcome=pending so the user
+  // can settle it later from the History page, regardless of sport (NBA/MLB
+  // games that end late at night, finals played on different days, etc.).
+  const savePending = async () => {
+    if (pendingSaving || !runId) return;
+    setPendingSaving(true);
+    try {
+      // Parse a midpoint from "1.25-1.45" or a single odds value.
+      let oddsValue = null;
+      const range = m.recommendation?.odds_range;
+      if (range) {
+        const nums = String(range).match(/\d+\.?\d*/g) || [];
+        const parsed = nums.map(Number).filter((n) => n > 1 && n < 10);
+        if (parsed.length === 2) oddsValue = (parsed[0] + parsed[1]) / 2;
+        else if (parsed.length === 1) oddsValue = parsed[0];
+      }
+      await api.post('/picks/track', {
+        run_id: runId,
+        match_id: m.match_id,
+        market: m.recommendation?.market,
+        selection: m.recommendation?.selection,
+        confidence_score: m.recommendation?.confidence_score || 0,
+        outcome: 'pending',
+        odds: oddsValue,
+        league: m.league,
+        match_label: m.match_label,
+        sport,
+      });
+      setSavedPending(true);
+      toast.success(t.dashboard.savedAsPending);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || t.common.error);
+    } finally {
+      setPendingSaving(false);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -62,7 +105,7 @@ export function MatchCard({ pick, idx = 0, sport = 'football' }) {
           <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.match.recommendation}</div>
           <div className="text-sm font-semibold mt-0.5 flex flex-wrap items-center gap-2">
             <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-200 border border-emerald-500/25 text-[11px]">{m.recommendation?.market}</span>
-            <span className="text-foreground">{humanizeSelection(m.recommendation?.selection, m.recommendation?.market, m.home_team?.name || m.match_label?.split(/\s+vs\s+/i)[0], m.away_team?.name || m.match_label?.split(/\s+vs\s+/i)[1], lang, sport)}</span>
+            <span className="text-foreground" data-testid={`pick-selection-${m.match_id}`}>{humanizeSelection(m.recommendation?.selection, m.recommendation?.market, m.home_team?.name || m.match_label?.split(/\s+vs\s+/i)[0], m.away_team?.name || m.match_label?.split(/\s+vs\s+/i)[1], lang, sport)}</span>
           </div>
           <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3">
             <span className="mono font-mono-tabular">{t.match.oddsRange}: <span className="text-foreground">{m.recommendation?.odds_range || '—'}</span></span>
@@ -92,6 +135,35 @@ export function MatchCard({ pick, idx = 0, sport = 'football' }) {
           </span>
         )}
       </div>
+
+      {/* Track-pending action — works for every sport. Hidden if we don't
+          have a runId (e.g. live picks rendered without a persisted run). */}
+      {runId && (
+        <div className="flex items-center justify-end pt-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={savePending}
+            disabled={pendingSaving || savedPending}
+            data-testid={`pick-pending-btn-${m.match_id}`}
+            className={
+              savedPending
+                ? 'h-8 px-2 text-[11px] text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/10'
+                : 'h-8 px-2 text-[11px] text-muted-foreground hover:text-foreground hover:bg-white/[0.06]'
+            }
+          >
+            {pendingSaving ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+            ) : savedPending ? (
+              <BookmarkCheck className="h-3.5 w-3.5 mr-1" />
+            ) : (
+              <BookmarkPlus className="h-3.5 w-3.5 mr-1" />
+            )}
+            {savedPending ? t.dashboard.alreadyPending : t.dashboard.savePending}
+          </Button>
+        </div>
+      )}
 
       {/* Inline drivers preview + expand */}
       {intel && (visibleDrivers.length > 0 || intel.bestFor?.length > 0) && (

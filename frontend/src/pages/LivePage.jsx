@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Loader2, RefreshCcw, Brain, Trophy } from 'lucide-react';
+import { Loader2, RefreshCcw, Brain, Trophy, Trophy as TrophyIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n';
 import { useSport } from '@/lib/sport';
@@ -10,6 +10,7 @@ import { LivePulse } from '@/components/LivePulse';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AnalysisProgressModal } from '@/components/AnalysisProgressModal';
 import { MatchCard } from '@/components/MatchCard';
+import { isBigFive } from '@/lib/competitions';
 
 function stat(side, key) {
   if (!side) return null;
@@ -32,6 +33,11 @@ export default function LivePage() {
   const [liveRunGeneratedAt, setLiveRunGeneratedAt] = useState(null);
   const [liveRunMatchesAnalyzed, setLiveRunMatchesAnalyzed] = useState(0);
 
+  // Big Five filter — ON by default for football to keep the page focused on
+  // the same league universe used by the "Analyze live" button. The user can
+  // opt out with the "Show all" toggle if they want to see lower-tier games.
+  const [bigFiveOnly, setBigFiveOnly] = useState(true);
+
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true); else setLoading(true);
     try {
@@ -44,6 +50,15 @@ export default function LivePage() {
 
   useEffect(() => { load(true); const id = setInterval(() => load(true), 60_000); return () => clearInterval(id); }, [load]);
 
+  const isFootball = sport === 'football';
+  // For football, apply the Big Five filter unless the user disabled it.
+  // For NBA/MLB we always show everything (there is no equivalent allowlist).
+  const visibleItems = useMemo(() => {
+    if (!isFootball || !bigFiveOnly) return items;
+    return items.filter((m) => isBigFive(m));
+  }, [items, isFootball, bigFiveOnly]);
+  const hiddenCount = isFootball && bigFiveOnly ? items.length - visibleItems.length : 0;
+
   const runLiveAnalysis = async () => {
     if (running) return;
     setRunning(true);
@@ -53,7 +68,7 @@ export default function LivePage() {
         refresh: false,
         include_live: true,
         live_only: true,
-        big_five_only: sport === 'football',
+        big_five_only: isFootball,
         max_matches: 6,
         sport,
         background: true,
@@ -92,7 +107,6 @@ export default function LivePage() {
     toast.error(err?.message || (lang === 'en' ? 'Analysis failed' : 'El análisis falló'));
   };
 
-  const isFootball = sport === 'football';
   const ctaLabel = isFootball
     ? (lang === 'en' ? 'Analyze live — Big Five only' : 'Analizar en vivo — solo 5 grandes')
     : (lang === 'en' ? 'Analyze live matches' : 'Analizar partidos en vivo');
@@ -108,7 +122,7 @@ export default function LivePage() {
           <Button
             data-testid="live-analyze-btn"
             onClick={runLiveAnalysis}
-            disabled={running || items.length === 0}
+            disabled={running || visibleItems.length === 0}
             className="bg-emerald-500/15 text-emerald-200 border border-emerald-500/30 hover:bg-emerald-500/20"
           >
             {running ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Brain className="h-4 w-4 mr-2" />}
@@ -160,14 +174,58 @@ export default function LivePage() {
 
       {/* Live stats list */}
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <h2 className="text-base font-medium tracking-tight text-muted-foreground uppercase letter-spacing-wider">
             {lang === 'en' ? 'Live now' : 'En curso ahora'}
           </h2>
-          <span className="text-[10.5px] font-mono-tabular text-muted-foreground bg-secondary/40 px-1.5 py-0.5 rounded">
-            {items.length}
+          <span className="text-[10.5px] font-mono-tabular text-muted-foreground bg-secondary/40 px-1.5 py-0.5 rounded" data-testid="live-count-pill">
+            {visibleItems.length}{hiddenCount > 0 ? `/${items.length}` : ''}
           </span>
+
+          {/* Big Five filter toggle (only meaningful for football) */}
+          {isFootball && items.length > 0 && (
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={bigFiveOnly ? 'secondary' : 'ghost'}
+                onClick={() => setBigFiveOnly(true)}
+                disabled={bigFiveOnly}
+                data-testid="live-big-five-toggle"
+                className={
+                  bigFiveOnly
+                    ? 'h-7 px-2 text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/15'
+                    : 'h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground'
+                }
+              >
+                <TrophyIcon className="h-3.5 w-3.5 mr-1" />
+                {t.live.bigFiveOnly}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={!bigFiveOnly ? 'secondary' : 'ghost'}
+                onClick={() => setBigFiveOnly(false)}
+                disabled={!bigFiveOnly}
+                data-testid="live-show-all-toggle"
+                className={
+                  !bigFiveOnly
+                    ? 'h-7 px-2 text-[11px] text-cyan-200 bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/15'
+                    : 'h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground'
+                }
+              >
+                {t.live.showAll}
+              </Button>
+            </div>
+          )}
         </div>
+
+        {/* Hint when filter is hiding matches */}
+        {isFootball && bigFiveOnly && hiddenCount > 0 && visibleItems.length > 0 && (
+          <p className="text-[11px] text-muted-foreground italic" data-testid="live-filter-hint">
+            {t.live.filteredHint.replace('{hidden}', String(hiddenCount))}
+          </p>
+        )}
 
         {loading && <div className="grid gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>}
 
@@ -177,8 +235,14 @@ export default function LivePage() {
           </div>
         )}
 
+        {!loading && items.length > 0 && visibleItems.length === 0 && isFootball && bigFiveOnly && (
+          <div className="rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 p-6 text-center" data-testid="live-big-five-empty">
+            <p className="text-sm text-amber-200">{t.live.noLiveBigFive}</p>
+          </div>
+        )}
+
         <div className="grid gap-3">
-          {items.map((m) => {
+          {visibleItems.map((m) => {
             const live = m.live_stats || {};
             const h = live.home_stats || {};
             const a = live.away_stats || {};
