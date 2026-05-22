@@ -299,6 +299,24 @@ def get_competition_meta(league_name: Optional[str]) -> Optional[dict]:
     }
 
 
+# Top-5 European leagues. The single most concentrated source of meaningful
+# football data we have (best odds coverage, deepest standings/squads).
+# Used for live analysis filtering (`big_five_only=true` flag on analysis/run).
+BIG_FIVE_LEAGUES: tuple[str, ...] = (
+    "Premier League",
+    "LaLiga",
+    "Serie A",
+    "Bundesliga",
+    "Ligue 1",
+)
+
+
+def is_big_five(league_name: Optional[str]) -> bool:
+    """True iff the league resolves to one of the top-5 European leagues."""
+    meta = get_competition_meta(league_name)
+    return bool(meta and meta["canonical_name"] in BIG_FIVE_LEAGUES)
+
+
 def get_competition_tier(league_name: Optional[str]) -> Optional[str]:
     meta = get_competition_meta(league_name)
     return meta["tier"] if meta else None

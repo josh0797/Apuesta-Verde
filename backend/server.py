@@ -168,6 +168,9 @@ class AnalysisRunIn(BaseModel):
     max_matches: int = Field(default=6, ge=1, le=20)
     sport: Optional[str] = "football"
     background: bool = False  # if True, run as async job and return job_id
+    # New: focused live analysis for football's Big Five leagues.
+    live_only: bool = False         # if True, analyze only live matches (no upcoming)
+    big_five_only: bool = False     # if True, keep only Premier/LaLiga/Serie A/Bundesliga/Ligue 1
 
 
 async def _run_analysis_pipeline(
@@ -177,6 +180,8 @@ async def _run_analysis_pipeline(
     include_live: bool,
     max_matches: int,
     progress_cb=None,
+    live_only: bool = False,
+    big_five_only: bool = False,
 ) -> dict:
     """Execute the full LLM analysis pipeline.
 
@@ -215,10 +220,19 @@ async def _run_analysis_pipeline(
                     log.warning("live ingest failed: %s", exc)
 
     await _emit("enriching", 25, "Selecting candidates by league + odds availability…")
-    query_upcoming = {**_sport_filter(sport), "is_live": False}
-    upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
-    now_ts = datetime.now(timezone.utc).timestamp()
-    upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
+    if live_only:
+        # Skip upcoming entirely — only analyze ongoing matches.
+        upcoming = []
+    else:
+        query_upcoming = {**_sport_filter(sport), "is_live": False}
+        upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
+        now_ts = datetime.now(timezone.utc).timestamp()
+        upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
+
+    # Big-Five filter (football only) — surfaces only Premier/LaLiga/Serie A/Bundesliga/Ligue 1.
+    if big_five_only and sport == "football":
+        from services.football_competitions import is_big_five  # local import to avoid cycle
+        upcoming = [m for m in upcoming if is_big_five(m.get("league"))]
 
     def priority_score(m: dict) -> tuple:
         has_odds = 1 if (m.get("odds_snapshots") or []) else 0
@@ -263,6 +277,9 @@ async def _run_analysis_pipeline(
     if include_live:
         query_live = {**_sport_filter(sport), "is_live": True}
         live = await db.matches.find(query_live).limit(10).to_list(length=10)
+        if big_five_only and sport == "football":
+            from services.football_competitions import is_big_five  # noqa: F811
+            live = [m for m in live if is_big_five(m.get("league"))]
         candidates.extend(live)
 
     candidates = candidates[: max_matches]
@@ -342,6 +359,8 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
                     include_live=payload.include_live,
                     max_matches=payload.max_matches,
                     progress_cb=progress,
+                    live_only=payload.live_only,
+                    big_five_only=payload.big_five_only,
                 )
                 await job_queue.finish(db, job_id, result)
             except HTTPException as he:
@@ -385,6 +404,8 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
         include_live=payload.include_live,
         max_matches=payload.max_matches,
         progress_cb=None,
+        live_only=payload.live_only,
+        big_five_only=payload.big_five_only,
     )
 
 

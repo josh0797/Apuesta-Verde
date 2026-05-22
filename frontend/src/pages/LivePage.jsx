@@ -1,12 +1,15 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Loader2, RefreshCcw } from 'lucide-react';
+import { Loader2, RefreshCcw, Brain, Trophy } from 'lucide-react';
+import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n';
 import { useSport } from '@/lib/sport';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { LivePulse } from '@/components/LivePulse';
 import { Skeleton } from '@/components/ui/skeleton';
+import { AnalysisProgressModal } from '@/components/AnalysisProgressModal';
+import { MatchCard } from '@/components/MatchCard';
 
 function stat(side, key) {
   if (!side) return null;
@@ -14,11 +17,20 @@ function stat(side, key) {
 }
 
 export default function LivePage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { sport } = useSport();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Live analysis (Big Five) — separate from the daily dashboard analysis.
+  // We store the run + active job in component state so refreshing the stats
+  // doesn't blow away the latest live picks.
+  const [livePicks, setLivePicks] = useState([]);
+  const [activeJobId, setActiveJobId] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [liveRunGeneratedAt, setLiveRunGeneratedAt] = useState(null);
+  const [liveRunMatchesAnalyzed, setLiveRunMatchesAnalyzed] = useState(0);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true); else setLoading(true);
@@ -32,58 +44,172 @@ export default function LivePage() {
 
   useEffect(() => { load(true); const id = setInterval(() => load(true), 60_000); return () => clearInterval(id); }, [load]);
 
+  const runLiveAnalysis = async () => {
+    if (running) return;
+    setRunning(true);
+    setLivePicks([]);
+    try {
+      const r = await api.post('/analysis/run', {
+        refresh: false,
+        include_live: true,
+        live_only: true,
+        big_five_only: sport === 'football',
+        max_matches: 6,
+        sport,
+        background: true,
+      });
+      if (r.data?.job_id) {
+        setActiveJobId(r.data.job_id);
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || (lang === 'en' ? 'Failed to start analysis' : 'No se pudo iniciar el análisis'));
+      setRunning(false);
+    }
+  };
+
+  const onJobComplete = (result) => {
+    setActiveJobId(null);
+    setRunning(false);
+    const payload = result?.payload || result?.result || result || {};
+    const picks = (payload?.picks || []).slice();
+    setLivePicks(picks);
+    setLiveRunGeneratedAt(result?.generated_at || payload?._generated_at || new Date().toISOString());
+    setLiveRunMatchesAnalyzed(result?.matches_analyzed || payload?.summary?.total_analyzed || 0);
+    if (picks.length === 0) {
+      toast.info(lang === 'en' ? 'No live value found right now' : 'Sin valor en vivo por ahora');
+    } else {
+      toast.success(
+        lang === 'en'
+          ? `${picks.length} live pick${picks.length > 1 ? 's' : ''} found`
+          : `${picks.length} pick${picks.length > 1 ? 's' : ''} en vivo encontrado${picks.length > 1 ? 's' : ''}`,
+      );
+    }
+  };
+
+  const onJobError = (err) => {
+    setActiveJobId(null);
+    setRunning(false);
+    toast.error(err?.message || (lang === 'en' ? 'Analysis failed' : 'El análisis falló'));
+  };
+
+  const isFootball = sport === 'football';
+  const ctaLabel = isFootball
+    ? (lang === 'en' ? 'Analyze live — Big Five only' : 'Analizar en vivo — solo 5 grandes')
+    : (lang === 'en' ? 'Analyze live matches' : 'Analizar partidos en vivo');
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-6">
-      <div className="flex items-end justify-between gap-4">
+      <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">{t.live.title}</h1>
           <p className="text-sm text-muted-foreground mt-1">{t.live.subtitle}</p>
         </div>
-        <Button variant="secondary" data-testid="live-refresh-btn" onClick={() => load(true)} disabled={refreshing}>
-          {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            data-testid="live-analyze-btn"
+            onClick={runLiveAnalysis}
+            disabled={running || items.length === 0}
+            className="bg-emerald-500/15 text-emerald-200 border border-emerald-500/30 hover:bg-emerald-500/20"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Brain className="h-4 w-4 mr-2" />}
+            {ctaLabel}
+          </Button>
+          <Button variant="secondary" data-testid="live-refresh-btn" onClick={() => load(true)} disabled={refreshing}>
+            {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+          </Button>
+        </div>
       </div>
 
-      {loading && <div className="grid gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>}
-
-      {!loading && items.length === 0 && (
-        <div className="rounded-xl border border-dashed border-border bg-card/40 p-8 text-center" data-testid="live-empty">
-          <p className="text-sm text-muted-foreground">{t.live.noLive}</p>
-        </div>
+      {/* Analysis Progress Modal — reuses the dashboard one so the UX feels consistent */}
+      {activeJobId && (
+        <AnalysisProgressModal
+          jobId={activeJobId}
+          onClose={() => { setActiveJobId(null); setRunning(false); }}
+          onComplete={onJobComplete}
+          onError={onJobError}
+        />
       )}
 
-      <div className="grid gap-3">
-        {items.map((m) => {
-          const live = m.live_stats || {};
-          const h = live.home_stats || {};
-          const a = live.away_stats || {};
-          return (
-            <Link to={`/match/${m.match_id}`} key={m.match_id} className="card-glow rounded-xl border border-border/80 bg-card p-4 flex flex-col gap-2" data-testid={`live-row-${m.match_id}`}>
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <LivePulse minute={live.minute} label={t.match.livePill} />
-                  <span className="text-xs text-muted-foreground">{m.league}</span>
+      {/* Live picks block (rendered first when present so the user sees the analysis above the stats) */}
+      {livePicks.length > 0 && (
+        <section data-testid="live-picks-section" className="space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Trophy className="h-4 w-4 text-emerald-300" />
+              <h2 className="text-lg font-semibold tracking-tight">
+                {isFootball
+                  ? (lang === 'en' ? 'Live picks — Big Five' : 'Picks en vivo — 5 grandes')
+                  : (lang === 'en' ? 'Live picks' : 'Picks en vivo')}
+              </h2>
+              <span className="text-[10.5px] font-mono-tabular text-muted-foreground bg-secondary/40 px-1.5 py-0.5 rounded">
+                {livePicks.length}
+              </span>
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              {lang === 'en' ? 'Analyzed' : 'Analizados'}: {liveRunMatchesAnalyzed}
+              {liveRunGeneratedAt && ` · ${new Date(liveRunGeneratedAt).toLocaleTimeString(lang === 'en' ? 'en-US' : 'es-ES', { hour: '2-digit', minute: '2-digit' })}`}
+            </div>
+          </div>
+          <div className="grid gap-3">
+            {livePicks.map((p, i) => (
+              <MatchCard key={p.match_id || i} pick={p} idx={i} sport={sport} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Live stats list */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-medium tracking-tight text-muted-foreground uppercase letter-spacing-wider">
+            {lang === 'en' ? 'Live now' : 'En curso ahora'}
+          </h2>
+          <span className="text-[10.5px] font-mono-tabular text-muted-foreground bg-secondary/40 px-1.5 py-0.5 rounded">
+            {items.length}
+          </span>
+        </div>
+
+        {loading && <div className="grid gap-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>}
+
+        {!loading && items.length === 0 && (
+          <div className="rounded-xl border border-dashed border-border bg-card/40 p-8 text-center" data-testid="live-empty">
+            <p className="text-sm text-muted-foreground">{t.live.noLive}</p>
+          </div>
+        )}
+
+        <div className="grid gap-3">
+          {items.map((m) => {
+            const live = m.live_stats || {};
+            const h = live.home_stats || {};
+            const a = live.away_stats || {};
+            return (
+              <Link to={`/match/${m.match_id}`} key={m.match_id} className="card-glow rounded-xl border border-border/80 bg-card p-4 flex flex-col gap-2" data-testid={`live-row-${m.match_id}`}>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <LivePulse minute={live.minute} label={t.match.livePill} />
+                    <span className="text-xs text-muted-foreground">{m.league}</span>
+                  </div>
+                  <div className="mono font-mono-tabular text-2xl font-semibold">
+                    <span>{live.score?.home ?? 0}</span>
+                    <span className="text-muted-foreground mx-1">–</span>
+                    <span>{live.score?.away ?? 0}</span>
+                  </div>
                 </div>
-                <div className="mono font-mono-tabular text-2xl font-semibold">
-                  <span>{live.score?.home ?? 0}</span>
-                  <span className="text-muted-foreground mx-1">–</span>
-                  <span>{live.score?.away ?? 0}</span>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-base font-medium">{m.home_team?.name}</span>
+                  <span className="text-base font-medium">{m.away_team?.name}</span>
                 </div>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-base font-medium">{m.home_team?.name}</span>
-                <span className="text-base font-medium">{m.away_team?.name}</span>
-              </div>
-              <div className="grid grid-cols-4 gap-2 text-[11px] text-muted-foreground mt-1">
-                <StatCell label={t.live.possession} h={stat(h, 'Ball Possession')} a={stat(a, 'Ball Possession')} />
-                <StatCell label={t.live.shots} h={stat(h, 'Total Shots')} a={stat(a, 'Total Shots')} />
-                <StatCell label={t.live.shotsOn} h={stat(h, 'Shots on Goal')} a={stat(a, 'Shots on Goal')} />
-                <StatCell label={t.live.xg} h={stat(h, 'expected_goals')} a={stat(a, 'expected_goals')} />
-              </div>
-            </Link>
-          );
-        })}
-      </div>
+                <div className="grid grid-cols-4 gap-2 text-[11px] text-muted-foreground mt-1">
+                  <StatCell label={t.live.possession} h={stat(h, 'Ball Possession')} a={stat(a, 'Ball Possession')} />
+                  <StatCell label={t.live.shots} h={stat(h, 'Total Shots')} a={stat(a, 'Total Shots')} />
+                  <StatCell label={t.live.shotsOn} h={stat(h, 'Shots on Goal')} a={stat(a, 'Shots on Goal')} />
+                  <StatCell label={t.live.xg} h={stat(h, 'expected_goals')} a={stat(a, 'expected_goals')} />
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

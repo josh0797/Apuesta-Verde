@@ -1,22 +1,30 @@
 [
   {
-    "content": "FASE 1: lib/format.js - helper humanizeSelection() para nombres reales (1X2, DC, Moneyline, Spread, Over/Under)",
-    "status": "completed"
+    "content": "FASE 1: services/form_guard.py - analiza form_last_5, detecta streaks negativos, calcula form_score",
+    "status": "in_progress"
   },
   {
-    "content": "FASE 2: Aplicar humanizeSelection en MatchCard.jsx y MatchDetailPage.jsx",
-    "status": "completed"
+    "content": "FASE 2: analyst_engine - reforzar prompt con regla 'no recomendar side con racha negativa sin justificar' + guard post-LLM que penalice o reclasifique",
+    "status": "pending"
   },
   {
-    "content": "FASE 3: Backend - TrackIn acepta sport, /picks/track lo guarda en pick_tracking",
-    "status": "completed"
+    "content": "FASE 3: football_competitions - constante BIG_FIVE_LEAGUES + helper is_big_five()",
+    "status": "pending"
   },
   {
-    "content": "FASE 4: Frontend MatchDetailPage - cargar /picks/today filtrado por sport correcto + pasar sport al track",
-    "status": "completed"
+    "content": "FASE 4: Backend - /api/analysis/run acepta live_only y big_five_only en AnalysisRunIn",
+    "status": "pending"
   },
   {
-    "content": "FASE 5: lint + screenshot + testing agent E2E",
-    "status": "completed"
+    "content": "FASE 5: Frontend LivePage - botón 'Analizar Big Five' + listado de picks live + reuso AnalysisProgressModal",
+    "status": "pending"
+  },
+  {
+    "content": "FASE 6: Tests unitarios form_guard + is_big_five",
+    "status": "pending"
+  },
+  {
+    "content": "FASE 7: Lint + screenshot + testing agent E2E",
+    "status": "pending"
   }
 ]

@@ -80,7 +80,32 @@ SPORT_RULES = {
 # ───────────────────────────────────────────────────────────────────────────
 MOTIVATION_RULES_V2 = """REGLAS DE MOTIVACIÓN v2 (CONTEXTUAL Y STANDINGS-AWARE):
 
-══════ COMPETITION STAGE OVERRIDE — NO NEGOCIABLE (evaluar PRIMERO) ══════
+══════ REGLAS DE FORMA RECIENTE — NO RECOMENDAR CONTRA RACHAS NEGATIVAS ══════
+
+ANTES de recomendar a un equipo como ganador (1X2, Moneyline, Run Line del
+favorito, Spread del favorito, lado fuerte en Doble Oportunidad), evalúa
+SIEMPRE su `form_last_5`. Reglas no negociables:
+
+- Si el equipo recomendado tiene racha de 3 derrotas consecutivas (las 3
+  más recientes son L), NO lo recomiendes como GANADOR puro (Moneyline/1X2)
+  salvo que JUSTIFIQUES explícitamente en `reasoning` una razón fuerte
+  (bajas críticas del rival confirmadas, motivación 5 vs rival sin nada
+  por jugar, mercado protegido alternativo claramente seguro, etc.).
+- Si NO puedes justificarlo, NO lo pongas en picks. Pasa a Doble Oportunidad
+  con el otro lado, o descártalo a discarded_market con razón clara:
+  "Forma reciente desfavorable: <equipo> con racha de N derrotas; sin edge
+  alternativo suficiente para superar el signal de forma."
+- Para picks de Doble Oportunidad que incluyan al lado en mala racha, baja
+  la confidence al menos 5 puntos y menciona la racha negativa en `risks`.
+- form_last_5 = "LLLLL" (5 derrotas) sobre cualquier equipo = NO recomendar
+  como ganador NI como Doble Oportunidad sin un edge masivo. Mejor pasar al
+  rival o descartar.
+- Si AMBOS equipos vienen en racha negativa (3+ L cada uno), evalúa Under
+  o Doble Oportunidad del más motivado/contextual, NUNCA Moneyline.
+- Toda racha de derrotas ≥3 del lado recomendado DEBE figurar en `risks`.
+
+
+══════ COMPETITION STAGE OVERRIDE — NO NEGOCIABLE ══════
 
 Antes de mirar standings, posición de tabla, forma reciente, tamaño del
 club o contexto genérico, evalúa SIEMPRE el campo `competition_stage` /
@@ -566,15 +591,17 @@ async def _hydrate_team_news(matches_payload: list[dict]) -> int:
     return enriched
 
 
-# ── Post-LLM correction guard ──────────────────────────────────────────────
-# After the LLM returns its JSON we apply a deterministic correction layer:
+# ── Post-LLM correction guards ─────────────────────────────────────────────
+# After the LLM returns its JSON we apply deterministic correction layers:
 #   • Finals must NEVER live in discarded_motivation.
 #   • Finals must have motivation_state = HIGH_BOTH + pressure_state = FINAL.
 #   • Any "motivación normal" reason on a final gets rewritten.
 #   • Knockout matches cannot be LOW_BOTH unless aggregate evidence proves it.
+#   • Picks endorsing a team on a 3+ loss streak get a form_warning flag,
+#     confidence penalty, and (when critical) get re-routed to discarded_market.
 #
-# This is the safety net for prompt drift: even if the LLM forgets the
-# override, the engine still emits correct output.
+# These are safety nets for prompt drift: even if the LLM forgets a rule,
+# the engine still emits coherent, defensible output.
 def _apply_stage_correction(parsed: dict, input_payload: list[dict]) -> dict:
     """Mutate the parsed LLM response so finals/knockouts are stage-correct."""
     if not parsed or not isinstance(parsed, dict):
@@ -688,6 +715,114 @@ def _apply_stage_correction(parsed: dict, input_payload: list[dict]) -> dict:
             moved, fixed_reasons, fixed_state,
         )
     return parsed
+
+def _apply_form_correction(parsed: dict, input_payload: list[dict]) -> dict:
+    """Detect and mitigate picks that endorse a team on a 3+ loss streak.
+
+    Strategy:
+      • Severity 'warn'     → penalize confidence by -8 and append a form_warning
+                              to the pick's `risks` array.
+      • Severity 'critical' → move the pick into summary.discarded_market with
+                              a form-based reason; DO NOT keep it in `picks`.
+      • Always annotate the pick with a `_form_warning` payload (kept so the
+        UI can show the warning even when only soft-penalized).
+
+    This complements the LLM prompt rules: even if the LLM ignores the
+    "no recommend against a bad streak" instruction, the engine self-corrects.
+    """
+    if not parsed or not isinstance(parsed, dict):
+        return parsed
+
+    # Local import to avoid circulars at module load.
+    from . import form_guard as fg
+
+    # Build lookup of (home_form, away_form, home_name, away_name) per match_id
+    forms_by_id: dict[str, dict] = {}
+    for m in input_payload:
+        mid = str(m.get("match_id"))
+        if not mid:
+            continue
+        home_ctx = (m.get("home_team") or {}).get("context") or {}
+        away_ctx = (m.get("away_team") or {}).get("context") or {}
+        forms_by_id[mid] = {
+            "home_form":  home_ctx.get("form_last_5"),
+            "away_form":  away_ctx.get("form_last_5"),
+            "home_name":  (m.get("home_team") or {}).get("name", ""),
+            "away_name":  (m.get("away_team") or {}).get("name", ""),
+        }
+
+    picks = list(parsed.get("picks") or [])
+    summary = parsed.get("summary") or {}
+    disc_mkt = list(summary.get("discarded_market") or [])
+
+    kept_picks: list[dict] = []
+    penalized = 0
+    rerouted = 0
+    for p in picks:
+        mid = str(p.get("match_id"))
+        ctx = forms_by_id.get(mid)
+        rec = p.get("recommendation") or {}
+        if not ctx or not rec.get("selection"):
+            kept_picks.append(p)
+            continue
+        flag = fg.form_red_flag(
+            ctx["home_form"], ctx["away_form"],
+            rec.get("selection"), rec.get("market") or "",
+            ctx["home_name"], ctx["away_name"],
+        )
+        if not flag:
+            kept_picks.append(p)
+            continue
+
+        if flag["severity"] == "critical":
+            # Re-route to discarded_market entirely.
+            disc_mkt.append({
+                "match_id": p.get("match_id"),
+                "match_label": p.get("match_label"),
+                "reason": (
+                    f"Forma reciente desfavorable: {flag['reason_es']} "
+                    f"Sin edge alternativo suficiente para superar el signal de forma."
+                ),
+                "_form_corrected": True,
+                "_form_warning": flag,
+            })
+            rerouted += 1
+        else:
+            # Soft-penalize: -8 confidence + add risk + attach warning payload
+            cur = int(rec.get("confidence_score") or 0)
+            rec["confidence_score"] = max(50, cur - 8)
+            # Re-derive level if present
+            new_level_map = lambda c: ("Maxima" if c >= 80 else "Alta" if c >= 70 else "Media")  # noqa: E731
+            if rec.get("confidence_level"):
+                rec["confidence_level"] = new_level_map(rec["confidence_score"])
+            p["recommendation"] = rec
+            risks = list(p.get("risks") or [])
+            risks.append(
+                f"Racha reciente del lado {flag['side']} ({flag['team_name']}): "
+                f"{flag['raw_form']} (form_score {flag['form_score']})."
+            )
+            p["risks"] = risks
+            p["_form_warning"] = flag
+            kept_picks.append(p)
+            penalized += 1
+
+    parsed["picks"] = kept_picks
+    summary["discarded_market"] = disc_mkt
+    parsed["summary"] = summary
+
+    parsed.setdefault("_pipeline", {})
+    parsed["_pipeline"]["form_corrections"] = {
+        "penalized": penalized,
+        "rerouted_to_market": rerouted,
+    }
+    if penalized or rerouted:
+        log.info(
+            "form_correction: penalized=%d picks, rerouted=%d to discarded_market",
+            penalized, rerouted,
+        )
+    return parsed
+
+
 
 
 async def analyze_matches(matches_payload: list[dict], sport: str = "football") -> dict:
@@ -818,6 +953,11 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football") 
     #   • "motivación normal" reasons attached to finals/knockouts
     #   • picks whose motivation_state is not HIGH_BOTH on a final
     parsed = _apply_stage_correction(parsed, matches_payload)
+
+    # ── Form-recency safety net ──
+    # Penalize / re-route picks that endorse a team on a 3+ loss streak.
+    # Critical streaks (≥4 L or form_score ≤ -60) become discarded_market.
+    parsed = _apply_form_correction(parsed, matches_payload)
 
     # Merge auto_discarded from pre-filter into the summary so the
     # categorization invariant len(picks)+lists == total_analyzed still holds
