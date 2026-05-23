@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Loader2, ChevronDown, ChevronUp, ExternalLink, Activity, Shield, TrendingDown, AlertCircle, Eye } from 'lucide-react';
+import { Sparkles, Loader2, ChevronDown, ChevronUp, ExternalLink, Activity, Shield, TrendingDown, AlertCircle, Eye, ShieldAlert } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useI18n, sportTerms } from '@/lib/i18n';
 import { useSport, sportLabel } from '@/lib/sport';
@@ -11,6 +11,7 @@ import { AnalysisProgressModal } from '@/components/AnalysisProgressModal';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { MatchCard } from '@/components/MatchCard';
+import { SkippedMatchRow } from '@/components/FootballQualityBadge';
 import { EmptyStateNoValue } from '@/components/EmptyStateNoValue';
 import { PicksFilterBar } from '@/components/PicksFilterBar';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -181,14 +182,15 @@ export default function DashboardPage() {
       : fieldFiltered;
   }, [allPicks, filters]);
 
-  const { high, medium, discMot, discMkt, incomplete } = useMemo(() => {
-    if (!data) return { high: [], medium: [], discMot: [], discMkt: [], incomplete: [] };
+  const { high, medium, discMot, discMkt, incomplete, skippedLowRel } = useMemo(() => {
+    if (!data) return { high: [], medium: [], discMot: [], discMkt: [], incomplete: [], skippedLowRel: [] };
     return {
       high: filteredPicks.filter((p) => (p.recommendation?.confidence_score || 0) >= 70).sort((a, b) => (b.recommendation?.confidence_score || 0) - (a.recommendation?.confidence_score || 0)),
       medium: filteredPicks.filter((p) => { const c = p.recommendation?.confidence_score || 0; return c >= 60 && c < 70; }).sort((a, b) => (b.recommendation?.confidence_score || 0) - (a.recommendation?.confidence_score || 0)),
       discMot: data.summary?.discarded_motivation || [],
       discMkt: data.summary?.discarded_market || [],
       incomplete: data.summary?.incomplete_data || [],
+      skippedLowRel: data.summary?.skipped_low_relevance || [],
     };
   }, [data, filteredPicks]);
 
@@ -199,7 +201,7 @@ export default function DashboardPage() {
     }
   };
 
-  const hasAnyDiscarded = (discMot.length + discMkt.length + incomplete.length) > 0;
+  const hasAnyDiscarded = (discMot.length + discMkt.length + incomplete.length + skippedLowRel.length) > 0;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-6">
@@ -320,6 +322,23 @@ export default function DashboardPage() {
           {incomplete.length > 0 && (
             <GroupSection title={t.dashboard.groupIncomplete} count={incomplete.length} tier="Below" defaultOpen={true} testId="group-incomplete" sectionRef={refs.incomplete} icon={AlertCircle}>
               <div className="grid gap-2">{incomplete.map((d, i) => <DiscardedRow key={i} item={{ match_id: d.match_id, match_label: d.match_label, reason: d.missing }} testId="incomplete-data-row" type="incomplete" />)}</div>
+            </GroupSection>
+          )}
+          {skippedLowRel.length > 0 && (
+            <GroupSection
+              title={lang === 'en' ? 'Skipped — low relevance' : 'Saltados — baja relevancia'}
+              count={skippedLowRel.length}
+              tier="Below"
+              defaultOpen={false}
+              testId="group-skipped-low-relevance"
+              sectionRef={refs.discMot}
+              icon={ShieldAlert}
+            >
+              <div className="grid gap-2">
+                {skippedLowRel.slice(0, 20).map((d, i) => (
+                  <SkippedMatchRow key={i} item={d} lang={lang} testId={`skipped-row-${i}`} />
+                ))}
+              </div>
             </GroupSection>
           )}
         </div>

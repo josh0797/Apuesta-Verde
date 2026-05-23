@@ -11,6 +11,7 @@ import { LivePulse } from './LivePulse';
 import { LineMovement } from './LineMovement';
 import { deriveIntelligence, DRIVER_META } from '@/lib/intelligence';
 import { MoneyballBadge } from './MoneyballPanel';
+import { FootballQualityBadge } from './FootballQualityBadge';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -82,6 +83,14 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
               </span>
             )}
             <span className="text-[11px] text-muted-foreground">{m.league}</span>
+            {/* Football Quality Badge (Phase 8) — only for football picks */}
+            {sport === 'football' && m._football_quality && (
+              <FootballQualityBadge
+                quality={m._football_quality}
+                lang={lang}
+                testId={`pick-quality-badge-${m.match_id}`}
+              />
+            )}
             <span className="text-[11px] text-muted-foreground">·</span>
             <span className="text-[11px] text-muted-foreground mono font-mono-tabular">{formatDateTime(m.kickoff_iso, lang)}</span>
           </div>

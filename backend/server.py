@@ -234,10 +234,35 @@ async def _run_analysis_pipeline(
         from services.football_competitions import is_big_five  # local import to avoid cycle
         upcoming = [m for m in upcoming if is_big_five(m.get("league"), m.get("league_id"))]
 
+    # Universal Football Quality Filter (Phase 8 — Dynamic Match Discovery).
+    # Filters out Tier 4 / exotic leagues / low-liquidity matches BEFORE the
+    # expensive LLM analysis. Cascades Tier 1 → 2 → 3 until we hit the target.
+    # This eliminates the Belarus Reserve / Botswana / Daguestán problem.
+    football_skipped: list[dict] = []
+    football_stats: dict = {}
+    if sport == "football":
+        from services.football_quality import filter_and_prioritize  # local import
+        target = max(3, min(12, max_matches if max_matches else 8))
+        fq_result = filter_and_prioritize(upcoming, target_count=target, enable_tier_4=False)
+        upcoming = fq_result["selected"]
+        football_skipped = fq_result["skipped"]
+        football_stats = fq_result["stats"]
+        if football_stats:
+            log.info(
+                "football_quality: ingested=%s analysable=%s selected=%s skipped=%s cascade=%s",
+                football_stats.get("ingested_total"),
+                football_stats.get("analysable_total"),
+                football_stats.get("selected_total"),
+                football_stats.get("skipped_total"),
+                football_stats.get("cascade_used"),
+            )
+
     def priority_score(m: dict) -> tuple:
         has_odds = 1 if (m.get("odds_snapshots") or []) else 0
         is_top = 1 if (m.get("league_id") in top_set) else 0
-        return (-has_odds, -is_top, m.get("kickoff_ts") or 0)
+        # Boost by football_quality score when present (Phase 8)
+        fq_score = (m.get("_football_quality") or {}).get("score") or 0
+        return (-has_odds, -is_top, -fq_score, m.get("kickoff_ts") or 0)
 
     upcoming.sort(key=priority_score)
     candidates = upcoming[: max_matches]
@@ -303,6 +328,66 @@ async def _run_analysis_pipeline(
 
     await _emit("analyzing", 90, "Persisting picks…")
     pick_id_base = uuid.uuid4().hex[:10]
+
+    # Attach Phase 8 football quality metadata to the result so the UI can show
+    # PRIORITY_MATCH / EXOTIC_LEAGUE_WARNING badges + the "why skipped" list.
+    if sport == "football" and (football_skipped or football_stats):
+        result.setdefault("summary", {})
+        # Skipped matches go to a NEW sidecar list so we don't pollute the
+        # existing discarded_motivation / discarded_market sections.
+        result["summary"]["skipped_low_relevance"] = football_skipped[:20]
+        result.setdefault("_pipeline", {})
+        result["_pipeline"]["football_quality"] = football_stats
+        # Surface the highest-tier cascade reached so the UI can warn if we
+        # had to drop down to Tier 3 (e.g. weekday with no Big Five action).
+        cascade = football_stats.get("cascade_used") or []
+        result["_pipeline"]["football_tier_reached"] = max(cascade) if cascade else None
+
+    # ── Propagate `_football_quality` from candidate matches into picks ──
+    # The analyst engine only echoes match_id/match_label etc.; the badge
+    # rendered on each MatchCard reads `m._football_quality`, so we re-attach
+    # the quality payload here keyed by match_id. Also mirror the badge into
+    # the high_confidence / medium_confidence sidecars so any UI consumer can
+    # surface PRIORITY_MATCH / EXOTIC_LEAGUE_WARNING immediately.
+    if sport == "football":
+        fq_by_match: dict[str, dict] = {}
+        for c in candidates:
+            fq = c.get("_football_quality")
+            if not fq:
+                continue
+            mid = c.get("match_id")
+            if mid is None:
+                continue
+            fq_by_match[str(mid)] = fq
+        if fq_by_match:
+            for p in (result.get("picks") or []):
+                sid = str(p.get("match_id"))
+                if sid in fq_by_match and not p.get("_football_quality"):
+                    p["_football_quality"] = fq_by_match[sid]
+            summary = result.setdefault("summary", {})
+            for bucket in ("high_confidence", "medium_confidence"):
+                for e in (summary.get(bucket) or []):
+                    sid = str(e.get("match_id"))
+                    if sid in fq_by_match and not e.get("_football_quality"):
+                        e["_football_quality"] = fq_by_match[sid]
+
+    # Recommendation limit per spec: never expose more than 8 picks.
+    picks = (result.get("picks") or [])
+    if len(picks) > 8:
+        # Keep the highest-confidence 8; demote the rest to a sidecar list
+        # rather than dropping them.
+        picks_sorted = sorted(
+            picks,
+            key=lambda p: (p.get("recommendation") or {}).get("confidence_score", 0),
+            reverse=True,
+        )
+        result["picks"] = picks_sorted[:8]
+        result.setdefault("summary", {}).setdefault("overflow_picks", []).extend(picks_sorted[8:])
+
+    # NO_VALUE_FOUND signal: when LLM and Moneyball both end empty
+    if not (result.get("picks") or []):
+        result.setdefault("summary", {})["no_value_found"] = True
+
     record = {
         "id": pick_id_base,
         "user_id": user_id,
