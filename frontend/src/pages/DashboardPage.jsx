@@ -244,7 +244,7 @@ export default function DashboardPage() {
 
       {/* Summary strip — now CLICKABLE */}
       {data?.summary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="summary-strip">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3" data-testid="summary-strip">
           <KpiCard
             label={t.dashboard.analyzed} value={data.summary.total_analyzed ?? 0} accent="neutral"
             onClick={hasAnyDiscarded || high.length || medium.length ? () => scrollTo('incomplete') : null}
@@ -260,6 +260,14 @@ export default function DashboardPage() {
             label={t.dashboard.discarded} value={data.summary.total_discarded ?? 0} accent="red"
             onClick={hasAnyDiscarded ? () => scrollTo(discMot.length ? 'discMot' : discMkt.length ? 'discMkt' : 'incomplete') : null}
             testId="kpi-discarded"
+          />
+          <KpiCard
+            label={lang === 'en' ? 'Exotic ignored' : 'Exóticos ignorados'}
+            value={skippedLowRel.length}
+            accent="amber"
+            onClick={skippedLowRel.length > 0 ? () => scrollTo('skipped') : null}
+            testId="kpi-exotic-ignored"
+            hint={lang === 'en' ? 'Filtered before LLM' : 'Filtrados antes del LLM'}
           />
           <KpiCard label="Live" value={data.summary.data_freshness?.live_active ?? 0} accent="cyan" testId="kpi-live" />
         </div>
@@ -309,6 +317,18 @@ export default function DashboardPage() {
           <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground pt-2 border-t border-border">
             {t.dashboard.detailsTitle}
           </div>
+
+          {/* Phase 8.1 — Priority-league discards FIRST (Tier 1/2/3 matches
+              that did reach the LLM and were rejected by motivation /
+              market / data-quality gates). These deserve the top of the
+              detail list because they're the actual relevant fixtures. */}
+          {(discMot.length + discMkt.length + incomplete.length) > 0 && (
+            <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs uppercase tracking-wide font-semibold text-cyan-200" data-testid="priority-league-banner">
+              {lang === 'en'
+                ? `Discarded from priority leagues (${discMot.length + discMkt.length + incomplete.length})`
+                : `Descartados de ligas prioritarias (${discMot.length + discMkt.length + incomplete.length})`}
+            </div>
+          )}
           {discMot.length > 0 && (
             <GroupSection title={t.dashboard.groupDiscMotivation} count={discMot.length} tier="Below" defaultOpen={true} testId="group-discarded-motivation" sectionRef={refs.discMot} icon={TrendingDown}>
               <div className="grid gap-2">{discMot.map((d, i) => <DiscardedRow key={i} item={d} testId="discarded-motivation-row" type="motivation" />)}</div>
@@ -324,22 +344,32 @@ export default function DashboardPage() {
               <div className="grid gap-2">{incomplete.map((d, i) => <DiscardedRow key={i} item={{ match_id: d.match_id, match_label: d.match_label, reason: d.missing }} testId="incomplete-data-row" type="incomplete" />)}</div>
             </GroupSection>
           )}
+
+          {/* Phase 8.1 — Exotic / low-relevance matches at the END,
+              clearly labelled as filtered BEFORE any LLM analysis. */}
           {skippedLowRel.length > 0 && (
-            <GroupSection
-              title={lang === 'en' ? 'Skipped — low relevance' : 'Saltados — baja relevancia'}
-              count={skippedLowRel.length}
-              tier="Below"
-              defaultOpen={false}
-              testId="group-skipped-low-relevance"
-              sectionRef={refs.discMot}
-              icon={ShieldAlert}
-            >
-              <div className="grid gap-2">
-                {skippedLowRel.slice(0, 20).map((d, i) => (
-                  <SkippedMatchRow key={i} item={d} lang={lang} testId={`skipped-row-${i}`} />
-                ))}
+            <>
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs uppercase tracking-wide font-semibold text-amber-200 mt-4" data-testid="exotic-banner">
+                {lang === 'en'
+                  ? `Exotic leagues — filtered before analysis (${skippedLowRel.length})`
+                  : `Ligas exóticas — filtradas antes del análisis (${skippedLowRel.length})`}
               </div>
-            </GroupSection>
+              <GroupSection
+                title={lang === 'en' ? 'Skipped — low relevance' : 'Saltados — baja relevancia'}
+                count={skippedLowRel.length}
+                tier="Below"
+                defaultOpen={false}
+                testId="group-skipped-low-relevance"
+                sectionRef={refs.skipped || refs.discMot}
+                icon={ShieldAlert}
+              >
+                <div className="grid gap-2">
+                  {skippedLowRel.slice(0, 20).map((d, i) => (
+                    <SkippedMatchRow key={i} item={d} lang={lang} testId={`skipped-row-${i}`} />
+                  ))}
+                </div>
+              </GroupSection>
+            </>
           )}
         </div>
       )}

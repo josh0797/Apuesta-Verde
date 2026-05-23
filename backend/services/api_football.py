@@ -152,6 +152,30 @@ async def fixtures_live(client: httpx.AsyncClient) -> list[dict]:
     return data.get("response", []) or []
 
 
+async def fixtures_by_league_window(
+    client: httpx.AsyncClient,
+    league_id: int,
+    season: int,
+    *,
+    from_date: str,
+    to_date: str,
+) -> list[dict]:
+    """Fetch fixtures for a single league_id over a date window.
+
+    Used by `discover_priority_fixtures` to surgically ask API-Sports for
+    just the Tier 1/2 leagues that matter, instead of pulling the global
+    /fixtures?date=… firehose (which is what historically caused
+    Côte d'Ivoire U17 / Botswana / Belarus to flood the candidate list).
+    """
+    data = await _get(client, "/fixtures", {
+        "league": league_id,
+        "season": season,
+        "from": from_date,
+        "to": to_date,
+    })
+    return data.get("response", []) or []
+
+
 async def fixture_by_id(client: httpx.AsyncClient, fixture_id: int) -> dict | None:
     data = await _get(client, "/fixtures", {"id": fixture_id})
     resp = data.get("response", []) or []

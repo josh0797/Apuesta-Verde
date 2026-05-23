@@ -53,10 +53,17 @@ ENABLE_TIER_4_FALLBACK = os.environ.get(
 
 # Suspicious league name fragments that almost always mean Tier 4 noise.
 EXOTIC_FRAGMENTS = (
-    "reserve", "reserves", "u-19", "u19", "u-20", "u20", "u-21", "u21", "u-23",
-    "u23", "sub-19", "sub-20", "sub-21", "sub-23", "youth", "academy",
-    "friendly", "friendlies", "amistoso", "regional", "national league",
-    "semi-pro", "amateur", "second team", "primavera", "ii team", "b team",
+    "reserve", "reserves",
+    "u-15", "u15", "u-16", "u16", "u-17", "u17",
+    "u-18", "u18", "u-19", "u19", "u-20", "u20",
+    "u-21", "u21", "u-22", "u22", "u-23", "u23",
+    "sub-15", "sub-16", "sub-17", "sub-18", "sub-19",
+    "sub-20", "sub-21", "sub-22", "sub-23",
+    "youth", "academy", "academie", "academia",
+    "friendly", "friendlies", "amistoso",
+    "regional", "national league",
+    "semi-pro", "amateur",
+    "second team", "primavera", "ii team", "b team",
 )
 
 # Country prefixes / qualifiers that, when paired with names like "Premier
@@ -276,6 +283,29 @@ def compute_football_selection_score(match: dict) -> dict:
     tier_num = league_q["tier"]
     league_name = match.get("league") or ""
 
+    # ── HARD BLOCK: an exotic name (U17, reserves, youth, academy, friendly,
+    # second-team, etc.) ALWAYS forces EXOTIC_LEAGUE_WARNING regardless of
+    # what the league_id mapping says. This neutralises edge cases like
+    # "CAF Cup of Nations - U17" whose competition id isn't (and shouldn't
+    # be) in any allowlist but historically slipped through when its
+    # liquidity heuristic landed above SCORE_NO_ANALYZE.
+    if _is_exotic_name(league_name):
+        return {
+            "score": min(score, 25),
+            "state": "EXOTIC_LEAGUE_WARNING",
+            "tier": 4,
+            "tier_key": None,
+            "league_quality": league_q,
+            "market_liquidity": market_l,
+            "priority_reason": None,
+            "skip_reason": (
+                f"Liga exótica detectada por nombre ({league_name}): "
+                "reservas, sub-XX, youth, academy, friendly o liga regional."
+            ),
+            "is_exotic": True,
+            "allowed_for_analysis": False,
+        }
+
     # Default state inference
     if score >= SCORE_PRIORITY and tier_num <= 2:
         state = "PRIORITY_MATCH"
@@ -359,10 +389,22 @@ def filter_and_prioritize(
     matches: list[dict],
     target_count: int = DEFAULT_TARGET_COUNT,
     enable_tier_4: bool = False,
+    priority_override: bool = False,
 ) -> dict:
     """Cascade Tier 1 → Tier 2 → Tier 3 (→ Tier 4 only if explicitly enabled
     AND the upper tiers didn't yield enough viable matches) until we have at
     least `target_count` analysable matches.
+
+    Args:
+        priority_override: when True, matches in Tier 1/2/3 that have a
+            league_id in the global priority ladder are allowed through
+            EVEN IF their market liquidity score is too low (e.g. odds
+            not yet hydrated). Exotic-name hard-blocks and Tier 4
+            classification still apply. Set this when the caller has
+            ALREADY narrowed the candidate set to top-12 priority
+            competitions (see `discover_priority_fixtures`) — otherwise
+            you'd reject Bologna vs Inter for "low liquidity" when its
+            odds simply hadn't been fetched yet.
 
     Returns:
         {
@@ -391,7 +433,26 @@ def filter_and_prioritize(
         by_tier[tier_key] = by_tier.get(tier_key, 0) + 1
         by_state[state] = by_state.get(state, 0) + 1
 
-        if fq.get("allowed_for_analysis"):
+        # Phase 8.1 — priority override: rescue a Tier 1/2/3 match that the
+        # liquidity heuristic blocked (typically because deep-enrich hasn't
+        # populated odds_snapshots yet). We still respect the exotic-name
+        # hard-block (U17 / reserves / academy) and the Tier 4 default skip.
+        if (
+            priority_override
+            and not fq.get("allowed_for_analysis")
+            and tier in (1, 2, 3)
+            and not fq.get("is_exotic")
+            and state in ("LOW_MARKET_SUPPORT", "LOW_DATA_QUALITY")
+        ):
+            fq["allowed_for_analysis"] = True
+            fq["state"] = "PRIORITY_OVERRIDE"
+            fq["priority_reason"] = (
+                "Override de prioridad: liga top sin odds completas todavía; "
+                "se analiza igual porque entra en el ladder Tier 1/2/3."
+            )
+            fq["skip_reason"] = None
+            enriched.append(m)
+        elif fq.get("allowed_for_analysis"):
             enriched.append(m)
         else:
             skipped.append({

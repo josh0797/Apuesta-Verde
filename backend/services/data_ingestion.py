@@ -21,13 +21,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime, timezone, timedelta
+from typing import Any, Optional
 
 import httpx
 
 from . import api_football as af  # legacy football-only client (kept for backward compat)
 from . import api_sports as aps    # generic multi-sport client
+from . import provenance as prov   # Phase P2: per-section source/freshness tagging
 from . import fallback_scraper as fb
 from . import football_competitions as fc
 from . import normalizer as nz
@@ -81,6 +82,100 @@ def _fx_venue(sport: str, fx: dict):
 
 
 # ── Public ingestion API ─────────────────────────────────────────────────────
+async def discover_priority_fixtures(
+    client: httpx.AsyncClient,
+    db,
+    *,
+    window_hours: int = 48,
+    season_override: Optional[int] = None,
+) -> list[dict]:
+    """Phase 8.1 — surgically discover fixtures in top-12 priority leagues.
+
+    Why this exists:
+      • The global `/fixtures?date=…` firehose returns 200+ matches per
+        day across every confederation, including Côte d'Ivoire U17 and
+        Botswana Premier League. Even with the football_quality filter
+        downstream, the relevance signal was being diluted.
+      • This helper hits `/fixtures?date=YYYY-MM-DD` for today and
+        tomorrow (no `season` param — that one is locked to the free-plan
+        proxy season 2024 and would miss live 2025/26 fixtures) and then
+        client-side filters down to the league_ids of the top-12
+        competitions. 2 API calls total instead of 12.
+
+    Returns:
+        Raw API-Sports fixture payloads (same shape as `fixtures_next_48h`)
+        for the priority leagues that have at least one upcoming match in
+        the window. Always sorted by kickoff_ts ascending.
+
+    The caller (server._run_analysis_pipeline) treats a non-empty result as
+    the AUTHORITATIVE candidate list — every other source is ignored unless
+    `high_volume_mode` is explicitly enabled.
+    """
+    # Priority ladder per spec: Champions / World Cup → Big Five → Liga MX
+    # → secondary continental cups. We keep the human label too so logs
+    # tell operators which league actually had matches.
+    PRIORITY_LADDER: list[tuple[str, int]] = [
+        ("UEFA Champions League",  2),
+        ("FIFA World Cup",         1),
+        ("Premier League",         39),
+        ("LaLiga",                 140),
+        ("Serie A",                135),
+        ("Bundesliga",             78),
+        ("Liga MX",                262),
+        ("Ligue 1",                61),
+        ("UEFA Europa League",     3),
+        ("UEFA Conference League", 848),
+        ("Copa Libertadores",      13),
+        ("MLS",                    253),
+        ("Brasileirão Série A",   71),
+        ("UEFA Euro",              4),
+        ("Copa América",          9),
+    ]
+    priority_ids: set[int] = {lid for _, lid in PRIORITY_LADDER}
+    id_to_label = {lid: name for name, lid in PRIORITY_LADDER}
+
+    # Pull today + tomorrow via the date endpoint (no season constraint).
+    today = datetime.now(timezone.utc).date()
+    tomorrow = today + timedelta(days=1)
+    raw: list[dict] = []
+    for d in (today, tomorrow):
+        try:
+            chunk = await af.fixtures_by_date(client, d.isoformat())
+            raw.extend(chunk)
+        except Exception as exc:
+            log.warning("priority discover: /fixtures?date=%s failed: %s", d, exc)
+
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(hours=window_hours)
+    discovered: list[dict] = []
+    counts: dict[str, int] = {}
+    for fx in raw:
+        try:
+            lid = (fx.get("league") or {}).get("id")
+            if lid not in priority_ids:
+                continue
+            ts = fx["fixture"]["timestamp"]
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            status = fx["fixture"]["status"]["short"]
+        except Exception:
+            continue
+        if status not in ("NS", "TBD"):
+            continue
+        if not (now - timedelta(minutes=10) <= dt <= cutoff):
+            continue
+        discovered.append(fx)
+        label = id_to_label.get(lid, str(lid))
+        counts[label] = counts.get(label, 0) + 1
+
+    discovered.sort(key=lambda f: f.get("fixture", {}).get("timestamp") or 0)
+    log.info(
+        "discover_priority_fixtures: %d fixtures (window=%dh) → %s",
+        len(discovered), window_hours,
+        {k: v for k, v in counts.items() if v > 0} or "no priority matches",
+    )
+    return discovered
+
+
 async def ingest_upcoming(
     client: httpx.AsyncClient,
     db,
@@ -152,6 +247,18 @@ async def ingest_upcoming(
                 "fallback_used": True,
                 "updated_at": nz.now_iso(),
             }
+            # Phase P2 — provenance for ESPN fallback path. We only have the
+            # fixture itself (no odds, no stats, no h2h, no lineups).
+            prov.attach_to_match(
+                doc,
+                primary_source="espn",
+                odds_available=False,
+                stats_available=False,
+                h2h_available=False,
+                lineups_available=False,
+                context_available=False,
+                live_available=False,
+            )
             fc.annotate_match_competition(doc, league_name)
             minimal.append(doc)
         log.info(
@@ -407,6 +514,18 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             "fallback_used": False,
             "updated_at": nz.now_iso(),
         }
+        # Phase P2 — provenance: API-Sports is authoritative for the football
+        # path; every section here was fetched from the same provider.
+        prov.attach_to_match(
+            match_doc,
+            primary_source="api_sports",
+            odds_available=bool(norm_odds.get("available")),
+            stats_available=bool(stats_h or stats_a),
+            h2h_available=bool(h2h_clean),
+            lineups_available=False,            # not fetched on this path
+            context_available=bool(ctx_home.get("position") or ctx_home.get("form_last_5")),
+            live_available=bool(live_stats),
+        )
         await db.matches.update_one({"match_id": fid}, {"$set": match_doc}, upsert=True)
         if norm_odds.get("available"):
             await db.odds_snapshots.insert_one({"match_id": fid, **norm_odds})
@@ -496,6 +615,17 @@ async def _enrich_generic(client: httpx.AsyncClient, db, fx_raw: dict, is_live: 
             "fallback_used": False,
             "updated_at": nz.now_iso(),
         }
+        # Phase P2 — provenance: API-Sports authoritative for basket/baseball.
+        prov.attach_to_match(
+            match_doc,
+            primary_source="api_sports",
+            odds_available=bool(norm_odds.get("available")),
+            stats_available=bool(stats_h or stats_a),
+            h2h_available=bool(h2h_clean),
+            lineups_available=False,
+            context_available=bool(ctx_home.get("position") or ctx_home.get("wins_total")),
+            live_available=bool(live_stats),
+        )
         await db.matches.update_one({"match_id": fid}, {"$set": match_doc}, upsert=True)
         if norm_odds.get("available"):
             await db.odds_snapshots.insert_one({"match_id": fid, "sport": sport, **norm_odds})

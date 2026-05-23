@@ -230,26 +230,109 @@ async def _run_analysis_pipeline(
     started = datetime.now(timezone.utc)
     ingest_error: str | None = None
     top_set = aps.SPORT_CONFIG.get(sport, {}).get("top_leagues", set())
+    # Phase 8.1 — declared up here so the no-candidates branch can decide
+    # whether to emit a friendly NO_PRIORITY_FIXTURES_FOUND error.
+    priority_fixtures: list[dict] = []
+    priority_leagues_hit: list[str] = []
 
     await _emit("ingesting", 5, f"Ingesting upcoming {sport} fixtures…")
+    # ── Phase 8.1 — Priority Discovery (football only) ──────────────────────
+    # Actively probe API-Sports league-by-league for the top-12 priority
+    # competitions BEFORE looking at the global candidate pool. If we find
+    # any Tier 1/2 matches in the next 48h they become the AUTHORITATIVE
+    # candidate list — exotic leagues are bypassed completely.
+    if sport == "football" and not live_only:
+        try:
+            async with httpx.AsyncClient() as client:
+                priority_fixtures = await ingestion.discover_priority_fixtures(
+                    client, db, window_hours=48,
+                )
+                # We discover 50+ priority fixtures (whole weekend of MLS +
+                # all Big-Five). Hydrating every single one even shallow-ly
+                # is ~4 API calls each × 50 = 200 calls and the free plan
+                # caps at 10 req/min. We only NEED the next `max_matches *
+                # 2` for the LLM to have something to choose from, so cap
+                # the hydration window.
+                HYDRATE_CAP = max(8, (max_matches or 6) * 2)
+                if priority_fixtures:
+                    hydrate_list = priority_fixtures[:HYDRATE_CAP]
+                    sem = asyncio.Semaphore(6)
+
+                    async def _hydrate(fx):
+                        async with sem:
+                            try:
+                                return await ingestion.enrich_fixture(
+                                    client, db, fx, is_live=False, sport="football", deep=False,
+                                )
+                            except Exception as exc:
+                                log.warning("priority hydrate failed: %s", exc)
+                                return None
+
+                    await asyncio.gather(*[_hydrate(fx) for fx in hydrate_list])
+                    priority_leagues_hit = sorted({
+                        (fx.get("league") or {}).get("name") for fx in priority_fixtures
+                        if (fx.get("league") or {}).get("name")
+                    })
+                    log.info(
+                        "priority discovery hydrated %d/%d fixtures (shallow) leagues=%s",
+                        len(hydrate_list), len(priority_fixtures), priority_leagues_hit,
+                    )
+                    # Trim the priority_fixtures list to what we actually
+                    # hydrated — the downstream candidate query filters by
+                    # match_id and unhydrated fixtures wouldn't be in
+                    # db.matches yet.
+                    priority_fixtures = hydrate_list
+        except Exception as exc:
+            log.warning("priority discovery failed: %s", exc)
+            priority_fixtures = []
+
     async with httpx.AsyncClient() as client:
-        if refresh:
+        if refresh and not priority_fixtures:
+            # Only fall back to the global firehose if priority discovery
+            # didn't surface anything — otherwise we'd be re-ingesting
+            # Côte d'Ivoire / Belarus on top of the Tier 1 we just got.
             try:
                 await ingestion.ingest_upcoming(client, db, sport=sport)
             except Exception as exc:
                 ingest_error = f"upcoming ingest failed: {exc}"
                 log.warning(ingest_error)
-            if include_live:
-                await _emit("ingesting", 15, "Refreshing live games…")
-                try:
-                    await ingestion.ingest_live(client, db, sport=sport)
-                except Exception as exc:
-                    log.warning("live ingest failed: %s", exc)
+        if refresh and include_live:
+            await _emit("ingesting", 15, "Refreshing live games…")
+            try:
+                await ingestion.ingest_live(client, db, sport=sport)
+            except Exception as exc:
+                log.warning("live ingest failed: %s", exc)
 
     await _emit("enriching", 25, "Selecting candidates by league + odds availability…")
     if live_only:
         # Skip upcoming entirely — only analyze ongoing matches.
         upcoming = []
+    elif priority_fixtures:
+        # HARD GATE: priority discovery succeeded → load ONLY those fixtures
+        # from db.matches by their fixture ids. Everything else (Côte
+        # d'Ivoire U17, Botswana Premier, Belarus Reserves, Austrian
+        # Bundesliga, etc.) is excluded by construction.
+        # Note: db.matches stores match_id as the raw API-Sports fixture id
+        # (integer-as-string in some sport adapters, raw int in football),
+        # so we look for both forms.
+        priority_match_ids = []
+        for fx in priority_fixtures:
+            fid = (fx.get("fixture") or {}).get("id")
+            if fid is None:
+                continue
+            priority_match_ids.append(fid)
+            priority_match_ids.append(str(fid))
+        upcoming = await db.matches.find({
+            "sport": "football",
+            "match_id": {"$in": priority_match_ids},
+            "is_live": False,
+        }).to_list(length=len(priority_match_ids))
+        now_ts = datetime.now(timezone.utc).timestamp()
+        upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
+        log.info(
+            "priority candidate query: requested=%d found_in_db=%d",
+            len(priority_fixtures), len(upcoming),
+        )
     else:
         query_upcoming = {**_sport_filter(sport), "is_live": False}
         upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
@@ -264,32 +347,52 @@ async def _run_analysis_pipeline(
     # Universal Football Quality Filter (Phase 8 — Dynamic Match Discovery).
     # Filters out Tier 4 / exotic leagues / low-liquidity matches BEFORE the
     # expensive LLM analysis. Cascades Tier 1 → 2 → 3 until we hit the target.
-    # This eliminates the Belarus Reserve / Botswana / Daguestán problem.
+    # This eliminates the Belarus Reserve / Botswana / Daguestán problem AND
+    # — thanks to the EXOTIC_FRAGMENTS hard-block — never lets a U17/U20/
+    # Reserve match through even when priority_fixtures was empty.
     football_skipped: list[dict] = []
     football_stats: dict = {}
     if sport == "football":
         from services.football_quality import filter_and_prioritize  # local import
         target = max(3, min(12, max_matches if max_matches else 8))
-        fq_result = filter_and_prioritize(upcoming, target_count=target, enable_tier_4=False)
+        fq_result = filter_and_prioritize(
+            upcoming,
+            target_count=target,
+            enable_tier_4=False,
+            # When the priority hard-gate is engaged, rescue Tier 1/2/3
+            # matches that the liquidity heuristic would otherwise skip
+            # for "odds not yet hydrated".
+            priority_override=bool(priority_fixtures),
+        )
         upcoming = fq_result["selected"]
         football_skipped = fq_result["skipped"]
         football_stats = fq_result["stats"]
+        football_stats["priority_discovery"] = {
+            "fixtures_found": len(priority_fixtures),
+            "leagues_hit": priority_leagues_hit,
+            "hard_gate_engaged": bool(priority_fixtures),
+        }
         if football_stats:
             log.info(
-                "football_quality: ingested=%s analysable=%s selected=%s skipped=%s cascade=%s",
+                "football_quality: ingested=%s analysable=%s selected=%s skipped=%s "
+                "cascade=%s priority_gate=%s",
                 football_stats.get("ingested_total"),
                 football_stats.get("analysable_total"),
                 football_stats.get("selected_total"),
                 football_stats.get("skipped_total"),
                 football_stats.get("cascade_used"),
+                bool(priority_fixtures),
             )
 
     def priority_score(m: dict) -> tuple:
-        has_odds = 1 if (m.get("odds_snapshots") or []) else 0
+        # Phase 8.1 — `is_top` and football_quality SCORE rank ahead of
+        # `has_odds`. The previous order (odds first) caused Côte d'Ivoire
+        # / Botswana fixtures that happened to have a couple of bookmakers
+        # to beat a Serie A whose odds hadn't been hydrated yet.
         is_top = 1 if (m.get("league_id") in top_set) else 0
-        # Boost by football_quality score when present (Phase 8)
         fq_score = (m.get("_football_quality") or {}).get("score") or 0
-        return (-has_odds, -is_top, -fq_score, m.get("kickoff_ts") or 0)
+        has_odds = 1 if (m.get("odds_snapshots") or []) else 0
+        return (-is_top, -fq_score, -has_odds, m.get("kickoff_ts") or 0)
 
     upcoming.sort(key=priority_score)
     candidates = upcoming[: max_matches]
@@ -337,10 +440,22 @@ async def _run_analysis_pipeline(
     candidates = candidates[: max_matches]
 
     if not candidates:
-        any_recent = await db.matches.find(_sport_filter(sport)).sort("updated_at", -1).limit(max_matches).to_list(length=max_matches)
-        candidates = any_recent
+        # Phase 8.1 — even the "last-resort" fallback path must pass through
+        # filter_and_prioritize so U17/Reserves/Botswana never reach the LLM.
+        any_recent = await db.matches.find(_sport_filter(sport)).sort("updated_at", -1).limit(max_matches * 3).to_list(length=max_matches * 3)
+        if sport == "football":
+            from services.football_quality import filter_and_prioritize  # noqa: F811
+            fallback_result = filter_and_prioritize(any_recent, target_count=max_matches, enable_tier_4=False)
+            candidates = fallback_result["selected"]
+        else:
+            candidates = any_recent[:max_matches]
     if not candidates:
         detail = f"no {sport} matches available"
+        if priority_fixtures is not None and len(priority_fixtures) == 0:
+            detail = (
+                f"NO_PRIORITY_FIXTURES_FOUND: no Tier 1/2 {sport} matches in the next 48h. "
+                "Enable high-volume mode to analyse lower-tier competitions."
+            )
         if ingest_error:
             detail += f" — {ingest_error}"
         raise HTTPException(status_code=409, detail=detail)
@@ -647,108 +762,197 @@ async def list_tracked(user: dict = Depends(get_current_user), limit: int = 200)
 
 
 @api.get("/stats/dashboard")
-async def stats_dashboard(user: dict = Depends(get_current_user), stake: float = 10.0):
-    docs = await db.pick_tracking.find({"user_id": user["id"]}).sort("tracked_at", -1).to_list(length=500)
-    total = len(docs)
-    won = sum(1 for d in docs if d.get("outcome") == "won")
-    lost = sum(1 for d in docs if d.get("outcome") == "lost")
-    push = sum(1 for d in docs if d.get("outcome") == "push")
-    pending = sum(1 for d in docs if d.get("outcome") == "pending")
-    settled = won + lost
-    win_rate = round((won / settled) * 100, 1) if settled else 0.0
-    # Streak (consecutive wins on most recent settled)
-    streak = 0
-    for d in docs:
-        if d.get("outcome") == "won":
-            streak += 1
-        elif d.get("outcome") in ("lost",):
-            break
-        else:
-            continue
-    last10 = []
-    for d in docs[:10]:
-        last10.append({
+async def stats_dashboard(
+    user: dict = Depends(get_current_user),
+    stake: float = 10.0,
+    sport: Optional[str] = None,
+    market: Optional[str] = None,
+):
+    """KPIs for the authenticated user.
+
+    Backward-compatible: the top-level keys (`total`, `won`, `lost`, `win_rate`,
+    `roi`, `accuracy_by_tier`, `last10`, etc.) preserve the historical shape
+    consumed by HistoryPage / ProfilePage.
+
+    New (Phase P2 — sport-segmented stats):
+      • `by_sport[sport]`               → same KPI block computed for one sport
+      • `by_sport_market[sport][market]` → (sport, market) cell
+      • `cross_sport_comparison`        → compact array for the comparator card
+      • Optional `?sport=` / `?market=` filters the TOP-LEVEL block too, so
+        the existing UI components automatically narrow when the user
+        switches tab in the new SportStatsPanel.
+    """
+    base_query: dict = {"user_id": user["id"]}
+    docs = await db.pick_tracking.find(base_query).sort("tracked_at", -1).to_list(length=2000)
+
+    def _norm(s: Optional[str]) -> str:
+        return (s or "football").lower().strip()
+
+    # Optional top-level filter (so old UI consumers can re-render the SAME
+    # block scoped to one sport without forking the endpoint).
+    filt_sport = _norm_sport(sport) if sport else None
+    filt_market = (market or "").strip().lower() or None
+
+    def _docs_for(s: Optional[str], m: Optional[str]) -> list[dict]:
+        out = docs
+        if s is not None:
+            out = [d for d in out if _norm(d.get("sport")) == s]
+        if m:
+            out = [d for d in out if (d.get("market") or "").lower().find(m) >= 0]
+        return out
+
+    def _kpis(subset: list[dict]) -> dict:
+        total = len(subset)
+        won = sum(1 for d in subset if d.get("outcome") == "won")
+        lost = sum(1 for d in subset if d.get("outcome") == "lost")
+        push = sum(1 for d in subset if d.get("outcome") == "push")
+        pending = sum(1 for d in subset if d.get("outcome") == "pending")
+        settled = won + lost
+        win_rate = round((won / settled) * 100, 1) if settled else 0.0
+        streak = 0
+        for d in subset:
+            o = d.get("outcome")
+            if o == "won":
+                streak += 1
+            elif o == "lost":
+                break
+            else:
+                continue
+        last10 = [{
             "match_label": d.get("match_label"),
             "market": d.get("market"),
             "outcome": d.get("outcome"),
             "confidence_score": d.get("confidence_score"),
             "odds": d.get("odds"),
-        })
+            "sport": d.get("sport"),
+        } for d in subset[:10]]
 
-    # Accuracy + ROI by confidence tier
-    tiers = {"Maxima": {"won": 0, "lost": 0, "profit": 0.0, "wagered": 0.0},
-             "Alta":   {"won": 0, "lost": 0, "profit": 0.0, "wagered": 0.0},
-             "Media":  {"won": 0, "lost": 0, "profit": 0.0, "wagered": 0.0}}
-    total_profit = 0.0
-    total_wagered = 0.0
-    sum_won_odds = 0.0
-    sum_lost_odds = 0.0
-    for d in docs:
-        cs = d.get("confidence_score", 0) or 0
-        tier = "Maxima" if cs >= 80 else ("Alta" if cs >= 70 else ("Media" if cs >= 60 else None))
-        outcome = d.get("outcome")
-        if outcome not in ("won", "lost"):
-            continue
-        odds = float(d.get("odds") or 0)
-        if odds <= 1.0:
-            continue  # No valid odds → skip ROI math for this pick
-        wagered = stake
-        total_wagered += wagered
-        if outcome == "won":
-            profit = wagered * (odds - 1.0)
-            total_profit += profit
-            sum_won_odds += odds
-            if tier:
-                tiers[tier]["won"] += 1
-                tiers[tier]["profit"] += profit
-                tiers[tier]["wagered"] += wagered
-        elif outcome == "lost":
-            total_profit -= wagered
-            sum_lost_odds += odds
-            if tier:
-                tiers[tier]["lost"] += 1
-                tiers[tier]["profit"] -= wagered
-                tiers[tier]["wagered"] += wagered
+        # Accuracy + ROI by confidence tier
+        tiers = {
+            "Maxima": {"won": 0, "lost": 0, "profit": 0.0, "wagered": 0.0},
+            "Alta":   {"won": 0, "lost": 0, "profit": 0.0, "wagered": 0.0},
+            "Media":  {"won": 0, "lost": 0, "profit": 0.0, "wagered": 0.0},
+        }
+        total_profit = 0.0
+        total_wagered = 0.0
+        sum_won_odds = 0.0
+        sum_lost_odds = 0.0
+        for d in subset:
+            cs = d.get("confidence_score", 0) or 0
+            tier = "Maxima" if cs >= 80 else ("Alta" if cs >= 70 else ("Media" if cs >= 60 else None))
+            outcome = d.get("outcome")
+            if outcome not in ("won", "lost"):
+                continue
+            odds = float(d.get("odds") or 0)
+            if odds <= 1.0:
+                continue
+            wagered = stake
+            total_wagered += wagered
+            if outcome == "won":
+                profit = wagered * (odds - 1.0)
+                total_profit += profit
+                sum_won_odds += odds
+                if tier:
+                    tiers[tier]["won"] += 1
+                    tiers[tier]["profit"] += profit
+                    tiers[tier]["wagered"] += wagered
+            elif outcome == "lost":
+                total_profit -= wagered
+                sum_lost_odds += odds
+                if tier:
+                    tiers[tier]["lost"] += 1
+                    tiers[tier]["profit"] -= wagered
+                    tiers[tier]["wagered"] += wagered
 
-    roi_pct = round((total_profit / total_wagered) * 100, 2) if total_wagered else 0.0
-    avg_won_odds = round(sum_won_odds / won, 2) if won else 0.0
-    avg_lost_odds = round(sum_lost_odds / lost, 2) if lost else 0.0
-    # Picks with odds (count) to know coverage
-    picks_with_odds = sum(1 for d in docs if (d.get("odds") or 0) > 1.0 and d.get("outcome") in ("won", "lost"))
+        roi_pct = round((total_profit / total_wagered) * 100, 2) if total_wagered else 0.0
+        avg_won_odds = round(sum_won_odds / won, 2) if won else 0.0
+        avg_lost_odds = round(sum_lost_odds / lost, 2) if lost else 0.0
+        picks_with_odds = sum(
+            1 for d in subset
+            if (d.get("odds") or 0) > 1.0 and d.get("outcome") in ("won", "lost")
+        )
 
-    accuracy_by_tier = {}
-    for tier, v in tiers.items():
-        settled_tier = v["won"] + v["lost"]
-        accuracy_by_tier[tier] = {
-            "won": v["won"],
-            "lost": v["lost"],
-            "settled": settled_tier,
-            "rate": round((v["won"] / settled_tier) * 100, 1) if settled_tier else 0.0,
-            "profit": round(v["profit"], 2),
-            "wagered": round(v["wagered"], 2),
-            "roi_pct": round((v["profit"] / v["wagered"]) * 100, 2) if v["wagered"] else 0.0,
+        accuracy_by_tier = {}
+        for tier_name, v in tiers.items():
+            settled_tier = v["won"] + v["lost"]
+            accuracy_by_tier[tier_name] = {
+                "won": v["won"],
+                "lost": v["lost"],
+                "settled": settled_tier,
+                "rate": round((v["won"] / settled_tier) * 100, 1) if settled_tier else 0.0,
+                "profit": round(v["profit"], 2),
+                "wagered": round(v["wagered"], 2),
+                "roi_pct": round((v["profit"] / v["wagered"]) * 100, 2) if v["wagered"] else 0.0,
+            }
+
+        return {
+            "total": total,
+            "won": won,
+            "lost": lost,
+            "push": push,
+            "pending": pending,
+            "win_rate": win_rate,
+            "streak": streak,
+            "last10": last10,
+            "accuracy_by_tier": accuracy_by_tier,
+            "roi": {
+                "stake_per_pick": stake,
+                "total_wagered": round(total_wagered, 2),
+                "total_profit": round(total_profit, 2),
+                "roi_pct": roi_pct,
+                "avg_won_odds": avg_won_odds,
+                "avg_lost_odds": avg_lost_odds,
+                "settled_with_odds": picks_with_odds,
+                "settled_total": settled,
+            },
         }
 
+    # ── Top-level block (filtered if `?sport=` or `?market=` provided) ──
+    top_subset = _docs_for(filt_sport, filt_market)
+    top = _kpis(top_subset)
+
+    # ── Sport-segmented (always computed against the FULL tracking set,
+    #    independent of the optional filter — so the SportStatsPanel can show
+    #    every sport's KPIs at once even when one tab is active) ────────────
+    sports_seen = sorted({_norm(d.get("sport")) for d in docs})
+    if not sports_seen:
+        sports_seen = ["football"]
+
+    by_sport: dict[str, dict] = {}
+    by_sport_market: dict[str, dict] = {}
+    for s in sports_seen:
+        s_subset = _docs_for(s, None)
+        by_sport[s] = _kpis(s_subset)
+        # Per-market cell within this sport (top 6 most-tracked markets).
+        market_counts: dict[str, int] = {}
+        for d in s_subset:
+            mk = d.get("market") or "Unknown"
+            market_counts[mk] = market_counts.get(mk, 0) + 1
+        top_markets = [mk for mk, _ in sorted(market_counts.items(), key=lambda kv: -kv[1])[:6]]
+        by_sport_market[s] = {mk: _kpis([d for d in s_subset if (d.get("market") or "Unknown") == mk]) for mk in top_markets}
+
+    # ── Cross-sport compact comparator (for the side-by-side card) ─────────
+    cross_sport_comparison = [
+        {
+            "sport": s,
+            "total": by_sport[s]["total"],
+            "settled": by_sport[s]["roi"]["settled_total"],
+            "win_rate": by_sport[s]["win_rate"],
+            "roi_pct": by_sport[s]["roi"]["roi_pct"],
+            "total_profit": by_sport[s]["roi"]["total_profit"],
+            "streak": by_sport[s]["streak"],
+        }
+        for s in sports_seen
+    ]
+
     return {
-        "total": total,
-        "won": won,
-        "lost": lost,
-        "push": push,
-        "pending": pending,
-        "win_rate": win_rate,
-        "streak": streak,
-        "last10": last10,
-        "accuracy_by_tier": accuracy_by_tier,
-        "roi": {
-            "stake_per_pick": stake,
-            "total_wagered": round(total_wagered, 2),
-            "total_profit": round(total_profit, 2),
-            "roi_pct": roi_pct,
-            "avg_won_odds": avg_won_odds,
-            "avg_lost_odds": avg_lost_odds,
-            "settled_with_odds": picks_with_odds,
-            "settled_total": settled,
-        },
+        # Backward-compatible top-level keys (optionally filtered):
+        **top,
+        # New Phase-P2 segmentation:
+        "by_sport": by_sport,
+        "by_sport_market": by_sport_market,
+        "cross_sport_comparison": cross_sport_comparison,
+        "filters_applied": {"sport": filt_sport, "market": filt_market},
     }
 
 

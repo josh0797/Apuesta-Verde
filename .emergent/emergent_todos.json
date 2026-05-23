@@ -1,18 +1,38 @@
 [
   {
-    "content": "Fix en la fuente: football_quality.py emite by_tier con string keys",
+    "content": "Investigar por qué U17/Reserves se cuelan al LLM",
     "status": "completed"
   },
   {
-    "content": "Helper defense-in-depth `_normalize_keys_for_bson` aplicado antes de insert_one + en job_queue.finish",
+    "content": "Implementar `discover_priority_fixtures()` que itera top-12 ligas por league_id vía API-Sports",
     "status": "completed"
   },
   {
-    "content": "Mensaje de error amigable en la UI cuando ocurre BSON InvalidDocument",
+    "content": "Hard gate: si priority_fixtures>0 → bloquear cualquier liga no prioritaria",
     "status": "completed"
   },
   {
-    "content": "Reproducir el flujo real (/api/analysis/run) y verificar fix end-to-end",
+    "content": "Añadir EXOTIC_FRAGMENTS u17/u15/u16 + hard-block por nombre en compute_football_selection_score",
+    "status": "completed"
+  },
+  {
+    "content": "Aplicar filter_and_prioritize también en el fallback `any_recent`",
+    "status": "completed"
+  },
+  {
+    "content": "priority_override en filter_and_prioritize: rescatar Tier 1/2/3 sin odds completas",
+    "status": "completed"
+  },
+  {
+    "content": "Nueva categoría summary `Descartados de ligas prioritarias` + UI banner + KPI `Exóticos ignorados`",
+    "status": "completed"
+  },
+  {
+    "content": "Test end-to-end con flujo real (Bologna vs Inter, Lazio vs Pisa visibles)",
+    "status": "completed"
+  },
+  {
+    "content": "Screenshot validation confirmando partidos correctos y banners",
     "status": "completed"
   }
 ]
