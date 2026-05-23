@@ -1,42 +1,38 @@
 [
   {
-    "content": "Actualizar prompts del LLM en analyst_engine.py para forzar nombres explícitos de equipo en `selection`",
+    "content": "Crear `services/mlb_stats_api.py` — Cliente MLB Stats API oficial",
     "status": "completed"
   },
   {
-    "content": "Arreglar HistoryPage para humanizar el campo `selection` en la tabla tracked picks",
+    "content": "Crear `services/market_guardrail.py` — Guardrail UNIVERSAL con calibración por deporte",
     "status": "completed"
   },
   {
-    "content": "Añadir botón 'Marcar para seguir' (pending) en MatchCard del dashboard",
+    "content": "Crear `services/mlb_intelligence.py` — Weighting MLB + score_mlb_matchup + sanitize_mlb_picks + MLB_INTELLIGENCE_RULES prompt",
     "status": "completed"
   },
   {
-    "content": "Añadir botones de settlement (Gané/Perdí/Push) por fila en HistoryPage para picks pending",
+    "content": "Wire analyst_engine: hydrate MLB context + sanitize_mlb_picks + apply_market_guardrail universal",
     "status": "completed"
   },
   {
-    "content": "Crear helper frontend `lib/competitions.js` con `isBigFive()` (puerto del backend)",
+    "content": "Verificar calibración del guardrail con casos del CSV — PASS (NO_BET para favoritos inflados + Doble Op MLB)",
     "status": "completed"
   },
   {
-    "content": "Filtrar lista 'Live now' en LivePage por Big Five cuando sport=football",
+    "content": "Crear MarketEdgePanel + MLBMatchupPanel + MarketEdgeBadge inline",
     "status": "completed"
   },
   {
-    "content": "Cambiar Big Five a league_id (preferred) en backend+frontend para evitar falsos positivos",
+    "content": "Wire panels en MatchDetailPage + badge inline en MatchCard + i18n keys",
     "status": "completed"
   },
   {
-    "content": "Smoke test backend (selection rewrite + pending upsert) - PASS",
+    "content": "Validar UI con pick run inyectado — PASS (badge +35.2%, panel completo visible, why-can-fail funcional)",
     "status": "completed"
   },
   {
-    "content": "Smoke test frontend (isBigFive con ids) - PASS 13/13",
-    "status": "completed"
-  },
-  {
-    "content": "Testing agent backend + frontend - Backend 100% (15/15), Frontend 95% (14/15), 0 critical bugs",
-    "status": "completed"
+    "content": "Testing agent backend + frontend para Phase 6",
+    "status": "in_progress"
   }
 ]

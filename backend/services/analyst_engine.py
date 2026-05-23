@@ -212,12 +212,18 @@ otra evidencia, hazlo y lista el rationale en `reasoning`."""
 # ───────────────────────────────────────────────────────────────────────────
 def _build_system_prompt(sport: str) -> str:
     sport_rules = SPORT_RULES.get(sport, SPORT_RULES["football"])
+    # MLB gets a strict sport-specific block prepended to override soccer-style
+    # motivational reasoning. Football/basketball use the existing prompt as-is.
+    mlb_block = ""
+    if sport == "baseball":
+        from .mlb_intelligence import MLB_INTELLIGENCE_RULES
+        mlb_block = "\n" + MLB_INTELLIGENCE_RULES + "\n"
     return f"""Eres un analista deportivo profesional especializado en apuestas de VALOR con gestión de riesgo. Tu objetivo es identificar apuestas de alta probabilidad y baja volatilidad en eventos deportivos (próximas 48h o en vivo).
 
 DEPORTE A ANALIZAR: {sport.upper()}
 
 {sport_rules}
-
+{mlb_block}
 {MOTIVATION_RULES_V2}
 
 REGLAS GENERALES (todos los deportes):
@@ -1014,7 +1020,7 @@ def _apply_form_correction(parsed: dict, input_payload: list[dict]) -> dict:
 
 
 
-async def analyze_matches(matches_payload: list[dict], sport: str = "football") -> dict:
+async def analyze_matches(matches_payload: list[dict], sport: str = "football", db: Any = None) -> dict:
     """Two-stage hybrid analyst.
 
     Args:
@@ -1078,6 +1084,30 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football") 
     enriched_count = await _hydrate_team_news(to_analyze)
     if enriched_count:
         pipeline_meta["stage1_5_team_news_enriched"] = enriched_count
+
+    # ── Optional Stage 1.7 ── MLB Stats API hydration (baseball only)
+    # Attaches `mlb_context` + `mlb_matchup` to each baseball match payload so
+    # the LLM uses real pitcher/bullpen/batting data instead of soccer-style
+    # narrative reasoning. Best-effort; never raises.
+    if sport == "baseball" and db is not None:
+        try:
+            from . import mlb_stats_api as msapi
+            from . import mlb_intelligence as mli
+            mlb_hydrated = 0
+            for m in to_analyze:
+                try:
+                    ctx = await msapi.hydrate_mlb_match_context(db, m)
+                    if ctx and ctx.get("available"):
+                        m["mlb_context"] = ctx
+                        m["mlb_matchup"] = mli.score_mlb_matchup(ctx)
+                        mlb_hydrated += 1
+                except Exception as exc:
+                    log.debug("MLB hydration skipped for %s: %s", m.get("match_id"), exc)
+            if mlb_hydrated:
+                pipeline_meta["mlb_stats_api_enriched"] = mlb_hydrated
+                log.info("Analyst[baseball]: MLB Stats API hydrated %d/%d matches", mlb_hydrated, len(to_analyze))
+        except Exception as exc:
+            log.warning("MLB hydration block failed: %s", exc)
 
     # ── Stage 2 ── full analysis on shortlist
     user_text = (
@@ -1153,6 +1183,22 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football") 
     # Penalize / re-route picks that endorse a team on a 3+ loss streak.
     # Critical streaks (≥4 L or form_score ≤ -60) become discarded_market.
     parsed = _apply_form_correction(parsed, matches_payload)
+
+    # ── MLB-specific sanitization (baseball only) ──
+    # Re-route picks that use forbidden markets for MLB (Doble Oportunidad,
+    # Draw No Bet, "o empate"). This is the deterministic fix for the
+    # Rangers vs Angels / Texas Rangers o empate bug the user reported.
+    if sport == "baseball":
+        from . import mlb_intelligence as _mli
+        parsed = _mli.sanitize_mlb_picks(parsed)
+
+    # ── Universal Market Implied Probability Guardrail ──
+    # Compares estimated probability (from LLM confidence) against the
+    # implied probability of the odds; picks with edge below the per-bet-type
+    # threshold (3% simple, 5% live, 7% parlay) get re-routed to
+    # discarded_market with reason NO_BET_VALUE. Applies to ALL sports.
+    from . import market_guardrail as _mg
+    parsed = _mg.apply_market_guardrail(parsed, sport=sport)
 
     # Merge auto_discarded from pre-filter into the summary so the
     # categorization invariant len(picks)+lists == total_analyzed still holds

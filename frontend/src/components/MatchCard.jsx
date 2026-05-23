@@ -10,6 +10,7 @@ import { FreshnessBadge } from './FreshnessBadge';
 import { LivePulse } from './LivePulse';
 import { LineMovement } from './LineMovement';
 import { deriveIntelligence, DRIVER_META } from '@/lib/intelligence';
+import { MarketEdgeBadge } from './MarketEdgePanel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -107,9 +108,12 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
             <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-200 border border-emerald-500/25 text-[11px]">{m.recommendation?.market}</span>
             <span className="text-foreground" data-testid={`pick-selection-${m.match_id}`}>{humanizeSelection(m.recommendation?.selection, m.recommendation?.market, m.home_team?.name || m.match_label?.split(/\s+vs\s+/i)[0], m.away_team?.name || m.match_label?.split(/\s+vs\s+/i)[1], lang, sport)}</span>
           </div>
-          <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3">
+          <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
             <span className="mono font-mono-tabular">{t.match.oddsRange}: <span className="text-foreground">{m.recommendation?.odds_range || '—'}</span></span>
             <LineMovement movement={m.key_data?.line_movement} />
+            {m._market_edge && (
+              <MarketEdgeBadge edge={m._market_edge} lang={lang} testId={`pick-edge-badge-${m.match_id}`} />
+            )}
           </div>
         </div>
         <ConfidenceMeter score={m.recommendation?.confidence_score || 0} size="inline" testId={`pick-conf-${m.match_id}`} />

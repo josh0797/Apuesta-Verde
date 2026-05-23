@@ -13,6 +13,8 @@ import { ConfidenceMeter, ConfidenceIntelligenceCard } from '@/components/Confid
 import { OddsComparisonTable } from '@/components/OddsComparisonTable';
 import { LineMovement } from '@/components/LineMovement';
 import { MatchIntelligencePanel } from '@/components/MatchIntelligencePanel';
+import { MarketEdgePanel } from '@/components/MarketEdgePanel';
+import { MLBMatchupPanel } from '@/components/MLBMatchupPanel';
 import { formatDateTime, humanizeSelection } from '@/lib/format';
 
 export default function MatchDetailPage() {
@@ -165,6 +167,21 @@ export default function MatchDetailPage() {
               {/* Decision Intelligence Panel (radar + drivers timeline + markets matrix + risk breakdown) */}
               <MatchIntelligencePanel pick={llmPick} sport={sport} match={match} />
               <LineMovement movement={llmPick.key_data?.line_movement} />
+
+              {/* Universal Market Edge Guardrail — shown when backend attached _market_edge */}
+              {llmPick._market_edge && (
+                <MarketEdgePanel
+                  edge={llmPick._market_edge}
+                  risks={llmPick.risks}
+                  lang={lang}
+                  sport={sport}
+                />
+              )}
+
+              {/* MLB-specific structural matchup (pitchers / bullpen / offense) */}
+              {sport === 'baseball' && match?.mlb_matchup && (
+                <MLBMatchupPanel matchup={match.mlb_matchup} lang={lang} />
+              )}
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-border bg-card/40 p-5" data-testid="no-llm-pick">

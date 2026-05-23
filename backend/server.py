@@ -296,7 +296,7 @@ async def _run_analysis_pipeline(
     await _emit("analyzing", 65, f"LLM analyzing {len(candidates)} {sport} matches…")
     llm_payload = [nz.summarize_match_for_llm(_clean(c)) for c in candidates]
     try:
-        result = await analyst_engine.analyze_matches(llm_payload, sport=sport)
+        result = await analyst_engine.analyze_matches(llm_payload, sport=sport, db=db)
     except Exception as exc:
         log.exception("LLM analysis failed")
         raise HTTPException(status_code=502, detail=f"analyst engine error: {exc}")
