@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Loader2, RefreshCcw, Brain, Trophy, Trophy as TrophyIcon } from 'lucide-react';
 import { toast } from 'sonner';
@@ -38,14 +38,40 @@ export default function LivePage() {
   // opt out with the "Show all" toggle if they want to see lower-tier games.
   const [bigFiveOnly, setBigFiveOnly] = useState(true);
 
+  // Bug-2 fix (sport-scoped requests, same pattern as DashboardPage): ref to
+  // the current sport, used to DROP responses that arrive after the user has
+  // already switched tabs. Prevents football matches from briefly appearing
+  // on the basketball / baseball Live page.
+  const sportRef = useRef(sport);
+  useEffect(() => { sportRef.current = sport; }, [sport]);
+
+  // Clear stale state the instant the sport changes.
+  useEffect(() => {
+    console.log('[SPORT_SWITCH] live', sport);
+    setItems([]);
+    setLivePicks([]);
+    setActiveJobId(null);
+    setLoading(true);
+  }, [sport]);
+
   const load = useCallback(async (refresh = false) => {
+    const requestSport = sport;
     if (refresh) setRefreshing(true); else setLoading(true);
     try {
       const r = await api.get('/matches/live', { params: { refresh, sport } });
+      if (sportRef.current !== requestSport) {
+        console.log('[SPORT_SWITCH] discarded stale /matches/live for', requestSport);
+        return;
+      }
       setItems(r.data.items || []);
     } catch (e) {
       // noop
-    } finally { setLoading(false); setRefreshing(false); }
+    } finally {
+      if (sportRef.current === requestSport) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
   }, [sport]);
 
   useEffect(() => { load(true); const id = setInterval(() => load(true), 60_000); return () => clearInterval(id); }, [load]);

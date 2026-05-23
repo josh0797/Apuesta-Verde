@@ -1,38 +1,22 @@
 [
   {
-    "content": "Investigar por qué U17/Reserves se cuelan al LLM",
+    "content": "Reforzar manejo de errores frontend: mostrar step + status + detail exacto en lugar de 'Error' genérico",
     "status": "completed"
   },
   {
-    "content": "Implementar `discover_priority_fixtures()` que itera top-12 ligas por league_id vía API-Sports",
+    "content": "Bug 2: limpiar run y activeJobId inmediatamente al cambiar de sport (evita flicker)",
     "status": "completed"
   },
   {
-    "content": "Hard gate: si priority_fixtures>0 → bloquear cualquier liga no prioritaria",
+    "content": "Bug 2: descartar respuestas obsoletas (si el sport cambió mientras la request estaba en flight)",
     "status": "completed"
   },
   {
-    "content": "Añadir EXOTIC_FRAGMENTS u17/u15/u16 + hard-block por nombre en compute_football_selection_score",
+    "content": "Verificar LivePage / HistoryPage / MatchDetailPage también filtran por sport correctamente",
     "status": "completed"
   },
   {
-    "content": "Aplicar filter_and_prioritize también en el fallback `any_recent`",
-    "status": "completed"
-  },
-  {
-    "content": "priority_override en filter_and_prioritize: rescatar Tier 1/2/3 sin odds completas",
-    "status": "completed"
-  },
-  {
-    "content": "Nueva categoría summary `Descartados de ligas prioritarias` + UI banner + KPI `Exóticos ignorados`",
-    "status": "completed"
-  },
-  {
-    "content": "Test end-to-end con flujo real (Bologna vs Inter, Lazio vs Pisa visibles)",
-    "status": "completed"
-  },
-  {
-    "content": "Screenshot validation confirmando partidos correctos y banners",
+    "content": "Test end-to-end: cambiar football → basketball → baseball sin flicker",
     "status": "completed"
   }
 ]

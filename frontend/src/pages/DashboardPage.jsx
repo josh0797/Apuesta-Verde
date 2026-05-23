@@ -93,18 +93,45 @@ export default function DashboardPage() {
   const [filters, setFilters] = useState({ league: '', market: '', minConfidence: 0, enginePreset: '' });
   const [activeJobId, setActiveJobId] = useState(null);
 
+  // Bug-2 fix — sport-scoped requests:
+  // We keep a ref of the CURRENT sport. Every async call captures the sport
+  // it was launched with; when the response comes back we check the ref. If
+  // the user has since switched tabs, the response is DISCARDED (so we never
+  // paint football picks on the basketball tab). Without this, network calls
+  // raced against the tab switch and you saw the previous sport flicker
+  // through.
+  const sportRef = useRef(sport);
+  useEffect(() => { sportRef.current = sport; }, [sport]);
+
+  // Bug-2 fix — also clear stale data the INSTANT the sport changes, so the
+  // UI doesn't keep showing the previous sport's KPIs while the new fetch
+  // is in flight.
+  useEffect(() => {
+    console.log('[SPORT_SWITCH]', sport);
+    setRun(null);
+    setActiveJobId(null);
+    setLoading(true);
+  }, [sport]);
+
   const refs = {
     high: useRef(null), medium: useRef(null),
     discMot: useRef(null), discMkt: useRef(null), incomplete: useRef(null),
   };
 
   const loadLast = useCallback(async () => {
+    const requestSport = sport;
     try {
       setLoading(true);
       const r = await api.get('/picks/today', { params: { sport } });
+      if (sportRef.current !== requestSport) {
+        console.log('[SPORT_SWITCH] discarded stale /picks/today for', requestSport, '→ now', sportRef.current);
+        return;
+      }
       setRun(r.data.pick_run);
     } catch (e) { /* noop */ }
-    finally { setLoading(false); }
+    finally {
+      if (sportRef.current === requestSport) setLoading(false);
+    }
   }, [sport]);
 
   useEffect(() => { loadLast(); }, [loadLast]);
@@ -112,10 +139,11 @@ export default function DashboardPage() {
   // On mount / sport change, resume any active job for this user.
   useEffect(() => {
     let cancelled = false;
+    const requestSport = sport;
     (async () => {
       try {
         const r = await api.get('/analysis/jobs');
-        if (cancelled) return;
+        if (cancelled || sportRef.current !== requestSport) return;
         const active = (r.data?.active || []).find((j) => j.kind === 'analysis_run' && j?.params?.sport === sport);
         if (active) setActiveJobId(active.id);
       } catch (_) {}
@@ -123,7 +151,55 @@ export default function DashboardPage() {
     return () => { cancelled = true; };
   }, [sport]);
 
+  /**
+   * Translate the raw error from `/analysis/run` into a user-friendly toast
+   * AND a structured console log telling us WHICH step failed. This is the
+   * Bug-1 defense-in-depth so we never again see a bare "Error" toast
+   * without context.
+   */
+  const reportGenerationError = useCallback((err, step) => {
+    const status = err?.response?.status;
+    const detail = err?.response?.data?.detail;
+    const networkErr = !err?.response;
+    const isBson = /documents must have only string keys/i.test(detail || err?.message || '');
+    // Structured log for engineers — visible in browser devtools.
+    // eslint-disable-next-line no-console
+    console.error(`[${sport.toUpperCase()}_GENERATION_ERROR]`, {
+      step,
+      status,
+      detail,
+      networkErr,
+      isBson,
+      sport,
+      error: err,
+    });
+    let msg;
+    if (isBson) {
+      msg = lang === 'en'
+        ? 'Could not save the analysis (numeric keys in payload). System is hardened — please redeploy if you see this in production.'
+        : 'No se pudo guardar el análisis (claves numéricas en el payload). El sistema ya está reforzado — si lo ves en producción, redéploy.';
+    } else if (status === 409 && /no .* matches available|NO_PRIORITY_FIXTURES_FOUND/i.test(detail || '')) {
+      msg = lang === 'en'
+        ? 'No priority fixtures available in the next 48 h. Try again later or enable high-volume mode.'
+        : 'No hay partidos prioritarios en las próximas 48 h. Intenta más tarde o activa modo alto volumen.';
+    } else if (status === 502 || status === 504 || networkErr) {
+      msg = lang === 'en'
+        ? `Could not start ${sport} analysis (gateway/network). Step: ${step}.`
+        : `No se pudo iniciar el análisis de ${sport} (pasarela/red). Paso: ${step}.`;
+    } else if (status >= 500) {
+      msg = lang === 'en'
+        ? `${sport} analysis failed in step "${step}" (server ${status}). ${detail || ''}`.trim()
+        : `Falló el análisis de ${sport} en el paso "${step}" (servidor ${status}). ${detail || ''}`.trim();
+    } else {
+      msg = lang === 'en'
+        ? `Could not generate ${sport} picks. Step: ${step}. ${detail || err?.message || ''}`.trim()
+        : `No se pudo generar picks de ${sport}. Paso: ${step}. ${detail || err?.message || ''}`.trim();
+    }
+    toast.error(msg);
+  }, [sport, lang]);
+
   const generate = async () => {
+    const requestSport = sport;
     setRunning(true);
     try {
       // Use background mode so the UI shows real-time progress instead of a 60-120s spinner.
@@ -134,6 +210,12 @@ export default function DashboardPage() {
         sport,
         background: true,
       });
+      // Bug-2 — if the user already switched sports while POST was in flight,
+      // don't hijack the new sport's tab with a stale job id.
+      if (sportRef.current !== requestSport) {
+        console.log('[SPORT_SWITCH] discarded stale /analysis/run response for', requestSport);
+        return;
+      }
       if (r.data?.job_id) {
         setActiveJobId(r.data.job_id);
       } else if (r.data?.result) {
@@ -142,8 +224,10 @@ export default function DashboardPage() {
         toast.success(t.dashboard.title + ' ✓');
       }
     } catch (err) {
-      toast.error(err?.response?.data?.detail || 'Error');
-    } finally { setRunning(false); }
+      reportGenerationError(err, 'analysis/run · job submit');
+    } finally {
+      if (sportRef.current === requestSport) setRunning(false);
+    }
   };
 
   const onJobDone = useCallback((result) => {
