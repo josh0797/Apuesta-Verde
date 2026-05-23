@@ -33,6 +33,11 @@
   - ✅ **Flujo de picks “Pending” multi-deporte** para poder “guardar y liquidar después”
   - ✅ **LivePage consistente con Big Five** (fútbol) también en la lista “En vivo ahora”
 
+- ✅ **Objetivo P0/P1 (Phase 6) — COMPLETADO:** dejar de analizar MLB como fútbol + disciplina de EV (universal)
+  - ✅ **MLB Intelligence Engine (Fase 1)**: estructura/weighting MLB + sanitización de mercados inválidos (no empate)
+  - ✅ **Universal Market Implied Probability Guardrail** (TODOS los deportes): validación por edge real vs implícito + calibración por deporte
+  - ✅ **UI de Market Edge + “Why this pick can fail”**: visibilidad de implícita/estimada/edge/umbral y riesgos
+
 ---
 
 ## 2) Pasos de Implementación
@@ -182,57 +187,27 @@ Frontend:
 
 **Objetivo:** transformar la app de “dashboard de predicciones” a **terminal profesional de decisión** con narrativa explicable y señales contextuales.
 
-Cambios implementados (inspiración Apple + Stripe + Bloomberg + AI decision systems):
-
+Cambios implementados:
 1) **Design system / visual hierarchy**
 - ✅ `design_guidelines.md` actualizado (terminal financiero sobre base dark existente).
-- ✅ `index.css` extendido con tokens semánticos + utilidades:
-  - tokens: volatilidad/fragilidad tiers
-  - clases: `.micro-label`, `.font-mono-tabular`, `.glass-surface`, `.terminal-row`, `.tone-*`, `.noise-overlay`
+- ✅ `index.css` extendido con tokens semánticos + utilidades.
 
 2) **Derivation layer (explicabilidad sin coste de tokens)**
-- ✅ Nuevo `/app/frontend/src/lib/intelligence.js`:
-  - deriva `drivers`, `risk`, `volatility`, `fragility`, `match_state` (fallback), `best_for`/`avoid` (fallback)
-  - incluye `applyEnginePreset()` para presets de estilo de motor
+- ✅ Nuevo `/app/frontend/src/lib/intelligence.js`.
 
 3) **Component upgrades (preservan exports + data-testid)**
-- ✅ **ConfidenceMeter → ConfidenceIntelligenceCard** (`ConfidenceMeter.jsx`)
-- ✅ **MotivationBadge → MotivationContextBlock** (`MotivationBadge.jsx`)
-- ✅ **PicksFilterBar → FilterIntelligenceBar** (`PicksFilterBar.jsx`)
-- ✅ **EmptyStateNoValue → EmptyStateCoaching** (`EmptyStateNoValue.jsx`)
-- ✅ **MatchIntelligencePanel (NUEVO)** (`MatchIntelligencePanel.jsx`)
+- ✅ `ConfidenceMeter → ConfidenceIntelligenceCard`
+- ✅ `MotivationBadge → MotivationContextBlock`
+- ✅ `PicksFilterBar → FilterIntelligenceBar`
+- ✅ `EmptyStateNoValue → EmptyStateCoaching`
+- ✅ `MatchIntelligencePanel` (nuevo)
 
 4) **Wiring en páginas**
 - ✅ `DashboardPage`: presets + filtros + secciones descartadas visibles + match cards con inteligencia.
-- ✅ `MatchDetailPage`: panel de inteligencia completo + acciones de tracking (Gané/Perdí/Push) basadas en el `sport` del match.
-
-**Verificación end-to-end (preview):**
-- ✅ Render de dashboard y match detail validado mediante screenshots.
+- ✅ `MatchDetailPage`: panel de inteligencia completo + acciones de tracking (Gané/Perdí/Push) basadas en `sport`.
 
 #### 4.3 P1 — Custom Saved Filter Views (Backend/MongoDB)
 ✅ **Estado: DONE (feature 100% operativa y testeada)**
-
-**Cambios realizados:**
-- Backend `/app/backend/server.py`
-  - ✅ `SAVED_VIEWS_MAX = 10`
-  - ✅ `POST /api/profile/saved-views` con evicción de la más antigua cuando se supera el límite; retorna `_evicted_id` si aplica
-  - ✅ `PATCH /api/profile/saved-views/{view_id}` para editar `name`, `filters`, `enginePreset`, `sport`
-  - ✅ Validación de `sport` en POST y PATCH
-  - ✅ `GET /api/profile/saved-views` retorna `{ items, max: 10 }`
-
-- Frontend `/app/frontend/src/components/PicksFilterBar.jsx`
-  - ✅ Migración completa a backend (sin LocalStorage)
-  - ✅ Carga inicial desde API + recarga al abrir el Sheet
-  - ✅ Edición inline (Pencil + Enter/Escape)
-  - ✅ Botón “sobrescribir con filtros actuales” (Save)
-  - ✅ Contador visible X/10 y warning ámbar al llegar al límite
-  - ✅ Descripción bajo cada vista (league · market · ≥conf · preset)
-  - ✅ Toast feedback por acción (guardar, renombrar, actualizar, eliminar, evicción)
-
-**Testing:**
-- ✅ Testing agent:
-  - Backend: **17/17** tests específicos de saved-views (CRUD, eviction, sport validation, aislamiento por usuario, auth)
-  - Frontend: **18/18** tests UI (save/apply/rename/update/delete + persistencia)
 
 ---
 
@@ -240,53 +215,104 @@ Cambios implementados (inspiración Apple + Stripe + Bloomberg + AI decision sys
 ✅ **Estado: COMPLETADO**
 
 #### 5.1 Nombres explícitos en `selection` (LLM + Guard Rails)
-✅ **Hecho**
-- Backend:
-  - Prompt de Stage 2 actualizado con **REGLAS DE `recommendation.selection`** (por mercado) + ejemplos explícitos.
-  - Guard rail post-LLM: `analyst_engine._apply_explicit_selection()` que reescribe patrones opacos a nombres reales.
-    - Rewrites cubiertos: `Home/Draw`, `1X`, `Home`/`Away`/`Visitante` en moneyline-like, `Home -1.5` (spread/run line), `Under 2.5` (totals sin unidad).
-- Frontend:
-  - `HistoryPage` ahora usa `humanizeSelection()` para picks tracked (incluye picks antiguos/legacy).
-
-Smoke test:
-- ✅ 5/5 rewrites correctos + **idempotencia OK** (si ya viene un nombre explícito, no se toca).
+✅ Hecho (prompt + `_apply_explicit_selection()` + HistoryPage humanizada)
 
 #### 5.2 Pending Picks Flow (cross-sport)
-✅ **Hecho**
-- Backend:
-  - `/api/picks/track` ya soportaba `outcome="pending"` y hace upsert por `pick_id = run_id-match_id`.
-- Frontend:
-  - Dashboard (`MatchCard`): botón **“Marcar para seguir”** (multi-deporte) que guarda el pick como `pending`.
-  - History: acciones inline **Gané/Perdí/Push** solo para filas `pending`.
-
-Smoke test:
-- ✅ pending → settled mantiene **1 sola fila** (sin duplicado) vía upsert.
+✅ Hecho (Dashboard: “Marcar para seguir” + History settle inline)
 
 #### 5.3 LivePage Big Five Filter (fútbol)
-✅ **Hecho**
-- Root cause:
-  - El filtrado por nombre confundía **Bundesliga Alemania** con **Bundesliga Austria** y “Premier League” oficiales con otras ligas homónimas.
-- Fix:
-  - Backend: `services/football_competitions.is_big_five(name, league_id)` usa `league_id` como fuente de verdad.
-  - IDs Big Five (API-Sports): **39, 140, 135, 78, 61**.
-  - Frontend: `/src/lib/competitions.js` ahora es **id-aware** y acepta match object (preferido) o string (fallback).
-- UI:
-  - LivePage: toggle **“Solo 5 grandes” / “Ver todas”** + contador `N/Total` + hint de ocultos.
-
-Resultado verificado:
-- ✅ Se pasó de **8/50 (con ruido)** a **2/50 (solo EPL real)** en el entorno de prueba.
+✅ Hecho (id-aware por `league_id` + toggle “Solo 5 grandes”)
 
 #### 5.4 Testing
+✅ Reporte: `/app/test_reports/iteration_11.json` (Backend 100%, Frontend 95%, 0 críticos)
+
+---
+
+### Phase 6 — MLB Intelligence Engine + Universal Market Guardrail (P0/P1)
+✅ **Estado: COMPLETADO (Fase 1)**
+
+**Objetivo:**
+- Dejar de analizar MLB como fútbol (matchup/pitchers/bullpen/ofensiva/mercado) + disciplina universal de EV.
+
+#### 6.1 Data Layer MLB (MLB Stats API oficial)
 ✅ **Hecho**
-- Reporte: `/app/test_reports/iteration_11.json`
-- Backend: **100%** (15/15) ✅
-- Frontend: **95%** (14/15) ✅
-- 0 bugs críticos, 0 regresiones.
-- 2 issues menores detectados corresponden a **data legacy pre-Phase 5** (picks antiguos guardados con tokens opacos).
+- Backend: `/app/backend/services/mlb_stats_api.py`
+  - Cliente `statsapi.mlb.com` (gratis, sin key)
+  - `schedule` + `probablePitcher`
+  - pitcher season stats: **ERA/WHIP/K/BB/HR/IP + K/BB + HR/9 + IP/appearance + hand**
+  - team batting form: OPS/OBP/SLG, R/G, H/G, BB%, K%
+  - bullpen 3-day fatigue (heurístico por juegos recientes + extra innings)
+  - cache Mongo (30m–6h), best-effort (nunca rompe)
+- Verificado con datos reales: (ej.) Gerrit Cole ERA/WHIP/IP, Yankees OPS y schedule.
+
+#### 6.2 MLB Intelligence Engine (solo baseball)
+✅ **Hecho**
+- Backend: `/app/backend/services/mlb_intelligence.py`
+  - **Weighting MLB**: motivation ≤10%, pitcher 20%, bullpen 20%, offense 15%, splits 15%, base reach 10%, live 10%.
+  - `sanitize_mlb_picks()`:
+    - Re-route de mercados inválidos en MLB: **Doble Oportunidad / Draw No Bet / selecciones con “empate”**
+    - Fix determinístico del caso **Rangers vs Angels** (“remontada parcial ≠ comeback probable; respetar señal del mercado/cashout”).
+  - `score_mlb_matchup()`:
+    - Señal estructural (pitcher/offense/bullpen) + `structural_edge_side`/`strength` + `data_quality`.
+  - `MLB_INTELLIGENCE_RULES` inyectadas en prompt Stage 2 cuando `sport=baseball`.
+
+#### 6.3 Universal Market Implied Probability Guardrail (TODOS los deportes)
+✅ **Hecho**
+- Backend: `/app/backend/services/market_guardrail.py`
+  - impliedProbability = 1 / decimalOdds
+  - edge = estimatedProbability(calibrada) − impliedProbability
+  - thresholds: **3% simple / 5% live / 7% parlay**
+  - calibración por deporte (env configurable):
+    - football: **0.85**
+    - basketball: **0.82**
+    - baseball: **0.78**
+  - picks con edge < threshold → `summary.discarded_market` con razón **NO_BET_VALUE**
+  - attaches `_market_edge` a picks kept
+
+#### 6.4 Wiring en Analyst Engine
+✅ **Hecho**
+- `analyst_engine.analyze_matches(..., db=...)` acepta `db`.
+- Pipeline (post-LLM):
+  - `_apply_stage_correction` → `_apply_explicit_selection` → `_apply_form_correction`
+  - `sanitize_mlb_picks` (solo baseball)
+  - `apply_market_guardrail` (TODOS los deportes)
+- MLB hydration (solo baseball, best-effort):
+  - añade `mlb_context` + `mlb_matchup` al payload cuando hay datos.
+
+#### 6.5 UI Improvements
+✅ **Hecho**
+- Frontend:
+  - `MarketEdgePanel` (universal): implícita/estimada calibrada/edge/umbral + reason + “Why this pick can fail”.
+  - `MarketEdgeBadge` (inline en `MatchCard`): muestra EDGE y tono por verdict.
+  - `MLBMatchupPanel` (solo baseball): pitchers, bullpen fatigue, offensive form, narrative, data_quality.
+- Wiring:
+  - `MatchDetailPage` renderiza MarketEdgePanel si existe `_market_edge`.
+  - `MatchDetailPage` renderiza MLBMatchupPanel si `sport=baseball` y hay `match.mlb_matchup`.
+
+#### 6.6 Testing
+✅ **Hecho**
+- Reporte: `/app/test_reports/iteration_12.json`
+  - Backend: **100% (9/9)**
+  - Frontend: **100%**
+  - 0 bugs críticos, 0 regresiones
+
+**Notas de disponibilidad de datos:**
+- Picks históricos previos a Phase 6 no tienen `_market_edge` (solo se verá en picks nuevos).
 
 ---
 
 ## 3) Next Actions (inmediatas)
+
+### P0/P1 — Phase 6 (Fase 2, DEFERRED por decisión del usuario)
+**Objetivo:** apuestas live MLB tipo sportsbook + player props
+- Base Reach Probability Model (`baseReachScore`) + projections por jugador
+- Live Comeback Probability Model (`liveComebackProbability`) + estados:
+  - DEAD_TICKET, LOW_COMEBACK_PROBABILITY, IMPROVING_BUT_STILL_NEGATIVE,
+    LIVE_VALUE_WINDOW, TRUE_MOMENTUM_SHIFT, CASH_OUT_RECOMMENDED,
+    HOLD_RECOMMENDED
+- Cash Out Intelligence:
+  - acción: CASH_OUT | HOLD | PARTIAL_CASH_OUT | WAIT_ONE_MORE_SEQUENCE
+  - comparación con probabilidad implícita del cashout
 
 ### P2 — Proxy residencial para Sofascore (opcional, requiere credenciales)
 - Integrar proxy residencial en Crawlee/Playwright.
@@ -315,16 +341,17 @@ Resultado verificado:
 - ✅ **Multi-deporte:** Football/NBA/MLB con prompts específicos y selector UI.
 - ✅ **UX análisis largo:** background jobs + progreso persistido + modal.
 - ✅ **Decision Intelligence Terminal:** UI explica WHY/HOW con drivers, fragilidad/volatilidad, mercados evitados, motivación contextual y panel de inteligencia en detalle.
-- ✅ **Saved Filter Views (P1):**
-  - Vistas persistidas en MongoDB por usuario (JWT)
-  - Límite 10 con evicción + UX clara (contador + warning)
-  - Aplicar + editar + eliminar
-  - Testing agent valida el flujo end-to-end
-
-- ✅ **Phase 5 (P0) — Criterios cumplidos**
+- ✅ **Saved Filter Views (P1):** persistencia en MongoDB (10 max con evicción) + UX + testing end-to-end.
+- ✅ **Phase 5 (P0):**
   - `recommendation.selection` legible y específica; guard rail reescribe outputs opacos.
-  - El usuario puede **guardar picks como pending** desde Dashboard (multi-deporte) y **liquidarlos después** desde History.
-  - LivePage (fútbol) muestra “En vivo ahora” solo con **Big Five reales** usando `league_id` (consistente con el análisis Big Five).
+  - usuario puede guardar picks como pending y liquidarlos después.
+  - LivePage (fútbol) consistente con Big Five reales (league_id) + toggle.
+
+- ✅ **Phase 6 (P0/P1) — Criterios cumplidos (Fase 1):**
+  - MLB deja de aceptar mercados inválidos (sin empate/Doble Oportunidad).
+  - MLB se analiza con contexto estructural (pitcher/bullpen/ofensiva) cuando hay data disponible.
+  - Guardrail universal evita picks sin edge real (NO_BET_VALUE) y lo muestra en UI.
+  - UI expone implícita/estimada/edge/umbral + “Why this pick can fail”.
   - Testing agent pasa (backend + frontend) sin regresiones.
 
 - 🔁 **Operativo:** créditos LLM sostenibles para que análisis siga disponible.

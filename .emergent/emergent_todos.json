@@ -16,7 +16,7 @@
     "status": "completed"
   },
   {
-    "content": "Verificar calibración del guardrail con casos del CSV — PASS (NO_BET para favoritos inflados + Doble Op MLB)",
+    "content": "Verificar calibración del guardrail con casos del CSV — PASS",
     "status": "completed"
   },
   {
@@ -32,7 +32,7 @@
     "status": "completed"
   },
   {
-    "content": "Testing agent backend + frontend para Phase 6",
-    "status": "in_progress"
+    "content": "Testing agent backend + frontend para Phase 6 — Backend 100% (9/9), Frontend 100%, 0 bugs",
+    "status": "completed"
   }
 ]
