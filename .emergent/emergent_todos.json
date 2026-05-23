@@ -20,11 +20,11 @@
     "status": "completed"
   },
   {
-    "content": "Smoke test backend (6 picks → 3 traps rerouted, 3 kept) + screenshot UI — PASS",
+    "content": "Smoke test backend + screenshot UI — PASS",
     "status": "completed"
   },
   {
-    "content": "Testing agent Phase 7 - Moneyball Layer",
-    "status": "in_progress"
+    "content": "Testing agent Phase 7 — Backend 92.3% / API 80% / Frontend 100%, 0 críticos, 0 regresiones",
+    "status": "completed"
   }
 ]
