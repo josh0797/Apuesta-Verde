@@ -38,6 +38,16 @@
   - ✅ **Universal Market Implied Probability Guardrail** (TODOS los deportes): validación por edge real vs implícito + calibración por deporte
   - ✅ **UI de Market Edge + “Why this pick can fail”**: visibilidad de implícita/estimada/edge/umbral y riesgos
 
+- ✅ **Objetivo P0 (Phase 8) — COMPLETADO:** Football Search & Selection Engine (anti-ligas exóticas)
+  - ✅ **League Quality Score (0–100)** + **Market Liquidity Score (0–100)** + **Football Selection Score (0–100)**.
+  - ✅ **Relevancy-first + Dynamic Match Discovery** (waterfall Tier 1 → Tier 2 → Tier 3).
+  - ✅ **Pre-LLM filtering**: Tier 4 / ligas exóticas / baja relevancia se saltan antes del LLM (ahorro de costes y mejor latencia).
+  - ✅ **Estados de match**: `PRIORITY_MATCH`, `HIGH_LIQUIDITY`, `STANDARD`, `LOW_DATA_QUALITY`, `LOW_MARKET_SUPPORT`, `EXOTIC_LEAGUE_WARNING`, `SKIPPED_LOW_RELEVANCE`.
+  - ✅ **Límites de recomendación**: máximo 8 picks expuestos.
+  - ✅ **UI**: `FootballQualityBadge` en cada pick + sección “Saltados — baja relevancia” con razones.
+  - ✅ **Hardening de matching**: clasificación Tier 1/2/3 basada en `league_id` (sin substring matching vulnerable) + fix defense-in-depth en `football_competitions.py`.
+  - ✅ **Testing end-to-end**: backend 98% / frontend 100% / integración 100% (ver `/app/test_reports/iteration_14.json`).
+
 ---
 
 ## 2) Pasos de Implementación
@@ -251,9 +261,9 @@ Cambios implementados:
   - **Weighting MLB**: motivation ≤10%, pitcher 20%, bullpen 20%, offense 15%, splits 15%, base reach 10%, live 10%.
   - `sanitize_mlb_picks()`:
     - Re-route de mercados inválidos en MLB: **Doble Oportunidad / Draw No Bet / selecciones con “empate”**
-    - Fix determinístico del caso **Rangers vs Angels** (“remontada parcial ≠ comeback probable; respetar señal del mercado/cashout”).
+    - Fix determinístico del caso **Rangers vs Angels**.
   - `score_mlb_matchup()`:
-    - Señal estructural (pitcher/offense/bullpen) + `structural_edge_side`/`strength` + `data_quality`.
+    - Señal estructural + `structural_edge_side`/`strength` + `data_quality`.
   - `MLB_INTELLIGENCE_RULES` inyectadas en prompt Stage 2 cuando `sport=baseball`.
 
 #### 6.3 Universal Market Implied Probability Guardrail (TODOS los deportes)
@@ -282,37 +292,63 @@ Cambios implementados:
 #### 6.5 UI Improvements
 ✅ **Hecho**
 - Frontend:
-  - `MarketEdgePanel` (universal): implícita/estimada calibrada/edge/umbral + reason + “Why this pick can fail”.
-  - `MarketEdgeBadge` (inline en `MatchCard`): muestra EDGE y tono por verdict.
-  - `MLBMatchupPanel` (solo baseball): pitchers, bullpen fatigue, offensive form, narrative, data_quality.
-- Wiring:
-  - `MatchDetailPage` renderiza MarketEdgePanel si existe `_market_edge`.
-  - `MatchDetailPage` renderiza MLBMatchupPanel si `sport=baseball` y hay `match.mlb_matchup`.
+  - `MarketEdgePanel` (universal)
+  - `MarketEdgeBadge` (inline)
+  - `MLBMatchupPanel` (solo baseball)
+- Wiring en `MatchDetailPage`.
 
 #### 6.6 Testing
 ✅ **Hecho**
 - Reporte: `/app/test_reports/iteration_12.json`
   - Backend: **100% (9/9)**
   - Frontend: **100%**
-  - 0 bugs críticos, 0 regresiones
 
 **Notas de disponibilidad de datos:**
-- Picks históricos previos a Phase 6 no tienen `_market_edge` (solo se verá en picks nuevos).
+- Picks históricos previos a Phase 6 no tienen `_market_edge`.
+
+---
+
+### Phase 8 — Football Search & Selection Engine (P0)
+✅ **Estado: COMPLETADO**
+
+**Objetivo:** dejar de analizar ligas exóticas y de baja liquidez (Botswana, Belarus Reserves, reservas/U20, regionales) y priorizar Tier 1/2/3 con discovery dinámico y scoring visible.
+
+Implementado:
+1) **Sistema de tiers y allowlist (league_id-first)**
+   - ✅ `/app/backend/services/football_competitions.py`: allowlist Tier 1/2/3.
+   - ✅ Fix defense-in-depth: substring fallback ya NO promueve a Tier 1 si hay hints exóticos (“botswana”, “belarus”, “austrian”, “reserve”, “u-21”, etc.).
+
+2) **Scoring (0–100) + estados**
+   - ✅ `/app/backend/services/football_quality.py`:
+     - `league_quality_score` (Tier + cobertura stats/xG/lineups + penalización exotic)
+     - `market_liquidity_score` (books + mercados + movimiento de línea)
+     - `football_selection_score` (60/40)
+     - estados: `PRIORITY_MATCH`, `HIGH_LIQUIDITY`, `STANDARD`, `LOW_DATA_QUALITY`, `LOW_MARKET_SUPPORT`, `EXOTIC_LEAGUE_WARNING`, `SKIPPED_LOW_RELEVANCE`
+
+3) **Dynamic Match Discovery (waterfall Tier 1→2→3)**
+   - ✅ `filter_and_prioritize(matches, target_count=..., enable_tier_4=False)`
+   - ✅ Tier 4 disabled por defecto (`FOOTBALL_ENABLE_TIER_4_FALLBACK=false`).
+
+4) **Pre-LLM filtering (ahorro de coste + performance)**
+   - ✅ `server.py`: filtro y cascade aplicado ANTES del LLM.
+   - ✅ `skipped_low_relevance` se expone como sidecar (no contamina discarded_market/motivation).
+
+5) **Propagación de `_football_quality` a picks (pieza final)**
+   - ✅ `server.py`: re-atacha `_football_quality` a cada pick y a `summary.high_confidence` / `summary.medium_confidence`.
+
+6) **UI (badges + sección skipped)**
+   - ✅ `/app/frontend/src/components/FootballQualityBadge.jsx`.
+   - ✅ `MatchCard.jsx` renderiza el badge si `sport=football` y existe `_football_quality`.
+   - ✅ `DashboardPage.jsx` muestra “Saltados — baja relevancia” (colapsable) con `SkippedMatchRow`.
+
+7) **Testing & verificación visual**
+   - ✅ Mock determinístico: `/app/backend/scripts/inject_phase8_mock.py` inserta un pick_run para `demo@valuebet.app` con todos los estados.
+   - ✅ Validación visual por screenshot_tool (badges + sección skipped).
+   - ✅ Testing agent: `/app/test_reports/iteration_14.json`.
 
 ---
 
 ## 3) Next Actions (inmediatas)
-
-### P0/P1 — Phase 6 (Fase 2, DEFERRED por decisión del usuario)
-**Objetivo:** apuestas live MLB tipo sportsbook + player props
-- Base Reach Probability Model (`baseReachScore`) + projections por jugador
-- Live Comeback Probability Model (`liveComebackProbability`) + estados:
-  - DEAD_TICKET, LOW_COMEBACK_PROBABILITY, IMPROVING_BUT_STILL_NEGATIVE,
-    LIVE_VALUE_WINDOW, TRUE_MOMENTUM_SHIFT, CASH_OUT_RECOMMENDED,
-    HOLD_RECOMMENDED
-- Cash Out Intelligence:
-  - acción: CASH_OUT | HOLD | PARTIAL_CASH_OUT | WAIT_ONE_MORE_SEQUENCE
-  - comparación con probabilidad implícita del cashout
 
 ### P2 — Proxy residencial para Sofascore (opcional, requiere credenciales)
 - Integrar proxy residencial en Crawlee/Playwright.
@@ -343,15 +379,17 @@ Cambios implementados:
 - ✅ **Decision Intelligence Terminal:** UI explica WHY/HOW con drivers, fragilidad/volatilidad, mercados evitados, motivación contextual y panel de inteligencia en detalle.
 - ✅ **Saved Filter Views (P1):** persistencia en MongoDB (10 max con evicción) + UX + testing end-to-end.
 - ✅ **Phase 5 (P0):**
-  - `recommendation.selection` legible y específica; guard rail reescribe outputs opacos.
+  - `recommendation.selection` legible y específica.
   - usuario puede guardar picks como pending y liquidarlos después.
   - LivePage (fútbol) consistente con Big Five reales (league_id) + toggle.
-
 - ✅ **Phase 6 (P0/P1) — Criterios cumplidos (Fase 1):**
-  - MLB deja de aceptar mercados inválidos (sin empate/Doble Oportunidad).
-  - MLB se analiza con contexto estructural (pitcher/bullpen/ofensiva) cuando hay data disponible.
-  - Guardrail universal evita picks sin edge real (NO_BET_VALUE) y lo muestra en UI.
-  - UI expone implícita/estimada/edge/umbral + “Why this pick can fail”.
+  - MLB deja de aceptar mercados inválidos.
+  - Guardrail universal evita picks sin edge real y lo muestra en UI.
   - Testing agent pasa (backend + frontend) sin regresiones.
-
+- ✅ **Phase 8 (P0) — Criterios cumplidos:**
+  - Ligas exóticas/reserves/youth ya no se analizan por defecto.
+  - Discovery dinámico Tier 1→2→3 con scoring visible.
+  - `_football_quality` y `skipped_low_relevance` expuestos al frontend.
+  - Badges UI + sección skipped operativas en ES/EN.
+  - Testing agent pasa (backend + frontend) sin regresiones.
 - 🔁 **Operativo:** créditos LLM sostenibles para que análisis siga disponible.

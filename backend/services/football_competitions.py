@@ -280,11 +280,27 @@ def get_competition_meta(league_name: Optional[str]) -> Optional[dict]:
         # 'championship' must NOT match 'european championship'. Longest
         # alias wins so 'uefa champions league' beats 'champions league' when
         # both are present.
+        #
+        # Defense-in-depth: refuse to substring-match a Tier-1 alias when the
+        # raw league name carries a country-prefix that betrays a non-Big-Five
+        # competition (e.g. 'Botswana Premier League', 'Belarus Reserve
+        # Premier League'). Without this guard the engine would silently
+        # promote those leagues to Tier 1 and waste LLM cycles. The
+        # `football_quality.py` layer already corrects for this downstream,
+        # but doing it here too keeps every caller (is_big_five,
+        # is_allowed_competition, scheduler hydration filters, etc.) honest.
         candidates = [
             (alias, payload) for alias, payload in idx.items()
             if alias and alias in norm
         ]
         candidates.sort(key=lambda kv: -len(kv[0]))
+        if candidates and _has_non_tier1_country_hint(norm):
+            # Keep only candidates that are NOT in tier_1 — substring matches
+            # to tier_2/tier_3 (e.g. a cup) remain valid.
+            candidates = [
+                kv for kv in candidates
+                if kv[1] and kv[1][0] != "tier_1"
+            ]
         hit = candidates[0][1] if candidates else None
     if not hit:
         return None
@@ -297,6 +313,37 @@ def get_competition_meta(league_name: Optional[str]) -> Optional[dict]:
         "type": comp.get("type"),
         "region": comp.get("region"),
     }
+
+
+# Country/qualifier hints that, when present in the raw league name, signal
+# the competition is NOT one of the canonical Tier-1 European/American
+# leagues — even if its suffix ("premier league", "serie a", "bundesliga")
+# would otherwise substring-match. Kept in sync with the equivalent list in
+# services.football_quality.NON_TIER1_COUNTRY_HINTS.
+_NON_TIER1_COUNTRY_HINTS: tuple[str, ...] = (
+    "botswana", "belarus", "belarusian", "kazakhstan", "kazakh", "uzbekistan",
+    "armenia", "armenian", "azerbaijan", "georgia", "georgian", "moldova",
+    "albania", "albanian", "kosovo", "north macedonia", "macedonia", "bosnia",
+    "montenegro", "iceland", "icelandic", "faroe", "andorra", "san marino",
+    "gibraltar", "malta", "maltese", "cyprus", "cypriot", "luxembourg",
+    "lithuania", "lithuanian", "latvia", "latvian", "estonia", "estonian",
+    "daguestan", "dagestan", "tajikistan", "kyrgyz", "kyrgyzstan",
+    "myanmar", "burma", "nepal", "bangladesh", "mongolia", "mongolian",
+    "indonesia", "malaysia", "singapore", "vietnam", "cambodia", "laos",
+    "austria", "austrian", "switzerland", "swiss",
+    "reserve", "reserves", "u-19", "u19", "u-20", "u20", "u-21", "u21",
+    "u-23", "u23", "youth", "primavera", "sub-19", "sub-20", "sub-21",
+)
+
+
+def _has_non_tier1_country_hint(normalized_name: str) -> bool:
+    """True iff the (already normalized) league name carries a token that
+    delegitimizes a Tier-1 substring match. Token list is intentionally
+    conservative: a hint must appear as a whole word fragment of the
+    normalized name."""
+    if not normalized_name:
+        return False
+    return any(hint in normalized_name for hint in _NON_TIER1_COUNTRY_HINTS)
 
 
 # Top-5 European leagues. The single most concentrated source of meaningful

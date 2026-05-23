@@ -9,6 +9,10 @@
   },
   {
     "content": "Ejecutar testing_agent_v3 para validar backend + frontend Fase 8",
-    "status": "in_progress"
+    "status": "completed"
+  },
+  {
+    "content": "Defense-in-depth: bloquear substring fallback Tier 1 cuando el nombre tiene country-hint exótico (Botswana/Belarus/Austrian)",
+    "status": "completed"
   }
 ]
