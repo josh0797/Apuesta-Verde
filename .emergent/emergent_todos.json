@@ -1,18 +1,18 @@
 [
   {
-    "content": "Propagar `_football_quality` a cada pick y a entradas high/medium en summary del resultado de analyst_engine",
+    "content": "Fix en la fuente: football_quality.py emite by_tier con string keys",
     "status": "completed"
   },
   {
-    "content": "Insertar pick_run mock en MongoDB con badges Phase 8 y validar UI con screenshot_tool",
+    "content": "Helper defense-in-depth `_normalize_keys_for_bson` aplicado antes de insert_one + en job_queue.finish",
     "status": "completed"
   },
   {
-    "content": "Ejecutar testing_agent_v3 para validar backend + frontend Fase 8",
+    "content": "Mensaje de error amigable en la UI cuando ocurre BSON InvalidDocument",
     "status": "completed"
   },
   {
-    "content": "Defense-in-depth: bloquear substring fallback Tier 1 cuando el nombre tiene country-hint exótico (Botswana/Belarus/Austrian)",
+    "content": "Reproducir el flujo real (/api/analysis/run) y verificar fix end-to-end",
     "status": "completed"
   }
 ]

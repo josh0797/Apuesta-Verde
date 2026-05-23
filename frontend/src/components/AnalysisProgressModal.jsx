@@ -32,6 +32,43 @@ function stageText(stages, stage, terms) {
   return typeof v === 'function' ? v(terms) : v || stage;
 }
 
+/**
+ * Map raw backend / driver errors into user-friendly Spanish/English copy.
+ * The classic example is BSON's `documents must have only string keys, key
+ * was N` which is utterly opaque to end users — we explain what happened
+ * and that the system already self-protected against it.
+ */
+function humanizeError(raw, lang) {
+  if (!raw) return lang === 'en' ? 'Unknown error' : 'Error desconocido';
+  const text = String(raw);
+  // BSON / Mongo numeric-key error
+  if (/documents must have only string keys/i.test(text) || /InvalidDocument/i.test(text)) {
+    return lang === 'en'
+      ? 'Could not save the analysis because the payload contained numeric keys. The system has been hardened against this case — please try again. If it persists, share this message with support.'
+      : 'No se pudo guardar el análisis porque el payload contenía claves numéricas. El sistema ya se reforzó contra este caso — por favor reintenta. Si persiste, comparte este mensaje con soporte.';
+  }
+  // Ingress / gateway timeouts
+  if (/502|504|timeout/i.test(text)) {
+    return lang === 'en'
+      ? 'The analysis took too long and the gateway closed the connection. The background job may still finish — refresh the dashboard in ~60 seconds.'
+      : 'El análisis tardó demasiado y la pasarela cortó la conexión. El job en background puede haber terminado igual — recarga el dashboard en ~60 segundos.';
+  }
+  // LLM credit / quota
+  if (/insufficient.*credits?|quota|rate.?limit/i.test(text)) {
+    return lang === 'en'
+      ? 'AI credit limit reached. Top up your Universal Key balance from Profile → Universal Key → Add Balance.'
+      : 'Se alcanzó el límite de créditos de IA. Recarga tu Universal Key en Perfil → Universal Key → Añadir saldo.';
+  }
+  // No matches available
+  if (/no .* matches available/i.test(text)) {
+    return lang === 'en'
+      ? 'No relevant Tier 1/2/3 matches are available in the next 48 hours. Try again later or enable Tier 4 fallback.'
+      : 'No hay partidos Tier 1/2/3 relevantes en las próximas 48 horas. Intenta más tarde o activa el fallback Tier 4.';
+  }
+  // Fall back to the raw message, trimmed.
+  return text.length > 240 ? text.slice(0, 240) + '…' : text;
+}
+
 export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
   const { lang } = useI18n();
   const stages = STAGE_COPY[lang] || STAGE_COPY.es;
@@ -149,7 +186,7 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
 
         {isFailed && (
           <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-300" data-testid="progress-modal-error">
-            {error || job?.error || job?.message || 'Unknown error'}
+            {humanizeError(error || job?.error || job?.message, lang)}
           </div>
         )}
 

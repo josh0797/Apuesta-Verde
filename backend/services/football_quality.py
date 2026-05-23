@@ -376,7 +376,10 @@ def filter_and_prioritize(
 
     enriched: list[dict] = []
     skipped: list[dict] = []
-    by_tier: dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0}
+    # NOTE: keys are STRINGS, not ints. MongoDB/BSON refuses numeric keys
+    # ("documents must have only string keys, key was 1"), and this payload
+    # is persisted verbatim into `result._pipeline.football_quality`.
+    by_tier: dict[str, int] = {"1": 0, "2": 0, "3": 0, "4": 0}
     by_state: dict[str, int] = {}
 
     for m in matches:
@@ -384,7 +387,8 @@ def filter_and_prioritize(
         fq = m.get("_football_quality") or {}
         tier = fq.get("tier", 4)
         state = fq.get("state", "STANDARD")
-        by_tier[tier] = by_tier.get(tier, 0) + 1
+        tier_key = str(tier)
+        by_tier[tier_key] = by_tier.get(tier_key, 0) + 1
         by_state[state] = by_state.get(state, 0) + 1
 
         if fq.get("allowed_for_analysis"):

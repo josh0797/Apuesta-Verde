@@ -110,6 +110,33 @@ def _clean_list(docs: list[dict]) -> list[dict]:
     return [_clean(d) for d in docs]
 
 
+def _normalize_keys_for_bson(value):
+    """Recursively coerce all dict keys to strings.
+
+    PyMongo / BSON refuses documents with numeric (or any non-string) keys
+    with the misleading error: `documents must have only string keys, key
+    was 1`. Several upstream payloads can sneak ints in:
+
+      • services.football_quality.filter_and_prioritize → stats.by_tier
+        (historically `{1: …, 2: …}`); also patched at the source but kept
+        here as defense-in-depth in case a future contributor reintroduces
+        the bug.
+      • LLM JSON responses that key things by season year (`{2024: …}`).
+      • Scraped JSON feeds (Sofascore/Flashscore) that use numeric ids.
+
+    Lists are traversed; primitives are returned untouched. Tuple/set keys
+    are stringified via `str()`. This helper is idempotent and cheap (only
+    touches dict containers).
+    """
+    if isinstance(value, dict):
+        return {str(k): _normalize_keys_for_bson(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_normalize_keys_for_bson(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_normalize_keys_for_bson(v) for v in value)
+    return value
+
+
 # ── Public health ────────────────────────────────────────────────────────────
 @api.get("/")
 async def root():
@@ -396,6 +423,14 @@ async def _run_analysis_pipeline(
         "matches_analyzed": len(candidates),
         "payload": result,
     }
+    # Defense-in-depth: any numeric keys sneaking in from football_quality
+    # stats / LLM JSON / scraped feeds would crash BSON with
+    # "documents must have only string keys, key was 1". Normalize before
+    # persistence and before echoing back to the client (the client encodes
+    # JSON which silently coerces, but the persisted copy is the one Mongo
+    # touches).
+    record = _normalize_keys_for_bson(record)
+    result = record["payload"]
     await db.picks.insert_one(record)
     return {"pick_run_id": pick_id_base, "sport": sport, "generated_at": record["generated_at"], "result": result}
 

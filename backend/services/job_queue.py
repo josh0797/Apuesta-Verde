@@ -77,17 +77,36 @@ async def update_progress(db, job_id: str, stage: str, progress: int, message: s
 
 
 async def finish(db, job_id: str, result: dict) -> None:
+    # Defense-in-depth: same BSON-keys protection applied to the
+    # /analysis/jobs path. Any numeric keys in the analyst payload
+    # (football_quality.by_tier was the original culprit) would crash the
+    # update with `documents must have only string keys, key was 1` and the
+    # frontend would surface "Generando picks · FOOTBALL · Falló".
+    safe_result = _normalize_keys_for_bson(result) if result is not None else result
     await db.analysis_jobs.update_one(
         {"id": job_id},
         {"$set": {
             "stage": "done",
             "progress": 100,
             "message": "Completed",
-            "result": result,
+            "result": safe_result,
             "updated_at": _now(),
             "finished_at": _now(),
         }},
     )
+
+
+def _normalize_keys_for_bson(value):
+    """Recursively coerce dict keys to strings. Mirrors the helper in
+    server.py — kept local to avoid an import cycle (job_queue is imported
+    by server). Idempotent and cheap (only touches dict containers)."""
+    if isinstance(value, dict):
+        return {str(k): _normalize_keys_for_bson(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_normalize_keys_for_bson(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_normalize_keys_for_bson(v) for v in value)
+    return value
 
 
 async def fail(db, job_id: str, error: str) -> None:
