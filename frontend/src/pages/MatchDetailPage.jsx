@@ -13,7 +13,7 @@ import { ConfidenceMeter, ConfidenceIntelligenceCard } from '@/components/Confid
 import { OddsComparisonTable } from '@/components/OddsComparisonTable';
 import { LineMovement } from '@/components/LineMovement';
 import { MatchIntelligencePanel } from '@/components/MatchIntelligencePanel';
-import { MarketEdgePanel } from '@/components/MarketEdgePanel';
+import { MoneyballPanel } from '@/components/MoneyballPanel';
 import { MLBMatchupPanel } from '@/components/MLBMatchupPanel';
 import { formatDateTime, humanizeSelection } from '@/lib/format';
 
@@ -168,13 +168,14 @@ export default function MatchDetailPage() {
               <MatchIntelligencePanel pick={llmPick} sport={sport} match={match} />
               <LineMovement movement={llmPick.key_data?.line_movement} />
 
-              {/* Universal Market Edge Guardrail — shown when backend attached _market_edge */}
-              {llmPick._market_edge && (
-                <MarketEdgePanel
-                  edge={llmPick._market_edge}
-                  risks={llmPick.risks}
+              {/* Universal Moneyball Layer — subsumes the prior Market Edge Panel.
+                  Renders classification + EV math + fragility + overreaction +
+                  trap/undervalued signals + consolidated "why this can fail". */}
+              {(llmPick._moneyball || llmPick._market_edge) && (
+                <MoneyballPanel
+                  moneyball={llmPick._moneyball}
+                  marketEdge={llmPick._market_edge}
                   lang={lang}
-                  sport={sport}
                 />
               )}
 

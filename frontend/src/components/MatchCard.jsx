@@ -10,7 +10,7 @@ import { FreshnessBadge } from './FreshnessBadge';
 import { LivePulse } from './LivePulse';
 import { LineMovement } from './LineMovement';
 import { deriveIntelligence, DRIVER_META } from '@/lib/intelligence';
-import { MarketEdgeBadge } from './MarketEdgePanel';
+import { MoneyballBadge } from './MoneyballPanel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -111,8 +111,13 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
             <span className="mono font-mono-tabular">{t.match.oddsRange}: <span className="text-foreground">{m.recommendation?.odds_range || '—'}</span></span>
             <LineMovement movement={m.key_data?.line_movement} />
-            {m._market_edge && (
-              <MarketEdgeBadge edge={m._market_edge} lang={lang} testId={`pick-edge-badge-${m.match_id}`} />
+            {(m._moneyball || m._market_edge) && (
+              <MoneyballBadge
+                moneyball={m._moneyball}
+                marketEdge={m._market_edge}
+                lang={lang}
+                testId={`pick-moneyball-badge-${m.match_id}`}
+              />
             )}
           </div>
         </div>

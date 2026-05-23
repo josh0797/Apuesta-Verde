@@ -1,38 +1,30 @@
 [
   {
-    "content": "Crear `services/mlb_stats_api.py` — Cliente MLB Stats API oficial",
+    "content": "Crear `services/moneyball_layer.py` - clasificación + fragility + overreaction + traps + undervalued + EV/ROI",
     "status": "completed"
   },
   {
-    "content": "Crear `services/market_guardrail.py` — Guardrail UNIVERSAL con calibración por deporte",
+    "content": "Reemplazar `apply_market_guardrail` con `apply_moneyball_layer` en analyst_engine",
     "status": "completed"
   },
   {
-    "content": "Crear `services/mlb_intelligence.py` — Weighting MLB + score_mlb_matchup + sanitize_mlb_picks + MLB_INTELLIGENCE_RULES prompt",
+    "content": "Crear `components/MoneyballPanel.jsx` (reemplaza/absorbe MarketEdgePanel)",
     "status": "completed"
   },
   {
-    "content": "Wire analyst_engine: hydrate MLB context + sanitize_mlb_picks + apply_market_guardrail universal",
+    "content": "Actualizar MatchCard badge para mostrar classification Moneyball",
     "status": "completed"
   },
   {
-    "content": "Verificar calibración del guardrail con casos del CSV — PASS",
+    "content": "Wire MoneyballPanel en MatchDetailPage + deprecar MarketEdgePanel",
     "status": "completed"
   },
   {
-    "content": "Crear MarketEdgePanel + MLBMatchupPanel + MarketEdgeBadge inline",
+    "content": "Smoke test backend (6 picks → 3 traps rerouted, 3 kept) + screenshot UI — PASS",
     "status": "completed"
   },
   {
-    "content": "Wire panels en MatchDetailPage + badge inline en MatchCard + i18n keys",
-    "status": "completed"
-  },
-  {
-    "content": "Validar UI con pick run inyectado — PASS (badge +35.2%, panel completo visible, why-can-fail funcional)",
-    "status": "completed"
-  },
-  {
-    "content": "Testing agent backend + frontend para Phase 6 — Backend 100% (9/9), Frontend 100%, 0 bugs",
-    "status": "completed"
+    "content": "Testing agent Phase 7 - Moneyball Layer",
+    "status": "in_progress"
   }
 ]

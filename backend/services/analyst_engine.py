@@ -1192,13 +1192,16 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         from . import mlb_intelligence as _mli
         parsed = _mli.sanitize_mlb_picks(parsed)
 
-    # ── Universal Market Implied Probability Guardrail ──
-    # Compares estimated probability (from LLM confidence) against the
-    # implied probability of the odds; picks with edge below the per-bet-type
-    # threshold (3% simple, 5% live, 7% parlay) get re-routed to
-    # discarded_market with reason NO_BET_VALUE. Applies to ALL sports.
-    from . import market_guardrail as _mg
-    parsed = _mg.apply_market_guardrail(parsed, sport=sport)
+    # ── Universal Moneyball Betting Layer ──
+    # Subsumes the prior Market Implied Probability Guardrail. For every pick:
+    #   • computes implied/estimated/edge/EV/ROI (back-compat `_market_edge`)
+    #   • computes fragility, public overreaction, trap signals, undervalued
+    #     signals, and the final 9-state classification (VALUE_BET / STRONG_VALUE_BET
+    #     / UNDERVALUED_EDGE / LIVE_VALUE_WINDOW / FRAGILE_EDGE / WAIT_FOR_BETTER_LINE
+    #     / NO_BET_VALUE / MARKET_TRAP / PUBLIC_OVERREACTION)
+    #   • reroutes the no-value classes to summary.discarded_market.
+    from . import moneyball_layer as _mb
+    parsed = _mb.apply_moneyball_layer(parsed, sport=sport, stake=10.0)
 
     # Merge auto_discarded from pre-filter into the summary so the
     # categorization invariant len(picks)+lists == total_analyzed still holds
