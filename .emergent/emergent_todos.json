@@ -1,22 +1,18 @@
 [
   {
-    "content": "Validar `mkreiser/ESPN-Fantasy-Football-API` — NFL Fantasy, NO sirve",
+    "content": "Validar visualmente integración LiveReevalPanel en LivePage (screenshot)",
     "status": "completed"
   },
   {
-    "content": "Cerrar Phase 9: smoke test end-to-end Under Scan",
+    "content": "Validar flujo manual odds end-to-end (UI + endpoint)",
     "status": "completed"
   },
   {
-    "content": "Cerrar Phase 9: ProtectedMarketBadge en MatchCard con razones de Under",
-    "status": "completed"
-  },
-  {
-    "content": "Decisión usuario: fuente de live data (e1 ESPN gratis vs e2 Sofascore proxy)",
+    "content": "Disparar testing agent para Phase 10 (live reevaluation full flow)",
     "status": "in_progress"
   },
   {
-    "content": "Iniciar Live Re-Eval Engine cuando esté decidido el data source",
+    "content": "Actualizar plan.md y cerrar Phase 10",
     "status": "pending"
   }
 ]

@@ -10,6 +10,7 @@ import { LivePulse } from '@/components/LivePulse';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AnalysisProgressModal } from '@/components/AnalysisProgressModal';
 import { MatchCard } from '@/components/MatchCard';
+import { LiveReevalPanel } from '@/components/LiveReevalPanel';
 import { isBigFive } from '@/lib/competitions';
 
 function stat(side, key) {
@@ -273,29 +274,38 @@ export default function LivePage() {
             const h = live.home_stats || {};
             const a = live.away_stats || {};
             return (
-              <Link to={`/match/${m.match_id}`} key={m.match_id} className="card-glow rounded-xl border border-border/80 bg-card p-4 flex flex-col gap-2" data-testid={`live-row-${m.match_id}`}>
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <LivePulse minute={live.minute} label={t.match.livePill} />
-                    <span className="text-xs text-muted-foreground">{m.league}</span>
+              <div key={m.match_id} className="card-glow rounded-xl border border-border/80 bg-card p-4 flex flex-col gap-2" data-testid={`live-row-${m.match_id}`}>
+                {/* Top portion is clickable → match detail */}
+                <Link to={`/match/${m.match_id}`} className="flex flex-col gap-2 -m-4 p-4 mb-0 hover:bg-secondary/10 rounded-t-xl transition-colors">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <LivePulse minute={live.minute} label={t.match.livePill} />
+                      <span className="text-xs text-muted-foreground">{m.league}</span>
+                    </div>
+                    <div className="mono font-mono-tabular text-2xl font-semibold">
+                      <span>{live.score?.home ?? 0}</span>
+                      <span className="text-muted-foreground mx-1">–</span>
+                      <span>{live.score?.away ?? 0}</span>
+                    </div>
                   </div>
-                  <div className="mono font-mono-tabular text-2xl font-semibold">
-                    <span>{live.score?.home ?? 0}</span>
-                    <span className="text-muted-foreground mx-1">–</span>
-                    <span>{live.score?.away ?? 0}</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-base font-medium">{m.home_team?.name}</span>
+                    <span className="text-base font-medium">{m.away_team?.name}</span>
                   </div>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-base font-medium">{m.home_team?.name}</span>
-                  <span className="text-base font-medium">{m.away_team?.name}</span>
-                </div>
-                <div className="grid grid-cols-4 gap-2 text-[11px] text-muted-foreground mt-1">
-                  <StatCell label={t.live.possession} h={stat(h, 'Ball Possession')} a={stat(a, 'Ball Possession')} />
-                  <StatCell label={t.live.shots} h={stat(h, 'Total Shots')} a={stat(a, 'Total Shots')} />
-                  <StatCell label={t.live.shotsOn} h={stat(h, 'Shots on Goal')} a={stat(a, 'Shots on Goal')} />
-                  <StatCell label={t.live.xg} h={stat(h, 'expected_goals')} a={stat(a, 'expected_goals')} />
-                </div>
-              </Link>
+                  <div className="grid grid-cols-4 gap-2 text-[11px] text-muted-foreground mt-1">
+                    <StatCell label={t.live.possession} h={stat(h, 'Ball Possession')} a={stat(a, 'Ball Possession')} />
+                    <StatCell label={t.live.shots} h={stat(h, 'Total Shots')} a={stat(a, 'Total Shots')} />
+                    <StatCell label={t.live.shotsOn} h={stat(h, 'Shots on Goal')} a={stat(a, 'Shots on Goal')} />
+                    <StatCell label={t.live.xg} h={stat(h, 'expected_goals')} a={stat(a, 'expected_goals')} />
+                  </div>
+                </Link>
+                {/* Phase 10 — Live Re-Eval panel (football only). Lives
+                    OUTSIDE the Link so its buttons / inputs don't navigate
+                    away to match detail when clicked. */}
+                {isFootball && (
+                  <LiveReevalPanel match={m} lang={lang} sport={sport} />
+                )}
+              </div>
             );
           })}
         </div>

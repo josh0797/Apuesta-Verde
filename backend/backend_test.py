@@ -617,9 +617,143 @@ class Phase3Tester:
                     )
         
         # ═══════════════════════════════════════════════════════════════════════
-        # 11. AUTHZ TESTS (401 without token)
+        # 11. PHASE 10 - LIVE RE-EVALUATION TESTS
         # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[11] AUTHZ TESTS (401 without token)", "SECTION")
+        self.log("\n[11] PHASE 10 - LIVE RE-EVALUATION TESTS", "SECTION")
+        
+        # First, get a live match to test with
+        success, result = self.test(
+            "GET /api/matches/live (get test match)",
+            "GET", "matches/live?sport=football&refresh=true", 200,
+            timeout=30,
+            check_fn=lambda r: "items" in r
+        )
+        test_match_id = None
+        if success and result and result.get("items"):
+            # Use first live match
+            test_match_id = result["items"][0].get("match_id")
+            self.log(f"   Using live match ID: {test_match_id}")
+        else:
+            # If no live matches, use a synthetic match_id for validation tests
+            test_match_id = "999999"
+            self.log(f"   No live matches found, using synthetic ID for validation tests")
+        
+        # Test 1: POST /api/live/reevaluate without manual_odds (should ask for cuota)
+        if test_match_id:
+            success, result = self.test(
+                "POST /api/live/reevaluate (no manual_odds)",
+                "POST", "live/reevaluate", 200,
+                data={"match_id": test_match_id, "sport": "football", "refresh": False},
+                timeout=30,
+                check_fn=lambda r: (
+                    "result" in r and
+                    "live_state" in r["result"] and
+                    "recommended_action" in r["result"]
+                )
+            )
+            if success and result:
+                res = result["result"]
+                self.log(f"   Live state: {res.get('live_state')}")
+                self.log(f"   Action: {res.get('recommended_action')}")
+                self.log(f"   Reason: {res.get('reason', '')[:100]}")
+                # Check if it asks for manual odds when pre-match odds missing
+                if res.get("live_state") == "NO_LIVE_VALUE" and "cuota" in res.get("reason", "").lower():
+                    self.log(f"   ✓ Correctly asks for manual odds when pre-match missing")
+        
+        # Test 2: POST /api/live/reevaluate WITH manual_odds + manual_market
+        if test_match_id:
+            success, result = self.test(
+                "POST /api/live/reevaluate (with manual_odds)",
+                "POST", "live/reevaluate", 200,
+                data={
+                    "match_id": test_match_id,
+                    "sport": "football",
+                    "refresh": False,
+                    "manual_odds": 1.85,
+                    "manual_market": "Under 2.5"
+                },
+                timeout=30,
+                check_fn=lambda r: (
+                    "result" in r and
+                    "live_state" in r["result"] and
+                    "edge_pct" in r["result"] and
+                    "confidence" in r["result"] and
+                    "risk_level" in r["result"] and
+                    "manual_odds_used" in r["result"] and
+                    r["result"]["manual_odds_used"] == True
+                )
+            )
+            if success and result:
+                res = result["result"]
+                self.log(f"   Live state: {res.get('live_state')}")
+                self.log(f"   Action: {res.get('recommended_action')}")
+                self.log(f"   Edge: {res.get('edge_pct')}%")
+                self.log(f"   Confidence: {res.get('confidence')}/100")
+                self.log(f"   Risk: {res.get('risk_level')}")
+                self.log(f"   Manual odds used: {res.get('manual_odds_used')}")
+                self.log(f"   Market: {res.get('market')}")
+        
+        # Test 3: Validation - invalid odds (≤1.01)
+        if test_match_id:
+            self.test(
+                "POST /api/live/reevaluate (invalid odds ≤1.01 - 400)",
+                "POST", "live/reevaluate", 400,
+                data={
+                    "match_id": test_match_id,
+                    "sport": "football",
+                    "manual_odds": 1.0,
+                    "manual_market": "Under 2.5"
+                }
+            )
+            
+            self.test(
+                "POST /api/live/reevaluate (negative odds - 400)",
+                "POST", "live/reevaluate", 400,
+                data={
+                    "match_id": test_match_id,
+                    "sport": "football",
+                    "manual_odds": -1.5,
+                    "manual_market": "Under 2.5"
+                }
+            )
+        
+        # Test 4: Validation - manual_odds without manual_market (should fail)
+        if test_match_id:
+            self.test(
+                "POST /api/live/reevaluate (manual_odds without manual_market - 400)",
+                "POST", "live/reevaluate", 400,
+                data={
+                    "match_id": test_match_id,
+                    "sport": "football",
+                    "manual_odds": 1.85
+                }
+            )
+        
+        # Test 5: Non-existent match_id (should return 404)
+        self.test(
+            "POST /api/live/reevaluate (non-existent match - 404)",
+            "POST", "live/reevaluate", 404,
+            data={
+                "match_id": "nonexistent_match_99999999",
+                "sport": "football"
+            }
+        )
+        
+        # Test 6: Non-football sport (should return 400 - football only for Phase 10)
+        if test_match_id:
+            self.test(
+                "POST /api/live/reevaluate (basketball - 400)",
+                "POST", "live/reevaluate", 400,
+                data={
+                    "match_id": test_match_id,
+                    "sport": "basketball"
+                }
+            )
+
+        # ═══════════════════════════════════════════════════════════════════════
+        # 12. AUTHZ TESTS (401 without token)
+        # ═══════════════════════════════════════════════════════════════════════
+        self.log("\n[12] AUTHZ TESTS (401 without token)", "SECTION")
         
         # Temporarily clear token
         saved_token = self.token

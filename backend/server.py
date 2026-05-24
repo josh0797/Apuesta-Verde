@@ -172,6 +172,101 @@ async def matches_live(refresh: bool = False, sport: Optional[str] = None, user:
     return {"count": len(items), "sport": s, "items": _clean_list(items)}
 
 
+class LiveReevalRequest(BaseModel):
+    """Body for POST /api/live/reevaluate.
+
+    `manual_odds` + `manual_market` are the user-provided cuota route — when
+    set, the engine computes edge against the EXACT odds the user sees at
+    their bookie instead of the pre-match approximation. Both must be
+    supplied together; passing only one is rejected.
+    """
+    match_id: str | int
+    sport: Optional[str] = "football"
+    refresh: bool = True
+    manual_odds: Optional[float] = None
+    manual_market: Optional[str] = None
+    expected_goals_total: Optional[float] = None
+
+
+@api.post("/live/reevaluate")
+async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_current_user)):
+    """Phase 10 — refresh ESPN/API-Sports for this match, then run
+    `live_reevaluation.reevaluate_match()` and return the verdict.
+
+    The output is persisted in `db.live_reevaluations` (last 50 per user) so
+    we can later show a per-match history of how the recommendation evolved.
+    """
+    from services import live_reevaluation as lre
+
+    sport = _norm_sport(req.sport or "football")
+    if sport != "football":
+        # Phase 10 scope: football only. basket + MLB queued.
+        raise HTTPException(
+            status_code=400,
+            detail=f"Live re-evaluation is currently football-only. Got sport={sport}.",
+        )
+
+    if (req.manual_odds is not None) ^ (req.manual_market is not None):
+        raise HTTPException(
+            status_code=400,
+            detail="manual_odds and manual_market must be provided TOGETHER (or both omitted).",
+        )
+    if req.manual_odds is not None and req.manual_odds <= 1.01:
+        raise HTTPException(status_code=400, detail="manual_odds must be > 1.01.")
+
+    # Refresh the live doc (best-effort — if API-Sports / ESPN times out we
+    # fall back to whatever's cached in db.matches).
+    if req.refresh:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await ingestion.ingest_live(client, db, sport=sport)
+        except Exception as exc:
+            log.warning("live re-eval refresh failed: %s — using cached doc", exc)
+
+    # Resolve match_id flexibly (string OR int — historical inconsistency).
+    candidates = []
+    try:
+        candidates.append(int(req.match_id))
+    except (TypeError, ValueError):
+        pass
+    candidates.append(str(req.match_id))
+    match = await db.matches.find_one({"match_id": {"$in": candidates}})
+    if not match:
+        raise HTTPException(status_code=404, detail=f"match {req.match_id} not found")
+
+    xg = req.expected_goals_total or 2.5
+    result = lre.reevaluate_match(
+        match,
+        manual_odds=req.manual_odds,
+        manual_market=req.manual_market,
+        expected_goals_total=xg,
+    )
+    # Persist (with BSON-safe normalization) — keep latest 50 per user.
+    record = _normalize_keys_for_bson({
+        "id": f"lre_{user['id']}_{req.match_id}_{datetime.now(timezone.utc).timestamp():.0f}",
+        "user_id": user["id"],
+        "match_id": req.match_id,
+        "sport": sport,
+        "manual_odds": req.manual_odds,
+        "manual_market": req.manual_market,
+        "result": result,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    try:
+        await db.live_reevaluations.insert_one(record)
+        # Trim history per user.
+        total = await db.live_reevaluations.count_documents({"user_id": user["id"]})
+        if total > 50:
+            old = await db.live_reevaluations.find(
+                {"user_id": user["id"]}
+            ).sort("created_at", 1).limit(total - 50).to_list(length=total)
+            await db.live_reevaluations.delete_many({"_id": {"$in": [d["_id"] for d in old]}})
+    except Exception as exc:
+        log.warning("live reeval persist failed: %s", exc)
+
+    return {"result": result, "match_id": req.match_id, "sport": sport}
+
+
 @api.get("/matches/{match_id}")
 async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
     """Get full detail of a single match (3 layers)."""
