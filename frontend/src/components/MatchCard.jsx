@@ -12,6 +12,7 @@ import { LineMovement } from './LineMovement';
 import { deriveIntelligence, DRIVER_META } from '@/lib/intelligence';
 import { MoneyballBadge } from './MoneyballPanel';
 import { FootballQualityBadge } from './FootballQualityBadge';
+import { ProtectedMarketBadge } from './ProtectedMarketBadge';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -132,6 +133,17 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
         </div>
         <ConfidenceMeter score={m.recommendation?.confidence_score || 0} size="inline" testId={`pick-conf-${m.match_id}`} />
       </div>
+
+      {/* Phase 9 — Protected Alternative Market panel (Under 3.5/2.5 + DC
+          combos). Only renders when the match was rescued by the alt-scan
+          rather than coming from direct 1X2/DC analysis. */}
+      {m._alternative_market && m._alternative_market_payload && (
+        <ProtectedMarketBadge
+          payload={m._alternative_market_payload}
+          lang={lang}
+          testId={`protected-market-${m.match_id}`}
+        />
+      )}
 
       {/* Reasoning */}
       {m.reasoning && (

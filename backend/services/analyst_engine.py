@@ -62,7 +62,35 @@ TWO_STAGE_MIN_INPUT = int(os.environ.get("TWO_STAGE_MIN_INPUT", "3"))
 SPORT_RULES = {
     "football": """REGLAS DEL DEPORTE (Fútbol):
 - Mercados PERMITIDOS: 1X2, Doble Oportunidad, Under 2.5, Under 3.5, Hándicap Asiático conservador (-0.5/-1.0), Draw No Bet, DO 1er Tiempo.
-- Mercados PROHIBIDOS: Over 2.5/3.5 como principal, BTTS, Hándicap -1.5+, Goleador, Resultado exacto, Corners, Tarjetas.""",
+- Mercados PROHIBIDOS: Over 2.5/3.5 como principal, BTTS, Hándicap -1.5+, Goleador, Resultado exacto, Corners, Tarjetas.
+
+══════ PROTECTED ALTERNATIVE MARKET SCAN — NO NEGOCIABLE ══════
+ANTES de descartar un partido a `discarded_market` por mercado frágil, edge
+negativo o falta de valor en 1X2 / Doble Oportunidad / Draw No Bet, evalúa
+OBLIGATORIAMENTE Under 3.5 como mercado alternativo protegido. Especialmente
+cuando el H2H, ritmo táctico, xG, forma reciente o perfil defensivo indiquen
+partido cerrado.
+
+Under 3.5 NO es lo mismo que Under 2.5:
+- Under 2.5 = rentable pero frágil (un solo gol extra rompe el ticket).
+- Under 3.5 = protege escenarios 2-1 y goles tardíos; menor cuota, mejor
+  para perfiles de baja volatilidad.
+
+Reglas de selección:
+- Si el modelo espera 0-0 / 1-0 / 1-1 / 2-0 → evaluar ambos (Under 2.5 y 3.5).
+- Si el modelo espera posible 2-1 → recomendar Under 3.5 (NO Under 2.5).
+- Si gol tardío posible pero no goleada → Under 3.5.
+- Si caos / transiciones rápidas / defensas rotas → NO Under (ni 2.5 ni 3.5).
+
+Ejemplo del Knowledge Base (Alavés vs Rayo Vallecano):
+H2H reciente con marcadores 1-0, 2-0, 0-1, 0-2 → Under 3.5 fue lectura correcta
+mientras 1X2 no tenía edge real. El analista debe identificar este patrón
+ANTES de mandar el partido a discarded_market.
+
+Cuando recomiendes Under 3.5 / Under 2.5 como mercado alternativo:
+- Incluye en `risks` la nota "mercado alternativo protegido — direct market sin edge"
+- Asigna confidence 60-72 (no inflar a "Alta").
+- En `reasoning` cita H2H Under-rate, marcadores frecuentes y por qué Under 3.5 protege mejor que Under 2.5 si aplica.""",
     "basketball": """REGLAS DEL DEPORTE (NBA/Basket):
 - Mercados PERMITIDOS: Moneyline (favorito claro), Total Points UNDER (en línea cercana al promedio histórico), Spread conservador (-3.5/-4.5 máximo para favorito sólido).
 - Mercados PROHIBIDOS: Spreads >7 puntos como principal, Player Props con dependencia individual, Over Total Points como principal, parlay/combinadas.
@@ -1018,6 +1046,132 @@ def _apply_form_correction(parsed: dict, input_payload: list[dict]) -> dict:
     return parsed
 
 
+def _apply_protected_alternative_scan(parsed: dict, input_payload: list[dict]) -> int:
+    """Phase 9 — try to rescue Tier 1/2 matches discarded for "no direct edge".
+
+    For every match in summary.discarded_market that:
+      • belongs to a Tier 1/2 league (per _football_quality),
+      • is `protected_alternative_eligible`,
+      • does NOT already carry an alternative-market pick,
+    we invoke `under_market_scan.scan_protected_alternatives`. If it returns
+    a recommendation, we:
+      1. Build a new pick dict with `market` = "Under 3.5" / "Under 2.5" /
+         combo, plus `_alternative_market=True` and the reasons list.
+      2. Append it to parsed["picks"].
+      3. Remove the matching entry from summary.discarded_market.
+      4. Return the count of promoted picks (caller will re-run Moneyball).
+
+    The caller MUST re-run apply_moneyball_layer afterwards so the promoted
+    picks pass the universal edge-gate and either keep their VALUE_BET /
+    UNDERVALUED_EDGE classification or get re-routed if Moneyball rejects.
+    """
+    from . import under_market_scan as ums  # local import to avoid cycle
+
+    summary = parsed.setdefault("summary", {})
+    disc_mkt = list(summary.get("discarded_market") or [])
+    picks = parsed.setdefault("picks", [])
+
+    if not disc_mkt:
+        return 0
+
+    # Index the full input payload by match_id so we can look up the
+    # hydrated doc (which carries odds_snapshots + h2h_recent + tier).
+    by_id = {m.get("match_id"): m for m in input_payload}
+    existing_pick_ids = {p.get("match_id") for p in picks}
+
+    promoted: list[dict] = []
+    remaining_discarded: list[dict] = []
+
+    for entry in disc_mkt:
+        mid = entry.get("match_id")
+        m = by_id.get(mid) or {}
+        fq = m.get("_football_quality") or {}
+        # Only attempt rescue on Tier 1/2 with the eligibility flag set.
+        if not fq.get("protected_alternative_eligible"):
+            remaining_discarded.append(entry)
+            continue
+        if mid in existing_pick_ids:
+            # Already has a pick (e.g. from an earlier rescue) → don't dup.
+            remaining_discarded.append(entry)
+            continue
+        try:
+            alt = ums.scan_protected_alternatives(
+                m,
+                tactical_score=60,    # neutral default; future work: read from LLM
+                fragility_score=50,
+            )
+        except Exception as exc:
+            log.warning("scan_protected_alternatives crashed for %s: %s", mid, exc)
+            remaining_discarded.append(entry)
+            continue
+        if not alt or alt.get("state") not in (
+            "PROTECTED_MARKET_RECOMMENDED",
+            "UNDER35_WATCHLIST",
+            "UNDER25_WATCHLIST",
+        ):
+            remaining_discarded.append(entry)
+            continue
+
+        # Build a structured pick. The LLM-friendly fields (motivation,
+        # pressure) are kept neutral — Moneyball will recompute its own
+        # implied/edge/EV from the odds we provide here.
+        is_watchlist = alt["state"] in ("UNDER35_WATCHLIST", "UNDER25_WATCHLIST")
+        confidence = 65 if is_watchlist else 74  # watchlist gets lower CS
+
+        pick = {
+            "match_id": mid,
+            "match_label": entry.get("match_label") or m.get("match_label"),
+            "league": m.get("league"),
+            "league_id": m.get("league_id"),
+            "kickoff_iso": m.get("kickoff_iso"),
+            "motivation_state": "ALTERNATIVE_MARKET_SCAN",
+            "pressure_state": "NORMAL",
+            "recommendation": {
+                "market":         alt["market"],
+                "selection":      alt["selection"],
+                "odds":           alt["decimal_odds"],
+                "stake_units":    1 if is_watchlist else 2,
+                "confidence_score": confidence,
+                "reasoning_es": (
+                    f"Mercado directo sin valor en este partido. Se detectó valor "
+                    f"protegido en {alt['market']} con edge {alt['edge_pct']:+.1f}% "
+                    f"(profile score {alt['profile_score']}/100, "
+                    f"H2H Under-rate {int(alt['h2h_under_rate']*100)}% en "
+                    f"{alt['samples_h2h']} partidos)."
+                ),
+                "reasoning_en": (
+                    f"No value in direct markets. Detected protected value on "
+                    f"{alt['market']} with edge {alt['edge_pct']:+.1f}% "
+                    f"(profile score {alt['profile_score']}/100, "
+                    f"H2H under-rate {int(alt['h2h_under_rate']*100)}% over "
+                    f"{alt['samples_h2h']} matches)."
+                ),
+            },
+            "_alternative_market": True,
+            "_alternative_market_payload": alt,
+            "_football_quality": fq,
+        }
+        picks.append(pick)
+        promoted.append(pick)
+
+    summary["discarded_market"] = remaining_discarded
+    parsed["picks"] = picks
+    if promoted:
+        parsed.setdefault("_pipeline", {})["protected_alternative_scan"] = {
+            "promoted_count": len(promoted),
+            "promoted_ids": [p["match_id"] for p in promoted],
+            "states": {p["_alternative_market_payload"]["state"]: 1 for p in promoted},
+        }
+        log.info(
+            "protected_alternative_scan promoted %d match(es) from discarded_market: %s",
+            len(promoted),
+            [(p["match_label"], p["_alternative_market_payload"]["market"]) for p in promoted],
+        )
+    return len(promoted)
+
+
+
+
 
 
 async def analyze_matches(matches_payload: list[dict], sport: str = "football", db: Any = None) -> dict:
@@ -1202,6 +1356,25 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
     #   • reroutes the no-value classes to summary.discarded_market.
     from . import moneyball_layer as _mb
     parsed = _mb.apply_moneyball_layer(parsed, sport=sport, stake=10.0)
+
+    # ── Phase 9 — Protected Alternative Market Scan (football only) ──────
+    # For every Tier 1/2 match that the analyst dropped to discarded_market
+    # without finding value in 1X2 / DC / DNB, see if there's value hiding
+    # in a PROTECTED goal-line market instead (Under 3.5 / Under 2.5, or a
+    # DC + Under combo). If yes, promote it back into `picks` with a clear
+    # `_alternative_market` badge. This is what the Alavés vs Rayo case
+    # asked for — never drop a top fixture without trying Under-line value.
+    if sport == "football":
+        try:
+            promoted = _apply_protected_alternative_scan(parsed, matches_payload)
+            if promoted:
+                # Re-run Moneyball on the promoted picks ONLY, to make sure
+                # they pass the universal edge-gate too. We never recommend
+                # an Under "porque suena seguro" — every pick must have a
+                # measurable edge.
+                parsed = _mb.apply_moneyball_layer(parsed, sport=sport, stake=10.0)
+        except Exception as exc:
+            log.warning("protected alternative scan failed: %s", exc)
 
     # Merge auto_discarded from pre-filter into the summary so the
     # categorization invariant len(picks)+lists == total_analyzed still holds

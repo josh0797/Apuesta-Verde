@@ -354,6 +354,16 @@ def compute_football_selection_score(match: dict) -> dict:
         priority_reason = None
         skip_reason = None
 
+    # Phase 9 — flag whether this match can fall back to an alternative-market
+    # scan (Under 3.5/2.5 + DC combos) when the direct 1X2 has no edge. The
+    # flag is informational here; the actual scan + decision is made in
+    # services/under_market_scan.py and applied by the analyst engine.
+    pa_eligible = (
+        tier_num in (1, 2)
+        and bool(match.get("h2h_recent"))
+        and bool(market_l["score"] > 0)  # at least one bookmaker priced something
+    )
+
     return {
         "score": score,
         "state": state,
@@ -365,6 +375,7 @@ def compute_football_selection_score(match: dict) -> dict:
         "skip_reason": skip_reason,
         "is_exotic": tier_num == 4 or _is_exotic_name(league_name),
         "allowed_for_analysis": skip_reason is None,
+        "protected_alternative_eligible": pa_eligible,
     }
 
 
@@ -437,18 +448,32 @@ def filter_and_prioritize(
         # liquidity heuristic blocked (typically because deep-enrich hasn't
         # populated odds_snapshots yet). We still respect the exotic-name
         # hard-block (U17 / reserves / academy) and the Tier 4 default skip.
+        #
+        # Phase 9 — protected_alternative_eligible: even WITHOUT priority
+        # override, if a Tier 1/2 match has H2H + some odds, we let it
+        # through so under_market_scan can offer Under 3.5/2.5 as a
+        # fallback. Otherwise we'd kill the next "Alavés vs Rayo" before
+        # ever computing its Under profile.
+        rescuable = (
+            (priority_override and tier in (1, 2, 3))
+            or (fq.get("protected_alternative_eligible") and tier in (1, 2))
+        )
         if (
-            priority_override
+            rescuable
             and not fq.get("allowed_for_analysis")
-            and tier in (1, 2, 3)
             and not fq.get("is_exotic")
             and state in ("LOW_MARKET_SUPPORT", "LOW_DATA_QUALITY")
         ):
             fq["allowed_for_analysis"] = True
-            fq["state"] = "PRIORITY_OVERRIDE"
+            fq["state"] = (
+                "PRIORITY_OVERRIDE" if priority_override else "ALTERNATIVE_MARKET_SCAN"
+            )
             fq["priority_reason"] = (
                 "Override de prioridad: liga top sin odds completas todavía; "
                 "se analiza igual porque entra en el ladder Tier 1/2/3."
+                if priority_override else
+                "Elegible para escaneo de mercados protegidos (Under 3.5/2.5) "
+                "aunque el 1X2 carezca de liquidez."
             )
             fq["skip_reason"] = None
             enriched.append(m)

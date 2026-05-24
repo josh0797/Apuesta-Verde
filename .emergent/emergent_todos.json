@@ -1,22 +1,22 @@
 [
   {
-    "content": "Reforzar manejo de errores frontend: mostrar step + status + detail exacto en lugar de 'Error' genérico",
+    "content": "Validar `mkreiser/ESPN-Fantasy-Football-API` — NFL Fantasy, NO sirve",
     "status": "completed"
   },
   {
-    "content": "Bug 2: limpiar run y activeJobId inmediatamente al cambiar de sport (evita flicker)",
+    "content": "Cerrar Phase 9: smoke test end-to-end Under Scan",
     "status": "completed"
   },
   {
-    "content": "Bug 2: descartar respuestas obsoletas (si el sport cambió mientras la request estaba en flight)",
+    "content": "Cerrar Phase 9: ProtectedMarketBadge en MatchCard con razones de Under",
     "status": "completed"
   },
   {
-    "content": "Verificar LivePage / HistoryPage / MatchDetailPage también filtran por sport correctamente",
-    "status": "completed"
+    "content": "Decisión usuario: fuente de live data (e1 ESPN gratis vs e2 Sofascore proxy)",
+    "status": "in_progress"
   },
   {
-    "content": "Test end-to-end: cambiar football → basketball → baseball sin flicker",
-    "status": "completed"
+    "content": "Iniciar Live Re-Eval Engine cuando esté decidido el data source",
+    "status": "pending"
   }
 ]
