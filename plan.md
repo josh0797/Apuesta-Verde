@@ -74,6 +74,15 @@
   - ✅ Badge “Fuente: API-Sports/ESPN/Flashscore…” visible en LivePage y MatchCard.
   - ✅ Propagación `_provenance` match→picks desde backend.
 
+- ✅ **Objetivo P0 (Phase 12) — COMPLETADO:** Advanced Live Analytics (xG live + xT threat + Pressure + Trap Detector)
+  - ✅ Live analytics inspirada en repos (sin consumir event-stream):
+    - **kloppy** → normalización cross-provider de nombres de stats
+    - **socceraction** → proxy de **Expected Threat (xT)** vía `threat_index`
+    - **soccer_xg** → **xG live** por descomposición de calidad de tiro
+  - ✅ Regla “TRAMPA” implementada: **favorito ganando tarde + cuota muy baja + rival presionando = NO APOSTAR**
+  - ✅ UI renderiza un strip automático por partido live con métricas y veredicto
+  - ✅ Testing: `/app/test_reports/iteration_17.json` (backend 95% por timeouts; frontend 100%; 0 bugs críticos)
+
 - ✅ **Correcciones críticas (P1/P2) — COMPLETADAS**
   - ✅ P1 BSON: normalizador global de keys para Mongo (`documents must have only string keys, key was 1`).
   - ✅ P2 aislamiento de estado por deporte: evita “bleed” entre tabs (picks de fútbol en basket/baseball).
@@ -333,6 +342,48 @@ Implementado:
 
 ---
 
+### Phase 12 — Advanced Live Analytics (P0)
+✅ **Estado: COMPLETADO**
+
+**Objetivo:** Mejorar el análisis live profesional con:
+- tiros, tiros a puerta, córneres, ataques peligrosos
+- **xG live** (shot-quality) y **xT proxy** (amenaza)
+- presión reciente (proxy)
+- **detección de trampa**: “favorito ganando tarde + cuota muy baja + rival presionando = NO APOSTAR”
+
+Implementado:
+- ✅ Backend: `/app/backend/services/live_xg_proxy.py`
+  - normalización cross-provider tipo **kloppy** (`_STAT_ALIASES`)
+  - `threat_index` (proxy **socceraction xT**):
+    - `possession*0.4 + dangerous*0.9 + attacks*0.15 + corners*1.2 + SOT*1.5`
+  - `xg_live` (proxy **soccer_xg**):
+    - weights priors estilo StatsBomb (in-box on 0.32, in-box off 0.10, out-box on 0.08, out-box off 0.03, blocked 0.02)
+  - pressure proxy por minuto: `pressure_rate = (dangerous + 2*SOT + 0.5*corners)/minute`
+  - funciones públicas: `extract_side()`, `compute_pressure()`, `compute_team_pressure()`, `detect_late_lead_trap()`, `compute_live_analysis()`, `list_libraries_inspiration()`
+- ✅ Trap detector:
+  - triggers cuando: `minute>=70`, `score_diff!=0`, `leader_odds<=1.45`, `pressure_ratio>=1.4`, `threat_ratio>=1.2`
+  - devuelve payload con `reason_es`/`reason_en`
+- ✅ Integración en `services/live_reevaluation.py`:
+  - `_momentum_score` upgraded (usa threat_index + xg_live)
+  - trap-gate duro: si el usuario apuesta al líder → `TRAP_DETECTED` + `PASS` + `HIGH`
+  - trap-warning: si el usuario apuesta Over / no-líder → conserva resultado pero añade “⚠ TRAMPA”
+  - response incluye `live_analysis` + `trap`
+- ✅ `GET /api/matches/live`:
+  - adjunta `_live_analysis` por match (solo fútbol) para render automático
+- ✅ Ingestión live (fix crítico de datos):
+  - en `_enrich_football`, si `live_stats` llega sin `statistics` desde `/fixtures?live=all`, llama `fixture_statistics()` y rehidrata `home_stats/away_stats`
+- ✅ Frontend:
+  - `/app/frontend/src/components/LiveAnalysisStrip.jsx`
+  - Integrado en `LivePage.jsx` entre el bloque de score y `LiveReevalPanel`
+  - Veredictos: `TRAP_LATE_LEAD` (rojo), `LIVE_VALUE_PUSH` (verde), `BALANCED`, `INSUFFICIENT_DATA`
+  - Grid de 8 métricas: xG live, Amenaza (xT), Presión/min, Tiros (a puerta), Córneres, Ataques peligrosos, Posesión, Tiros en área
+  - Bloque de detalle trap con ratios
+- ✅ Testing:
+  - `/app/test_reports/iteration_17.json` → Backend 95% (timeouts red), Frontend 100%, 0 bugs críticos
+  - Verificación visual: LIVE_VALUE_PUSH renderizado con métricas reales (ej. xG 1.64 vs 0.84, threat 33 vs 22, presión 0.16 vs 0.06)
+
+---
+
 ## 3) Next Actions (inmediatas)
 
 ### P1 — Extender Live Re-Evaluation a Basketball y Baseball
@@ -372,5 +423,6 @@ Implementado:
 - ✅ **Phase 11 (P0):** LIVE solo muestra matches realmente activos; no stale 90’; freshness/archiving operativos.
 - ✅ **Phase P2A (P1):** Under model StatsBomb-inspired mejora estimación de probabilidad (Poisson + shrinkage) + UI transparente.
 - ✅ **Phase P2B (P2):** Provenance visible por match (badge) en Live + MatchCard.
+- ✅ **Phase 12 (P0):** Live analytics avanzada con xG live + xT proxy + presión + trap detector (“NO APOSTAR al favorito” cuando aplica).
 - ✅ **Bugs P1/P2 resueltos:** sin errores BSON por keys no string; sin contaminación cross-sport.
 - 🔁 **Operativo:** créditos LLM sostenibles para que análisis siga disponible.

@@ -1,26 +1,10 @@
 [
   {
-    "content": "Crear backend/services/live_xg_proxy.py (xG live + xT threat + pressure index)",
-    "status": "in_progress"
+    "content": "Phase 12 - Live Analytics avanzada (kloppy + socceraction + soccer_xg + trap detector): COMPLETO",
+    "status": "completed"
   },
   {
-    "content": "Implementar trap detector 'favorito gana tarde + cuota baja + rival presiona'",
-    "status": "pending"
-  },
-  {
-    "content": "Integrar nuevo módulo en live_reevaluation.py (momentum 2.0 + trap gate)",
-    "status": "pending"
-  },
-  {
-    "content": "Attach _live_analysis a cada match en /api/matches/live",
-    "status": "pending"
-  },
-  {
-    "content": "Frontend: componente LiveAnalysisStrip + integración en LivePage cards",
-    "status": "pending"
-  },
-  {
-    "content": "Test backend + frontend con testing agent",
-    "status": "pending"
+    "content": "plan.md actualizado",
+    "status": "completed"
   }
 ]
