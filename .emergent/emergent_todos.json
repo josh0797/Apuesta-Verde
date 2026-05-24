@@ -1,34 +1,18 @@
 [
   {
-    "content": "Live fix: módulo backend live_lifecycle (validation + sweeper)",
+    "content": "Live fix Phase 11 - COMPLETO con testing agent 100%",
     "status": "completed"
   },
   {
-    "content": "Live fix: endpoint /api/matches/live filtra stale + agrega _live_state/_freshness",
+    "content": "P2A StatsBomb Under model - COMPLETO end-to-end (backend + UI + smoke test)",
     "status": "completed"
   },
   {
-    "content": "Live fix: gate 409 en /api/live/reevaluate para matches no activos",
+    "content": "P2B Provenance UI - COMPLETO (badge en MatchCard + LivePage)",
     "status": "completed"
   },
   {
-    "content": "Live fix: frontend lib/liveValidation.js + componentes LiveStateBadges",
+    "content": "plan.md actualizado cerrando Phase 11 + P2A + P2B",
     "status": "completed"
-  },
-  {
-    "content": "Live fix: LivePage usa badges + heartbeat ticker + archived UI + suprime panel en GARBAGE_TIME",
-    "status": "completed"
-  },
-  {
-    "content": "Live fix: LiveReevalPanel maneja error 409 con mensaje legible",
-    "status": "completed"
-  },
-  {
-    "content": "Test backend con testing_agent (todos los nuevos endpoints)",
-    "status": "in_progress"
-  },
-  {
-    "content": "Reanudar P2A/P2B - integrar ProvenanceBadge en MatchCard (ya hecho) y añadir badge StatsBomb metadata",
-    "status": "pending"
   }
 ]

@@ -8,6 +8,7 @@
 - ✅ **Multi-deporte COMPLETO (P0)**: Fútbol + NBA/Basket + MLB/Béisbol con selector global, prompts LLM por deporte, y persistencia/consulta por `sport`.
 - ✅ **UX mejorada para análisis lento (P2)**: `analysis/run` soporta ejecución en background con progreso persistido y modal de progreso en UI.
 - ✅ **Lenguaje neutro por deporte (P2)**: labels/copy se ajustan automáticamente (partidos/juegos; goles/puntos/carreras).
+
 - ✅ **Phase D — Decision Intelligence Terminal (COMPLETADO)**: evolución de UI/UX desde “predicciones” a **plataforma explicable de inteligencia contextual**:
   - explica **por qué existe** el pick
   - explica **por qué** la confianza es alta/baja
@@ -58,6 +59,20 @@
   - ✅ Endpoint `POST /api/live/reevaluate` calcula edge live usando score/minuto/momentum (ESPN/Flashscore) y odds manuales.
   - ✅ **Manual odds input** en UI (LiveReevalPanel) para calcular edge real cuando API-Sports no ofrece live odds.
   - ✅ Testing completo: `/app/test_reports/iteration_15.json`.
+
+- ✅ **Objetivo P0 (Phase 11) — COMPLETADO:** Live Match Lifecycle Fix (anti-stale live)
+  - ✅ LivePage muestra **solo** partidos realmente activos, con estado/minuto real, freshness y expiración automática.
+  - ✅ Se elimina el bug crítico de cards “90’” stale / partidos terminados.
+  - ✅ Testing completo: `/app/test_reports/iteration_16.json`.
+
+- ✅ **Objetivo P1 (Phase P2A) — COMPLETADO:** StatsBomb-Inspired Under 3.5/2.5 Model
+  - ✅ Modelo Poisson (λ_home/λ_away/λ_total) + shrinkage bayesiano + P(Under) por CDF Poisson.
+  - ✅ Integración directa en Phase 9 (Protected Alternative Market Scan).
+  - ✅ UI muestra λ_total, P(Under), confidence y explicaciones.
+
+- ✅ **Objetivo P2 (Phase P2B) — COMPLETADO:** Provenance visible por match (UI)
+  - ✅ Badge “Fuente: API-Sports/ESPN/Flashscore…” visible en LivePage y MatchCard.
+  - ✅ Propagación `_provenance` match→picks desde backend.
 
 - ✅ **Correcciones críticas (P1/P2) — COMPLETADAS**
   - ✅ P1 BSON: normalizador global de keys para Mongo (`documents must have only string keys, key was 1`).
@@ -210,27 +225,6 @@ Frontend:
 #### 4.2 Phase D — Decision Intelligence Terminal
 ✅ **Estado: DONE**
 
-**Objetivo:** transformar la app de “dashboard de predicciones” a **terminal profesional de decisión** con narrativa explicable y señales contextuales.
-
-Cambios implementados:
-1) **Design system / visual hierarchy**
-- ✅ `design_guidelines.md` actualizado (terminal financiero sobre base dark existente).
-- ✅ `index.css` extendido con tokens semánticos + utilidades.
-
-2) **Derivation layer (explicabilidad sin coste de tokens)**
-- ✅ Nuevo `/app/frontend/src/lib/intelligence.js`.
-
-3) **Component upgrades (preservan exports + data-testid)**
-- ✅ `ConfidenceMeter → ConfidenceIntelligenceCard`
-- ✅ `MotivationBadge → MotivationContextBlock`
-- ✅ `PicksFilterBar → FilterIntelligenceBar`
-- ✅ `EmptyStateNoValue → EmptyStateCoaching`
-- ✅ `MatchIntelligencePanel` (nuevo)
-
-4) **Wiring en páginas**
-- ✅ `DashboardPage`: presets + filtros + secciones descartadas visibles + match cards con inteligencia.
-- ✅ `MatchDetailPage`: panel de inteligencia completo + acciones de tracking (Gané/Perdí/Push) basadas en `sport`.
-
 #### 4.3 P1 — Custom Saved Filter Views (Backend/MongoDB)
 ✅ **Estado: DONE (feature 100% operativa y testeada)**
 
@@ -239,128 +233,103 @@ Cambios implementados:
 ### Phase 5 — Multi-sport Pending Picks + Big Five Live Filter + Explicit Team Names (P0)
 ✅ **Estado: COMPLETADO**
 
-#### 5.1 Nombres explícitos en `selection` (LLM + Guard Rails)
-✅ Hecho (prompt + `_apply_explicit_selection()` + HistoryPage humanizada)
-
-#### 5.2 Pending Picks Flow (cross-sport)
-✅ Hecho (Dashboard: “Marcar para seguir” + History settle inline)
-
-#### 5.3 LivePage Big Five Filter (fútbol)
-✅ Hecho (id-aware por `league_id` + toggle “Solo 5 grandes”)
-
-#### 5.4 Testing
-✅ Reporte: `/app/test_reports/iteration_11.json` (Backend 100%, Frontend 95%, 0 críticos)
-
 ---
 
 ### Phase 6 — MLB Intelligence Engine + Universal Market Guardrail (P0/P1)
 ✅ **Estado: COMPLETADO (Fase 1)**
-
-**Objetivo:**
-- Dejar de analizar MLB como fútbol (matchup/pitchers/bullpen/ofensiva/mercado) + disciplina universal de EV.
-
-#### 6.1 Data Layer MLB (MLB Stats API oficial)
-✅ **Hecho**
-- Backend: `/app/backend/services/mlb_stats_api.py`
-  - Cliente `statsapi.mlb.com` (gratis, sin key)
-  - `schedule` + `probablePitcher`
-  - pitcher season stats: **ERA/WHIP/K/BB/HR/IP + K/BB + HR/9 + IP/appearance + hand**
-  - team batting form: OPS/OBP/SLG, R/G, H/G, BB%, K%
-  - bullpen 3-day fatigue (heurístico por juegos recientes + extra innings)
-  - cache Mongo (30m–6h), best-effort (nunca rompe)
-
-#### 6.2 MLB Intelligence Engine (solo baseball)
-✅ **Hecho**
-- Backend: `/app/backend/services/mlb_intelligence.py`
-  - **Weighting MLB** + sanitización de mercados inválidos
-
-#### 6.3 Universal Market Implied Probability Guardrail (TODOS los deportes)
-✅ **Hecho**
-- Backend: `/app/backend/services/market_guardrail.py`
-
-#### 6.4 Wiring en Analyst Engine
-✅ **Hecho**
-
-#### 6.5 UI Improvements
-✅ **Hecho**
-
-#### 6.6 Testing
-✅ **Hecho**
-- Reporte: `/app/test_reports/iteration_12.json`
 
 ---
 
 ### Phase 8 — Football Search & Selection Engine (P0)
 ✅ **Estado: COMPLETADO**
 
-**Objetivo:** dejar de analizar ligas exóticas y de baja liquidez y priorizar Tier 1/2/3 con discovery dinámico y scoring visible.
-
-Implementado:
-1) **Sistema de tiers y allowlist (league_id-first)**
-   - ✅ `/app/backend/services/football_competitions.py`: allowlist Tier 1/2/3.
-   - ✅ Defense-in-depth: substring fallback ya NO promueve a Tier 1 si hay hints exóticos.
-
-2) **Scoring (0–100) + estados**
-   - ✅ `/app/backend/services/football_quality.py`.
-
-3) **Dynamic Match Discovery (waterfall Tier 1→2→3)**
-   - ✅ `filter_and_prioritize(matches, target_count=..., enable_tier_4=False)`.
-
-4) **Pre-LLM filtering**
-   - ✅ `server.py`: filtro y cascade aplicado ANTES del LLM.
-
-5) **Propagación de `_football_quality` a picks**
-   - ✅ `server.py`: re-atacha `_football_quality` a cada pick y a `summary.*`.
-
-6) **UI (badges + sección skipped)**
-   - ✅ `FootballQualityBadge.jsx` + wiring en Dashboard/MatchCard.
-
-7) **Testing & verificación visual**
-   - ✅ `/app/test_reports/iteration_14.json`.
-
 ---
 
 ### Phase 8.1 — Active Priority Fixture Discovery (P0)
 ✅ **Estado: COMPLETADO**
-
-**Objetivo:** “descubrir” fixtures de ligas Tier 1/2/3 activamente (y primero) para evitar que el motor analice basura por disponibilidad.
-
-Implementado:
-- ✅ `discover_priority_fixtures()` en `data_ingestion.py`.
-- ✅ Hard gate pre-LLM para U17/reservas/exóticas.
-- ✅ Prioriza Tier 1/2 antes del resto.
 
 ---
 
 ### Phase 9 — Protected Alternative Market Scan (P0)
 ✅ **Estado: COMPLETADO**
 
-**Objetivo:** si el mercado directo no tiene edge suficiente (o hay baja calidad), buscar alternativas “protegidas” con menor varianza.
-
-Implementado:
-- ✅ `/app/backend/services/under_market_scan.py`.
-- ✅ Integración en `analyst_engine.py` (fallback cuando no hay edge directo).
-- ✅ UI: `ProtectedMarketBadge.jsx`.
-- ✅ Picks enriquecidos con `_alternative_market`.
-
 ---
 
 ### Phase 10 — Live & Alternative Market Re-Evaluation Engine (P0/P1)
 ✅ **Estado: COMPLETADO**
 
-**Objetivo:** reevaluación live usando score/minuto/momentum (ESPN/Flashscore) y opción de **cuota manual** para calcular edge real.
+---
+
+### Phase 11 — Live Match Lifecycle Fix (P0)
+✅ **Estado: COMPLETADO**
+
+**Objetivo:** LIVE debe mostrar solo partidos realmente activos, con frescura y expiración automática; sin “90’” zombie.
 
 Implementado:
-- ✅ Backend:
-  - `/app/backend/services/live_reevaluation.py`
-  - `POST /api/live/reevaluate` (football-only por ahora)
-  - Validaciones: odds inválidas → 400, match inexistente → 404, manual_market requerido con manual_odds.
+- ✅ Backend: `/app/backend/services/live_lifecycle.py`
+  - `is_match_live()` / `is_match_expired()`
+  - `compute_live_state()` (LIVE_ACTIVE/LIVE_LATE/GARBAGE_TIME/HT/LIVE_STALE)
+  - `compute_freshness()` (0–100 → DATOS_FRESCOS/RETRASADOS/LIVE_STALE)
+  - `sweep_expired_live()` (auto-expira y archiva a `archived_live_matches`)
+- ✅ Backend: `GET /api/matches/live`
+  - filtro estricto + `_live_state` + `_freshness` por match
+  - `archived_count` + `cache_ttl_sec`
+- ✅ Backend: `POST /api/live/reevaluate`
+  - devuelve **409** si el match no está activo (payload con `live_state`)
 - ✅ Frontend:
-  - `LiveReevalPanel.jsx` (toggle cuota manual + input odds + result panel)
-  - Integrado en `LivePage.jsx` **fuera del `<Link>`** para evitar navegación al interactuar.
-- ✅ Testing:
-  - Reporte: `/app/test_reports/iteration_15.json`
-  - Verificación visual (screenshot_tool) + flujo manual completo.
+  - `/app/frontend/src/lib/liveValidation.js` (mirror + TTL por deporte)
+  - `LiveStateBadge` + `LiveFreshnessBadge`
+  - LivePage:
+    - primer load rápido con `refresh=false`, polling con TTL por deporte
+    - heartbeat ticker 30s para ocultar stale sin esperar refetch
+    - LiveReevalPanel solo en LIVE_ACTIVE/LIVE_LATE/HT
+    - warning para GARBAGE_TIME
+    - sección colapsable “Live archivados”
+- ✅ Logging requerido:
+  - `[LIVE_MATCH_VALIDATION]` / `[LIVE_MATCH_EXPIRED]` / `[LIVE_TICKER_EXPIRY]`
+- ✅ Testing agent: `/app/test_reports/iteration_16.json` (backend 100% / frontend 100%)
+
+---
+
+### Phase P2A — StatsBomb-Inspired Under 3.5/2.5 Model (P1)
+✅ **Estado: COMPLETADO**
+
+**Objetivo:** mejorar Under 3.5/2.5 usando una librería de features “StatsBomb-inspired” pero calculada con datos de **últimos 10 partidos / temporada en curso** vía API-Sports.
+
+Implementado:
+- ✅ Backend: `/app/backend/services/statsbomb_features.py`
+  - modelo Poisson (λ_home/λ_away/λ_total)
+  - shrinkage bayesiano hacia prior neutral (1.35)
+  - P(Under 2.5/3.5) vía CDF Poisson
+  - confidence 0–100 + explanations
+- ✅ Backend: `/app/backend/services/api_football.py`
+  - `fixtures_last_n(team_id, n=10, season=..., cache 12h)`
+- ✅ Backend: `/app/backend/services/normalizer.py`
+  - `normalize_recent_fixtures()` (distribución de goles + under hit rates)
+  - `season_priors` (clean_sheet_rate / failed_to_score_rate)
+- ✅ Backend: `/app/backend/services/data_ingestion.py`
+  - `_enrich_football` hidrata `recent_fixtures` para home/away cuando deep=true
+- ✅ Backend: `/app/backend/services/under_market_scan.py`
+  - usa Poisson como `estimated_probability_under{25,35}`
+  - añade `xg_model` subscore ponderado por confidence
+  - retorna `statsbomb_features` + `estimated_probability_source=statsbomb_poisson`
+- ✅ Frontend: `/app/frontend/src/components/ProtectedMarketBadge.jsx`
+  - pill compacto con λ_total y P(Under)
+  - bloque expandido con λ, probabilidades, confidence y explanations
+
+---
+
+### Phase P2B — Provenance UI (P2)
+✅ **Estado: COMPLETADO**
+
+**Objetivo:** hacer visible la fuente dominante por match (API-Sports vs ESPN/Flashscore) en UI.
+
+Implementado:
+- ✅ Backend: `/app/backend/services/provenance.py` (ya existía)
+- ✅ Backend: `server.py` propaga `_provenance` match→picks
+- ✅ Frontend:
+  - `ProvenanceBadge` integrado en `MatchCard.jsx`
+  - `ProvenanceBadge` integrado en `LivePage.jsx`
 
 ---
 
@@ -380,9 +349,6 @@ Implementado:
 ### P2 — Stats segmentados por `sport`
 - ROI/Winrate por deporte y por mercado en `/api/stats/dashboard` + UI.
 
-### P2 — Provenance visible
-- Indicar fuente dominante por match: API-Sports vs ESPN/Flashscore.
-
 ### P2 — LLM prompt extension (opcional)
 - Extender output para devolver nativamente:
   - `match_state`
@@ -400,28 +366,11 @@ Implementado:
 - ✅ **UX análisis largo:** background jobs + progreso persistido + modal.
 - ✅ **Decision Intelligence Terminal:** UI explica WHY/HOW con drivers, fragilidad/volatilidad, mercados evitados, motivación contextual y panel de inteligencia en detalle.
 - ✅ **Saved Filter Views (P1):** persistencia en MongoDB (10 max con evicción) + UX + testing end-to-end.
-- ✅ **Phase 5 (P0):**
-  - `recommendation.selection` legible y específica.
-  - usuario puede guardar picks como pending y liquidarlos después.
-  - LivePage (fútbol) consistente con Big Five reales (league_id) + toggle.
-- ✅ **Phase 6 (P0/P1) — Criterios cumplidos (Fase 1):**
-  - MLB deja de aceptar mercados inválidos.
-  - Guardrail universal evita picks sin edge real y lo muestra en UI.
-  - Testing agent pasa (backend + frontend) sin regresiones.
-- ✅ **Phase 8 + 8.1 (P0) — Criterios cumplidos:**
-  - Ligas exóticas/reserves/youth ya no se analizan por defecto.
-  - Discovery dinámico Tier 1→2→3 con scoring visible.
-  - `discover_priority_fixtures()` prioriza Tier 1/2 antes de LLM.
-  - `_football_quality` y `skipped_low_relevance` expuestos al frontend.
-  - Badges UI + sección skipped operativas en ES/EN.
-- ✅ **Phase 9 (P0) — Criterios cumplidos:**
-  - Fallback protegido (Under 3.5/2.5 y/o DC) cuando el directo no da edge.
-  - Badge UI + metadata `_alternative_market`.
-- ✅ **Phase 10 (P0/P1) — Criterios cumplidos:**
-  - Reevaluación live funcional con endpoint dedicado.
-  - Entrada de cuota manual en UI y edge live calculado.
-  - Testing agent pasa (ver `/app/test_reports/iteration_15.json`).
-- ✅ **Bugs P1/P2 resueltos:**
-  - Sin errores BSON por keys no string.
-  - Sin contaminación de estado entre deportes/tabs.
+- ✅ **Phase 8 + 8.1 (P0):** Tiering + hard gate + discovery dinámico funcionando.
+- ✅ **Phase 9 (P0):** Fallback protegido Under 3.5/2.5 + badge + metadata.
+- ✅ **Phase 10 (P0/P1):** Re-eval live con odds manual y edge calculado.
+- ✅ **Phase 11 (P0):** LIVE solo muestra matches realmente activos; no stale 90’; freshness/archiving operativos.
+- ✅ **Phase P2A (P1):** Under model StatsBomb-inspired mejora estimación de probabilidad (Poisson + shrinkage) + UI transparente.
+- ✅ **Phase P2B (P2):** Provenance visible por match (badge) en Live + MatchCard.
+- ✅ **Bugs P1/P2 resueltos:** sin errores BSON por keys no string; sin contaminación cross-sport.
 - 🔁 **Operativo:** créditos LLM sostenibles para que análisis siga disponible.

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Shield, Lightbulb, TrendingDown, BarChart3 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Shield, Lightbulb, TrendingDown, BarChart3, Sparkles } from 'lucide-react';
 
 /**
  * ProtectedMarketBadge — surfaces the Phase 9 Alternative Market Scan result
@@ -98,6 +98,19 @@ export function ProtectedMarketBadge({ payload, lang = 'es', testId = 'protected
             testId={`${testId}-h2h`}
           />
         )}
+        {/* P2A — StatsBomb-inspired model pill (only when source is the
+            Poisson model, not the H2H Bayesian fallback). */}
+        {payload.statsbomb_features && payload.estimated_probability_source === 'statsbomb_poisson' && (
+          <Pill
+            label={`xG λ=${payload.statsbomb_features.lambda_total?.toFixed?.(2)} · P(U${
+              (payload.market || '').includes('3.5') ? '3.5' : '2.5'
+            })=${Math.round(((payload.market || '').includes('3.5')
+              ? payload.statsbomb_features.p_under_3_5
+              : payload.statsbomb_features.p_under_2_5) * 100)}%`}
+            accent="cyan"
+            testId={`${testId}-xg`}
+          />
+        )}
       </div>
 
       {/* Lead-in sentence — always visible (this is the "aha" moment) */}
@@ -130,6 +143,51 @@ export function ProtectedMarketBadge({ payload, lang = 'es', testId = 'protected
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* P2A — StatsBomb-inspired Poisson model block. Only shown
+              when the protected scan used the model as the estimated
+              probability source (instead of the H2H Bayesian shrink). */}
+          {payload.statsbomb_features && payload.estimated_probability_source === 'statsbomb_poisson' && (
+            <div className="rounded-md border border-cyan-500/30 bg-cyan-500/5 px-2.5 py-2 space-y-1" data-testid={`${testId}-xg-block`}>
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase opacity-90">
+                <Sparkles className="h-3 w-3 text-cyan-300" />
+                {lang === 'en' ? 'StatsBomb-inspired model' : 'Modelo StatsBomb-inspired'}
+              </div>
+              <div className="text-xs space-y-0.5 font-mono-tabular">
+                <div>
+                  λ_total = <span className="text-cyan-200 font-semibold">
+                    {payload.statsbomb_features.lambda_total?.toFixed?.(2)}
+                  </span>
+                  {' '}({payload.statsbomb_features.lambda_home?.toFixed?.(2)}
+                  {' + '}
+                  {payload.statsbomb_features.lambda_away?.toFixed?.(2)})
+                </div>
+                <div>
+                  P(Under 2.5) = <span className="text-cyan-200">
+                    {(payload.statsbomb_features.p_under_2_5 * 100).toFixed(1)}%
+                  </span>
+                  {' · '}
+                  P(Under 3.5) = <span className="text-cyan-200">
+                    {(payload.statsbomb_features.p_under_3_5 * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="opacity-80">
+                  {lang === 'en' ? 'Confidence' : 'Confianza'}:{' '}
+                  {payload.statsbomb_features.confidence}/100 · n=
+                  {(payload.statsbomb_features.sample_size?.home || 0)
+                   + (payload.statsbomb_features.sample_size?.away || 0)}{' '}
+                  {lang === 'en' ? 'recent fixtures' : 'partidos recientes'}
+                </div>
+              </div>
+              {(payload.statsbomb_features.explanations || []).length > 0 && (
+                <ul className="text-[11px] space-y-0.5 list-disc list-inside opacity-90 mt-1">
+                  {payload.statsbomb_features.explanations.slice(0, 4).map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
