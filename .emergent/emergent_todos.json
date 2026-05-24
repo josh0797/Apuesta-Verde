@@ -1,18 +1,26 @@
 [
   {
-    "content": "Live fix Phase 11 - COMPLETO con testing agent 100%",
-    "status": "completed"
+    "content": "Crear backend/services/live_xg_proxy.py (xG live + xT threat + pressure index)",
+    "status": "in_progress"
   },
   {
-    "content": "P2A StatsBomb Under model - COMPLETO end-to-end (backend + UI + smoke test)",
-    "status": "completed"
+    "content": "Implementar trap detector 'favorito gana tarde + cuota baja + rival presiona'",
+    "status": "pending"
   },
   {
-    "content": "P2B Provenance UI - COMPLETO (badge en MatchCard + LivePage)",
-    "status": "completed"
+    "content": "Integrar nuevo módulo en live_reevaluation.py (momentum 2.0 + trap gate)",
+    "status": "pending"
   },
   {
-    "content": "plan.md actualizado cerrando Phase 11 + P2A + P2B",
-    "status": "completed"
+    "content": "Attach _live_analysis a cada match en /api/matches/live",
+    "status": "pending"
+  },
+  {
+    "content": "Frontend: componente LiveAnalysisStrip + integración en LivePage cards",
+    "status": "pending"
+  },
+  {
+    "content": "Test backend + frontend con testing agent",
+    "status": "pending"
   }
 ]

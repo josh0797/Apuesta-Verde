@@ -751,6 +751,182 @@ class Phase3Tester:
             )
 
         # ═══════════════════════════════════════════════════════════════════════
+        # 11B. PHASE 3 - LIVE ANALYSIS ENHANCEMENT (xG, Threat, Pressure, Trap)
+        # ═══════════════════════════════════════════════════════════════════════
+        self.log("\n[11B] PHASE 3 - LIVE ANALYSIS ENHANCEMENT TESTS", "SECTION")
+        
+        # Test 1: GET /api/matches/live?sport=football should return _live_analysis field
+        success, result = self.test(
+            "GET /api/matches/live?sport=football (_live_analysis field)",
+            "GET", "matches/live?sport=football&refresh=true", 200,
+            timeout=30,
+            check_fn=lambda r: "items" in r
+        )
+        
+        live_match_with_analysis = None
+        if success and result and result.get("items"):
+            items = result["items"]
+            self.log(f"   Live football matches: {len(items)}")
+            
+            # Check if any match has _live_analysis
+            for match in items:
+                if "_live_analysis" in match and match["_live_analysis"]:
+                    live_match_with_analysis = match
+                    analysis = match["_live_analysis"]
+                    self.log(f"   ✓ Found match with _live_analysis: {match.get('match_id')}")
+                    
+                    # Verify structure
+                    required_fields = ["minute", "score", "home", "away", "deltas", "verdict", "_source"]
+                    missing = [f for f in required_fields if f not in analysis]
+                    if missing:
+                        self.log(f"   ⚠ Missing fields in _live_analysis: {missing}", "WARN")
+                    else:
+                        self.log(f"   ✓ _live_analysis structure complete")
+                    
+                    # Check home/away stats
+                    home = analysis.get("home", {})
+                    away = analysis.get("away", {})
+                    stat_fields = ["xg_live", "threat_index", "pressure_rate", "shots", "shots_on_target", 
+                                  "shots_in_box", "possession", "corners", "dangerous", "attacks"]
+                    home_missing = [f for f in stat_fields if f not in home]
+                    away_missing = [f for f in stat_fields if f not in away]
+                    
+                    if home_missing or away_missing:
+                        self.log(f"   ⚠ Missing stats - home: {home_missing}, away: {away_missing}", "WARN")
+                    else:
+                        self.log(f"   ✓ Per-side stats complete")
+                        self.log(f"   Home xG: {home.get('xg_live')}, Threat: {home.get('threat_index')}, Pressure: {home.get('pressure_rate')}")
+                        self.log(f"   Away xG: {away.get('xg_live')}, Threat: {away.get('threat_index')}, Pressure: {away.get('pressure_rate')}")
+                    
+                    # Check verdict
+                    verdict = analysis.get("verdict", {})
+                    if "label" in verdict and "reason_es" in verdict:
+                        self.log(f"   ✓ Verdict: {verdict.get('label')}")
+                        self.log(f"   Reason (ES): {verdict.get('reason_es', '')[:80]}")
+                    else:
+                        self.log(f"   ⚠ Verdict incomplete", "WARN")
+                    
+                    # Check trap field
+                    trap = analysis.get("trap")
+                    if trap and trap.get("triggered"):
+                        self.log(f"   ⚠ TRAP DETECTED!")
+                        self.log(f"   Leader: {trap.get('leader_side')}, Odds: {trap.get('decimal_odds_for_leader')}")
+                        self.log(f"   Pressure ratio: {trap.get('pressure_ratio')}×, Threat ratio: {trap.get('threat_ratio')}×")
+                    else:
+                        self.log(f"   No trap detected (normal)")
+                    
+                    break
+            
+            if not live_match_with_analysis:
+                self.log(f"   ⚠ No live matches with _live_analysis found (may be no stats yet)", "WARN")
+        else:
+            self.log(f"   ⚠ No live football matches available for testing", "WARN")
+        
+        # Test 2: Verify xG computation (should be > 0 when shots > 0)
+        if live_match_with_analysis:
+            analysis = live_match_with_analysis["_live_analysis"]
+            home = analysis.get("home", {})
+            away = analysis.get("away", {})
+            
+            if home.get("shots", 0) > 0 and home.get("xg_live", 0) == 0:
+                self.log(f"   ⚠ Home has {home['shots']} shots but xg_live=0", "WARN")
+            elif home.get("shots", 0) > 0:
+                self.log(f"   ✓ Home xG computed: {home['xg_live']} from {home['shots']} shots")
+            
+            if away.get("shots", 0) > 0 and away.get("xg_live", 0) == 0:
+                self.log(f"   ⚠ Away has {away['shots']} shots but xg_live=0", "WARN")
+            elif away.get("shots", 0) > 0:
+                self.log(f"   ✓ Away xG computed: {away['xg_live']} from {away['shots']} shots")
+        
+        # Test 3: Verify threat_index computation (should be > 0 when stats present)
+        if live_match_with_analysis:
+            analysis = live_match_with_analysis["_live_analysis"]
+            home = analysis.get("home", {})
+            away = analysis.get("away", {})
+            
+            home_has_stats = any([home.get("possession", 0) > 0, home.get("dangerous", 0) > 0, 
+                                 home.get("attacks", 0) > 0, home.get("corners", 0) > 0, 
+                                 home.get("shots_on_target", 0) > 0])
+            away_has_stats = any([away.get("possession", 0) > 0, away.get("dangerous", 0) > 0, 
+                                 away.get("attacks", 0) > 0, away.get("corners", 0) > 0, 
+                                 away.get("shots_on_target", 0) > 0])
+            
+            if home_has_stats and home.get("threat_index", 0) == 0:
+                self.log(f"   ⚠ Home has stats but threat_index=0", "WARN")
+            elif home_has_stats:
+                self.log(f"   ✓ Home threat_index computed: {home['threat_index']}")
+            
+            if away_has_stats and away.get("threat_index", 0) == 0:
+                self.log(f"   ⚠ Away has stats but threat_index=0", "WARN")
+            elif away_has_stats:
+                self.log(f"   ✓ Away threat_index computed: {away['threat_index']}")
+        
+        # Test 4: Check verdict labels are valid
+        if live_match_with_analysis:
+            analysis = live_match_with_analysis["_live_analysis"]
+            verdict = analysis.get("verdict", {})
+            valid_labels = ["TRAP_LATE_LEAD", "LIVE_VALUE_PUSH", "BALANCED", "INSUFFICIENT_DATA"]
+            label = verdict.get("label")
+            
+            if label in valid_labels:
+                self.log(f"   ✓ Verdict label valid: {label}")
+            else:
+                self.log(f"   ⚠ Invalid verdict label: {label}", "WARN")
+        
+        # Test 5: Basketball/Baseball should NOT have _live_analysis
+        for sport in ["basketball", "baseball"]:
+            success, result = self.test(
+                f"GET /api/matches/live?sport={sport} (no _live_analysis)",
+                "GET", f"matches/live?sport={sport}&refresh=false", 200,
+                timeout=30,
+                check_fn=lambda r: "items" in r
+            )
+            
+            if success and result and result.get("items"):
+                has_analysis = any("_live_analysis" in m and m["_live_analysis"] for m in result["items"])
+                if has_analysis:
+                    self.log(f"   ⚠ {sport} matches have _live_analysis (should be football-only)", "WARN")
+                else:
+                    self.log(f"   ✓ {sport} matches correctly have no _live_analysis")
+        
+        # Test 6: POST /api/live/reevaluate should include trap in response
+        if live_match_with_analysis:
+            match_id = live_match_with_analysis.get("match_id")
+            success, result = self.test(
+                "POST /api/live/reevaluate (check trap field)",
+                "POST", "live/reevaluate", 200,
+                data={
+                    "match_id": match_id,
+                    "sport": "football",
+                    "refresh": False,
+                    "manual_odds": 1.85,
+                    "manual_market": "Under 2.5"
+                },
+                timeout=30,
+                check_fn=lambda r: (
+                    "result" in r and
+                    "trap" in r["result"] and
+                    "live_analysis" in r["result"]
+                )
+            )
+            
+            if success and result:
+                res = result["result"]
+                trap = res.get("trap")
+                live_analysis = res.get("live_analysis")
+                
+                if trap and trap.get("triggered"):
+                    self.log(f"   ⚠ TRAP in reevaluate response!")
+                    self.log(f"   Reason: {res.get('reason', '')[:100]}")
+                else:
+                    self.log(f"   No trap in reevaluate (normal)")
+                
+                if live_analysis:
+                    self.log(f"   ✓ live_analysis attached to reevaluate response")
+                else:
+                    self.log(f"   ⚠ live_analysis missing from reevaluate", "WARN")
+
+        # ═══════════════════════════════════════════════════════════════════════
         # 12. AUTHZ TESTS (401 without token)
         # ═══════════════════════════════════════════════════════════════════════
         self.log("\n[12] AUTHZ TESTS (401 without token)", "SECTION")

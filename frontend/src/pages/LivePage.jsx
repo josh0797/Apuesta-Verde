@@ -12,6 +12,7 @@ import { AnalysisProgressModal } from '@/components/AnalysisProgressModal';
 import { MatchCard } from '@/components/MatchCard';
 import { LiveReevalPanel } from '@/components/LiveReevalPanel';
 import { LiveStateBadge, LiveFreshnessBadge } from '@/components/LiveStateBadges';
+import { LiveAnalysisStrip } from '@/components/LiveAnalysisStrip';
 import { ProvenanceBadge } from '@/components/ProvenancePanel';
 import { isBigFive } from '@/lib/competitions';
 import { partitionLive, LIVE_CACHE_TTL_SEC, validLiveMatch } from '@/lib/liveValidation';
@@ -393,6 +394,17 @@ export default function LivePage() {
                     <StatCell label={t.live.xg} h={stat(h, 'expected_goals')} a={stat(a, 'expected_goals')} />
                   </div>
                 </Link>
+                {/* P3 — Live xG/Threat/Pressure auto-analysis strip
+                    (kloppy/socceraction/soccer_xg inspired). Surfaces the
+                    trap detector verdict ("NO APOSTAR AL FAVORITO") even
+                    when the user hasn't opened the manual re-eval form. */}
+                {isFootball && m._live_analysis && (
+                  <LiveAnalysisStrip
+                    analysis={m._live_analysis}
+                    lang={lang}
+                    testId={`live-analysis-${m.match_id}`}
+                  />
+                )}
                 {/* Phase 10 — Live Re-Eval panel (football only). Lives
                     OUTSIDE the Link so its buttons / inputs don't navigate
                     away to match detail when clicked. Suppress for

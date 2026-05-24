@@ -174,6 +174,7 @@ async def matches_live(refresh: bool = False, sport: Optional[str] = None, user:
     archived to `archived_live_matches`.
     """
     from services import live_lifecycle as ll
+    from services import live_xg_proxy as lxp
     s = _norm_sport(sport)
     if refresh:
         async with httpx.AsyncClient() as client:
@@ -202,6 +203,16 @@ async def matches_live(refresh: bool = False, sport: Optional[str] = None, user:
             continue
         m["_live_state"] = ll.compute_live_state(m)
         m["_freshness"] = ll.compute_freshness(m)
+        # P3 — attach the full xG-proxy + threat + pressure + trap analysis
+        # so the UI can render the recommendation strip without an extra
+        # /api/live/reevaluate roundtrip per card. Football only — basket /
+        # baseball get None and the UI skips the strip.
+        if s == "football":
+            try:
+                m["_live_analysis"] = lxp.compute_live_analysis(m)
+            except Exception as exc:
+                logging.getLogger("live").warning("live_xg_proxy failed for %s: %s", m.get("match_id"), exc)
+                m["_live_analysis"] = None
         items.append(m)
 
     return {

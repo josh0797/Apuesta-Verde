@@ -75,27 +75,18 @@ def _poisson_over_remaining(current_total: int, line: float, remaining_share: fl
 def _momentum_score(home_stats: dict, away_stats: dict, score_diff: int) -> int:
     """0-100 momentum favouring the trailing/equal side.
 
-    Negative score means visiting team has momentum; positive means home. We
-    return absolute value 0-100 and a sign so the caller can interpret.
+    Negative score means visiting team has momentum; positive means home.
+    UPGRADED (P3): now uses `live_xg_proxy` (kloppy/socceraction/soccer_xg
+    inspired) so shots-in-box, blocked shots, corners, and dangerous attacks
+    all enter the momentum equation — not just SOT + dangerous + possession.
     """
-    # Shots on target + dangerous attacks + possession over last 15min if available.
-    def _val(d, *keys):
-        for k in keys:
-            v = (d or {}).get(k)
-            if isinstance(v, (int, float)):
-                return float(v)
-            if isinstance(v, str) and v.replace("%", "").replace(".", "").isdigit():
-                return float(v.replace("%", ""))
-        return 0.0
-    h_dang = _val(home_stats, "Dangerous Attacks", "dangerous_attacks")
-    a_dang = _val(away_stats, "Dangerous Attacks", "dangerous_attacks")
-    h_sot = _val(home_stats, "Shots on Goal", "shots_on_target")
-    a_sot = _val(away_stats, "Shots on Goal", "shots_on_target")
-    h_pos = _val(home_stats, "Ball Possession", "possession")
-    a_pos = _val(away_stats, "Ball Possession", "possession")
-
-    h_idx = h_dang * 1.0 + h_sot * 2.5 + h_pos * 0.5
-    a_idx = a_dang * 1.0 + a_sot * 2.5 + a_pos * 0.5
+    from . import live_xg_proxy as lxp
+    home_side = lxp.extract_side(home_stats)
+    away_side = lxp.extract_side(away_stats)
+    # threat_index already blends possession + dangerous + attacks + corners + SOT
+    # and xg_live captures shot-quality realised so far. Combine both.
+    h_idx = home_side.threat_index + home_side.xg_live * 25.0
+    a_idx = away_side.threat_index + away_side.xg_live * 25.0
     total = max(1.0, h_idx + a_idx)
     delta = h_idx - a_idx
     score = min(100.0, abs(delta) / total * 100.0)
@@ -162,6 +153,14 @@ def reevaluate_match(
     momentum = _momentum_score(home_stats, away_stats, score_diff)
     remaining = _remaining_share(minute)
 
+    # ── P3: Full live analysis (kloppy/socceraction/soccer_xg inspired) ──
+    # Computes xG live, threat_index, pressure_rate per side, plus the
+    # late-lead trap detector. Attached to the response so the UI can show
+    # the full picture even when no live edge is found.
+    from . import live_xg_proxy as lxp
+    live_analysis = lxp.compute_live_analysis(match)
+    trap = live_analysis.get("trap") if isinstance(live_analysis, dict) else None
+
     # Decide which market we're evaluating.
     market = manual_market or _infer_default_market(current_total, minute, expected_goals_total)
     selection = market
@@ -196,13 +195,39 @@ def reevaluate_match(
             )
 
     edge = est_prob - implied
-    state, action, risk, reason = _classify(
-        edge=edge, est_prob=est_prob, implied=implied, momentum=momentum,
-        minute=minute, remaining=remaining, current_total=current_total,
-        market=market, is_live=is_live, manual_odds_used=(implied_source == "manual"),
-        est_basis=est_basis,
+    # ── Trap gate: when the late-lead-low-odds-pressing-rival rule fires
+    # we override the classify() output with a hard PASS / TRAP_DETECTED
+    # state, regardless of how positive the math edge looks. The user
+    # spec is explicit: "favorito ganando tarde + cuota muy baja + rival
+    # presionando = NO APOSTAR".
+    trap_overrides_leader_bet = (
+        trap and trap.get("triggered")
+        and market and (
+            market.lower().startswith("resultado final: home") and trap["leader_side"] == "home"
+            or market.lower().startswith("resultado final: away") and trap["leader_side"] == "away"
+            or market.lower() in ("home", "away") and trap["leader_side"] == market.lower()
+        )
     )
-    confidence = _confidence_score(edge, momentum, remaining, est_basis)
+    if trap_overrides_leader_bet:
+        state, action, risk = "TRAP_DETECTED", "PASS", "HIGH"
+        reason = trap["reason_es"]
+        confidence = 0
+    else:
+        state, action, risk, reason = _classify(
+            edge=edge, est_prob=est_prob, implied=implied, momentum=momentum,
+            minute=minute, remaining=remaining, current_total=current_total,
+            market=market, is_live=is_live, manual_odds_used=(implied_source == "manual"),
+            est_basis=est_basis,
+        )
+        confidence = _confidence_score(edge, momentum, remaining, est_basis)
+        # When the trap fires for a NON-leader bet (e.g. user is on Over)
+        # we keep their action but tag the response so the UI can show a
+        # secondary warning.
+        if trap and trap.get("triggered"):
+            reason = (
+                f"{reason}  ⚠ {trap['reason_es']}"
+                if reason else trap["reason_es"]
+            )
 
     return _build_response(
         match_id=match.get("match_id"),
@@ -219,6 +244,8 @@ def reevaluate_match(
         live_snapshot={"minute": minute, "score": score, "momentum": momentum, "is_live": is_live},
         manual_odds_used=(implied_source == "manual"),
         computed_at=now,
+        live_analysis=live_analysis,
+        trap=trap,
     )
 
 
@@ -404,4 +431,6 @@ def _build_response(**kwargs) -> dict:
         "live_snapshot":       kwargs.get("live_snapshot") or {},
         "manual_odds_used":    bool(kwargs.get("manual_odds_used")),
         "computed_at":         kwargs.get("computed_at"),
+        "live_analysis":       kwargs.get("live_analysis"),
+        "trap":                kwargs.get("trap"),
     }

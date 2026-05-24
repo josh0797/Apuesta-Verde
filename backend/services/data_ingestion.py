@@ -504,6 +504,23 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
         if recent_a_raw:
             ctx_away["recent_fixtures"] = nz.normalize_recent_fixtures(recent_a_raw, away["id"], n=10)
         live_stats = nz.normalize_live_stats(fx_raw) if is_live else None
+        # When live, the /fixtures?live=all payload from API-Sports often
+        # omits the per-team statistics array on the free tier — meaning
+        # home_stats/away_stats end up empty and our xG/threat/pressure
+        # engine has nothing to chew on. Fetch the dedicated endpoint and
+        # merge so live_xg_proxy can produce real numbers.
+        if is_live and live_stats and not (live_stats.get("home_stats") or live_stats.get("away_stats")):
+            try:
+                fx_stats = await af.fixture_statistics(client, fid)
+                if fx_stats:
+                    # Re-normalize by injecting the stats array back into fx_raw.
+                    fx_raw_copy = dict(fx_raw)
+                    fx_raw_copy["statistics"] = fx_stats
+                    rehydrated = nz.normalize_live_stats(fx_raw_copy)
+                    if rehydrated and (rehydrated.get("home_stats") or rehydrated.get("away_stats")):
+                        live_stats = rehydrated
+            except Exception as exc:
+                log.warning("fixture_statistics fetch failed for %s: %s", fid, exc)
 
         h2h_clean = []
         for hf in h2h or []:
