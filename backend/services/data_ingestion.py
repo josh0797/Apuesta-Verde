@@ -366,6 +366,19 @@ async def ingest_upcoming(
 
 async def ingest_live(client: httpx.AsyncClient, db, sport: str = "football", max_total: int = 20) -> list[dict]:
     sport = (sport or "football").lower()
+    # ── Sweep stale rows BEFORE we fetch new live ones ──
+    # Why before: if the API-Sports live feed has dropped a match (because
+    # it just ended), we still have an `is_live=True` ghost row in Mongo.
+    # The sweeper flips those to `is_live=False` so the next /matches/live
+    # query doesn't surface zombies.
+    try:
+        from . import live_lifecycle as _ll
+        flipped = await _ll.sweep_expired_live(db, sport=sport)
+        if flipped:
+            log.info("ingest_live: pre-sweep flipped %d stale rows (sport=%s)", flipped, sport)
+    except Exception as exc:
+        log.warning("ingest_live: pre-sweep failed: %s", exc)
+
     try:
         if sport == "football":
             live_raw = await af.fixtures_live(client)
@@ -462,6 +475,7 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             stand_resp = []
 
         stats_h, stats_a, h2h, inj_h, inj_a = {}, {}, [], [], []
+        recent_h_raw, recent_a_raw = [], []
         if deep:
             try: stats_h = await af.team_statistics(client, home["id"], lid, db=db)
             except Exception: pass
@@ -473,10 +487,22 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             except Exception: pass
             try: inj_a = await af.injuries(client, away["id"], db=db)
             except Exception: pass
+            # P2A — pull last-10 fixtures per team for the StatsBomb-inspired
+            # Poisson model. Cached 12h per (team, season) so re-analyzing
+            # different fixtures of the same team doesn't burn API quota.
+            try: recent_h_raw = await af.fixtures_last_n(client, home["id"], n=10, season=season, db=db)
+            except Exception: pass
+            try: recent_a_raw = await af.fixtures_last_n(client, away["id"], n=10, season=season, db=db)
+            except Exception: pass
 
         norm_odds = nz.normalize_odds(odds_resp)
         ctx_home = nz.normalize_team_context(stats_h, stand_resp, inj_h, home["id"])
         ctx_away = nz.normalize_team_context(stats_a, stand_resp, inj_a, away["id"])
+        # Attach last-N goal distributions used by statsbomb_features.
+        if recent_h_raw:
+            ctx_home["recent_fixtures"] = nz.normalize_recent_fixtures(recent_h_raw, home["id"], n=10)
+        if recent_a_raw:
+            ctx_away["recent_fixtures"] = nz.normalize_recent_fixtures(recent_a_raw, away["id"], n=10)
         live_stats = nz.normalize_live_stats(fx_raw) if is_live else None
 
         h2h_clean = []

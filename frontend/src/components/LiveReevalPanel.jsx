@@ -89,9 +89,15 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
         }
       }
     } catch (err) {
-      const detail = err?.response?.data?.detail || err?.message || (lang === 'en' ? 'Re-eval failed' : 'Re-evaluación falló');
+      // Backend returns 409 with { detail: { error, message, live_state } }
+      // for stale/finished matches. Surface the message string so the
+      // toast doesn't render "[object Object]".
+      const raw = err?.response?.data?.detail;
+      const detail = (raw && typeof raw === 'object')
+        ? (raw.message || raw.error || JSON.stringify(raw))
+        : (raw || err?.message || (lang === 'en' ? 'Re-eval failed' : 'Re-evaluación falló'));
       // eslint-disable-next-line no-console
-      console.error('[LIVE_REEVAL_ERROR]', { match_id: matchId, error: err });
+      console.error('[LIVE_REEVAL_ERROR]', { match_id: matchId, status: err?.response?.status, error: err });
       toast.error(detail);
     } finally {
       setLoading(false);

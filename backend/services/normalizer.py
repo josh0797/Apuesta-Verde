@@ -149,7 +149,149 @@ def normalize_team_context(stats: dict, standings_resp: list[dict], injuries_lis
         ctx["motivation_flags"]["in_european_zone"] = True
     # Injuries (consider only active/listed)
     ctx["injuries_count"] = len(injuries_list or [])
+
+    # ── Season-level Under priors (used by statsbomb_features) ──────────
+    # We pull a few additional counts straight from API-Sports'
+    # /teams/statistics response so the Poisson model + Under scan can
+    # work even when /fixtures?last=N hasn't been fetched yet.
+    if stats:
+        fixtures = (stats.get("fixtures") or {})
+        played_total = ((fixtures.get("played") or {}).get("total")) or 0
+        wins_total = ((fixtures.get("wins") or {}).get("total")) or 0
+        draws_total = ((fixtures.get("draws") or {}).get("total")) or 0
+        loses_total = ((fixtures.get("loses") or {}).get("total")) or 0
+        clean_sheet_total = ((stats.get("clean_sheet") or {}).get("total")) or 0
+        failed_total = ((stats.get("failed_to_score") or {}).get("total")) or 0
+        try:
+            ctx["season_priors"] = {
+                "played":           int(played_total),
+                "wins":              int(wins_total),
+                "draws":             int(draws_total),
+                "loses":             int(loses_total),
+                "clean_sheet":      int(clean_sheet_total),
+                "failed_to_score":  int(failed_total),
+                "clean_sheet_rate":     round(int(clean_sheet_total) / int(played_total), 3) if played_total else None,
+                "failed_to_score_rate": round(int(failed_total) / int(played_total), 3) if played_total else None,
+            }
+        except Exception:
+            ctx["season_priors"] = None
     return ctx
+
+
+def normalize_recent_fixtures(fixtures: list[dict], team_id: int, *, n: int = 10) -> dict:
+    """Compress a team's last-N fixtures into a compact goal-distribution
+    payload for the Poisson model in `statsbomb_features.py`.
+
+    Args:
+        fixtures: raw /fixtures?team={id}&last={n} response items.
+        team_id:  the team we're profiling. Needed to know whether they
+                  played home or away in each fixture.
+        n:        cap on how many fixtures to consider.
+
+    Returns:
+        {
+          "played":    int,       # number of finished fixtures we used
+          "totals":    [int, ...] # total goals per match (newest first)
+          "gf":        [int, ...] # goals FOR (this team)
+          "ga":        [int, ...] # goals AGAINST (this team)
+          "venues":    [str, ...] # 'home' | 'away' per match
+          "clean_sheets":    int,
+          "failed_to_score": int,
+          "btts":            int,         # both teams scored count
+          "under_3_5_count": int,
+          "under_2_5_count": int,
+          "gf_avg":     float | None,
+          "ga_avg":     float | None,
+          "gf_avg_home":  float | None,
+          "gf_avg_away":  float | None,
+          "ga_avg_home":  float | None,
+          "ga_avg_away":  float | None,
+          "total_avg":  float | None,
+          "total_std":  float | None,
+        }
+    """
+    out: dict[str, Any] = {
+        "played": 0,
+        "totals": [],
+        "gf": [],
+        "ga": [],
+        "venues": [],
+        "clean_sheets": 0,
+        "failed_to_score": 0,
+        "btts": 0,
+        "under_3_5_count": 0,
+        "under_2_5_count": 0,
+        "gf_avg": None,
+        "ga_avg": None,
+        "gf_avg_home": None,
+        "gf_avg_away": None,
+        "ga_avg_home": None,
+        "ga_avg_away": None,
+        "total_avg": None,
+        "total_std": None,
+    }
+    if not fixtures:
+        return out
+
+    gf_home, gf_away, ga_home, ga_away = [], [], [], []
+    for f in fixtures[:n]:
+        try:
+            status = ((f.get("fixture") or {}).get("status") or {}).get("short")
+            if status not in ("FT", "AET", "PEN"):
+                continue  # only count completed matches
+            teams = f.get("teams") or {}
+            goals = f.get("goals") or {}
+            hg = goals.get("home")
+            ag = goals.get("away")
+            if hg is None or ag is None:
+                continue
+            hg, ag = int(hg), int(ag)
+            home_id = (teams.get("home") or {}).get("id")
+            is_home = (home_id == team_id)
+            gf = hg if is_home else ag
+            ga = ag if is_home else hg
+            total = hg + ag
+            out["gf"].append(gf)
+            out["ga"].append(ga)
+            out["totals"].append(total)
+            out["venues"].append("home" if is_home else "away")
+            if ga == 0:
+                out["clean_sheets"] += 1
+            if gf == 0:
+                out["failed_to_score"] += 1
+            if hg > 0 and ag > 0:
+                out["btts"] += 1
+            if total < 3.5:
+                out["under_3_5_count"] += 1
+            if total < 2.5:
+                out["under_2_5_count"] += 1
+            if is_home:
+                gf_home.append(gf)
+                ga_home.append(ga)
+            else:
+                gf_away.append(gf)
+                ga_away.append(ga)
+        except Exception:
+            continue
+
+    n_eff = len(out["totals"])
+    out["played"] = n_eff
+    if n_eff:
+        out["gf_avg"] = round(sum(out["gf"]) / n_eff, 3)
+        out["ga_avg"] = round(sum(out["ga"]) / n_eff, 3)
+        out["total_avg"] = round(sum(out["totals"]) / n_eff, 3)
+        mean = out["total_avg"]
+        variance = sum((t - mean) ** 2 for t in out["totals"]) / n_eff
+        out["total_std"] = round(variance ** 0.5, 3)
+    if gf_home:
+        out["gf_avg_home"] = round(sum(gf_home) / len(gf_home), 3)
+    if gf_away:
+        out["gf_avg_away"] = round(sum(gf_away) / len(gf_away), 3)
+    if ga_home:
+        out["ga_avg_home"] = round(sum(ga_home) / len(ga_home), 3)
+    if ga_away:
+        out["ga_avg_away"] = round(sum(ga_away) / len(ga_away), 3)
+    return out
 
 
 def normalize_live_stats(fixture: dict) -> dict | None:

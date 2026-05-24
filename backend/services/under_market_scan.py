@@ -412,9 +412,10 @@ def scan_protected_alternatives(
         tactical_score / fragility_score: hints from the LLM/moneyball
             pipeline (0-100 each). Defaults to a neutral 60/50.
         estimated_probability_under35 / _under25: model-estimated probability
-            (0-1) the line cashes. When the caller didn't compute it (e.g.
-            no xG model wired yet), we infer from h2h_under_rate as a
-            conservative proxy.
+            (0-1) the line cashes. When the caller didn't compute it, we
+            try the StatsBomb-inspired Poisson model from
+            `services/statsbomb_features.py` first, then fall back to
+            shrunk H2H Under-rate (Bayesian) as a conservative proxy.
         edge_threshold: minimum edge (estimated_prob − implied_prob) to
             recommend, expressed as a fraction. 0.03 = 3% edge.
 
@@ -434,10 +435,30 @@ def scan_protected_alternatives(
             "why_3_5_safer_than_2_5": list[str],
             "h2h_under_rate": float,
             "h2h_avg_goals": float | None,
+            "statsbomb_features": dict | None,  # P2A: Poisson model output
         }
     """
     if not eligible_for_alternative_scan(match):
         return None
+
+    # ── P2A — StatsBomb-inspired feature pack ────────────────────────────
+    # When per-team recent fixtures / season priors are present on the
+    # match doc, compute the Poisson goal-expectation model and use it
+    # as the source of truth for estimated_probability_under{25,35}.
+    # Falls back to the legacy Bayesian shrinkage when features can't be
+    # computed (e.g. brand-new team with no recorded fixtures).
+    sb_features = None
+    try:
+        from . import statsbomb_features as sbf  # local import to avoid cycles
+        sb_features = sbf.compute_match_features(match)
+    except Exception:
+        sb_features = None
+    if sb_features:
+        # Caller's explicit estimate still wins (allows manual overrides).
+        if estimated_probability_under35 is None:
+            estimated_probability_under35 = sb_features.get("p_under_3_5")
+        if estimated_probability_under25 is None:
+            estimated_probability_under25 = sb_features.get("p_under_2_5")
 
     profile_3_5 = compute_under_profile_score(
         match, 3.5,
@@ -447,6 +468,28 @@ def scan_protected_alternatives(
         match, 2.5,
         tactical_score=tactical_score, fragility_score=fragility_score,
     )
+
+    # When the Poisson model agrees strongly with one Under line we bump
+    # that profile_score so the selector below picks it. The bump is
+    # capped at +12 to avoid drowning H2H/form signals; we also blend
+    # in the model's confidence (0-100) to keep low-sample matches honest.
+    if sb_features:
+        conf_w = sb_features.get("confidence", 50) / 100.0
+        for line_val, profile in ((3.5, profile_3_5), (2.5, profile_2_5)):
+            p_key = "p_under_3_5" if line_val == 3.5 else "p_under_2_5"
+            p_model = sb_features.get(p_key) or 0.0
+            # Convert P(under) into 0-100 sub-score (60% → 60).
+            sub_xg = max(0.0, min(100.0, float(p_model) * 100.0))
+            # Blend into profile: weight by model confidence (max 12 pts).
+            bump = int(round((sub_xg - profile["score"]) * 0.12 * conf_w))
+            profile["score"] = int(max(0, min(100, profile["score"] + bump)))
+            profile["_sub"]["xg_model"] = round(sub_xg, 1)
+            profile["_xg_blend_bump"] = bump
+            if p_model >= 0.65 and conf_w >= 0.5:
+                profile["reasons"].insert(0,
+                    f"Modelo xG estima {p_model*100:.0f}% Under {line_val} "
+                    f"(confianza {sb_features['confidence']}/100)."
+                )
 
     # Both INSUFFICIENT → nothing protected to offer.
     if profile_3_5["state"] == "INSUFFICIENT" and profile_2_5["state"] == "INSUFFICIENT":
@@ -519,6 +562,10 @@ def scan_protected_alternatives(
         "samples_h2h": picked["samples_h2h"],
         "profile_3_5": profile_3_5,
         "profile_2_5": profile_2_5,
+        "statsbomb_features": sb_features,
+        "estimated_probability_source": (
+            "statsbomb_poisson" if sb_features else "h2h_bayesian_shrink"
+        ),
     }
     if combo_candidate:
         result["combo_candidate"] = combo_candidate

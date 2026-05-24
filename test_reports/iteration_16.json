@@ -1,0 +1,73 @@
+{
+  "summary": "Completed comprehensive testing of Live Lifecycle feature (Phase 11) - critical bug fix for stale live data. Backend and frontend both working correctly with 100% test pass rate.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [],
+    "notes": "All backend endpoints working correctly. GET /api/matches/live returns only valid matches with correct _live_state and _freshness. POST /api/live/reevaluate correctly returns 409 for stale matches."
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "notes": "All UI components rendering correctly. LiveStateBadge shows real minute labels (33', 49', 51', 68', 84', 90') - NOT all fixed at 90'. GARBAGE_TIME matches correctly show warning and hide reevaluate panel. Freshness badges and provenance badges all working."
+  },
+  "passed_tests": [
+    "Backend: GET /api/matches/live returns correct structure (count, sport, items, archived_count, cache_ttl_sec, computed_at)",
+    "Backend: Each item has _live_state with correct shape (state, minute, minute_label, valid, reason, status_short, heartbeat_age_sec)",
+    "Backend: Each item has _freshness with correct shape (score 0-100, label, components, heartbeat_age_sec)",
+    "Backend: No stale matches (2H+95min or old heartbeat >10min) are returned",
+    "Backend: Sweep correctly archived 35 matches",
+    "Backend: POST /api/live/reevaluate returns 409 with live_state for stale match 1516348 (heartbeat 432520s old)",
+    "Backend: Multi-sport support works (basketball TTL=30s, baseball TTL=45s)",
+    "Frontend: LivePage renders with correct title 'Partidos en vivo'",
+    "Frontend: Big Five filter works (shows 1/8 initially, 8 after clicking 'Ver todas')",
+    "Frontend: LiveStateBadge shows real minute labels (33', 49', 51', 68', 84', 90') - NOT all fixed at 90'",
+    "Frontend: LiveFreshnessBadge shows scores (65, 80) with Spanish labels (Datos frescos, Datos retrasados)",
+    "Frontend: ProvenanceBadge shows 'Fuente: API-Sports' for all matches",
+    "Frontend: GARBAGE_TIME matches (3) show warning 'Tiempo muerto' and hide LiveReevalPanel",
+    "Frontend: LIVE_ACTIVE matches (5) show LiveReevalPanel with 'Reevaluar ahora' button",
+    "Frontend: Archived toggle shows 'Live archivados (35)'",
+    "Frontend: Console logs show [LIVE_MATCH_VALIDATION] with correct counts (received=8, valid=8, archived_server=35)"
+  ],
+  "test_report_links": [
+    "/app/backend_test_live_lifecycle.py",
+    "/app/.screenshots/live_page_all_matches.png"
+  ],
+  "action_item_for_main_agent": "",
+  "updated_files": [
+    "/app/backend_test_live_lifecycle.py"
+  ],
+  "success_percentage": {
+    "backend": "100% (9/9 tests passed)",
+    "frontend": "100% (all UI components working correctly)",
+    "integration": "100% (backend-frontend integration working correctly)"
+  },
+  "should_call_test_agent_after_fix": "false",
+  "should_main_agent_test_itself": "false",
+  "detailed_findings": {
+    "critical_bug_fix_verified": {
+      "issue": "Live section showing matches at minute 90' that already ended (stale data)",
+      "fix_implemented": "Backend live_lifecycle.py with strict validation + sweep, frontend liveValidation.js with client-side mirror",
+      "verification": "Confirmed real minute labels (33', 49', 51', 68', 84', 90') displayed - NOT all fixed at 90'. Stale matches correctly filtered and archived (35 archived)."
+    },
+    "backend_validation": {
+      "live_endpoint": "Returns 8 valid matches with _live_state (valid=true) and _freshness (score 65-80, labels DATOS_FRESCOS/DATOS_RETRASADOS)",
+      "sweep_mechanism": "Correctly archived 35 stale matches (is_live=true → false)",
+      "reevaluate_gate": "Returns 409 for stale match 1516348 with error='live_match_not_active' and live_state payload",
+      "multi_sport": "Basketball TTL=30s, Baseball TTL=45s, Football TTL=60s all correct"
+    },
+    "frontend_validation": {
+      "live_state_badges": "All 8 matches show LiveStateBadge with correct state (GARBAGE_TIME or LIVE_ACTIVE) and real minute labels",
+      "freshness_badges": "All 8 matches show LiveFreshnessBadge with score + Spanish label",
+      "provenance_badges": "All 8 matches show ProvenanceBadge 'Fuente: API-Sports'",
+      "garbage_time_handling": "3 GARBAGE_TIME matches correctly show warning and hide reevaluate panel",
+      "active_match_handling": "5 LIVE_ACTIVE matches correctly show reevaluate panel",
+      "big_five_filter": "Works correctly (1/8 initially, 8 after 'Ver todas')",
+      "archived_block": "Shows 'Live archivados (35)' with toggle"
+    },
+    "console_validation": {
+      "live_match_validation": "Logs show received=8, valid=8, archived_client=0, archived_server=35",
+      "sport_switch": "Logs show correct sport switching behavior"
+    }
+  }
+}

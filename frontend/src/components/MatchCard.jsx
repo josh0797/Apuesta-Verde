@@ -13,6 +13,7 @@ import { deriveIntelligence, DRIVER_META } from '@/lib/intelligence';
 import { MoneyballBadge } from './MoneyballPanel';
 import { FootballQualityBadge } from './FootballQualityBadge';
 import { ProtectedMarketBadge } from './ProtectedMarketBadge';
+import { ProvenanceBadge } from './ProvenancePanel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -105,6 +106,13 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           </div>
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
+          {m._provenance && (
+            <ProvenanceBadge
+              provenance={m._provenance}
+              lang={lang}
+              testId={`pick-provenance-${m.match_id}`}
+            />
+          )}
           <FreshnessBadge status={m.data_freshness?.odds || 'fresh'} kind="odds" />
           <FreshnessBadge status={m.data_freshness?.context || 'fresh'} kind="ctx" />
         </div>

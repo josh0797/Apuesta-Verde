@@ -161,15 +161,57 @@ async def matches_upcoming(refresh: bool = False, sport: Optional[str] = None, u
 
 @api.get("/matches/live")
 async def matches_live(refresh: bool = False, sport: Optional[str] = None, user: dict = Depends(get_current_user)):
-    """List current live matches for the given sport."""
+    """List current live matches for the given sport.
+
+    Strict in-play validation via services/live_lifecycle:
+      - Only matches with a valid LIVE_STATUSES status pass.
+      - Heartbeat age must be < HEARTBEAT_STALE_SEC[sport].
+      - Football: minute < 105 and never `2H @ ≥95'`.
+      - Per-match `_live_state` (state + minute_label + reason) and
+        `_freshness` (0-100 score + label) are attached so the UI can
+        render live state badges + filter stale entries client-side.
+    Stale matches are auto-flipped to is_live=False (sweeper) and
+    archived to `archived_live_matches`.
+    """
+    from services import live_lifecycle as ll
     s = _norm_sport(sport)
     if refresh:
         async with httpx.AsyncClient() as client:
             await ingestion.ingest_live(client, db, sport=s)
+
+    # Run the sweeper first so we never serve known-stale rows.
+    try:
+        flipped = await ll.sweep_expired_live(db, sport=s)
+        if flipped:
+            logging.getLogger("live").info("matches_live sweep flipped %d stale rows (sport=%s)", flipped, s)
+    except Exception as exc:
+        logging.getLogger("live").warning("sweep_expired_live failed: %s", exc)
+
     query = {**_sport_filter(s), "is_live": True}
     cursor = db.matches.find(query).sort("kickoff_ts", 1).limit(50)
-    items = await cursor.to_list(length=50)
-    return {"count": len(items), "sport": s, "items": _clean_list(items)}
+    items_raw = await cursor.to_list(length=50)
+
+    items: list[dict] = []
+    archived: list[dict] = []
+    for m in items_raw:
+        if not ll.is_match_live(m):
+            archived.append({
+                "match_id": m.get("match_id"),
+                "reason": ll.compute_live_state(m).get("reason"),
+            })
+            continue
+        m["_live_state"] = ll.compute_live_state(m)
+        m["_freshness"] = ll.compute_freshness(m)
+        items.append(m)
+
+    return {
+        "count":         len(items),
+        "sport":         s,
+        "items":         _clean_list(items),
+        "archived_count": len(archived),
+        "cache_ttl_sec": ll.LIVE_CACHE_TTL_SEC.get(s, 60),
+        "computed_at":   datetime.now(timezone.utc).isoformat(),
+    }
 
 
 class LiveReevalRequest(BaseModel):
@@ -233,6 +275,22 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
     match = await db.matches.find_one({"match_id": {"$in": candidates}})
     if not match:
         raise HTTPException(status_code=404, detail=f"match {req.match_id} not found")
+
+    # Strict lifecycle gate — refuse to re-evaluate matches that are no
+    # longer in-play. Returns 409 (Conflict) with the lifecycle state so
+    # the UI can render a "Live finalizado / stale" message instead of
+    # showing a misleading edge calculation.
+    from services import live_lifecycle as ll
+    live_state = ll.compute_live_state(match)
+    if not live_state.get("valid"):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "live_match_not_active",
+                "message": f"El partido no está en juego ahora ({live_state.get('state')}). {live_state.get('reason') or ''}".strip(),
+                "live_state": live_state,
+            },
+        )
 
     xg = req.expected_goals_total or 2.5
     result = lre.reevaluate_match(
@@ -588,25 +646,51 @@ async def _run_analysis_pipeline(
     # surface PRIORITY_MATCH / EXOTIC_LEAGUE_WARNING immediately.
     if sport == "football":
         fq_by_match: dict[str, dict] = {}
+        prov_by_match: dict[str, dict] = {}
         for c in candidates:
-            fq = c.get("_football_quality")
-            if not fq:
-                continue
             mid = c.get("match_id")
             if mid is None:
                 continue
-            fq_by_match[str(mid)] = fq
-        if fq_by_match:
+            sid = str(mid)
+            fq = c.get("_football_quality")
+            if fq:
+                fq_by_match[sid] = fq
+            # P2B — propagate provenance (built by services/provenance.py
+            # during data_ingestion) so the MatchCard / LiveCard can render
+            # "Fuente: API-Sports · hace 12 min" without a second API call.
+            pv = c.get("_provenance")
+            if pv:
+                prov_by_match[sid] = pv
+        if fq_by_match or prov_by_match:
             for p in (result.get("picks") or []):
                 sid = str(p.get("match_id"))
                 if sid in fq_by_match and not p.get("_football_quality"):
                     p["_football_quality"] = fq_by_match[sid]
+                if sid in prov_by_match and not p.get("_provenance"):
+                    p["_provenance"] = prov_by_match[sid]
             summary = result.setdefault("summary", {})
             for bucket in ("high_confidence", "medium_confidence"):
                 for e in (summary.get(bucket) or []):
                     sid = str(e.get("match_id"))
                     if sid in fq_by_match and not e.get("_football_quality"):
                         e["_football_quality"] = fq_by_match[sid]
+                    if sid in prov_by_match and not e.get("_provenance"):
+                        e["_provenance"] = prov_by_match[sid]
+    else:
+        # Non-football sports also carry _provenance — propagate it too.
+        prov_by_match: dict[str, dict] = {}
+        for c in candidates:
+            mid = c.get("match_id")
+            if mid is None:
+                continue
+            pv = c.get("_provenance")
+            if pv:
+                prov_by_match[str(mid)] = pv
+        if prov_by_match:
+            for p in (result.get("picks") or []):
+                sid = str(p.get("match_id"))
+                if sid in prov_by_match and not p.get("_provenance"):
+                    p["_provenance"] = prov_by_match[sid]
 
     # Recommendation limit per spec: never expose more than 8 picks.
     picks = (result.get("picks") or [])

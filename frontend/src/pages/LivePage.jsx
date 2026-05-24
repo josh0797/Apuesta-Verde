@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Loader2, RefreshCcw, Brain, Trophy, Trophy as TrophyIcon } from 'lucide-react';
+import { Loader2, RefreshCcw, Brain, Trophy, Trophy as TrophyIcon, Archive } from 'lucide-react';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n';
 import { useSport } from '@/lib/sport';
@@ -11,7 +11,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AnalysisProgressModal } from '@/components/AnalysisProgressModal';
 import { MatchCard } from '@/components/MatchCard';
 import { LiveReevalPanel } from '@/components/LiveReevalPanel';
+import { LiveStateBadge, LiveFreshnessBadge } from '@/components/LiveStateBadges';
+import { ProvenanceBadge } from '@/components/ProvenancePanel';
 import { isBigFive } from '@/lib/competitions';
+import { partitionLive, LIVE_CACHE_TTL_SEC, validLiveMatch } from '@/lib/liveValidation';
 
 function stat(side, key) {
   if (!side) return null;
@@ -22,6 +25,9 @@ export default function LivePage() {
   const { t, lang } = useI18n();
   const { sport } = useSport();
   const [items, setItems] = useState([]);
+  const [archivedItems, setArchivedItems] = useState([]);
+  const [archivedCount, setArchivedCount] = useState(0);
+  const [showArchived, setShowArchived] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -50,6 +56,8 @@ export default function LivePage() {
   useEffect(() => {
     console.log('[SPORT_SWITCH] live', sport);
     setItems([]);
+    setArchivedItems([]);
+    setArchivedCount(0);
     setLivePicks([]);
     setActiveJobId(null);
     setLoading(true);
@@ -59,12 +67,29 @@ export default function LivePage() {
     const requestSport = sport;
     if (refresh) setRefreshing(true); else setLoading(true);
     try {
-      const r = await api.get('/matches/live', { params: { refresh, sport } });
+      // Bust HTTP/proxy cache via _ts so the freshness check has truthful
+      // updated_at timestamps even on aggressive intermediaries.
+      const r = await api.get('/matches/live', {
+        params: { refresh, sport, _ts: Date.now() },
+      });
       if (sportRef.current !== requestSport) {
         console.log('[SPORT_SWITCH] discarded stale /matches/live for', requestSport);
         return;
       }
-      setItems(r.data.items || []);
+      const raw = r.data?.items || [];
+      // Defence-in-depth: backend already filters, but we re-validate
+      // client-side in case the tab sat idle and heartbeats aged out.
+      const { valid, archived } = partitionLive(raw);
+      console.log('[LIVE_MATCH_VALIDATION]', {
+        sport: requestSport,
+        received: raw.length,
+        valid: valid.length,
+        archived_client: archived.length,
+        archived_server: r.data?.archived_count || 0,
+      });
+      setItems(valid);
+      setArchivedItems(archived);
+      setArchivedCount((r.data?.archived_count || 0) + archived.length);
     } catch (e) {
       // noop
     } finally {
@@ -75,7 +100,39 @@ export default function LivePage() {
     }
   }, [sport]);
 
-  useEffect(() => { load(true); const id = setInterval(() => load(true), 60_000); return () => clearInterval(id); }, [load]);
+  // Refresh cadence is dictated by the backend per sport (60s football,
+  // 30s basket, 45s baseball). Re-fetch on focus too so leaving + coming
+  // back to the tab always shows a truthful list.
+  //
+  // First load uses refresh=false to serve cached data INSTANTLY (the
+  // backend has already applied the strict lifecycle gate + sweep on
+  // /matches/live regardless of refresh). The interval polls with
+  // refresh=true to keep data fresh.
+  useEffect(() => {
+    load(false);
+    const ttlMs = (LIVE_CACHE_TTL_SEC[sport] || 60) * 1000;
+    const id = setInterval(() => load(true), ttlMs);
+    const onFocus = () => load(true);
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(id); window.removeEventListener('focus', onFocus); };
+  }, [load, sport]);
+
+  // Local heartbeat ticker — every 30s we revalidate the items already in
+  // state. If a card's heartbeat has aged past the TTL while the user sat
+  // on the page we hide it instantly without waiting for the next /live
+  // call (key UX fix for "page sitting open shows 90'+15 ghosts").
+  useEffect(() => {
+    const id = setInterval(() => {
+      setItems((prev) => {
+        const next = prev.filter((m) => validLiveMatch(m));
+        if (next.length !== prev.length) {
+          console.log('[LIVE_TICKER_EXPIRY]', { removed: prev.length - next.length, sport });
+        }
+        return next;
+      });
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [sport]);
 
   const isFootball = sport === 'football';
   // For football, apply the Big Five filter unless the user disabled it.
@@ -273,14 +330,51 @@ export default function LivePage() {
             const live = m.live_stats || {};
             const h = live.home_stats || {};
             const a = live.away_stats || {};
+            const lstate = m._live_state;
+            const fresh = m._freshness;
+            // Hide cards whose freshness dipped below 30 since the last
+            // /live fetch (defence-in-depth — the backend filters these
+            // out but we re-check here for any that aged in transit).
+            if (fresh && fresh.score < 30) {
+              return null;
+            }
             return (
-              <div key={m.match_id} className="card-glow rounded-xl border border-border/80 bg-card p-4 flex flex-col gap-2" data-testid={`live-row-${m.match_id}`}>
+              <div
+                key={m.match_id}
+                className={`card-glow rounded-xl border bg-card p-4 flex flex-col gap-2 ${
+                  fresh && fresh.score < 50 ? 'border-amber-500/30' : 'border-border/80'
+                }`}
+                data-testid={`live-row-${m.match_id}`}
+                data-live-state={lstate?.state}
+                data-freshness-label={fresh?.label}
+              >
                 {/* Top portion is clickable → match detail */}
                 <Link to={`/match/${m.match_id}`} className="flex flex-col gap-2 -m-4 p-4 mb-0 hover:bg-secondary/10 rounded-t-xl transition-colors">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <LivePulse minute={live.minute} label={t.match.livePill} />
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Backend-derived live state badge takes priority
+                          over the static LivePulse — it tells us LIVE_ACTIVE
+                          vs LIVE_LATE vs GARBAGE_TIME vs HT. */}
+                      {lstate ? (
+                        <LiveStateBadge liveState={lstate} lang={lang} testId={`live-state-${m.match_id}`} />
+                      ) : (
+                        <LivePulse minute={live.minute} label={t.match.livePill} />
+                      )}
                       <span className="text-xs text-muted-foreground">{m.league}</span>
+                      {fresh && (
+                        <LiveFreshnessBadge
+                          freshness={fresh}
+                          lang={lang}
+                          testId={`live-freshness-${m.match_id}`}
+                        />
+                      )}
+                      {m._provenance && (
+                        <ProvenanceBadge
+                          provenance={m._provenance}
+                          lang={lang}
+                          testId={`live-provenance-${m.match_id}`}
+                        />
+                      )}
                     </div>
                     <div className="mono font-mono-tabular text-2xl font-semibold">
                       <span>{live.score?.home ?? 0}</span>
@@ -301,14 +395,54 @@ export default function LivePage() {
                 </Link>
                 {/* Phase 10 — Live Re-Eval panel (football only). Lives
                     OUTSIDE the Link so its buttons / inputs don't navigate
-                    away to match detail when clicked. */}
-                {isFootball && (
+                    away to match detail when clicked. Suppress for
+                    GARBAGE_TIME and LIVE_STALE — no live value to extract. */}
+                {isFootball && lstate && ['LIVE_ACTIVE', 'LIVE_LATE', 'HT'].includes(lstate.state) && (
                   <LiveReevalPanel match={m} lang={lang} sport={sport} />
+                )}
+                {isFootball && lstate && lstate.state === 'GARBAGE_TIME' && (
+                  <div className="rounded-md border border-orange-500/30 bg-orange-500/5 px-3 py-2 text-[11px] text-orange-200" data-testid={`live-garbage-warning-${m.match_id}`}>
+                    {lang === 'en'
+                      ? 'Garbage time — live re-evaluation disabled. No actionable value remaining.'
+                      : 'Tiempo muerto — reevaluación live deshabilitada. Sin valor accionable.'}
+                  </div>
                 )}
               </div>
             );
           })}
         </div>
+
+        {/* Archived live (collapsed) — partidos que se descartaron por
+            stale/finished. Útil como audit trail; no se muestra por
+            defecto. */}
+        {archivedCount > 0 && (
+          <div className="mt-4 rounded-lg border border-dashed border-slate-500/30 bg-slate-500/5">
+            <button
+              type="button"
+              onClick={() => setShowArchived((v) => !v)}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              data-testid="live-archived-toggle"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Archive className="h-3 w-3" />
+                {lang === 'en'
+                  ? `Archived live (${archivedCount})`
+                  : `Live archivados (${archivedCount})`}
+              </span>
+              <span className="opacity-60">{showArchived ? '−' : '+'}</span>
+            </button>
+            {showArchived && archivedItems.length > 0 && (
+              <ul className="px-3 pb-3 space-y-1 text-[11px] text-muted-foreground/80" data-testid="live-archived-list">
+                {archivedItems.slice(0, 10).map((m) => (
+                  <li key={m.match_id} className="font-mono-tabular">
+                    · {m.match_id} · {m.home_team?.name} vs {m.away_team?.name}
+                    {' '}<span className="opacity-60">[{m.status_short || '—'}]</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );

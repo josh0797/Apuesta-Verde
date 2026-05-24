@@ -241,3 +241,37 @@ async def injuries(client: httpx.AsyncClient, team_id: int, season: int = PROXY_
 async def fixture_statistics(client: httpx.AsyncClient, fixture_id: int) -> list[dict]:
     data = await _get(client, "/fixtures/statistics", {"fixture": fixture_id})
     return data.get("response", []) or []
+
+
+async def fixtures_last_n(
+    client: httpx.AsyncClient,
+    team_id: int,
+    *,
+    n: int = 10,
+    season: int = PROXY_SEASON,
+    db=None,
+) -> list[dict]:
+    """Return the team's last N fixtures (most recent first) WITH final score.
+
+    Used by `services/statsbomb_features.py` to build a goal-distribution
+    profile per team — feeds the Poisson model that powers the Under 3.5 /
+    Under 2.5 protected scan (Phase 9 + P2A enhancement).
+
+    Cached by `(team_id, season)` for 12h so a team playing several times
+    in the analysis window does not burn rate-limited API calls.
+    """
+    n = max(1, min(int(n or 10), 20))
+    key = {"team_id": team_id, "season": season, "kind": "last_n"}
+    cached = await _cache_get(db, "cache_team_recent_fixtures", key, 12 * 60)
+    if cached is not None:
+        return cached[:n]
+    data = await _get(client, "/fixtures", {
+        "team": team_id,
+        "season": season,
+        "last": n,
+    })
+    resp = data.get("response", []) or []
+    # API-Sports returns chronological; keep newest-first.
+    resp.sort(key=lambda f: ((f.get("fixture") or {}).get("timestamp") or 0), reverse=True)
+    await _cache_set(db, "cache_team_recent_fixtures", key, resp)
+    return resp[:n]

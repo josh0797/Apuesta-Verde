@@ -1,18 +1,34 @@
 [
   {
-    "content": "Validar visualmente integración LiveReevalPanel en LivePage (screenshot)",
+    "content": "Live fix: módulo backend live_lifecycle (validation + sweeper)",
     "status": "completed"
   },
   {
-    "content": "Validar flujo manual odds end-to-end (UI + endpoint)",
+    "content": "Live fix: endpoint /api/matches/live filtra stale + agrega _live_state/_freshness",
     "status": "completed"
   },
   {
-    "content": "Disparar testing agent para Phase 10 (live reevaluation full flow)",
+    "content": "Live fix: gate 409 en /api/live/reevaluate para matches no activos",
     "status": "completed"
   },
   {
-    "content": "Actualizar plan.md y cerrar Phase 10",
+    "content": "Live fix: frontend lib/liveValidation.js + componentes LiveStateBadges",
     "status": "completed"
+  },
+  {
+    "content": "Live fix: LivePage usa badges + heartbeat ticker + archived UI + suprime panel en GARBAGE_TIME",
+    "status": "completed"
+  },
+  {
+    "content": "Live fix: LiveReevalPanel maneja error 409 con mensaje legible",
+    "status": "completed"
+  },
+  {
+    "content": "Test backend con testing_agent (todos los nuevos endpoints)",
+    "status": "in_progress"
+  },
+  {
+    "content": "Reanudar P2A/P2B - integrar ProvenanceBadge en MatchCard (ya hecho) y añadir badge StatsBomb metadata",
+    "status": "pending"
   }
 ]
