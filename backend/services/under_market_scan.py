@@ -404,6 +404,7 @@ def scan_protected_alternatives(
     estimated_probability_under35: Optional[float] = None,
     estimated_probability_under25: Optional[float] = None,
     edge_threshold: float = 0.03,
+    live_analysis: Optional[dict] = None,
 ) -> Optional[dict]:
     """Find the best PROTECTED alternative market for a match without direct edge.
 
@@ -495,7 +496,33 @@ def scan_protected_alternatives(
     if profile_3_5["state"] == "INSUFFICIENT" and profile_2_5["state"] == "INSUFFICIENT":
         return None
 
-    line_label, picked = _select_preferred_under(profile_3_5, profile_2_5)
+    # ── Knowledge Base — caso Pumas vs Cruz Azul ────────────────────────
+    # Si el partido está en juego y cumple el patrón "cerrado + ritmo
+    # moderado" (≤1 gol de diferencia tras minuto 60, xG combinado 1-3,
+    # sin colapsos defensivos), forzamos Under 3.5 como línea protegida
+    # por encima de la heurística estándar. La regla viene del caso real
+    # 2-1 Pumas vs Cruz Azul donde Under 2.5 perdió al 87' pero Under 3.5
+    # ganó (mejor "supervivencia" del pick).
+    applied_rule = None
+    try:
+        from . import learning_cases as lc
+        kb_result = lc.apply_case_rules(profile_3_5, profile_2_5, match, live_analysis)
+        if kb_result and kb_result[0]:
+            kb_label, kb_picked, applied_rule = kb_result
+            if kb_label and kb_picked:
+                line_label, picked = kb_label, kb_picked
+                picked["reasons"] = list(picked.get("reasons") or [])
+                picked["reasons"].insert(
+                    0,
+                    "📚 Caso aprendido (Pumas-Cruz Azul): en partidos cerrados con ritmo moderado "
+                    "Under 3.5 protege mejor que Under 2.5.",
+                )
+            else:
+                line_label, picked = _select_preferred_under(profile_3_5, profile_2_5)
+        else:
+            line_label, picked = _select_preferred_under(profile_3_5, profile_2_5)
+    except Exception:
+        line_label, picked = _select_preferred_under(profile_3_5, profile_2_5)
 
     # ── Live-aware safety: filter Under lines already dead on arrival ──
     # If the match is in-play and the current total has already met or
@@ -595,6 +622,7 @@ def scan_protected_alternatives(
         "estimated_probability_source": (
             "statsbomb_poisson" if sb_features else "h2h_bayesian_shrink"
         ),
+        "applied_learning_rule": applied_rule,
     }
     if combo_candidate:
         result["combo_candidate"] = combo_candidate

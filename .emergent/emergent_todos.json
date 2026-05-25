@@ -1,22 +1,22 @@
 [
   {
-    "content": "Fix Bug 1: timeout 20s en frontend api.post + mensaje de error claro",
+    "content": "Integrar apply_case_rules en under_market_scan.scan_protected_alternatives() para priorizar Under 3.5 en partidos cerrados con ritmo moderado",
     "status": "completed"
   },
   {
-    "content": "Fix Bug 2: human_live_interpreter filtra Under/Over líneas dead-on-arrival",
+    "content": "Surfacing del rule fired en human_live_interpreter (why bullet con la regla aprendida)",
     "status": "completed"
   },
   {
-    "content": "Fix Bug 2: under_market_scan bails cuando ambas líneas están muertas",
+    "content": "Agregar endpoints API: GET/POST /api/learning/cases + seed automático en startup",
     "status": "completed"
   },
   {
-    "content": "Fix Bug 2: live_reevaluation devuelve estado LINE_DEAD con mensaje claro cuando user apuesta a línea ya superada",
-    "status": "completed"
+    "content": "Test backend con testing agent para validar regla end-to-end",
+    "status": "in_progress"
   },
   {
-    "content": "Smoke test todos los escenarios",
-    "status": "completed"
+    "content": "Actualizar plan.md con Phase 14 — Knowledge Base / Learning Cases",
+    "status": "pending"
   }
 ]

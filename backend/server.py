@@ -64,6 +64,14 @@ async def on_startup() -> None:
     await db.saved_views.create_index([("user_id", 1), ("created_at", -1)])
     await db.saved_views.create_index("id", unique=True)
     await auth_module.seed_demo_user(db)
+    # Knowledge Base — seed the user-validated learning cases (idempotent).
+    try:
+        from services import learning_cases as lc
+        inserted = await lc.seed_cases(db)
+        if inserted:
+            log.info("[LEARNING_CASES] seeded %d new cases", inserted)
+    except Exception as exc:
+        log.warning("[LEARNING_CASES] seed failed: %s", exc)
     scheduler_module.start_scheduler(db)
     # Mark any jobs orphaned by the previous process as failed.
     try:
@@ -219,7 +227,7 @@ async def matches_live(refresh: bool = False, sport: Optional[str] = None, user:
                     from services import under_market_scan as ums
                     alt = None
                     try:
-                        alt = ums.scan_protected_alternatives(m)
+                        alt = ums.scan_protected_alternatives(m, live_analysis=m.get("_live_analysis"))
                     except Exception:
                         alt = None
                     m["_live_interpreter"] = hli.interpret_live(
@@ -355,7 +363,7 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
         from services import human_live_interpreter as hli
         from services import under_market_scan as ums
         try:
-            alt = ums.scan_protected_alternatives(match)
+            alt = ums.scan_protected_alternatives(match, live_analysis=result.get("live_analysis"))
         except Exception:
             alt = None
         analysis_block = result.get("live_analysis")
@@ -1616,6 +1624,86 @@ async def meta_leagues(sport: Optional[str] = None, user: dict = Depends(get_cur
     else:
         leagues = await db.matches.distinct("league")
     return {"leagues": sorted([l for l in leagues if l])}
+
+
+# ── Knowledge Base — Learning Cases ──────────────────────────────────────────
+class LearningCaseIn(BaseModel):
+    """Payload for POST /api/learning/cases.
+
+    `rule_key` is the stable identifier the engine uses to fire the rule
+    (e.g. `close_match_moderate_pace_prefer_u35`). When omitted, the case
+    is stored as a passive note (not actively applied to the under scan).
+    """
+    case_id:      Optional[str] = None
+    title:        str
+    rule_key:     Optional[str] = None
+    match_label:  Optional[str] = None
+    league:       Optional[str] = None
+    date:         Optional[str] = None
+    engine_pick:  Optional[str] = None
+    user_pick:    Optional[str] = None
+    user_odds:    Optional[float] = None
+    stake:        Optional[float] = None
+    payout:       Optional[float] = None
+    final_score:  Optional[str] = None
+    outcome:      Optional[str] = None
+    trigger_context: Optional[dict] = None
+    lesson_es:    Optional[str] = None
+    lesson_en:    Optional[str] = None
+    tags:         Optional[list[str]] = None
+
+
+@api.get("/learning/cases")
+async def learning_cases_list(
+    rule_key: Optional[str] = None,
+    limit: int = 50,
+    user: dict = Depends(get_current_user),
+):
+    """Return the active knowledge base entries.
+
+    Cases are seeded at startup (e.g. Pumas-Cruz Azul) and can be appended
+    by the user via POST. They are global (not per-user) because they
+    encode betting heuristics that benefit every account equally.
+    """
+    from services import learning_cases as lc
+    cases = await lc.list_cases(db, limit=max(1, min(limit, 200)), rule_key=rule_key)
+    return {
+        "count":         len(cases),
+        "rule_keys":     [lc.RULE_CLOSE_MODERATE_PRIORITISE_U35],
+        "items":         cases,
+        "computed_at":   datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@api.post("/learning/cases")
+async def learning_cases_create(
+    payload: LearningCaseIn,
+    user: dict = Depends(get_current_user),
+):
+    """Persist a new learning case.
+
+    The case is upserted by `case_id` when provided so the same lesson
+    can be refined over time without duplicates. Returns the stored doc.
+    """
+    from services import learning_cases as lc
+    case_dict = payload.model_dump(exclude_none=True)
+    if not case_dict.get("case_id"):
+        case_dict["case_id"] = f"lc_{uuid.uuid4().hex[:12]}"
+    case_dict["_source"] = case_dict.get("_source") or "user_submitted"
+    case_dict["created_by"] = user["id"]
+    saved = await lc.save_case(db, case_dict)
+    # Drop Mongo _id if present (BSON-safe)
+    if saved and "_id" in saved:
+        saved = {k: v for k, v in saved.items() if k != "_id"}
+    return {"case": saved, "computed_at": datetime.now(timezone.utc).isoformat()}
+
+
+@api.post("/learning/cases/seed")
+async def learning_cases_seed(user: dict = Depends(get_current_user)):
+    """Re-run the idempotent seed (mostly for debugging / admin)."""
+    from services import learning_cases as lc
+    inserted = await lc.seed_cases(db)
+    return {"inserted": inserted, "computed_at": datetime.now(timezone.utc).isoformat()}
 
 
 # ── App registration ─────────────────────────────────────────────────────────

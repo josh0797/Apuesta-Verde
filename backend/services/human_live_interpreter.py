@@ -303,6 +303,12 @@ def interpret_live(
                         f"{sb.get('p_under_3_5' if '3.5' in am else 'p_under_2_5', 0)*100:.0f}% "
                         f"(confianza {sb.get('confidence', 0)}/100)."
                     )
+                # Knowledge Base — caso aprendido aplicado a esta línea
+                if alt_market.get("applied_learning_rule"):
+                    why.append(
+                        "📚 Caso aprendido (Pumas-Cruz Azul): partido cerrado + ritmo "
+                        "moderado → Under 3.5 protege mejor que Under 2.5."
+                    )
             elif am and mood == "neutral":
                 # No trap, balanced match, watchlist alt
                 suggested_market = am
