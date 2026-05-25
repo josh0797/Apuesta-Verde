@@ -1,34 +1,10 @@
 [
   {
-    "content": "Backend: crear services/human_live_interpreter.py (capa cognitiva)",
-    "status": "in_progress"
+    "content": "Phase 13 - HumanLiveInterpreter copilot UX + watermark removal: COMPLETO",
+    "status": "completed"
   },
   {
-    "content": "Integrar interpreter en compute_live_analysis y reevaluate_match (sin romper API actual)",
-    "status": "pending"
-  },
-  {
-    "content": "Hardening de POST /api/live/reevaluate (siempre devuelve action humana)",
-    "status": "pending"
-  },
-  {
-    "content": "Frontend: nuevo LiveCopilotCard (RECOMENDACIóN LIVE prominente)",
-    "status": "pending"
-  },
-  {
-    "content": "Frontend: reemplazar BALANCEADO/LIVE_VALUE_PUSH por títulos+sub humanos del interpreter",
-    "status": "pending"
-  },
-  {
-    "content": "Frontend: mostrar ?POR QUÉ?, Mercado más protegido, Trampa de mercado automáticamente",
-    "status": "pending"
-  },
-  {
-    "content": "CSS: mitigación del watermark Made with Emergent",
-    "status": "pending"
-  },
-  {
-    "content": "Test backend + frontend (testing agent)",
-    "status": "pending"
+    "content": "Actualizar plan.md",
+    "status": "completed"
   }
 ]
