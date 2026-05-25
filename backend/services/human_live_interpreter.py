@@ -135,6 +135,67 @@ def _offensive_market_suggestion(
     return None
 
 
+def _numerical_state(analysis: dict) -> dict:
+    """Extract numerical advantage state from live analysis incidents.
+
+    Returns:
+      {
+        "has_incident":       bool,   # True si hay al menos una roja
+        "advantage":          "home"|"away"|"none",
+        "diff":               int,    # jugadores de diferencia (0, 1, 2...)
+        "short_side":         "home"|"away"|None,  # el que tiene menos
+        "short_side_reds":    int,
+        "red_cards":          list,   # lista completa de rojas
+        "first_red_minute":   int|None,
+        "minutes_short":      int|None, # cuántos minutos lleva en inferioridad
+      }
+    """
+    if not isinstance(analysis, dict):
+        analysis = {}
+    incidents = analysis.get("incidents") or {}
+    # incidents puede venir directo del analysis o anidado en live_stats
+    if not incidents:
+        live = analysis.get("live_stats") or {}
+        incidents = live.get("incidents") or {}
+
+    red_cards      = incidents.get("red_cards") or []
+    advantage      = incidents.get("numerical_advantage") or "none"
+    diff           = incidents.get("numerical_diff") or 0
+    home_reds      = incidents.get("home_reds") or 0
+    away_reds      = incidents.get("away_reds") or 0
+    has_incident   = bool(red_cards)
+
+    short_side = None
+    short_reds = 0
+    if advantage == "home":       # home tiene ventaja → away está corto
+        short_side = "away"
+        short_reds = away_reds
+    elif advantage == "away":     # away tiene ventaja → home está corto
+        short_side = "home"
+        short_reds = home_reds
+
+    first_red_minute = None
+    if red_cards:
+        minutes = [r["minute"] for r in red_cards if r.get("minute") is not None]
+        if minutes:
+            first_red_minute = min(minutes)
+
+    minutes_short = None
+    if first_red_minute is not None and analysis.get("minute") is not None:
+        minutes_short = max(0, int(analysis.get("minute") or 0) - first_red_minute)
+
+    return {
+        "has_incident":     has_incident,
+        "advantage":        advantage,
+        "diff":             diff,
+        "short_side":       short_side,
+        "short_side_reds":  short_reds,
+        "red_cards":        red_cards,
+        "first_red_minute": first_red_minute,
+        "minutes_short":    minutes_short,
+    }
+
+
 def _pace_label(home: dict, away: dict) -> str:
     """Tactical pace given current xG + shots + dangerous attacks."""
     xg = (home.get("xg_live") or 0) + (away.get("xg_live") or 0)
@@ -201,6 +262,13 @@ def interpret_live(
     pace = _pace_label(home, away)
     direction, strength = _direction(home, away)
 
+    # ── Numerical state (red cards / inferioridad) ──────────────────────
+    num = _numerical_state(analysis)
+    short_team  = home_name if num["short_side"] == "home" else (
+                  away_name if num["short_side"] == "away" else None)
+    long_team   = away_name if num["short_side"] == "home" else (
+                  home_name if num["short_side"] == "away" else None)
+
     # ── 1. Decide mood + action ─────────────────────────────────────────
     mood = "neutral"
     action = "WAIT"
@@ -212,6 +280,85 @@ def interpret_live(
     recommendation = "ESPERAR — sin señal clara"
     why: list[str] = []
     narration_parts: list[str] = []
+
+    # ── Inferioridad numérica — señal dominante sobre pace y verdict ────
+    # Si hay una roja, la recomendación debe reflejar la nueva dinámica
+    # antes de analizar cualquier otra señal. Esto previene el bug donde
+    # un 0-1 con 10 hombres leía igual que un partido normal.
+    if num["has_incident"] and num["advantage"] != "none" and not (
+        reeval and reeval.get("edge") is not None
+    ):
+        adv_team  = long_team   # equipo con más jugadores
+        dis_team  = short_team  # equipo con menos jugadores
+        n_reds    = num["short_side_reds"]
+        min_short = num["minutes_short"]
+        min_label = f"{min_short} min" if min_short is not None else "varios minutos"
+
+        why.append(
+            f"🟥 {dis_team} juega con {11 - n_reds} jugadores desde el min "
+            f"{num['first_red_minute'] or '?'} ({min_label} en inferioridad)."
+        )
+
+        # ¿Quién va ganando?
+        dis_is_winning = (
+            (num["short_side"] == "home" and diff > 0) or
+            (num["short_side"] == "away" and diff < 0)
+        )
+        dis_is_losing = (
+            (num["short_side"] == "home" and diff < 0) or
+            (num["short_side"] == "away" and diff > 0)
+        )
+
+        if dis_is_winning:
+            # El equipo corto va ganando → trampa potencial al apostar al líder
+            mood, icon = "watch", "⚠️"
+            action, action_label = "WATCHLIST", "VIGILAR — LÍDER CON 10"
+            recommendation = f"⚠️ {dis_team} gana con 10 — riesgo de remontada"
+            risk, urgency = "HIGH", "high"
+            why.append(
+                f"{adv_team} tiene un jugador más — la presión puede crecer "
+                f"y romper el bloque defensivo de {dis_team}."
+            )
+            why.append(
+                "Evitar cuotas bajas al líder. Draw No Bet del favorito numérico "
+                f"({adv_team}) puede tener más valor."
+            )
+            suggested_market = f"Draw No Bet — {adv_team}"
+        elif dis_is_losing:
+            # El equipo corto va perdiendo → resultado prácticamente decidido
+            mood, icon = "neutral", "📊"
+            action, action_label = "WAIT", "INFERIORIDAD + PERDIENDO"
+            recommendation = f"📊 {dis_team} pierde y tiene 10 — difícil remontada"
+            risk, urgency = "LOW", "low"
+            why.append(
+                f"{dis_team} va perdiendo Y tiene {11 - n_reds} jugadores. "
+                f"La remontada es estadísticamente muy improbable."
+            )
+            # Mercado: Under de goles restantes o resultado al descanso
+            cur_total = h_score + a_score
+            if cur_total <= 2 and (minute or 0) < 70:
+                suggested_market = f"Gana {adv_team} (resultado actual)"
+            else:
+                suggested_market = None
+        else:
+            # Empatados con inferioridad → el equipo con más jugadores tiene ventaja
+            mood, icon = "value", "🔥"
+            action, action_label = "BET_NOW", "APROVECHAR SUPERIORIDAD"
+            recommendation = f"🔥 {adv_team} con superioridad numérica — ventaja real"
+            risk, urgency = "MEDIUM", "high"
+            why.append(
+                f"{adv_team} juega con un jugador más — superioridad táctica "
+                f"y física que tiende a materializarse en el marcador."
+            )
+            suggested_market = _offensive_market_suggestion(
+                h_score, a_score, minute, pace
+            ) or f"Doble Oportunidad — {adv_team}"
+
+        narration_parts.append(
+            f"Al minuto {minute or '?'}, {home_name} {h_score}-{a_score} {away_name}. "
+            f"{dis_team} lleva {min_label} con {11 - n_reds} jugadores tras la expulsión "
+            f"en el min {num['first_red_minute'] or '?'}."
+        )
 
     # First — has the user already pasted a manual odds + reeval ran?
     # If yes the reeval result drives the recommendation.
@@ -260,8 +407,9 @@ def interpret_live(
         if reeval.get("reason"):
             narration_parts.append(str(reeval["reason"]))
 
-    else:
-        # ── No manual reeval yet → use analysis verdict + alt market ──
+    elif not (num["has_incident"] and num["advantage"] != "none"):
+        # ── No manual reeval yet AND no inferioridad numérica ──
+        # Use analysis verdict + alt market.
         if verdict_label == "TRAP_LATE_LEAD" or (trap and trap.get("triggered")):
             mood, icon = "trap", "⛔"
             action, action_label = "NO_BET", "NO APOSTAR AL FAVORITO"
@@ -463,6 +611,26 @@ def interpret_live(
             minute=minute, mood=mood, direction=direction, strength=strength,
             home=home, away=away, pace=pace, alt_market=alt_market, trap=trap,
         ))
+    # Añadir contexto de inferioridad a la narración siempre que haya roja,
+    # independientemente de si vino del reeval o del análisis base.
+    if num["has_incident"] and num["advantage"] != "none" and short_team:
+        n_reds = num["short_side_reds"]
+        min_short = num["minutes_short"]
+        min_label = f"{min_short} min" if min_short is not None else "varios minutos"
+        incident_note = (
+            f"{short_team} lleva {min_label} con {11 - n_reds} jugadores "
+            f"(expulsión min {num['first_red_minute'] or '?'}). "
+            f"La dinámica del partido cambió significativamente."
+        )
+        # Dedup semántico: si la narración base ya menciona el conteo de
+        # jugadores del equipo corto, evitar añadir este note.
+        joined = " ".join(narration_parts)
+        already_mentions = (
+            f"con {11 - n_reds} jugadores" in joined
+            or f"{short_team} lleva" in joined
+        )
+        if not already_mentions:
+            narration_parts.append(incident_note)
     narration = " ".join(p for p in narration_parts if p).strip()
 
     return {

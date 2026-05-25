@@ -294,6 +294,97 @@ def normalize_recent_fixtures(fixtures: list[dict], team_id: int, *, n: int = 10
     return out
 
 
+def _parse_match_events(events: list[dict], home_id: int | None) -> dict:
+    """Parse API-Sports events[] into a structured incidents summary.
+
+    Returns:
+      {
+        "red_cards": [
+          {"minute": int, "team": "home"|"away", "player": str, "detail": str},
+          ...
+        ],
+        "yellow_cards": [
+          {"minute": int, "team": "home"|"away", "player": str},
+          ...
+        ],
+        "goals": [
+          {"minute": int, "team": "home"|"away", "player": str, "detail": str},
+          ...
+        ],
+        "home_players": int,   # current players on field (11 - red cards home)
+        "away_players": int,   # current players on field (11 - red cards away)
+        "home_reds": int,
+        "away_reds": int,
+        "home_yellows": int,
+        "away_yellows": int,
+        "numerical_advantage": "home"|"away"|"none",  # who has more players
+        "numerical_diff": int,  # absolute difference in player count
+      }
+    """
+    red_cards: list[dict] = []
+    yellow_cards: list[dict] = []
+    goals: list[dict] = []
+
+    for ev in (events or []):
+        ev_type   = (ev.get("type")   or "").strip()
+        ev_detail = (ev.get("detail") or "").strip()
+        ev_time   = ev.get("time") or {}
+        minute    = ev_time.get("elapsed")
+        team_id   = (ev.get("team") or {}).get("id")
+        team_side = "home" if team_id == home_id else "away"
+        player    = (ev.get("player") or {}).get("name") or "Desconocido"
+
+        if ev_type == "Card":
+            if ev_detail in ("Red Card", "Second Yellow card"):
+                red_cards.append({
+                    "minute":  minute,
+                    "team":    team_side,
+                    "player":  player,
+                    "detail":  ev_detail,
+                })
+            elif ev_detail == "Yellow Card":
+                yellow_cards.append({
+                    "minute": minute,
+                    "team":   team_side,
+                    "player": player,
+                })
+        elif ev_type == "Goal" and ev_detail not in ("Missed Penalty",):
+            goals.append({
+                "minute": minute,
+                "team":   team_side,
+                "player": player,
+                "detail": ev_detail,
+            })
+
+    home_reds    = sum(1 for r in red_cards if r["team"] == "home")
+    away_reds    = sum(1 for r in red_cards if r["team"] == "away")
+    home_yellows = sum(1 for y in yellow_cards if y["team"] == "home")
+    away_yellows = sum(1 for y in yellow_cards if y["team"] == "away")
+    home_players = max(1, 11 - home_reds)
+    away_players = max(1, 11 - away_reds)
+
+    if home_players > away_players:
+        numerical_advantage = "home"
+    elif away_players > home_players:
+        numerical_advantage = "away"
+    else:
+        numerical_advantage = "none"
+
+    return {
+        "red_cards":            red_cards,
+        "yellow_cards":         yellow_cards,
+        "goals":                goals,
+        "home_players":         home_players,
+        "away_players":         away_players,
+        "home_reds":            home_reds,
+        "away_reds":            away_reds,
+        "home_yellows":         home_yellows,
+        "away_yellows":         away_yellows,
+        "numerical_advantage":  numerical_advantage,
+        "numerical_diff":       abs(home_players - away_players),
+    }
+
+
 def normalize_live_stats(fixture: dict) -> dict | None:
     fx = fixture.get("fixture", {})
     status = fx.get("status", {})
@@ -302,6 +393,7 @@ def normalize_live_stats(fixture: dict) -> dict | None:
         return None
     goals = fixture.get("goals", {}) or {}
     statistics = fixture.get("statistics", []) or []
+    events = fixture.get("events", []) or []
     home_stats: dict[str, Any] = {}
     away_stats: dict[str, Any] = {}
     home_id = ((fixture.get("teams") or {}).get("home") or {}).get("id")
@@ -314,12 +406,14 @@ def normalize_live_stats(fixture: dict) -> dict | None:
             home_stats = bucket
         else:
             away_stats = bucket
+    incidents = _parse_match_events(events, home_id)
     return {
-        "minute": status.get("elapsed"),
-        "status": short,
-        "score": {"home": goals.get("home"), "away": goals.get("away")},
+        "minute":    status.get("elapsed"),
+        "status":    short,
+        "score":     {"home": goals.get("home"), "away": goals.get("away")},
         "home_stats": home_stats,
         "away_stats": away_stats,
+        "incidents": incidents,
         "fetched_at": now_iso(),
     }
 
