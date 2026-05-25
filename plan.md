@@ -379,9 +379,7 @@ Implementado:
 ---
 
 ### Phase 13 — Live Section Copilot Overhaul (P0)
-✅ **Estado: COMPLETADO**
-
-**Objetivo:** LIVE debe sentirse como “un analista profesional diciéndome exactamente qué hacer”, no un panel técnico.
+✅ **Estado: COMPLETADO****Objetivo:** LIVE debe sentirse como “un analista profesional diciéndome exactamente qué hacer”, no un panel técnico.
 
 #### 13.1 Human Live Analyst Layer
 Implementado:
@@ -425,7 +423,33 @@ Implementado:
 
 ## 3) Next Actions (inmediatas)
 
-### P1 — Extender Live Re-Evaluation a Basketball y Baseball — **PAUSADO (postergado)**
+### Phase 14 — Knowledge Base / Learning Cases Engine (P1)
+✅ **Estado: COMPLETADO**
+
+**Objetivo:** dar al motor una **memoria de largo plazo** basada en lecciones humanas validadas (no solo en EV puro), para que escenarios como el caso Pumas vs Cruz Azul (cerrado + ritmo moderado tras minuto 60 → Under 3.5 protege mejor que Under 2.5) influyan en recomendaciones futuras.
+
+Implementado:
+- ✅ Backend: `/app/backend/services/learning_cases.py`
+  - `SEED_CASES`: caso semilla **Pumas vs Cruz Azul** (`pumas-cruzazul-2026-05-24`)
+  - `detect_close_moderate_pace(match, analysis)`: heurística del patrón (minute≥60, |diff|≤1, total≤2, xG combinado 1–3, threat_ratio≤2.5)
+  - `apply_case_rules(profile_3_5, profile_2_5, match, analysis)`: override que fuerza Under 3.5 cuando la regla aplica
+  - `save_case` / `list_cases` / `seed_cases` (Motor async)
+- ✅ Backend: `under_market_scan.scan_protected_alternatives()` acepta `live_analysis=...` y consulta la KB antes de `_select_preferred_under()`. Resultado incluye `applied_learning_rule` con el `rule_key` disparado y agrega un `reason` "📚 Caso aprendido (Pumas-Cruz Azul)…".
+- ✅ Backend: `human_live_interpreter.interpret_live()` añade el bullet "📚 Caso aprendido (Pumas-Cruz Azul)" en `why[]` cuando el `alt_market` trae `applied_learning_rule`.
+- ✅ Backend: `server.py`
+  - `seed_cases(db)` llamado en startup (idempotente; log `[LEARNING_CASES]`)
+  - `GET /api/learning/cases?rule_key=&limit=` (auth)
+  - `POST /api/learning/cases` (auth; upsert por `case_id`; auto-genera `lc_xxxxxx` si falta)
+  - `POST /api/learning/cases/seed` (auth; re-seed manual idempotente)
+- ✅ Propagación: `GET /api/matches/live` y `POST /api/live/reevaluate` pasan `live_analysis` al scan para activar la regla automáticamente.
+
+Validación:
+- ✅ Testing agent: `/app/test_reports/iteration_20.json` (backend 100%, 12/12 tests, 0 bugs, sin regresiones en Phase 10–13).
+- ✅ Test sintético (Pumas-like): regla detecta minuto 79 con 1-0 y xG 2.15 → fuerza Under 3.5 sobre Under 2.5 (78 vs 84 score). Casos negativos (minuto 30 / 3-0) correctamente rechazados.
+
+---
+
+### P1 — Extender Live Re-Evaluation a Baseball — **PAUSADO (postergado)**
 - Estado: **PAUSADO** (se priorizó Phase 13 Copilot UX; retomar cuando el usuario lo solicite de nuevo).
 - Alcance acordado (cuando se retome):
   - Basket: Money Line + Total Puntos + Spread
@@ -466,5 +490,6 @@ Implementado:
 - ✅ **Phase P2B (P2):** Provenance visible por match (badge) en Live + MatchCard.
 - ✅ **Phase 12 (P0):** Live analytics avanzada con xG live + xT proxy + presión + trap detector (“NO APOSTAR al favorito” cuando aplica).
 - ✅ **Phase 13 (P0):** LIVE copilot UX (HumanLiveInterpreter) entrega decisiones humanas claras + ¿por qué? + mercado protegido + trampa + reevaluación útil.
+- ✅ **Phase 14 (P1):** Knowledge Base / Learning Cases — caso semilla Pumas-Cruz Azul integrado al motor; regla `close_match_moderate_pace_prefer_u35` fuerza Under 3.5 cuando aplica; endpoints REST + seed idempotente en startup.
 - ✅ **Bugs P1/P2 resueltos:** sin errores BSON por keys no string; sin contaminación cross-sport.
 - 🔁 **Operativo:** créditos LLM sostenibles para que análisis siga disponible.
