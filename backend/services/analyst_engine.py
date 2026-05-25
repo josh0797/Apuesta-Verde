@@ -265,7 +265,7 @@ REGLAS GENERALES (todos los deportes):
    - BONIFICACIÓN por ASYMMETRIC_HIGH_LOW: +3 a +6 si el pick favorece al lado motivado en mercado protegido.
 
 3. ANTI-TRAMPA cuotas:
-   - Cuota <1.15 DESCARTAR. Cuota >2.20 para favorito sospechoso, investigar.
+   - Cuota <1.15 DESCARTAR. Cuota >2.20 para favorito sospechoso en 1X2/Moneyline, investigar. EXCEPCIÓN: Draw No Bet con cuota hasta 2.50 es válido (el mercado elimina el empate).
    - Rango óptimo favorito: 1.25-1.85.
    - Divergencia entre casas >15% "Divergencia sospechosa".
 

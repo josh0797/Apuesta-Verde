@@ -44,7 +44,7 @@ log = logging.getLogger("football_quality")
 SCORE_PRIORITY  = int(os.environ.get("FOOTBALL_SCORE_PRIORITY",  "80"))
 SCORE_STANDARD  = int(os.environ.get("FOOTBALL_SCORE_STANDARD",  "55"))
 SCORE_LOW_POOL  = int(os.environ.get("FOOTBALL_SCORE_LOW_POOL",  "40"))
-SCORE_NO_ANALYZE = int(os.environ.get("FOOTBALL_SCORE_NO_ANALYZE", "30"))
+SCORE_NO_ANALYZE = int(os.environ.get("FOOTBALL_SCORE_NO_ANALYZE", "42"))
 
 # Tier 4 is OFF by default — never analyzed unless ENABLE_TIER_4_FALLBACK=true
 ENABLE_TIER_4_FALLBACK = os.environ.get(
