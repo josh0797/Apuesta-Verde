@@ -1,10 +1,34 @@
 [
   {
-    "content": "Phase 13 - HumanLiveInterpreter copilot UX + watermark removal: COMPLETO",
-    "status": "completed"
+    "content": "Backend: crear services/live_basketball_analytics.py (pace + lead + blowout + trap)",
+    "status": "in_progress"
   },
   {
-    "content": "Actualizar plan.md",
-    "status": "completed"
+    "content": "Backend: hacer live_reevaluation.py sport-aware (basket markets ML/Total/Spread)",
+    "status": "pending"
+  },
+  {
+    "content": "Backend: human_live_interpreter.py sport-aware (basket narration)",
+    "status": "pending"
+  },
+  {
+    "content": "Backend: /api/matches/live attaches _live_interpreter/_live_analysis para basket",
+    "status": "pending"
+  },
+  {
+    "content": "Frontend: LiveReevalPanel acepta basketball (markets ML/Total/Spread)",
+    "status": "pending"
+  },
+  {
+    "content": "Frontend: LivePage renderiza copilot+strip para basket",
+    "status": "pending"
+  },
+  {
+    "content": "Tracking: botón Gané/Perdí/Devolución en LiveReevalPanel (football + basket)",
+    "status": "pending"
+  },
+  {
+    "content": "Test backend + frontend con testing agent",
+    "status": "pending"
   }
 ]

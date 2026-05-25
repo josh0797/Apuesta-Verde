@@ -137,6 +137,7 @@ export default function LivePage() {
   }, [sport]);
 
   const isFootball = sport === 'football';
+  const supportsLiveAnalytics = sport === 'football' || sport === 'basketball';
   // For football, apply the Big Five filter unless the user disabled it.
   // For NBA/MLB we always show everything (there is no equivalent allowlist).
   const visibleItems = useMemo(() => {
@@ -399,7 +400,7 @@ export default function LivePage() {
                     recommendation FIRST, then supporting metrics. Always
                     renders when _live_interpreter is present so the user
                     sees a decision before raw numbers. */}
-                {isFootball && m._live_interpreter && (
+                {supportsLiveAnalytics && m._live_interpreter && (
                   <LiveCopilotCard
                     interpreter={m._live_interpreter}
                     lang={lang}
@@ -409,21 +410,20 @@ export default function LivePage() {
                 {/* P3 — Live xG/Threat/Pressure auto-analysis strip
                     (kloppy/socceraction/soccer_xg inspired). Now the
                     SUPPORTING evidence below the Copilot recommendation. */}
-                {isFootball && m._live_analysis && (
+                {supportsLiveAnalytics && m._live_analysis && (
                   <LiveAnalysisStrip
                     analysis={m._live_analysis}
                     lang={lang}
                     testId={`live-analysis-${m.match_id}`}
                   />
                 )}
-                {/* Phase 10 — Live Re-Eval panel (football only). Lives
-                    OUTSIDE the Link so its buttons / inputs don't navigate
-                    away to match detail when clicked. Suppress for
-                    GARBAGE_TIME and LIVE_STALE — no live value to extract. */}
-                {isFootball && lstate && ['LIVE_ACTIVE', 'LIVE_LATE', 'HT'].includes(lstate.state) && (
+                {/* Phase 10 / P4 — Live Re-Eval panel for football AND
+                    basketball. Lives OUTSIDE the Link so its inputs don't
+                    navigate away. Suppress for GARBAGE_TIME / stale. */}
+                {supportsLiveAnalytics && lstate && ['LIVE_ACTIVE', 'LIVE_LATE', 'HT'].includes(lstate.state) && (
                   <LiveReevalPanel match={m} lang={lang} sport={sport} />
                 )}
-                {isFootball && lstate && lstate.state === 'GARBAGE_TIME' && (
+                {supportsLiveAnalytics && lstate && lstate.state === 'GARBAGE_TIME' && (
                   <div className="rounded-md border border-orange-500/30 bg-orange-500/5 px-3 py-2 text-[11px] text-orange-200" data-testid={`live-garbage-warning-${m.match_id}`}>
                     {lang === 'en'
                       ? 'Garbage time — live re-evaluation disabled. No actionable value remaining.'

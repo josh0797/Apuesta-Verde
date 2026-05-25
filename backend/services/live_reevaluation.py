@@ -103,7 +103,11 @@ def reevaluate_match(
     manual_market: Optional[str] = None,
     expected_goals_total: float = 2.5,
 ) -> dict:
-    """Compute a Live Re-Evaluation result for a football match.
+    """Compute a Live Re-Evaluation result for a football OR basketball match.
+
+    Football (default) uses the Poisson/xG model. Basketball dispatches
+    to `_reevaluate_basketball()` which uses pace + projected total +
+    blowout-trap detection instead of xG.
 
     Args:
         match: hydrated match doc with `live_stats` (minute, score) and
@@ -111,30 +115,30 @@ def reevaluate_match(
         manual_odds: user-pasted decimal odds from their bookie for the
             market they're considering. WHEN PRESENT this is treated as the
             authoritative implied probability.
-        manual_market: short label of the manual market — e.g.
-            "Under 2.5", "Under 3.5", "Over 1.5", "Resultado Final: home",
-            "Doble Oportunidad: 1X". The label drives WHICH probability
-            estimate we compare against.
+        manual_market: short label of the manual market. Football examples:
+            "Under 2.5", "Over 1.5", "Resultado Final: home". Basketball
+            examples: "Money Line: home", "Total: Over 215.5", "Spread: home -4.5".
         expected_goals_total: prior on final-game xG total. Football default 2.5.
 
     Returns:
-        {
-            "match_id": ...,
-            "live_state": "...",
-            "recommended_action": "BET" | "WATCH" | "HOLD" | "CASH_OUT" | "PASS",
-            "market": str,
-            "selection": str,
-            "estimated_probability": float,
-            "implied_probability": float,
-            "edge": float,
-            "edge_pct": float,
-            "confidence": int 0-100,
-            "risk_level": "LOW" | "MEDIUM" | "HIGH",
-            "reason": str,
-            "live_snapshot": {minute, score, momentum, momentum_side},
-            "manual_odds_used": bool,
-            "computed_at": iso8601,
-        }
+        Sport-specific result (same envelope).
+    """
+    sport = (match.get("sport") or "football").lower()
+    if sport == "basketball":
+        return _reevaluate_basketball(match, manual_odds=manual_odds, manual_market=manual_market)
+    return _reevaluate_football(match, manual_odds=manual_odds, manual_market=manual_market,
+                                 expected_goals_total=expected_goals_total)
+
+
+def _reevaluate_football(
+    match: dict,
+    *,
+    manual_odds: Optional[float] = None,
+    manual_market: Optional[str] = None,
+    expected_goals_total: float = 2.5,
+) -> dict:
+    """Original football re-evaluation logic — kept verbatim under a new name
+    so basketball dispatch is non-invasive.
     """
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat()
@@ -434,3 +438,207 @@ def _build_response(**kwargs) -> dict:
         "live_analysis":       kwargs.get("live_analysis"),
         "trap":                kwargs.get("trap"),
     }
+
+
+
+# ─── Basketball re-evaluation ──────────────────────────────────────────────
+
+# Sport-specific defaults
+BBALL_AVG_PACE_PPM = 4.5          # NBA-ish total points per game minute (combined)
+BBALL_REG_GAME_MIN = 48           # 4 × 12 min regulation
+
+
+def _basket_estimate_probability(market: str, match: dict, h_score: int, a_score: int,
+                                 frac_remaining: float, projected_total: float,
+                                 pace_pts_per_min: float) -> tuple[float, str]:
+    """Estimate the probability the chosen basketball market cashes.
+
+    Markets supported:
+      • "Money Line: home" / "Money Line: away"          → side cover probability
+      • "Total: Over X.5" / "Total: Under X.5"           → over/under projected_total
+      • "Spread: home -X.5" / "Spread: away -X.5"        → ATS cover
+    """
+    market_l = (market or "").strip().lower()
+    cur_lead = h_score - a_score
+    cur_total = h_score + a_score
+
+    # ── Money Line (no draw possible — NBA / OT to settle) ─────────────
+    if market_l.startswith("money line:") or market_l in ("home", "away"):
+        side = "home" if "home" in market_l else "away"
+        lead_for_side = cur_lead if side == "home" else -cur_lead
+        # Project remaining minutes; one-team-pace ≈ half overall pace
+        remaining_min = frac_remaining * BBALL_REG_GAME_MIN
+        # Expected points this side scores from now: half the league pace, regressed
+        # toward observed share. Without per-side pace, use 50/50 split assumption.
+        # Probability of win = Φ((lead_for_side) / σ) — using rough σ ≈ 8 pts.
+        import math
+        sigma = max(4.0, 8.0 * (frac_remaining ** 0.5))  # variance scales with time left
+        z = lead_for_side / sigma
+        p = 0.5 * (1 + math.erf(z / math.sqrt(2)))
+        return max(0.02, min(0.98, p)), "normal_lead_model"
+
+    # ── Total Over/Under ───────────────────────────────────────────────
+    if "total" in market_l and ("over" in market_l or "under" in market_l):
+        # Parse the line number out of the market string.
+        import re
+        m = re.search(r"(\d+(?:\.\d+)?)", market)
+        if not m:
+            return 0.5, "no_line"
+        line = float(m.group(1))
+        is_over = "over" in market_l
+        # Expected final total = current_total + (pace * remaining)
+        remaining_min = frac_remaining * BBALL_REG_GAME_MIN
+        exp_final = cur_total + (pace_pts_per_min or BBALL_AVG_PACE_PPM) * remaining_min
+        # Approximate stdev of remaining points ~ 9 pts for 48-min games.
+        import math
+        sigma = max(5.0, 9.0 * (frac_remaining ** 0.5) + 2)
+        z = (exp_final - line) / sigma
+        p_over = 0.5 * (1 + math.erf(z / math.sqrt(2)))
+        prob = p_over if is_over else (1 - p_over)
+        return max(0.02, min(0.98, prob)), "pace_projection"
+
+    # ── Spread / Handicap ──────────────────────────────────────────────
+    if "spread" in market_l or "handicap" in market_l:
+        import re
+        side = "home" if "home" in market_l else "away"
+        m = re.search(r"[-+]?\d+(?:\.\d+)?", market)
+        if not m:
+            return 0.5, "no_handicap"
+        handicap = float(m.group(0))
+        # Adjusted lead = (lead_for_side + handicap) — assume points add to that team
+        lead_for_side = cur_lead if side == "home" else -cur_lead
+        adjusted = lead_for_side + handicap
+        # Projected adjusted lead at FT
+        import math
+        sigma = max(4.0, 8.5 * (frac_remaining ** 0.5))
+        z = adjusted / sigma
+        p_cover = 0.5 * (1 + math.erf(z / math.sqrt(2)))
+        return max(0.02, min(0.98, p_cover)), "spread_normal_model"
+
+    # Fallback
+    return 0.5, "unknown_market"
+
+
+def _basket_infer_default_market(h_score: int, a_score: int, projected_total: float) -> str:
+    """When the user didn't pick a market, default to projected-total Over X.5."""
+    line = round(projected_total / 0.5) * 0.5
+    # Half-point so it doesn't push.
+    if line == int(line):
+        line += 0.5
+    return f"Total: Over {line}"
+
+
+def _reevaluate_basketball(
+    match: dict,
+    *,
+    manual_odds: Optional[float] = None,
+    manual_market: Optional[str] = None,
+) -> dict:
+    """Basketball-specific Live Re-Eval.
+
+    Uses `services.live_basketball_analytics` for analysis + blowout trap.
+    Markets: Money Line, Total (Over/Under), Spread.
+    """
+    from datetime import datetime, timezone
+    from . import live_basketball_analytics as lba
+    now = datetime.now(timezone.utc).isoformat()
+
+    analysis = lba.compute_live_analysis(match)
+    minute = analysis.get("minute")
+    score = analysis.get("score") or {}
+    h_score = int(score.get("home") or 0)
+    a_score = int(score.get("away") or 0)
+    pace = (analysis.get("deltas") or {}).get("points_per_min") or BBALL_AVG_PACE_PPM
+    projected_total = (analysis.get("deltas") or {}).get("projected_total") or 0.0
+    frac_remaining = analysis.get("fraction_remaining") or 0.5
+    trap = analysis.get("trap")
+
+    market = manual_market or _basket_infer_default_market(h_score, a_score, projected_total)
+    selection = market
+
+    est_prob, est_basis = _basket_estimate_probability(
+        market, match, h_score, a_score, frac_remaining, projected_total, pace
+    )
+
+    # Implied probability — manual odds win.
+    if manual_odds and manual_odds > 1.01:
+        implied = 1.0 / float(manual_odds)
+        decimal_odds = float(manual_odds)
+        implied_source = "manual"
+    else:
+        decimal_odds, implied = _best_pre_match_quote(match, market)
+        implied_source = "pre_match"
+
+    if implied is None:
+        return _build_response(
+            match_id=match.get("match_id"),
+            live_state="NO_LIVE_VALUE",
+            recommended_action="PASS",
+            market=market, selection=selection,
+            estimated_probability=est_prob,
+            implied_probability=None,
+            decimal_odds=None,
+            edge=None,
+            confidence=0,
+            risk_level="HIGH",
+            reason="Sin cuota disponible para basket. Ingresa la cuota de tu bookie.",
+            live_snapshot={"minute": minute, "score": score, "is_live": True, "sport": "basketball"},
+            manual_odds_used=False,
+            computed_at=now,
+            live_analysis=analysis,
+            trap=trap,
+        )
+
+    edge = est_prob - implied
+    market_l = market.lower()
+
+    # ── Blowout trap gate (basketball) ─────────────────────────────────
+    # If the user is betting on the leader's money line during a Q4
+    # blowout with sub-1.20 odds → hard PASS.
+    leader_side = "home" if h_score > a_score else "away" if a_score > h_score else None
+    trap_overrides = (
+        trap and trap.get("triggered") and leader_side
+        and "money line" in market_l and leader_side in market_l
+    )
+    if trap_overrides:
+        state, action, risk, reason = "TRAP_DETECTED", "PASS", "HIGH", trap["reason_es"]
+        confidence = 0
+    else:
+        # Lightweight classification (no goals-remaining concept here)
+        if edge >= 0.05:
+            state, action, risk = "LIVE_VALUE_WINDOW", "BET", "LOW" if edge >= 0.10 else "MEDIUM"
+            reason = f"Ventana de valor live basket: edge +{edge*100:.1f}% en {market}."
+        elif edge >= 0.02:
+            state, action, risk = "LIVE_VALUE_WATCH", "WATCH", "MEDIUM"
+            reason = f"Posible valor en {market} (edge +{edge*100:.1f}%). Esperar mejor línea o nueva información."
+        elif edge >= -0.02:
+            state, action, risk = "LIVE_NEUTRAL", "HOLD", "MEDIUM"
+            reason = f"Sin edge claro en {market} (edge {edge*100:.1f}%). Pase recomendado."
+        else:
+            state, action, risk = "NO_LIVE_VALUE", "PASS", "HIGH"
+            reason = f"Cuota sin valor en {market} (edge {edge*100:.1f}%)."
+        # Confidence based on time elapsed + magnitude of edge.
+        confidence = max(0, min(100, int(50 + (edge * 200) + ((1 - frac_remaining) * 30))))
+        if trap and trap.get("triggered"):
+            reason = f"{reason}  ⚠ {trap['reason_es']}"
+
+    return _build_response(
+        match_id=match.get("match_id"),
+        live_state=state,
+        recommended_action=action,
+        market=market, selection=selection,
+        estimated_probability=est_prob,
+        implied_probability=implied,
+        decimal_odds=decimal_odds,
+        edge=edge,
+        confidence=confidence,
+        risk_level=risk,
+        reason=reason,
+        live_snapshot={"minute": minute, "score": score, "is_live": True,
+                       "sport": "basketball", "projected_total": projected_total,
+                       "pace_ppm": round(pace, 2)},
+        manual_odds_used=(implied_source == "manual"),
+        computed_at=now,
+        live_analysis=analysis,
+        trap=trap,
+    )

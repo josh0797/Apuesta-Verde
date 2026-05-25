@@ -51,19 +51,42 @@ const RISK_BG = {
   HIGH:   'border-red-500/40 bg-red-500/15 text-red-200',
 };
 
-const DEFAULT_MARKETS = [
+const DEFAULT_MARKETS_FOOTBALL = [
   'Under 1.5', 'Under 2.5', 'Under 3.5',
   'Over 1.5',  'Over 2.5',  'Over 3.5',
   'Resultado Final: home', 'Resultado Final: draw', 'Resultado Final: away',
 ];
+
+// P4 — Basketball markets per user spec: Money Line + Total Points + Spread.
+// We seed a few common Total / Spread half-points so the dropdown is useful
+// without forcing the user to type. Manual odds path still works for any.
+const DEFAULT_MARKETS_BASKETBALL = [
+  'Money Line: home', 'Money Line: away',
+  'Total: Over 205.5', 'Total: Under 205.5',
+  'Total: Over 215.5', 'Total: Under 215.5',
+  'Total: Over 220.5', 'Total: Under 220.5',
+  'Spread: home -3.5', 'Spread: away -3.5',
+  'Spread: home -6.5', 'Spread: away -6.5',
+];
+
+function defaultMarketFor(sport) {
+  return (sport === 'basketball') ? 'Total: Over 215.5' : 'Under 2.5';
+}
+function marketsFor(sport) {
+  return (sport === 'basketball') ? DEFAULT_MARKETS_BASKETBALL : DEFAULT_MARKETS_FOOTBALL;
+}
 
 export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [manualOdds, setManualOdds] = useState('');
-  const [manualMarket, setManualMarket] = useState('Under 2.5');
+  const [manualMarket, setManualMarket] = useState(defaultMarketFor(sport));
   const [useManual, setUseManual] = useState(false);
+  // P4 — Tracking state. After the user gets a recommendation we let them
+  // mark Gané / Perdí / Devolución, the same way Picks del día works.
+  const [tracking, setTracking] = useState(false);
+  const [trackedOutcome, setTrackedOutcome] = useState(null);
 
   const matchId = match.match_id;
 
@@ -83,6 +106,8 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
       }
       const r = await api.post('/live/reevaluate', body);
       setResult(r.data?.result || null);
+      // Reset tracking state every time we re-run.
+      setTrackedOutcome(null);
       if (r.data?.result) {
         const s = r.data.result.live_state;
         if (s === 'LIVE_VALUE_WINDOW' || s === 'MARKET_OVERREACTION') {
@@ -102,6 +127,45 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
       toast.error(detail);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // P4 — Tracking: persist outcome through /api/picks/track so the user's
+  // live re-eval picks show up in the same history as their daily picks.
+  // We use a `run_id` prefixed with "live-reeval-" to keep them grouped
+  // and searchable downstream.
+  const track = async (outcome) => {
+    if (!result || tracking) return;
+    setTracking(true);
+    try {
+      const runId = `live-reeval-${matchId}-${result.computed_at || Date.now()}`;
+      await api.post('/picks/track', {
+        run_id: runId,
+        match_id: String(matchId),
+        match_label: `${match?.home_team?.name || 'Home'} vs ${match?.away_team?.name || 'Away'}`,
+        league: match?.league || '',
+        market: result.market || 'Live',
+        selection: result.selection || result.market || 'Live',
+        confidence_score: result.confidence ?? 0,
+        outcome,                       // 'won' | 'lost' | 'push' | 'pending'
+        odds: result.decimal_odds,
+        notes: `Live re-eval @ ${result.live_snapshot?.minute ?? '—'} · ${result.market}`,
+        sport,
+      });
+      setTrackedOutcome(outcome);
+      const labels = {
+        won:  lang === 'en' ? 'Marked as WON' : 'Marcado como GANÉ',
+        lost: lang === 'en' ? 'Marked as LOST' : 'Marcado como PERDÍ',
+        push: lang === 'en' ? 'Marked as PUSH' : 'Marcado como DEVOLUCIÓN',
+      };
+      toast.success(labels[outcome] || 'Tracked');
+    } catch (err) {
+      const detail = err?.response?.data?.detail || err?.message || 'Track failed';
+      toast.error(typeof detail === 'string' ? detail : 'No se pudo guardar el resultado');
+      // eslint-disable-next-line no-console
+      console.error('[LIVE_TRACK_ERROR]', err);
+    } finally {
+      setTracking(false);
     }
   };
 
@@ -158,7 +222,7 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
                 <SelectValue placeholder={lang === 'en' ? 'Market' : 'Mercado'} />
               </SelectTrigger>
               <SelectContent>
-                {DEFAULT_MARKETS.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                {marketsFor(sport).map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
               </SelectContent>
             </Select>
             <Input
@@ -295,6 +359,73 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
               <span className="opacity-60">· {new Date(result.computed_at).toLocaleTimeString(lang === 'es' ? 'es-ES' : 'en-US')}</span>
             </div>
           )}
+
+          {/* P4 — Outcome tracking (Gané / Perdí / Devolución) — same as
+              Picks del día. Saved through /api/picks/track with a
+              live-reeval prefix so they appear in the user's history. */}
+          <div className="pt-2 mt-1 border-t border-border/60" data-testid={`reeval-track-${matchId}`}>
+            {trackedOutcome ? (
+              <div
+                className={`flex items-center justify-between gap-2 text-[11px] font-medium px-2 py-1.5 rounded-md ${
+                  trackedOutcome === 'won'  ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/40' :
+                  trackedOutcome === 'lost' ? 'bg-red-500/15 text-red-200 border border-red-500/40' :
+                                              'bg-amber-500/15 text-amber-200 border border-amber-500/40'
+                }`}
+                data-testid={`reeval-tracked-${matchId}`}
+                data-outcome={trackedOutcome}
+              >
+                <span>
+                  {trackedOutcome === 'won' && (lang === 'en' ? '✅ Marked as WON' : '✅ Marcado como GANÉ')}
+                  {trackedOutcome === 'lost' && (lang === 'en' ? '❌ Marked as LOST' : '❌ Marcado como PERDÍ')}
+                  {trackedOutcome === 'push' && (lang === 'en' ? '↩ Marked as PUSH' : '↩ Marcado como DEVOLUCIÓN')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setTrackedOutcome(null)}
+                  className="text-[10px] opacity-70 hover:opacity-100 underline"
+                  data-testid={`reeval-tracked-change-${matchId}`}
+                >
+                  {lang === 'en' ? 'Change' : 'Cambiar'}
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider opacity-70 mr-1">
+                  {lang === 'en' ? 'Result of this pick' : 'Resultado de este pick'}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={tracking}
+                  onClick={() => track('won')}
+                  className="h-7 text-[11px] border-emerald-500/40 hover:bg-emerald-500/15 text-emerald-200"
+                  data-testid={`reeval-track-won-${matchId}`}
+                >
+                  ✅ {lang === 'en' ? 'Won' : 'Gané'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={tracking}
+                  onClick={() => track('lost')}
+                  className="h-7 text-[11px] border-red-500/40 hover:bg-red-500/15 text-red-200"
+                  data-testid={`reeval-track-lost-${matchId}`}
+                >
+                  ❌ {lang === 'en' ? 'Lost' : 'Perdí'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={tracking}
+                  onClick={() => track('push')}
+                  className="h-7 text-[11px] border-amber-500/40 hover:bg-amber-500/15 text-amber-200"
+                  data-testid={`reeval-track-push-${matchId}`}
+                >
+                  ↩ {lang === 'en' ? 'Push' : 'Devolución'}
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

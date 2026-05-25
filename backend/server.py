@@ -232,6 +232,24 @@ async def matches_live(refresh: bool = False, sport: Optional[str] = None, user:
                 logging.getLogger("live").warning("live_xg_proxy failed for %s: %s", m.get("match_id"), exc)
                 m["_live_analysis"] = None
                 m["_live_interpreter"] = None
+        elif s == "basketball":
+            # P4 — basketball live analytics + copilot. Same shape as
+            # football so the UI doesn't branch on sport.
+            try:
+                from services import live_basketball_analytics as lba
+                m["_live_analysis"] = lba.compute_live_analysis(m)
+                try:
+                    from services import human_live_interpreter as hli
+                    m["_live_interpreter"] = hli.interpret_live(
+                        m, analysis=m["_live_analysis"], reeval=None, alt_market=None,
+                    )
+                except Exception as exc2:
+                    logging.getLogger("live").warning("basketball interpreter failed for %s: %s", m.get("match_id"), exc2)
+                    m["_live_interpreter"] = None
+            except Exception as exc:
+                logging.getLogger("live").warning("live_basketball_analytics failed for %s: %s", m.get("match_id"), exc)
+                m["_live_analysis"] = None
+                m["_live_interpreter"] = None
         items.append(m)
 
     return {
