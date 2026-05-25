@@ -356,26 +356,52 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
         expected_goals_total=xg,
     )
     # P3.1 — El servicio live_reevaluation ya construye result["interpreter"]
-    # internamente (FIX 1-3 aplicados). Aquí solo hacemos fallback defensivo
-    # para versiones antiguas del servicio que no lo incluyan.
-    # IMPORTANTE: scan_protected_alternatives fue removido del hot path porque
-    # su hidratación vía API-Sports consume el timeout de 20s y causaba que
-    # el except sobreescribiera el interpreter con None.
-    if result.get("interpreter") is None:
-        # El servicio no produjo interpreter (versión antigua o error interno).
-        # Intentar construirlo aquí SIN scan_protected_alternatives para no colgar.
+    # internamente. Aquí intentamos enriquecerlo con alt_market (Under 3.5/2.5)
+    # usando un timeout duro de 3s para no consumir el budget del endpoint.
+    # Si scan_protected_alternatives tarda más de 3s o falla, se omite
+    # silenciosamente — el interpreter ya construido por el servicio se conserva.
+    try:
+        from services import human_live_interpreter as hli
+        from services import under_market_scan as ums
+
+        # Intentar obtener alt_market con timeout duro.
+        # scan_protected_alternatives puede hacer I/O (API-Sports hydration)
+        # así que lo envolvemos en asyncio.wait_for con 3s máximo.
+        alt = None
         try:
-            from services import human_live_interpreter as hli
+            loop = asyncio.get_event_loop()
+            alt = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: ums.scan_protected_alternatives(
+                        match, live_analysis=result.get("live_analysis")
+                    ),
+                ),
+                timeout=3.0,
+            )
+        except asyncio.TimeoutError:
+            log.info("scan_protected_alternatives timeout (>3s) — skipping alt_market")
+        except Exception as exc_alt:
+            log.info("scan_protected_alternatives skipped: %s", exc_alt)
+
+        # Solo re-llamar al interpreter si tenemos alt_market nuevo O si el
+        # servicio no produjo interpreter (fallback defensivo).
+        if alt is not None or result.get("interpreter") is None:
             analysis_block = result.get("live_analysis")
-            result["interpreter"] = hli.interpret_live(
+            enriched = hli.interpret_live(
                 match,
                 analysis=analysis_block,
                 reeval=result,
-                alt_market=None,   # sin alt_market para mantener latencia < 1s
+                alt_market=alt,
             )
-        except Exception as exc:
-            log.warning("interpret_live fallback failed in reevaluate: %s", exc)
-            # No sobreescribir con None si ya había un valor válido del servicio
+            # Conservar el interpreter del servicio si alt es None y ya existía
+            # uno válido — solo reemplazar si alt enriquece o si era None.
+            if alt is not None or result.get("interpreter") is None:
+                result["interpreter"] = enriched
+
+    except Exception as exc:
+        log.warning("interpreter enrichment failed in reevaluate: %s", exc)
+        # Nunca sobreescribir con None — conservar lo que construyó el servicio.
     # Persist (with BSON-safe normalization) — keep latest 50 per user.
     record = _normalize_keys_for_bson({
         "id": f"lre_{user['id']}_{req.match_id}_{datetime.now(timezone.utc).timestamp():.0f}",

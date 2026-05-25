@@ -61,6 +61,29 @@ def _team_name(match: dict, side: str) -> str:
     return str(name)
 
 
+def _scoreline_context(diff: int, h_score: int, a_score: int, minute: Optional[int]) -> str:
+    """Classify the match state based on scoreline + time.
+
+    Returns a context key that takes priority over pace in title/narration:
+      'blowout'        — diff >= 3 (partido sentenciado)
+      'commanding'     — diff == 2 con min >= 60 (ventaja consolidada)
+      'late_lead'      — diff == 1 con min >= 75 (líder defendiendo)
+      'one_goal_early' — diff == 1 con min < 60 (partido vivo)
+      'level'          — diff == 0 (empatado)
+    """
+    m = minute or 0
+    abs_diff = abs(diff)
+    if abs_diff >= 3:
+        return "blowout"
+    if abs_diff == 2 and m >= 60:
+        return "commanding"
+    if abs_diff == 1 and m >= 75:
+        return "late_lead"
+    if abs_diff == 1:
+        return "one_goal_early"
+    return "level"
+
+
 def _pace_label(home: dict, away: dict) -> str:
     """Tactical pace given current xG + shots + dangerous attacks."""
     xg = (home.get("xg_live") or 0) + (away.get("xg_live") or 0)
@@ -231,8 +254,37 @@ def interpret_live(
             if pace == "abierto":
                 why.append("El partido está abierto: muchos tiros y oportunidades.")
         elif verdict_label == "BALANCED":
-            # Re-narrate balanced with richer texture.
-            if pace == "lento_tactico":
+            # Scoreline context takes priority over pace — a 3-0 must never
+            # read as "Ritmo lento, partido táctico" regardless of xG/shots.
+            _h = h_score
+            _a = a_score
+            _diff = _h - _a
+            _ctx = _scoreline_context(_diff, _h, _a, minute)
+            _leader   = home_name if _diff > 0 else away_name
+            _trailing = away_name if _diff > 0 else home_name
+
+            if _ctx == "blowout":
+                mood, icon = "neutral", "🔴"
+                action, action_label = "NO_BET", "EVITAR — RESULTADO DEFINIDO"
+                recommendation = f"🔴 {_leader} sentencia el partido"
+                risk, urgency = "HIGH", "low"
+                why.append(f"{abs(_diff)} goles de ventaja — el resultado está prácticamente cerrado.")
+                why.append("Sin valor live en Moneyline ni Spread del líder.")
+            elif _ctx == "commanding":
+                mood, icon = "neutral", "📊"
+                action, action_label = "WATCHLIST", "VIGILAR UNDER RESTANTE"
+                recommendation = f"📊 {_leader} controla con autoridad"
+                risk, urgency = "MEDIUM", "low"
+                why.append(f"Ventaja de {abs(_diff)} goles desde la hora de juego.")
+                why.append("Remontada estadísticamente improbable — Under restante puede tener valor.")
+            elif _ctx == "late_lead":
+                mood, icon = "watch", "⏱️"
+                action, action_label = "WATCHLIST", "TRAMO FINAL — CUIDADO"
+                recommendation = f"⏱️ {_leader} defiende el resultado"
+                risk, urgency = "MEDIUM", "medium"
+                why.append(f"{_trailing} necesita marcar y queda poco tiempo.")
+                why.append("Riesgo de gol desesperado — no entrar al Moneyline del líder a cuota baja.")
+            elif pace == "lento_tactico":
                 mood, icon = "neutral", "🧊"
                 action = "WATCHLIST" if alt_market else "WAIT"
                 action_label = "ESPERAR" if not alt_market else "VIGILAR UNDER"
@@ -369,21 +421,63 @@ def interpret_live(
 
 def _title_for(*, mood, verdict, pace, direction, strength,
                home_name, away_name, diff, minute, trap) -> tuple[str, str]:
-    """Replace cold labels with human framings, in ES."""
+    """Replace cold labels with human framings, in ES.
+
+    Priority order:
+      1. Trap detected (market mispricing)
+      2. Scoreline context (blowout / commanding / late lead) — ANTES que pace
+      3. Value/Push (xG momentum)
+      4. Pace (tactical rhythm)
+      5. Strength + direction fallback
+    """
+    leader   = home_name if diff > 0 else away_name
+    trailing = away_name if diff > 0 else home_name
+    h_score = max(0, (diff if diff > 0 else 0))
+    a_score = max(0, (-diff if diff < 0 else 0))
+    ctx = _scoreline_context(diff, h_score, a_score, minute)
+
+    # 1. Trap always wins.
     if trap and trap.get("triggered"):
-        leader = home_name if trap.get("leader_side") == "home" else away_name
-        chaser = away_name if trap.get("leader_side") == "home" else home_name
+        trap_leader = home_name if trap.get("leader_side") == "home" else away_name
+        trap_chaser = away_name if trap.get("leader_side") == "home" else home_name
         return (
             "⚠️ Trampa de mercado",
-            f"{leader} gana, pero {chaser} domina las estadísticas y el momentum.",
+            f"{trap_leader} gana, pero {trap_chaser} domina las estadísticas y el momentum.",
         )
+
+    # 2. Scoreline context — overrides pace when the result is effectively decided.
+    if ctx == "blowout":
+        return (
+            f"🔴 {leader} sentencia el partido",
+            f"Con {abs(diff)} goles de ventaja, el resultado está prácticamente definido.",
+        )
+    if ctx == "commanding":
+        return (
+            f"📊 {leader} controla con autoridad",
+            f"Ventaja de {abs(diff)} goles desde la hora de juego — difícil de remontar.",
+        )
+    if ctx == "late_lead":
+        return (
+            f"⏱️ {leader} defiende en el tramo final",
+            f"{trailing} necesita al menos {abs(diff)} gol{'es' if abs(diff) > 1 else ''} "
+            f"con poco tiempo restante.",
+        )
+
+    # 3. Value/Push from xG verdict.
     if verdict == "LIVE_VALUE_PUSH" or (mood == "value" and direction != "none"):
         side_team = home_name if direction == "home" else away_name
         return (
             f"🔥 Momentum {side_team}",
             f"{side_team} está creciendo y generando peligro en los últimos minutos.",
         )
+
+    # 4. Tactical pace (only relevant when scoreline is still open).
     if pace == "lento_tactico":
+        if ctx == "one_goal_early":
+            return (
+                f"🧊 {leader} gana en partido cerrado",
+                "Ritmo contenido con un gol de diferencia — partido abierto todavía.",
+            )
         return (
             "🧊 Ritmo lento",
             "El partido sigue táctico, con pocas oportunidades claras.",
@@ -393,12 +487,8 @@ def _title_for(*, mood, verdict, pace, direction, strength,
             "🔥 Partido abierto",
             "Mucho ida y vuelta, pocas opciones de Under agresivo.",
         )
-    if abs(diff) >= 2:
-        side_team = home_name if diff > 0 else away_name
-        return (
-            f"📊 {side_team} domina el marcador",
-            "La ventaja parece consolidada en lo estadístico también.",
-        )
+
+    # 5. Strength + direction fallback.
     if diff == 0 and strength < 0.10:
         return (
             "⚖️ Partido muy cerrado",
@@ -410,7 +500,6 @@ def _title_for(*, mood, verdict, pace, direction, strength,
             f"⚖️ {side_team} gana, pero no domina",
             "El marcador no refleja diferencias estadísticas claras.",
         )
-    # Fallback
     return (
         "⚖️ Partido equilibrado",
         "Sin señal direccional clara todavía.",
@@ -422,19 +511,59 @@ def _title_for(*, mood, verdict, pace, direction, strength,
 def _compose_narration(*, home_name, away_name, h_score, a_score, minute,
                        mood, direction, strength, home, away, pace,
                        alt_market, trap) -> str:
-    """One-paragraph 'Razón:' text in coach voice."""
+    """One-paragraph 'Razón:' text in coach voice.
+
+    Scoreline context takes priority over pace so a 3-0 match never reads
+    the same as a 0-0 one, regardless of xG or shot volume.
+    """
+    diff = h_score - a_score
+    leader   = home_name if diff > 0 else away_name
+    trailing = away_name if diff > 0 else home_name
+    ctx = _scoreline_context(diff, h_score, a_score, minute)
+
     parts: list[str] = []
     if minute is not None:
         parts.append(f"Al minuto {minute}, {home_name} {h_score}-{a_score} {away_name}.")
+
+    # Trap always overrides everything else.
     if trap and trap.get("triggered"):
-        parts.append("La cuota del favorito ya perdió valor: el rival está más cerca del empate que de defender.")
+        parts.append(
+            "La cuota del favorito ya perdió valor: el rival está más cerca del empate que de defender."
+        )
         return " ".join(parts)
+
+    # ── Scoreline-driven narrations (high priority) ──────────────────────
+    if ctx == "blowout":
+        parts.append(
+            f"{leader} ha sentenciado el partido con {abs(diff)} goles de ventaja. "
+            f"No hay valor live en apostar al resultado — considera mercados de goles restantes "
+            f"o simplemente evita este partido."
+        )
+        return " ".join(parts)
+
+    if ctx == "commanding":
+        parts.append(
+            f"{leader} controla con {abs(diff)} goles de ventaja desde la hora de juego. "
+            f"La remontada es estadísticamente improbable. "
+            f"Under de goles restantes podría tener valor si la cuota lo justifica."
+        )
+        return " ".join(parts)
+
+    if ctx == "late_lead":
+        parts.append(
+            f"{leader} gestiona el resultado en el tramo final. "
+            f"{trailing} necesita marcar pero el tiempo se agota. "
+            f"Riesgo real de gol desesperado del perdedor — evitar Moneyline del líder a cuota baja."
+        )
+        return " ".join(parts)
+
+    # ── Standard narrations when scoreline is still open ─────────────────
     if mood == "value":
         side_team = home_name if direction == "home" else away_name
         parts.append(
             f"{side_team} está empujando con más xG live "
-            f"({(home if direction=='home' else away).get('xg_live',0):.2f} vs "
-            f"{(away if direction=='home' else home).get('xg_live',0):.2f}) "
+            f"({(home if direction=='home' else away).get('xg_live', 0):.2f} vs "
+            f"{(away if direction=='home' else home).get('xg_live', 0):.2f}) "
             f"y más presión por minuto."
         )
         if alt_market:
@@ -442,10 +571,21 @@ def _compose_narration(*, home_name, away_name, h_score, a_score, minute,
             parts.append(f"Si prefieres una jugada protegida, {am} sigue siendo razonable.")
     elif mood == "watch":
         side_team = home_name if direction == "home" else away_name
-        parts.append(f"El {side_team} está creciendo, pero el mercado todavía no ha movido la línea suficiente para entrar.")
+        parts.append(
+            f"El {side_team} está creciendo, pero el mercado todavía no ha movido "
+            f"la línea suficiente para entrar."
+        )
     elif mood == "neutral":
-        if pace == "lento_tactico":
-            parts.append("Ritmo bajo, defensas dominando. Under es un perfil natural pero la cuota tiene que justificarlo.")
+        if ctx == "one_goal_early":
+            parts.append(
+                "Un gol de diferencia con tiempo de sobra — el partido sigue vivo. "
+                "Las estadísticas no muestran dominio claro de ningún lado todavía."
+            )
+        elif pace == "lento_tactico":
+            parts.append(
+                "Ritmo bajo, defensas dominando. Under es un perfil natural "
+                "pero la cuota tiene que justificarlo."
+            )
         else:
             parts.append("Sin señal direccional. Datos parejos en ambos lados.")
     elif mood == "insufficient":
