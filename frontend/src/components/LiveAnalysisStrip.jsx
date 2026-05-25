@@ -90,31 +90,19 @@ export function LiveAnalysisStrip({ analysis, lang = 'es', testId = 'live-analys
       data-verdict={verdict.label}
       data-trap={trap ? 'true' : 'false'}
     >
-      {/* Verdict header */}
-      <div className="flex items-start gap-2">
-        <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${TONE_ICON_CLS[meta.tone]}`} aria-hidden />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-semibold uppercase tracking-wide" data-testid={`${testId}-label`}>
-              {lang === 'en' ? meta.en : meta.es}
-            </span>
-            {verdict.side && verdict.label !== 'BALANCED' && (
-              <span className="text-[10px] opacity-80 font-mono-tabular">
-                {verdict.side === 'home' ? (lang === 'en' ? 'home' : 'local') : (lang === 'en' ? 'away' : 'visitante')}
-              </span>
-            )}
-            {trap?.triggered && (
-              <span className="text-[10px] font-semibold opacity-90 font-mono-tabular border border-current rounded px-1.5 py-0.5">
-                {lang === 'en' ? 'DO NOT BET FAVORITE' : 'NO APOSTAR AL FAVORITO'}
-              </span>
-            )}
-          </div>
-          {reason && (
-            <p className="text-[11px] mt-1 leading-snug opacity-95" data-testid={`${testId}-reason`}>
-              {reason}
-            </p>
-          )}
-        </div>
+      {/* Compact evidence header — the rich verdict narration now lives
+          in <LiveCopilotCard/>. We keep an icon + tiny tag here so the
+          grid below still has visual anchor without duplicating prose. */}
+      <div className="flex items-center gap-2">
+        <Icon className={`h-3.5 w-3.5 shrink-0 ${TONE_ICON_CLS[meta.tone]}`} aria-hidden />
+        <span className="text-[10px] uppercase tracking-wider opacity-80" data-testid={`${testId}-label`}>
+          {lang === 'en' ? 'Live evidence' : 'Evidencia live'}
+        </span>
+        {trap?.triggered && (
+          <span className="text-[10px] font-semibold opacity-95 font-mono-tabular border border-current rounded px-1.5 py-0.5">
+            {lang === 'en' ? 'TRAP' : 'TRAMPA'}
+          </span>
+        )}
       </div>
 
       {/* Per-side metric grid — kloppy/socceraction/soccer_xg outputs */}

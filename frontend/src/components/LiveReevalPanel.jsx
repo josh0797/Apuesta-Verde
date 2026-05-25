@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { Radio, RefreshCw, AlertCircle, TrendingUp, Hand, Eye, X } from 'lucide-react';
+import { LiveCopilotCard } from '@/components/LiveCopilotCard';
 
 /**
  * LiveReevalPanel — Phase 10 entry point on the LivePage.
@@ -183,6 +184,16 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
       {/* Result */}
       {result && (
         <div className="space-y-2" data-testid={`reeval-result-${matchId}`}>
+          {/* P3.1 — Re-eval now ALWAYS surfaces a human-readable Copilot
+              recommendation at the top of the result. Falls back to the
+              raw badge row when interpreter is missing (defensive). */}
+          {result.interpreter && (
+            <LiveCopilotCard
+              interpreter={result.interpreter}
+              lang={lang}
+              testId={`reeval-copilot-${matchId}`}
+            />
+          )}
           {/* Header badges */}
           <div className="flex items-center gap-2 flex-wrap">
             <span className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[11px] font-semibold uppercase tracking-wide ${TONE_BG[stateMeta?.tone] || TONE_BG.amber}`} data-testid={`reeval-state-${matchId}`}>

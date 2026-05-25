@@ -13,6 +13,7 @@ import { MatchCard } from '@/components/MatchCard';
 import { LiveReevalPanel } from '@/components/LiveReevalPanel';
 import { LiveStateBadge, LiveFreshnessBadge } from '@/components/LiveStateBadges';
 import { LiveAnalysisStrip } from '@/components/LiveAnalysisStrip';
+import { LiveCopilotCard } from '@/components/LiveCopilotCard';
 import { ProvenanceBadge } from '@/components/ProvenancePanel';
 import { isBigFive } from '@/lib/competitions';
 import { partitionLive, LIVE_CACHE_TTL_SEC, validLiveMatch } from '@/lib/liveValidation';
@@ -394,10 +395,20 @@ export default function LivePage() {
                     <StatCell label={t.live.xg} h={stat(h, 'expected_goals')} a={stat(a, 'expected_goals')} />
                   </div>
                 </Link>
+                {/* P3.1 — Copilot Card (HumanLiveInterpreter): coach-voice
+                    recommendation FIRST, then supporting metrics. Always
+                    renders when _live_interpreter is present so the user
+                    sees a decision before raw numbers. */}
+                {isFootball && m._live_interpreter && (
+                  <LiveCopilotCard
+                    interpreter={m._live_interpreter}
+                    lang={lang}
+                    testId={`live-copilot-${m.match_id}`}
+                  />
+                )}
                 {/* P3 — Live xG/Threat/Pressure auto-analysis strip
-                    (kloppy/socceraction/soccer_xg inspired). Surfaces the
-                    trap detector verdict ("NO APOSTAR AL FAVORITO") even
-                    when the user hasn't opened the manual re-eval form. */}
+                    (kloppy/socceraction/soccer_xg inspired). Now the
+                    SUPPORTING evidence below the Copilot recommendation. */}
                 {isFootball && m._live_analysis && (
                   <LiveAnalysisStrip
                     analysis={m._live_analysis}

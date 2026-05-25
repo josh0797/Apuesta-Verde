@@ -210,9 +210,28 @@ async def matches_live(refresh: bool = False, sport: Optional[str] = None, user:
         if s == "football":
             try:
                 m["_live_analysis"] = lxp.compute_live_analysis(m)
+                # P3.1 — HumanLiveInterpreter: convert raw metrics into a
+                # coach-style recommendation (title, action, why, narration,
+                # suggested market). Attached separately so callers that only
+                # want the raw analysis can ignore it.
+                try:
+                    from services import human_live_interpreter as hli
+                    from services import under_market_scan as ums
+                    alt = None
+                    try:
+                        alt = ums.scan_protected_alternatives(m)
+                    except Exception:
+                        alt = None
+                    m["_live_interpreter"] = hli.interpret_live(
+                        m, analysis=m["_live_analysis"], reeval=None, alt_market=alt,
+                    )
+                except Exception as exc2:
+                    logging.getLogger("live").warning("human_live_interpreter failed for %s: %s", m.get("match_id"), exc2)
+                    m["_live_interpreter"] = None
             except Exception as exc:
                 logging.getLogger("live").warning("live_xg_proxy failed for %s: %s", m.get("match_id"), exc)
                 m["_live_analysis"] = None
+                m["_live_interpreter"] = None
         items.append(m)
 
     return {
@@ -310,6 +329,24 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
         manual_market=req.manual_market,
         expected_goals_total=xg,
     )
+    # P3.1 — Wrap the reevaluate output with the HumanLiveInterpreter so
+    # the UI gets the same coach-voice payload it shows for non-clicked
+    # cards. This guarantees that "Reevaluar ahora" ALWAYS produces a
+    # human recommendation, not just a raw edge number.
+    try:
+        from services import human_live_interpreter as hli
+        from services import under_market_scan as ums
+        try:
+            alt = ums.scan_protected_alternatives(match)
+        except Exception:
+            alt = None
+        analysis_block = result.get("live_analysis")
+        result["interpreter"] = hli.interpret_live(
+            match, analysis=analysis_block, reeval=result, alt_market=alt,
+        )
+    except Exception as exc:
+        log.warning("interpret_live failed in reevaluate: %s", exc)
+        result["interpreter"] = None
     # Persist (with BSON-safe normalization) — keep latest 50 per user.
     record = _normalize_keys_for_bson({
         "id": f"lre_{user['id']}_{req.match_id}_{datetime.now(timezone.utc).timestamp():.0f}",
