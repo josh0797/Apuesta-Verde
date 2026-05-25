@@ -197,11 +197,27 @@ export function LiveCopilotCard({ interpreter, lang = 'es', testId = 'live-copil
         <div className="flex flex-wrap gap-1.5 pt-1.5 border-t border-foreground/10">
           {interpreter.suggested_market && (
             <span
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-cyan-500/40 bg-cyan-500/10 text-cyan-100 text-[11px] font-medium"
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-medium ${
+                interpreter.suggested_market.includes('Over') ||
+                interpreter.suggested_market.includes('BTTS') ||
+                interpreter.suggested_market.includes('Ambos')
+                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+                  : 'border-cyan-500/40 bg-cyan-500/10 text-cyan-100'
+              }`}
               data-testid={`${testId}-suggested-market`}
             >
-              <Shield className="h-3 w-3" aria-hidden />
-              {lang === 'en' ? 'Protected market: ' : 'Mercado más protegido: '}
+              {interpreter.suggested_market.includes('Over') ||
+               interpreter.suggested_market.includes('BTTS') ||
+               interpreter.suggested_market.includes('Ambos')
+                ? <TrendingUp className="h-3 w-3" aria-hidden />
+                : <Shield className="h-3 w-3" aria-hidden />
+              }
+              {interpreter.suggested_market.includes('Over') ||
+               interpreter.suggested_market.includes('BTTS') ||
+               interpreter.suggested_market.includes('Ambos')
+                ? (lang === 'en' ? 'Offensive market: ' : 'Mercado ofensivo: ')
+                : (lang === 'en' ? 'Protected market: ' : 'Mercado protegido: ')
+              }
               <span className="font-semibold">{interpreter.suggested_market}</span>
             </span>
           )}

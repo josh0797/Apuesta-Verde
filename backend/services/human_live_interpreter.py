@@ -84,6 +84,57 @@ def _scoreline_context(diff: int, h_score: int, a_score: int, minute: Optional[i
     return "level"
 
 
+def _offensive_market_suggestion(
+    h_score: int, a_score: int, minute: Optional[int], pace: str
+) -> Optional[str]:
+    """Suggest the best OFFENSIVE market given the live state.
+
+    Returns a market string or None if no offensive market makes sense.
+
+    Logic:
+      • Si ambos equipos han marcado → BTTS ya ocurrió → sugerir Over de goles
+        adicionales o nada (no tiene sentido sugerir BTTS de nuevo).
+      • Si ningún equipo ha marcado y el ritmo es abierto → Over 1.5 (alta prob).
+      • Si el marcador es 1-0 o 0-1 con ritmo abierto → BTTS (el que no marcó
+        puede empatar) o Over 2.5 dependiendo del tiempo.
+      • Si el marcador ya tiene 2+ goles totales y hay tiempo → Over 3.5.
+      • Si queda poco tiempo (>75) → evitar Over (demasiado riesgo temporal).
+    """
+    m = minute or 0
+    total = h_score + a_score
+    both_scored = h_score > 0 and a_score > 0
+
+    # Tarde en el partido — los Over son de alto riesgo temporal
+    if m >= 75:
+        return None
+
+    # Partido abierto (ambos marcaron) → Over de siguiente gol
+    if both_scored:
+        if total <= 2 and m < 65:
+            return "Over 3.5"
+        if total == 1 and m < 50:
+            return "Over 2.5"
+        return None  # demasiados goles o poco tiempo
+
+    # Solo un equipo marcó → BTTS o Over 2.5 según ritmo y tiempo
+    if total == 1:
+        if pace == "abierto" and m < 60:
+            return "BTTS (Ambos marcan)"
+        if pace in ("abierto", "medio") and m < 70:
+            return "Over 2.5"
+        return None
+
+    # Nadie ha marcado → Over 1.5 si el ritmo lo justifica
+    if total == 0:
+        if pace == "abierto":
+            return "Over 1.5"
+        if pace == "medio" and m < 55:
+            return "Over 1.5"
+        return None
+
+    return None
+
+
 def _pace_label(home: dict, away: dict) -> str:
     """Tactical pace given current xG + shots + dangerous attacks."""
     xg = (home.get("xg_live") or 0) + (away.get("xg_live") or 0)
@@ -228,31 +279,38 @@ def interpret_live(
             mood, icon = "value", "🔥"
             action, action_label = "BET_NOW", "EVALUAR VALOR"
             recommendation = f"🔥 EMPUJE {side_label.upper()}"
-            # Live-aware Over suggestion: pick the Over line that still has
-            # at least 1 goal of headroom (i.e. live total < line - 0.5).
-            cur_total = h_score + a_score
-            if cur_total == 0:
-                suggested_market = "Over 1.5"
-            elif cur_total <= 1:
-                suggested_market = "Over 2.5"
-            elif cur_total <= 2:
-                suggested_market = "Over 3.5"
-            else:
-                # Match is already high-scoring (3+ goals) — Over 2.5 / 3.5
-                # already cashed or one tap away. Drop direct Over suggestion.
-                suggested_market = None
+            # Offensive market suggestion: Over / BTTS según estado del marcador.
+            # Usa _offensive_market_suggestion() en lugar de la lógica hardcoded
+            # de solo-Over que ignoraba BTTS y el contexto de tiempo.
+            suggested_market = _offensive_market_suggestion(
+                h_score, a_score, minute, pace
+            )
+            # Si el marcador ya tiene 3+ goles y queda tiempo, el empuje puede
+            # ser interesante para Doble Oportunidad del lado que empuja.
+            if suggested_market is None and (h_score + a_score) >= 3:
+                push_side = home_name if side == "home" else away_name
+                suggested_market = f"Doble Oportunidad — {push_side}"
             risk = "MEDIUM"
             urgency = "high"
             why.append(
                 f"{home_name if side=='home' else away_name} genera más xG live "
-                f"({home.get('xg_live',0):.2f} vs {away.get('xg_live',0):.2f})."
+                f"({home.get('xg_live', 0):.2f} vs {away.get('xg_live', 0):.2f})."
             )
             why.append(
-                f"Presión {side_label}: {(home if side=='home' else away).get('pressure_rate',0):.2f}/min "
-                f"vs {(away if side=='home' else home).get('pressure_rate',0):.2f}/min."
+                f"Presión {side_label}: "
+                f"{(home if side=='home' else away).get('pressure_rate', 0):.2f}/min "
+                f"vs {(away if side=='home' else home).get('pressure_rate', 0):.2f}/min."
             )
             if pace == "abierto":
                 why.append("El partido está abierto: muchos tiros y oportunidades.")
+            if suggested_market and "BTTS" in suggested_market:
+                why.append(
+                    "Solo un equipo ha marcado — el rival tiene xG suficiente para empatar."
+                )
+            if suggested_market and "Over" in suggested_market:
+                why.append(
+                    f"El ritmo ofensivo apoya {suggested_market} con tiempo suficiente."
+                )
         elif verdict_label == "BALANCED":
             # Scoreline context takes priority over pace — a 3-0 must never
             # read as "Ritmo lento, partido táctico" regardless of xG/shots.
@@ -300,6 +358,15 @@ def interpret_live(
                 risk, urgency = "MEDIUM", "medium"
                 why.append(f"El {side_label} está creciendo en los últimos minutos.")
                 why.append("El marcador todavía no refleja ese dominio.")
+                # Si el momentum es fuerte y el marcador está abierto,
+                # sugerir el mercado ofensivo apropiado.
+                _off = _offensive_market_suggestion(h_score, a_score, minute, pace)
+                if _off:
+                    suggested_market = _off
+                    why.append(
+                        f"El crecimiento del {side_label} apoya {_off} "
+                        f"si la cuota lo justifica."
+                    )
             else:
                 mood, icon = "neutral", "⚖️"
                 action, action_label = "WAIT", "PARTIDO MUY CERRADO"
