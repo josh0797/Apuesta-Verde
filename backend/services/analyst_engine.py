@@ -53,7 +53,7 @@ OPENAI_MODEL_FULL = os.environ.get("OPENAI_MODEL_FULL", "gpt-4o")
 
 # How aggressively to shortlist: at most this many matches reach Stage 2.
 # Tunable via env so prod can lower it if costs spike.
-TWO_STAGE_MAX_CANDIDATES = int(os.environ.get("TWO_STAGE_MAX_CANDIDATES", "6"))
+TWO_STAGE_MAX_CANDIDATES = int(os.environ.get("TWO_STAGE_MAX_CANDIDATES", "9"))
 # Below this batch size the pre-filter adds latency without saving cost,
 # so we skip Stage 1 and go straight to Stage 2.
 TWO_STAGE_MIN_INPUT = int(os.environ.get("TWO_STAGE_MIN_INPUT", "3"))
@@ -260,6 +260,7 @@ REGLAS GENERALES (todos los deportes):
 2. SCORE DE CONFIANZA (0-100), pesos:
    - Diferencia nivel 20% + Motivación 25% + Forma reciente 15% + H2H 10% + Local/Visitante 10% + Bajas 10% + Estabilidad mercado 10%.
    - Mínimo para recomendar: 60 (modo MODERADO). Media: 60-69. Alta: 70-79. Máxima: >=80.
+   - EXCEPCIÓN mercado alternativo protegido (_alternative_market=True): mínimo 55.
    - Penalizaciones: contexto ausente/>12h: -10; odds ausentes/>1h: -5; solo 1 snapshot: -5; oponente motivacion=5: -5.
    - BONIFICACIÓN por ASYMMETRIC_HIGH_LOW: +3 a +6 si el pick favorece al lado motivado en mercado protegido.
 
@@ -1012,12 +1013,23 @@ def _apply_form_correction(parsed: dict, input_payload: list[dict]) -> dict:
             rerouted += 1
         else:
             # Soft-penalize: -8 confidence + add risk + attach warning payload
-            cur = int(rec.get("confidence_score") or 0)
-            rec["confidence_score"] = max(50, cur - 8)
-            # Re-derive level if present
+            # ── Anti-doble-penalización ─────────────────────────────────
+            # Si el array `risks` del pick ya menciona la racha (por nombre
+            # del equipo o las palabras "racha"/"streak"), el LLM ya bajó
+            # la confianza por este motivo. Saltamos el -8 adicional pero
+            # mantenemos el warning visible.
+            already_flagged = any(
+                (flag["team_name"].lower() in (r or "").lower())
+                or ("racha" in (r or "").lower())
+                or ("streak" in (r or "").lower())
+                for r in (p.get("risks") or [])
+            )
             new_level_map = lambda c: ("Maxima" if c >= 80 else "Alta" if c >= 70 else "Media")  # noqa: E731
-            if rec.get("confidence_level"):
-                rec["confidence_level"] = new_level_map(rec["confidence_score"])
+            if not already_flagged:
+                cur = int(rec.get("confidence_score") or 0)
+                rec["confidence_score"] = max(50, cur - 8)
+                if rec.get("confidence_level"):
+                    rec["confidence_level"] = new_level_map(rec["confidence_score"])
             p["recommendation"] = rec
             risks = list(p.get("risks") or [])
             risks.append(
@@ -1116,7 +1128,11 @@ def _apply_protected_alternative_scan(parsed: dict, input_payload: list[dict]) -
         # pressure) are kept neutral — Moneyball will recompute its own
         # implied/edge/EV from the odds we provide here.
         is_watchlist = alt["state"] in ("UNDER35_WATCHLIST", "UNDER25_WATCHLIST")
-        confidence = 65 if is_watchlist else 74  # watchlist gets lower CS
+        # NB. minimum acceptable confidence for the PROTECTED ALTERNATIVE
+        # path is 55 (vs 60 elsewhere). Watchlist sits exactly at the
+        # floor; recommended sits comfortably above it.
+        ALT_MIN_CONFIDENCE = 55
+        confidence = ALT_MIN_CONFIDENCE if is_watchlist else 74
 
         pick = {
             "match_id": mid,
@@ -1151,6 +1167,12 @@ def _apply_protected_alternative_scan(parsed: dict, input_payload: list[dict]) -
             "_alternative_market_payload": alt,
             "_football_quality": fq,
         }
+        # Floor-clamp: this path is allowed to dip to 55 (vs 60 default).
+        try:
+            cs_now = int(pick["recommendation"].get("confidence_score") or 0)
+            pick["recommendation"]["confidence_score"] = max(ALT_MIN_CONFIDENCE, cs_now)
+        except Exception:
+            pass
         picks.append(pick)
         promoted.append(pick)
 

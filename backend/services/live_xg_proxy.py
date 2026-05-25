@@ -271,11 +271,17 @@ def detect_late_lead_trap(
 
     pressure_ratio = trail_pressure / max(0.001, lead_pressure)
     threat_ratio   = trail_threat   / max(0.001, lead_threat)
-    if pressure_ratio < 1.4 or threat_ratio < 1.2:
+    # Two-tier trap detection: a STRONG zone (>=1.4 / >=1.2) and a
+    # WEAKER zone (1.2-1.4 / 1.1-1.2) that we still surface but flag
+    # as `low_confidence` so the UI/interpreter can soften the warning.
+    low_confidence_trap = (1.2 <= pressure_ratio < 1.4) or (1.1 <= threat_ratio < 1.2)
+    if pressure_ratio < 1.2 or threat_ratio < 1.1:
         return None
 
+    reason_prefix_es = "(Señal débil) " if low_confidence_trap else ""
     return {
         "triggered":          True,
+        "low_confidence":     low_confidence_trap,
         "leader_side":        leader,
         "trailing_side":      trailing,
         "leader_pressure":    round(lead_pressure, 3),
@@ -284,7 +290,7 @@ def detect_late_lead_trap(
         "threat_ratio":       round(threat_ratio, 2),
         "decimal_odds_for_leader": decimal_odds_for_leader,
         "reason_es": (
-            f"TRAMPA: favorito ({leader}) gana al min {minute} con cuota "
+            f"{reason_prefix_es}TRAMPA: favorito ({leader}) gana al min {minute} con cuota "
             f"{decimal_odds_for_leader:.2f}, pero el rival presiona "
             f"{pressure_ratio:.1f}× más (xT {threat_ratio:.1f}×). NO APOSTAR al favorito; "
             f"considerar Over o spread del rival."
