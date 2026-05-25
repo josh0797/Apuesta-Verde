@@ -146,7 +146,13 @@ def interpret_live(
         rec_action = (reeval.get("recommended_action") or "WAIT").upper()
         market = reeval.get("market") or "Mercado live"
         edge_pct = float(reeval.get("edge_pct") or 0.0)
-        if state == "TRAP_DETECTED":
+        if state == "LINE_DEAD":
+            mood, icon = "trap", "⛔"
+            action, action_label = "NO_BET", "LÍNEA MUERTA"
+            recommendation = f"⛔ {market.upper()} — ya no es posible"
+            risk, urgency = "HIGH", "low"
+            suggested_market = None
+        elif state == "TRAP_DETECTED":
             mood, icon = "trap", "⛔"
             action, action_label = "NO_BET", "NO APOSTAR"
             recommendation = "⛔ NO APOSTAR — trampa de mercado"
@@ -199,7 +205,19 @@ def interpret_live(
             mood, icon = "value", "🔥"
             action, action_label = "BET_NOW", "EVALUAR VALOR"
             recommendation = f"🔥 EMPUJE {side_label.upper()}"
-            suggested_market = "Over 1.5" if (h_score + a_score) == 0 else "Over 2.5"
+            # Live-aware Over suggestion: pick the Over line that still has
+            # at least 1 goal of headroom (i.e. live total < line - 0.5).
+            cur_total = h_score + a_score
+            if cur_total == 0:
+                suggested_market = "Over 1.5"
+            elif cur_total <= 1:
+                suggested_market = "Over 2.5"
+            elif cur_total <= 2:
+                suggested_market = "Over 3.5"
+            else:
+                # Match is already high-scoring (3+ goals) — Over 2.5 / 3.5
+                # already cashed or one tap away. Drop direct Over suggestion.
+                suggested_market = None
             risk = "MEDIUM"
             urgency = "high"
             why.append(
@@ -245,10 +263,29 @@ def interpret_live(
             why.append("Faltan estadísticas live para emitir veredicto fiable.")
 
         # ── Layer in the alt-market suggestion if available ───────────
+        # Live-aware: drop alt suggestions whose line is too close to busting
+        # given the CURRENT live score (e.g. "Under 2.5" when score is 2-1).
+        live_total_now = (analysis.get("score") or {})
+        live_total_sum = int(live_total_now.get("home") or 0) + int(live_total_now.get("away") or 0)
+        def _is_under_alive(market_label: str, total_sum: int) -> bool:
+            """Return False if `Under X.5` is already dead or one goal from death."""
+            import re as _re
+            if not market_label:
+                return False
+            m = _re.search(r"under\s*(\d+(?:\.\d+)?)", market_label.lower())
+            if not m:
+                return True  # not an Under line — let it through
+            line_num = float(m.group(1))
+            return (line_num - total_sum) >= 1.0
+
         if alt_market and alt_market.get("state") in ("PROTECTED_MARKET_RECOMMENDED", "UNDER35_WATCHLIST"):
             am = alt_market.get("market") or "Under 3.5"
             am_state = alt_market.get("state")
-            if mood not in ("trap", "value") and am_state == "PROTECTED_MARKET_RECOMMENDED":
+            if not _is_under_alive(am, live_total_sum):
+                # Mathematically (almost) impossible already — do not suggest.
+                am = None
+                am_state = None
+            if am and mood not in ("trap", "value") and am_state == "PROTECTED_MARKET_RECOMMENDED":
                 # No trap, no direct value → use protected market as the rec.
                 suggested_market = am
                 mood = "value" if mood != "trap" else mood
@@ -266,7 +303,7 @@ def interpret_live(
                         f"{sb.get('p_under_3_5' if '3.5' in am else 'p_under_2_5', 0)*100:.0f}% "
                         f"(confianza {sb.get('confidence', 0)}/100)."
                     )
-            elif mood == "neutral":
+            elif am and mood == "neutral":
                 # No trap, balanced match, watchlist alt
                 suggested_market = am
                 why.append(f"{am} podría seguir protegido — vigilar línea.")

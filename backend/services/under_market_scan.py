@@ -497,6 +497,35 @@ def scan_protected_alternatives(
 
     line_label, picked = _select_preferred_under(profile_3_5, profile_2_5)
 
+    # ── Live-aware safety: filter Under lines already dead on arrival ──
+    # If the match is in-play and the current total has already met or
+    # exceeded the Under line, that line is mathematically lost (Under
+    # 2.5 with 1-1 = 2 goals scored is on a knife's edge; with 2-1 = 3 it
+    # is ALREADY a loss). We swap to the safer Under 3.5 line OR bail out
+    # entirely when both lines are already invalidated.
+    live_total = None
+    live_stats = match.get("live_stats") or {}
+    sc = live_stats.get("score") or {}
+    if match.get("is_live") and isinstance(sc.get("home"), (int, float)) and isinstance(sc.get("away"), (int, float)):
+        live_total = int(sc["home"]) + int(sc["away"])
+    if live_total is not None:
+        line_num = picked["line"]
+        # An Under X.5 line needs (line - current_total) > 0 goals of headroom.
+        # We require AT LEAST 1 full goal of cushion remaining; otherwise
+        # the line is one tap away from busting.
+        headroom = line_num - live_total
+        if headroom < 1.0:
+            # Try the other line.
+            alt_label = "Under 3.5" if line_label == "Under 2.5" else "Under 2.5"
+            alt_picked = profile_3_5 if line_label == "Under 2.5" else profile_2_5
+            alt_line = alt_picked.get("line", 0)
+            if (alt_line - live_total) >= 1.0 and alt_picked["state"] != "INSUFFICIENT":
+                line_label, picked = alt_label, alt_picked
+            else:
+                # Both lines too tight given the current live total → no
+                # protected market to recommend. UI will gracefully degrade.
+                return None
+
     # Locate the best (highest) odds for that line label.
     decimal_odds = best_under_line(match, line_label)
     if not decimal_odds or decimal_odds <= 1.01:

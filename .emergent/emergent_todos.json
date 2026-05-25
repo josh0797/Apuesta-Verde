@@ -1,34 +1,22 @@
 [
   {
-    "content": "Backend: crear services/live_basketball_analytics.py (pace + lead + blowout + trap)",
-    "status": "in_progress"
+    "content": "Fix Bug 1: timeout 20s en frontend api.post + mensaje de error claro",
+    "status": "completed"
   },
   {
-    "content": "Backend: hacer live_reevaluation.py sport-aware (basket markets ML/Total/Spread)",
-    "status": "pending"
+    "content": "Fix Bug 2: human_live_interpreter filtra Under/Over líneas dead-on-arrival",
+    "status": "completed"
   },
   {
-    "content": "Backend: human_live_interpreter.py sport-aware (basket narration)",
-    "status": "pending"
+    "content": "Fix Bug 2: under_market_scan bails cuando ambas líneas están muertas",
+    "status": "completed"
   },
   {
-    "content": "Backend: /api/matches/live attaches _live_interpreter/_live_analysis para basket",
-    "status": "pending"
+    "content": "Fix Bug 2: live_reevaluation devuelve estado LINE_DEAD con mensaje claro cuando user apuesta a línea ya superada",
+    "status": "completed"
   },
   {
-    "content": "Frontend: LiveReevalPanel acepta basketball (markets ML/Total/Spread)",
-    "status": "pending"
-  },
-  {
-    "content": "Frontend: LivePage renderiza copilot+strip para basket",
-    "status": "pending"
-  },
-  {
-    "content": "Tracking: botón Gané/Perdí/Devolución en LiveReevalPanel (football + basket)",
-    "status": "pending"
-  },
-  {
-    "content": "Test backend + frontend con testing agent",
-    "status": "pending"
+    "content": "Smoke test todos los escenarios",
+    "status": "completed"
   }
 ]

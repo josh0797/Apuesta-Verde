@@ -104,7 +104,7 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
         body.manual_odds = odds;
         body.manual_market = manualMarket;
       }
-      const r = await api.post('/live/reevaluate', body);
+      const r = await api.post('/live/reevaluate', body, { timeout: 20000 });
       setResult(r.data?.result || null);
       // Reset tracking state every time we re-run.
       setTrackedOutcome(null);
@@ -119,11 +119,21 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
       // for stale/finished matches. Surface the message string so the
       // toast doesn't render "[object Object]".
       const raw = err?.response?.data?.detail;
-      const detail = (raw && typeof raw === 'object')
-        ? (raw.message || raw.error || JSON.stringify(raw))
-        : (raw || err?.message || (lang === 'en' ? 'Re-eval failed' : 'Re-evaluación falló'));
+      let detail;
+      if (err?.code === 'ECONNABORTED' || /timeout/i.test(err?.message || '')) {
+        // Bug-fix (P4.1): in production the reeval call can hang behind
+        // an API-Sports rate-limit retry. Surface a clear timeout instead
+        // of an infinite spinner.
+        detail = lang === 'en'
+          ? 'Re-evaluation timed out (>20s). Try again in a moment.'
+          : 'La reevaluación tardó demasiado (>20s). Intenta nuevamente en unos segundos.';
+      } else if (raw && typeof raw === 'object') {
+        detail = raw.message || raw.error || JSON.stringify(raw);
+      } else {
+        detail = raw || err?.message || (lang === 'en' ? 'Re-eval failed' : 'Re-evaluación falló');
+      }
       // eslint-disable-next-line no-console
-      console.error('[LIVE_REEVAL_ERROR]', { match_id: matchId, status: err?.response?.status, error: err });
+      console.error('[LIVE_REEVAL_ERROR]', { match_id: matchId, status: err?.response?.status, code: err?.code, error: err });
       toast.error(detail);
     } finally {
       setLoading(false);

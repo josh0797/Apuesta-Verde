@@ -172,6 +172,39 @@ def _reevaluate_football(
     # Compute estimated probability for the chosen market.
     est_prob, est_basis = _estimate_probability(market, match, current_total, score_diff, remaining, expected_goals_total)
 
+    # ── P4.1 bug-fix: dead-line short-circuit ──────────────────────────
+    # If the user picks Under X.5 (or our infer picked it) but `current_total`
+    # already meets/exceeds X, the line is mathematically lost. Returning a
+    # noisy negative-edge math response is confusing UX; instead surface a
+    # crystal-clear "línea muerta" verdict so the UI's copilot card narrates
+    # what's actually going on.
+    import re as _re_dead
+    _m_dead = _re_dead.search(r"under\s*(\d+(?:\.\d+)?)", (market or "").lower())
+    if _m_dead:
+        _line_dead = float(_m_dead.group(1))
+        if current_total >= _line_dead:
+            return _build_response(
+                match_id=match.get("match_id"),
+                live_state="LINE_DEAD",
+                recommended_action="PASS",
+                market=market, selection=selection,
+                estimated_probability=0.0,
+                implied_probability=(1.0 / float(manual_odds)) if (manual_odds and manual_odds > 1.01) else None,
+                decimal_odds=float(manual_odds) if (manual_odds and manual_odds > 1.01) else None,
+                edge=-1.0,
+                confidence=0,
+                risk_level="HIGH",
+                reason=(
+                    f"{market} ya no es posible: el marcador actual ({current_total} goles) "
+                    f"iguala o supera la línea. Considera otro mercado."
+                ),
+                live_snapshot={"minute": minute, "score": score, "momentum": momentum, "is_live": is_live},
+                manual_odds_used=bool(manual_odds),
+                computed_at=now,
+                live_analysis=live_analysis,
+                trap=trap,
+            )
+
     # Resolve implied probability: manual_odds wins, then live, then pre-match.
     implied_source = "pre_match"
     if manual_odds and manual_odds > 1.01:
