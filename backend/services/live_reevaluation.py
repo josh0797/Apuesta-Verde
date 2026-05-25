@@ -266,6 +266,35 @@ def _reevaluate_football(
                 if reason else trap["reason_es"]
             )
 
+    # ── Interpreter: traduce métricas a voz de entrenador para LiveCopilotCard.
+    # Siempre se llama DESPUÉS de clasificar el estado, para que el interpreter
+    # reciba el reeval completo (edge, state, recommended_action) y actualice
+    # el copilot card con la recomendación basada en la cuota del usuario.
+    reeval_for_interpreter = {
+        "live_state":           state,
+        "recommended_action":   action,
+        "market":               market,
+        "edge":                 edge,
+        "edge_pct":             round((edge or 0) * 100, 2) if edge is not None else None,
+        "confidence":           confidence,
+        "estimated_probability": round(est_prob or 0, 4),
+        "implied_probability":  round(implied or 0, 4) if implied is not None else None,
+        "decimal_odds":         decimal_odds,
+        "manual_odds_used":     (implied_source == "manual"),
+        "reason":               reason,
+    }
+    try:
+        from . import human_live_interpreter as hli
+        interpreter = hli.interpret_live(
+            match,
+            analysis=live_analysis,
+            reeval=reeval_for_interpreter,
+        )
+    except Exception as _exc:
+        import logging
+        logging.getLogger("live_reeval").warning("interpret_live failed: %s", _exc)
+        interpreter = None
+
     return _build_response(
         match_id=match.get("match_id"),
         live_state=state,
@@ -283,6 +312,7 @@ def _reevaluate_football(
         computed_at=now,
         live_analysis=live_analysis,
         trap=trap,
+        interpreter=interpreter,
     )
 
 
@@ -470,6 +500,7 @@ def _build_response(**kwargs) -> dict:
         "computed_at":         kwargs.get("computed_at"),
         "live_analysis":       kwargs.get("live_analysis"),
         "trap":                kwargs.get("trap"),
+        "interpreter":         kwargs.get("interpreter"),
     }
 
 
@@ -655,6 +686,31 @@ def _reevaluate_basketball(
         if trap and trap.get("triggered"):
             reason = f"{reason}  ⚠ {trap['reason_es']}"
 
+    reeval_for_interpreter = {
+        "live_state":           state,
+        "recommended_action":   action,
+        "market":               market,
+        "edge":                 edge,
+        "edge_pct":             round((edge or 0) * 100, 2) if edge is not None else None,
+        "confidence":           confidence,
+        "estimated_probability": round(est_prob or 0, 4),
+        "implied_probability":  round(implied or 0, 4) if implied is not None else None,
+        "decimal_odds":         decimal_odds,
+        "manual_odds_used":     (implied_source == "manual"),
+        "reason":               reason,
+    }
+    try:
+        from . import human_live_interpreter as hli
+        interpreter = hli.interpret_live(
+            match,
+            analysis=analysis,
+            reeval=reeval_for_interpreter,
+        )
+    except Exception as _exc:
+        import logging
+        logging.getLogger("live_reeval").warning("interpret_live (basketball) failed: %s", _exc)
+        interpreter = None
+
     return _build_response(
         match_id=match.get("match_id"),
         live_state=state,
@@ -674,4 +730,5 @@ def _reevaluate_basketball(
         computed_at=now,
         live_analysis=analysis,
         trap=trap,
+        interpreter=interpreter,
     )

@@ -261,12 +261,44 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
           {/* P3.1 — Re-eval now ALWAYS surfaces a human-readable Copilot
               recommendation at the top of the result. Falls back to the
               raw badge row when interpreter is missing (defensive). */}
-          {result.interpreter && (
+          {result.interpreter ? (
             <LiveCopilotCard
               interpreter={result.interpreter}
               lang={lang}
               testId={`reeval-copilot-${matchId}`}
             />
+          ) : (
+            /* Fallback cuando el backend no retornó interpreter:
+               muestra un card mínimo derivado del resultado del reeval
+               para que el usuario siempre vea una recomendación legible */
+            <div
+              className={`rounded-lg border px-3 py-2.5 space-y-1 text-sm ${
+                result.live_state === 'LIVE_VALUE_WINDOW' || result.live_state === 'MARKET_OVERREACTION'
+                  ? 'border-emerald-500/40 bg-emerald-500/10'
+                  : result.live_state === 'NO_LIVE_VALUE' || result.live_state === 'TRAP_DETECTED'
+                  ? 'border-red-500/40 bg-red-500/10'
+                  : 'border-amber-500/40 bg-amber-500/10'
+              }`}
+              data-testid={`reeval-fallback-copilot-${matchId}`}
+            >
+              <div className="font-semibold">
+                {result.live_state === 'LIVE_VALUE_WINDOW'   && '✅ Valor live detectado'}
+                {result.live_state === 'MARKET_OVERREACTION' && '✅ Sobre-reacción del mercado'}
+                {result.live_state === 'WATCHLIST'           && '👀 En observación'}
+                {result.live_state === 'MOMENTUM_SHIFT'      && '⚡ Cambio de momentum'}
+                {result.live_state === 'NO_LIVE_VALUE'       && '⛔ Sin valor live'}
+                {result.live_state === 'TRAP_DETECTED'       && '⚠️ Trampa detectada'}
+                {result.live_state === 'HOLD_RECOMMENDED'    && '🤚 Mantener posición'}
+                {result.live_state === 'CASH_OUT_RECOMMENDED' && '💰 Cash-out recomendado'}
+                {!['LIVE_VALUE_WINDOW','MARKET_OVERREACTION','WATCHLIST',
+                   'MOMENTUM_SHIFT','NO_LIVE_VALUE','TRAP_DETECTED',
+                   'HOLD_RECOMMENDED','CASH_OUT_RECOMMENDED'].includes(result.live_state)
+                  && (result.live_state || 'Reevaluación completada')}
+              </div>
+              {result.reason && (
+                <p className="text-xs text-muted-foreground leading-relaxed">{result.reason}</p>
+              )}
+            </div>
           )}
           {/* Header badges */}
           <div className="flex items-center gap-2 flex-wrap">
