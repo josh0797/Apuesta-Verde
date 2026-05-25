@@ -37,6 +37,7 @@ export default function LivePage() {
   // We store the run + active job in component state so refreshing the stats
   // doesn't blow away the latest live picks.
   const [livePicks, setLivePicks] = useState([]);
+  const [liveRunResult, setLiveRunResult] = useState(null);
   const [activeJobId, setActiveJobId] = useState(null);
   const [running, setRunning] = useState(false);
   const [liveRunGeneratedAt, setLiveRunGeneratedAt] = useState(null);
@@ -61,6 +62,7 @@ export default function LivePage() {
     setArchivedItems([]);
     setArchivedCount(0);
     setLivePicks([]);
+    setLiveRunResult(null);
     setActiveJobId(null);
     setLoading(true);
   }, [sport]);
@@ -150,6 +152,7 @@ export default function LivePage() {
     if (running) return;
     setRunning(true);
     setLivePicks([]);
+    setLiveRunResult(null);
     try {
       const r = await api.post('/analysis/run', {
         refresh: false,
@@ -175,6 +178,9 @@ export default function LivePage() {
     const payload = result?.payload || result?.result || result || {};
     const picks = (payload?.picks || []).slice();
     setLivePicks(picks);
+    // Keep the raw payload for the SessionSummaryBar (counts of analyzed /
+    // discarded_motivation / discarded_market / incomplete_data).
+    setLiveRunResult(payload || null);
     setLiveRunGeneratedAt(result?.generated_at || payload?._generated_at || new Date().toISOString());
     setLiveRunMatchesAnalyzed(result?.matches_analyzed || payload?.summary?.total_analyzed || 0);
     if (picks.length === 0) {
@@ -252,6 +258,7 @@ export default function LivePage() {
             </div>
           </div>
           <div className="grid gap-3">
+            <SessionSummaryBar result={liveRunResult} lang={lang} />
             {livePicks.map((p, i) => (
               <MatchCard key={p.match_id || i} pick={p} idx={i} sport={sport} />
             ))}
@@ -474,6 +481,55 @@ export default function LivePage() {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function SessionSummaryBar({ result, lang, testId = 'session-summary-bar' }) {
+  if (!result) return null;
+  const s = result.summary || {};
+  const analyzed   = s.total_analyzed   ?? 0;
+  const recommended = s.total_recommended ?? 0;
+  const discMot    = (s.discarded_motivation || []).length;
+  const discMkt    = (s.discarded_market    || []).length;
+  const incomplete = (s.incomplete_data     || []).length;
+  const discTotal  = discMot + discMkt + incomplete;
+  const pct        = analyzed > 0 ? Math.round((recommended / analyzed) * 100) : 0;
+
+  return (
+    <div
+      className="rounded-lg border border-border/60 bg-secondary/20 px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] font-mono-tabular"
+      data-testid={testId}
+    >
+      <span className="text-muted-foreground uppercase tracking-wide text-[10px]">
+        {lang === 'en' ? 'Session' : 'Sesión'}
+      </span>
+      <span className="text-foreground">
+        {lang === 'en' ? `${analyzed} analyzed` : `${analyzed} analizados`}
+      </span>
+      <span className="text-emerald-300">
+        {lang === 'en' ? `${recommended} picks (${pct}%)` : `${recommended} picks (${pct}%)`}
+      </span>
+      {discMot > 0 && (
+        <span className="text-amber-300/80">
+          {lang === 'en' ? `${discMot} motivation` : `${discMot} motivación`}
+        </span>
+      )}
+      {discMkt > 0 && (
+        <span className="text-rose-300/80">
+          {lang === 'en' ? `${discMkt} market` : `${discMkt} mercado`}
+        </span>
+      )}
+      {incomplete > 0 && (
+        <span className="text-slate-400">
+          {lang === 'en' ? `${incomplete} incomplete` : `${incomplete} incompletos`}
+        </span>
+      )}
+      {discTotal > 0 && (
+        <span className="text-muted-foreground/60">
+          ({lang === 'en' ? `${discTotal} discarded` : `${discTotal} descartados`})
+        </span>
+      )}
     </div>
   );
 }

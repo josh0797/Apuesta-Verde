@@ -270,10 +270,16 @@ export function PicksFilterBar({ filters, onChange, onExportCsv, totalCount, fil
 
         <Select value={String(filters.minConfidence ?? 0)} onValueChange={(v) => onChange({ ...filters, minConfidence: Number(v) })}>
           <SelectTrigger className="h-8 w-[140px] text-xs" data-testid="filter-confidence-trigger">
-            <SelectValue placeholder={t.dashboard.filterMinConfidence} />
+            <SelectValue placeholder={lang === 'en' ? 'All' : 'Todas'} />
           </SelectTrigger>
           <SelectContent>
-            {MIN_CONFIDENCES.map((v) => <SelectItem key={v} value={String(v)}>{v === 0 ? t.dashboard.filterAll : `≥ ${v}`}</SelectItem>)}
+            {MIN_CONFIDENCES.map((c) => (
+              <SelectItem key={c} value={String(c)} data-testid={`confidence-option-${c}`}>
+                {c === 0
+                  ? (lang === 'en' ? 'All' : 'Todas')
+                  : `≥ ${c}`}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
@@ -443,9 +449,17 @@ export function PicksFilterBar({ filters, onChange, onExportCsv, totalCount, fil
                               </button>
                             </div>
                           )}
-                          {!isEditing && description && (
-                            <div className="text-[10.5px] text-muted-foreground truncate pl-[22px]" title={description}>
-                              {description}
+                          {!isEditing && (description || (v.filters?.minConfidence || 0) > 0) && (
+                            <div
+                              className="text-[10.5px] text-muted-foreground truncate pl-[22px]"
+                              title={[description, (v.filters?.minConfidence || 0) > 0 ? `≥${v.filters.minConfidence}% conf.` : ''].filter(Boolean).join(' · ')}
+                            >
+                              {[
+                                description,
+                                (v.filters?.minConfidence || 0) > 0
+                                  ? `≥${v.filters.minConfidence}% conf.`
+                                  : null,
+                              ].filter(Boolean).join(' · ')}
                             </div>
                           )}
                         </div>

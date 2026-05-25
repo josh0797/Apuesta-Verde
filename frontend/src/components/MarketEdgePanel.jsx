@@ -1,4 +1,5 @@
 import { TrendingUp, TrendingDown, ShieldAlert, ShieldCheck, AlertTriangle, Info } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 /**
  * MarketEdgePanel — Universal across sports.
@@ -89,9 +90,13 @@ export function MarketEdgePanel({ edge, risks = [], lang = 'es', sport = 'footba
         />
       </div>
 
-      {edge.reason && (
+      {(edge.reason || isInsuf) && (
         <p className="text-xs leading-relaxed opacity-90 italic" data-testid="market-edge-reason">
-          {edge.reason}
+          {edge.reason || (
+            lang === 'en'
+              ? 'Not enough market data to calculate edge with precision. Odds snapshots or historical form may be missing.'
+              : 'Sin suficientes datos de mercado para calcular el edge con precisión. Pueden faltar snapshots de cuotas o forma histórica.'
+          )}
         </p>
       )}
 
@@ -131,7 +136,7 @@ export function MarketEdgeBadge({ edge, lang = 'es', testId = 'market-edge-badge
       : 'border-amber-500/40 bg-amber-500/10 text-amber-200';
   const sign = edge.edge >= 0 ? '+' : '';
   const label = lang === 'en' ? 'EDGE' : 'EDGE';
-  return (
+  const badge = (
     <span
       className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono-tabular font-semibold border ${tone}`}
       data-testid={testId}
@@ -139,6 +144,17 @@ export function MarketEdgeBadge({ edge, lang = 'es', testId = 'market-edge-badge
     >
       {label} {sign}{(edge.edge * 100).toFixed(1)}%
     </span>
+  );
+  if (!edge.reason) return badge;
+  return (
+    <TooltipProvider delayDuration={120}>
+      <Tooltip>
+        <TooltipTrigger asChild>{badge}</TooltipTrigger>
+        <TooltipContent className="glass-surface text-xs max-w-[260px] leading-relaxed">
+          {edge.reason}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

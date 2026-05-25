@@ -56,7 +56,11 @@ const REASON_DETECTORS = [
   { key: 'revenge',             patterns: [/revancha/i, /revenge/i, /venganza/i],                                    icon: HeartCrack, tone: 'rose',   label_es: 'Partido de revancha',  label_en: 'Revenge match' },
   { key: 'crowned',             patterns: [/campeón/i, /already crowned/i, /asegurad/i, /ya campe/i],                 icon: Crown,     tone: 'slate',   label_es: 'Campeón / objetivo asegurado', label_en: 'Already crowned' },
   { key: 'eliminated',          patterns: [/eliminado/i, /eliminated/i, /irrelevante/i, /nada en juego/i, /no urgency/i, /sin urgenc/i], icon: Clock, tone: 'slate', label_es: 'Sin urgencia competitiva', label_en: 'No competitive urgency' },
-  { key: 'high-pressure',       patterns: [/presión/i, /must.win/i, /obligado/i, /key match/i, /partido clave/i],     icon: ShieldHalf, tone: 'amber', label_es: 'Partido bisagra',       label_en: 'High-pressure match' },
+  { key: 'high-pressure',       patterns: [/presión/i, /must.win/i, /obligado/i, /key match/i, /partido clave/i],                                                       icon: ShieldHalf,  tone: 'amber', label_es: 'Partido bisagra',             label_en: 'High-pressure match' },
+  { key: 'rotation',            patterns: [/rotaci[oó]n/i, /descanso/i, /rotation/i, /resting/i, /suplentes/i, /reserve/i, /titulares descansan/i],                     icon: Clock,       tone: 'slate', label_es: 'Rotación probable',            label_en: 'Rotation likely' },
+  { key: 'nothing-to-play',     patterns: [/nada (que|en) jugar/i, /sin nada/i, /nothing to play/i, /matem[aá]ticamente/i, /ya (clasificado|descendido|campe[oó]n)/i],  icon: Clock,       tone: 'slate', label_es: 'Sin nada en juego',            label_en: 'Nothing to play for' },
+  { key: 'qualification',       patterns: [/clasific/i, /qualification/i, /clasificaci[oó]n/i, /acceder/i, /pase a/i, /boleto/i],                                       icon: Star,        tone: 'cyan',  label_es: 'Pelea por clasificación',      label_en: 'Qualification battle' },
+  { key: 'playoff-push',        patterns: [/playoff/i, /liguilla/i, /postemporada/i, /wildcard/i, /repechaje/i],                                                        icon: Trophy,      tone: 'cyan',  label_es: 'Pelea por playoff',            label_en: 'Playoff push' },
 ];
 
 function detectReasons(text) {
@@ -129,8 +133,11 @@ export function MotivationContextBlock({ motivation, motivationState, pressureSt
   const awayImpact = impactForLevel(away.level || 3);
 
   // Resolve the motivation_state for the whole match (LLM-provided > derived)
-  const resolvedState = motivationState
-    || resolveMotivationState({ motivation_state: undefined, motivation });
+  const resolvedState = (
+    motivationState
+    || resolveMotivationState({ motivation_state: undefined, motivation })
+    || 'NORMAL'
+  );
   const stateMeta = MOTIVATION_STATES[resolvedState] || MOTIVATION_STATES.NORMAL;
   const StateIcon = STATE_ICON_MAP[stateMeta.icon] || Activity;
 
