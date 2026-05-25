@@ -297,11 +297,11 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
     from services import live_reevaluation as lre
 
     sport = _norm_sport(req.sport or "football")
-    if sport != "football":
-        # Phase 10 scope: football only. basket + MLB queued.
+    if sport == "baseball":
+        # MLB re-evaluation pendiente de implementación.
         raise HTTPException(
             status_code=400,
-            detail=f"Live re-evaluation is currently football-only. Got sport={sport}.",
+            detail="Live re-evaluation no está disponible para baseball aún.",
         )
 
     if (req.manual_odds is not None) ^ (req.manual_market is not None):
@@ -355,24 +355,27 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
         manual_market=req.manual_market,
         expected_goals_total=xg,
     )
-    # P3.1 — Wrap the reevaluate output with the HumanLiveInterpreter so
-    # the UI gets the same coach-voice payload it shows for non-clicked
-    # cards. This guarantees that "Reevaluar ahora" ALWAYS produces a
-    # human recommendation, not just a raw edge number.
-    try:
-        from services import human_live_interpreter as hli
-        from services import under_market_scan as ums
+    # P3.1 — El servicio live_reevaluation ya construye result["interpreter"]
+    # internamente (FIX 1-3 aplicados). Aquí solo hacemos fallback defensivo
+    # para versiones antiguas del servicio que no lo incluyan.
+    # IMPORTANTE: scan_protected_alternatives fue removido del hot path porque
+    # su hidratación vía API-Sports consume el timeout de 20s y causaba que
+    # el except sobreescribiera el interpreter con None.
+    if result.get("interpreter") is None:
+        # El servicio no produjo interpreter (versión antigua o error interno).
+        # Intentar construirlo aquí SIN scan_protected_alternatives para no colgar.
         try:
-            alt = ums.scan_protected_alternatives(match, live_analysis=result.get("live_analysis"))
-        except Exception:
-            alt = None
-        analysis_block = result.get("live_analysis")
-        result["interpreter"] = hli.interpret_live(
-            match, analysis=analysis_block, reeval=result, alt_market=alt,
-        )
-    except Exception as exc:
-        log.warning("interpret_live failed in reevaluate: %s", exc)
-        result["interpreter"] = None
+            from services import human_live_interpreter as hli
+            analysis_block = result.get("live_analysis")
+            result["interpreter"] = hli.interpret_live(
+                match,
+                analysis=analysis_block,
+                reeval=result,
+                alt_market=None,   # sin alt_market para mantener latencia < 1s
+            )
+        except Exception as exc:
+            log.warning("interpret_live fallback failed in reevaluate: %s", exc)
+            # No sobreescribir con None si ya había un valor válido del servicio
     # Persist (with BSON-safe normalization) — keep latest 50 per user.
     record = _normalize_keys_for_bson({
         "id": f"lre_{user['id']}_{req.match_id}_{datetime.now(timezone.utc).timestamp():.0f}",
