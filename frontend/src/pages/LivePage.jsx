@@ -156,7 +156,7 @@ export default function LivePage() {
         include_live: true,
         live_only: true,
         big_five_only: isFootball,
-        max_matches: 6,
+        max_matches: 9,
         sport,
         background: true,
       });
@@ -389,12 +389,19 @@ export default function LivePage() {
                     <span className="text-base font-medium">{m.home_team?.name}</span>
                     <span className="text-base font-medium">{m.away_team?.name}</span>
                   </div>
-                  <div className="grid grid-cols-4 gap-2 text-[11px] text-muted-foreground mt-1">
-                    <StatCell label={t.live.possession} h={stat(h, 'Ball Possession')} a={stat(a, 'Ball Possession')} />
-                    <StatCell label={t.live.shots} h={stat(h, 'Total Shots')} a={stat(a, 'Total Shots')} />
-                    <StatCell label={t.live.shotsOn} h={stat(h, 'Shots on Goal')} a={stat(a, 'Shots on Goal')} />
-                    <StatCell label={t.live.xg} h={stat(h, 'expected_goals')} a={stat(a, 'expected_goals')} />
-                  </div>
+                  {/* Raw stats grid — only shown when the processed
+                      LiveAnalysisStrip is NOT available for this match.
+                      When _live_analysis is present, the strip already
+                      renders normalised kloppy/soccer_xg metrics so we
+                      skip the duplicate raw display. */}
+                  {!m._live_analysis && (
+                    <div className="grid grid-cols-4 gap-2 text-[11px] text-muted-foreground mt-1">
+                      <StatCell label={t.live.possession} h={stat(h, 'Ball Possession')} a={stat(a, 'Ball Possession')} />
+                      <StatCell label={t.live.shots} h={stat(h, 'Total Shots')} a={stat(a, 'Total Shots')} />
+                      <StatCell label={t.live.shotsOn} h={stat(h, 'Shots on Goal')} a={stat(a, 'Shots on Goal')} />
+                      <StatCell label={t.live.xg} h={stat(h, 'expected_goals')} a={stat(a, 'expected_goals')} />
+                    </div>
+                  )}
                 </Link>
                 {/* P3.1 — Copilot Card (HumanLiveInterpreter): coach-voice
                     recommendation FIRST, then supporting metrics. Always

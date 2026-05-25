@@ -1,4 +1,4 @@
-import { Trophy, ShieldAlert, Sparkles, Database, AlertTriangle } from 'lucide-react';
+import { Trophy, ShieldAlert, Sparkles, Database, AlertTriangle, Search } from 'lucide-react';
 
 /**
  * FootballQualityBadge — Compact pill rendered inline on each football
@@ -14,7 +14,9 @@ const STATE_META = {
   LOW_DATA_QUALITY:      { tone: 'amber',   icon: Database,      es: 'DATOS BAJOS',  en: 'LOW DATA' },
   LOW_MARKET_SUPPORT:    { tone: 'amber',   icon: AlertTriangle, es: 'MERCADO DÉBIL', en: 'WEAK MARKET' },
   EXOTIC_LEAGUE_WARNING: { tone: 'rose',    icon: ShieldAlert,   es: 'LIGA EXÓTICA',  en: 'EXOTIC LEAGUE' },
-  SKIPPED_LOW_RELEVANCE: { tone: 'rose',    icon: ShieldAlert,   es: 'BAJA RELEVANCIA', en: 'LOW RELEVANCE' },
+  SKIPPED_LOW_RELEVANCE:   { tone: 'rose',    icon: ShieldAlert,   es: 'BAJA RELEVANCIA',     en: 'LOW RELEVANCE' },
+  PRIORITY_OVERRIDE:       { tone: 'cyan',    icon: Sparkles,      es: 'PRIORIDAD OVERRIDE',  en: 'PRIORITY OVERRIDE' },
+  ALTERNATIVE_MARKET_SCAN: { tone: 'amber',   icon: Search,        es: 'MERCADO ALTERNATIVO', en: 'ALT. MARKET' },
 };
 
 const TONE_CLASSES = {

@@ -99,8 +99,19 @@ export function LiveAnalysisStrip({ analysis, lang = 'es', testId = 'live-analys
           {lang === 'en' ? 'Live evidence' : 'Evidencia live'}
         </span>
         {trap?.triggered && (
-          <span className="text-[10px] font-semibold opacity-95 font-mono-tabular border border-current rounded px-1.5 py-0.5">
-            {lang === 'en' ? 'TRAP' : 'TRAMPA'}
+          <span
+            className={`text-[10px] font-semibold font-mono-tabular border rounded px-1.5 py-0.5 ${
+              trap.low_confidence
+                ? 'opacity-70 border-dashed border-current'
+                : 'opacity-95 border-current'
+            }`}
+            title={trap.low_confidence
+              ? (lang === 'en' ? 'Weak signal — ratios in gray zone (1.2–1.4×)' : 'Señal débil — ratios en zona gris (1.2–1.4×)')
+              : undefined}
+          >
+            {trap.low_confidence
+              ? (lang === 'en' ? '⚠ WEAK TRAP' : '⚠ SEÑAL DÉBIL')
+              : (lang === 'en' ? 'TRAP' : 'TRAMPA')}
           </span>
         )}
       </div>
@@ -163,10 +174,21 @@ export function LiveAnalysisStrip({ analysis, lang = 'es', testId = 'live-analys
 
       {/* Trap detail block — only when triggered, with the ratios */}
       {trap?.triggered && (
-        <div className="mt-1 text-[10px] font-mono-tabular opacity-90 border-t border-current/15 pt-1.5 flex flex-wrap gap-x-3 gap-y-0.5" data-testid={`${testId}-trap-detail`}>
+        <div
+          className="mt-1 text-[10px] font-mono-tabular opacity-90 border-t border-current/15 pt-1.5 flex flex-wrap gap-x-3 gap-y-0.5"
+          data-testid={`${testId}-trap-detail`}
+          data-low-confidence={trap.low_confidence ? 'true' : 'false'}
+        >
           <span><Crosshair className="inline h-3 w-3 mr-0.5" /> {lang === 'en' ? 'odds leader' : 'cuota líder'}: {trap.decimal_odds_for_leader}</span>
           <span><Target className="inline h-3 w-3 mr-0.5" /> {lang === 'en' ? 'pressure ratio' : 'ratio presión'}: {trap.pressure_ratio}×</span>
           <span><Flag className="inline h-3 w-3 mr-0.5" /> {lang === 'en' ? 'threat ratio' : 'ratio amenaza'}: {trap.threat_ratio}×</span>
+          {trap.low_confidence && (
+            <span className="opacity-70 italic">
+              {lang === 'en'
+                ? '— signal in gray zone, bet with caution'
+                : '— señal en zona gris, apostar con cautela'}
+            </span>
+          )}
         </div>
       )}
     </div>
