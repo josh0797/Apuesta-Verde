@@ -53,7 +53,7 @@ OPENAI_MODEL_FULL = os.environ.get("OPENAI_MODEL_FULL", "gpt-4o")
 
 # How aggressively to shortlist: at most this many matches reach Stage 2.
 # Tunable via env so prod can lower it if costs spike.
-TWO_STAGE_MAX_CANDIDATES = int(os.environ.get("TWO_STAGE_MAX_CANDIDATES", "9"))
+TWO_STAGE_MAX_CANDIDATES = int(os.environ.get("TWO_STAGE_MAX_CANDIDATES", "10"))
 # Below this batch size the pre-filter adds latency without saving cost,
 # so we skip Stage 1 and go straight to Stage 2.
 TWO_STAGE_MIN_INPUT = int(os.environ.get("TWO_STAGE_MIN_INPUT", "3"))
@@ -269,7 +269,7 @@ REGLAS GENERALES (todos los deportes):
    - Rango óptimo favorito: 1.25-1.85.
    - Divergencia entre casas >15% "Divergencia sospechosa".
 
-4. MÁXIMO 8 picks recomendados. ORDENADOS DE MAYOR A MENOR confianza (más confiable primero). Si NADA cumple devuelve verdict=no_value.
+4. MÁXIMO 10 picks recomendados. ORDENADOS DE MAYOR A MENOR confianza (más confiable primero). Si NADA cumple devuelve verdict=no_value.
 
 5. SIEMPRE devuelve JSON ESTRICTO con la estructura del template (sin comentarios, sin markdown):
 {{

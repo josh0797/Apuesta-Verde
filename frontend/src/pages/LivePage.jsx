@@ -159,7 +159,7 @@ export default function LivePage() {
         include_live: true,
         live_only: true,
         big_five_only: isFootball,
-        max_matches: 9,
+        max_matches: 10,
         sport,
         background: true,
       });

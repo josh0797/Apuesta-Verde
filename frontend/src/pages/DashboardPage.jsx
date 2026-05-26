@@ -206,7 +206,7 @@ export default function DashboardPage() {
       const r = await api.post('/analysis/run', {
         refresh: true,
         include_live: true,
-        max_matches: 8,
+        max_matches: 10,
         sport,
         background: true,
       });

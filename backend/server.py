@@ -448,7 +448,7 @@ async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
 class AnalysisRunIn(BaseModel):
     refresh: bool = True
     include_live: bool = True
-    max_matches: int = Field(default=6, ge=1, le=20)
+    max_matches: int = Field(default=12, ge=1, le=30)
     sport: Optional[str] = "football"
     background: bool = False  # if True, run as async job and return job_id
     # New: focused live analysis for football's Big Five leagues.
@@ -509,7 +509,7 @@ async def _run_analysis_pipeline(
                 # caps at 10 req/min. We only NEED the next `max_matches *
                 # 2` for the LLM to have something to choose from, so cap
                 # the hydration window.
-                HYDRATE_CAP = max(8, (max_matches or 6) * 2)
+                HYDRATE_CAP = max(12, (max_matches or 12) * 2)
                 if priority_fixtures:
                     hydrate_list = priority_fixtures[:HYDRATE_CAP]
                     sem = asyncio.Semaphore(6)
@@ -610,7 +610,7 @@ async def _run_analysis_pipeline(
     football_stats: dict = {}
     if sport == "football":
         from services.football_quality import filter_and_prioritize  # local import
-        target = max(3, min(12, max_matches if max_matches else 8))
+        target = max(3, min(20, max_matches if max_matches else 12))
         fq_result = filter_and_prioritize(
             upcoming,
             target_count=target,
@@ -657,7 +657,7 @@ async def _run_analysis_pipeline(
     if sport == "football":
         await _emit("enriching", 40, f"Deep-enriching top {min(6, len(candidates))} football fixtures…")
         async with httpx.AsyncClient() as client:
-            for idx, c in enumerate(candidates[:6]):
+            for idx, c in enumerate(candidates[:10]):
                 try:
                     raw = await af.fixture_by_id(client, c["match_id"])
                     if raw:
@@ -668,7 +668,7 @@ async def _run_analysis_pipeline(
                                     c[k] = enriched[k]
                 except Exception as exc:
                     log.warning("deep enrich skipped for %s: %s", c.get("match_id"), exc)
-                await _emit("enriching", 40 + int(20 * (idx + 1) / max(1, min(6, len(candidates)))), f"Enriched {idx + 1}/{min(6, len(candidates))}")
+                await _emit("enriching", 40 + int(20 * (idx + 1) / max(1, min(10, len(candidates)))), f"Enriched {idx + 1}/{min(10, len(candidates))}")
     else:
         await _emit("enriching", 40, f"Deep-enriching top {min(4, len(candidates))} {sport} games…")
         async with httpx.AsyncClient() as client:
@@ -795,18 +795,18 @@ async def _run_analysis_pipeline(
                 if sid in prov_by_match and not p.get("_provenance"):
                     p["_provenance"] = prov_by_match[sid]
 
-    # Recommendation limit per spec: never expose more than 8 picks.
+    # Recommendation limit per spec: never expose more than 10 picks.
     picks = (result.get("picks") or [])
-    if len(picks) > 8:
-        # Keep the highest-confidence 8; demote the rest to a sidecar list
+    if len(picks) > 10:
+        # Keep the highest-confidence 10; demote the rest to a sidecar list
         # rather than dropping them.
         picks_sorted = sorted(
             picks,
             key=lambda p: (p.get("recommendation") or {}).get("confidence_score", 0),
             reverse=True,
         )
-        result["picks"] = picks_sorted[:8]
-        result.setdefault("summary", {}).setdefault("overflow_picks", []).extend(picks_sorted[8:])
+        result["picks"] = picks_sorted[:10]
+        result.setdefault("summary", {}).setdefault("overflow_picks", []).extend(picks_sorted[10:])
 
     # NO_VALUE_FOUND signal: when LLM and Moneyball both end empty
     if not (result.get("picks") or []):
