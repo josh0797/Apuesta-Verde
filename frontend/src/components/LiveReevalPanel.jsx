@@ -95,8 +95,10 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
     try {
       const body = { match_id: matchId, sport, refresh: true };
       if (useManual) {
-        const odds = parseFloat(manualOdds);
-        if (!odds || odds <= 1.01) {
+        // Accept both "1.85" and "1,85" — sanitize then parse.
+        const raw = String(manualOdds || '').trim().replace(',', '.');
+        const odds = parseFloat(raw);
+        if (!odds || isNaN(odds) || odds <= 1.01) {
           toast.error(lang === 'en' ? 'Enter decimal odds > 1.01' : 'Ingresa cuota decimal > 1.01');
           setLoading(false);
           return;
@@ -236,12 +238,16 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
               </SelectContent>
             </Select>
             <Input
-              type="number"
-              step="0.01"
-              min="1.02"
-              placeholder={lang === 'en' ? 'Decimal odds, e.g. 1.85' : 'Cuota decimal, ej. 1.85'}
+              type="text"
+              inputMode="decimal"
+              pattern="[0-9]+([.,][0-9]+)?"
+              placeholder={lang === 'en' ? 'Decimal odds, e.g. 1.85 or 1,85' : 'Cuota decimal, ej. 1.85 o 1,85'}
               value={manualOdds}
-              onChange={(e) => setManualOdds(e.target.value)}
+              onChange={(e) => {
+                // Allow only digits + one decimal separator (. or ,)
+                const v = e.target.value.replace(/[^0-9.,]/g, '');
+                setManualOdds(v);
+              }}
               disabled={!useManual}
               data-testid={`reeval-manual-odds-${matchId}`}
               className="h-9 text-xs"

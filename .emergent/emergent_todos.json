@@ -1,22 +1,18 @@
 [
   {
-    "content": "Integrar apply_case_rules en under_market_scan.scan_protected_alternatives() para priorizar Under 3.5 en partidos cerrados con ritmo moderado",
+    "content": "Crear understat_scraper.py: fetch_match, enrich_match_dict, fetch_match_cached, aggregate_team_form",
     "status": "completed"
   },
   {
-    "content": "Surfacing del rule fired en human_live_interpreter (why bullet con la regla aprendida)",
+    "content": "Endpoints REST: GET /understat/match/{id}, POST /understat/team-form, POST /understat/link",
     "status": "completed"
   },
   {
-    "content": "Agregar endpoints API: GET/POST /api/learning/cases + seed automático en startup",
+    "content": "Integración: summarize_match_for_llm propaga _understat → LLM lo usa como xG/PPDA autoritativo",
     "status": "completed"
   },
   {
-    "content": "Test backend con testing agent para validar regla end-to-end",
-    "status": "completed"
-  },
-  {
-    "content": "Actualizar plan.md con Phase 14 — Knowledge Base / Learning Cases",
+    "content": "Smoke test end-to-end: link + persistencia + payload LLM",
     "status": "completed"
   }
 ]

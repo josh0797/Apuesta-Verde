@@ -463,6 +463,11 @@ def summarize_match_for_llm(match_doc: dict) -> dict:
         # injury_sources hook is enabled; otherwise the analyst engine adds
         # nothing here and the LLM treats it as missing context).
         "team_news_snippets": match_doc.get("team_news_snippets"),
+        # Optional: Understat enrichment (xG / PPDA / shots from the linked
+        # historical match). Set via POST /api/understat/link or future
+        # automatic linker. When present the LLM treats it as authoritative
+        # over the internal Poisson xG proxy.
+        "understat": match_doc.get("_understat"),
     }
 
 

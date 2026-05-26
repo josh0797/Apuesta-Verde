@@ -1735,6 +1735,136 @@ async def learning_cases_seed(user: dict = Depends(get_current_user)):
     return {"inserted": inserted, "computed_at": datetime.now(timezone.utc).isoformat()}
 
 
+# ── Understat enrichment (admin / debug) ────────────────────────────────────
+@api.get("/understat/match/{match_id}")
+async def understat_match(match_id: int, user: dict = Depends(get_current_user)):
+    """Return normalised Understat enrichment for one match id.
+
+    Uses Mongo TTL cache (12h). Intended for debugging / manual lookup;
+    automatic per-fixture enrichment is wired in the ingestion pipeline.
+    """
+    from services import understat_scraper as us
+    payload = await us.fetch_match_cached(db, match_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Understat match {match_id} not found or unreachable.",
+        )
+    return {
+        "ok":          True,
+        "match":       payload,
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@api.post("/understat/team-form")
+async def understat_team_form(
+    payload: dict,
+    user: dict = Depends(get_current_user),
+):
+    """Aggregate rolling xG / PPDA / shots for a team across given match ids.
+
+    Body:
+      {
+        "team_name":  "Arsenal",
+        "match_ids":  [26586, 26604, 26619, ...]
+      }
+
+    Returns the aggregate produced by `understat_scraper.aggregate_team_form`.
+    """
+    from services import understat_scraper as us
+    team_name = (payload.get("team_name") or "").strip()
+    ids = payload.get("match_ids") or []
+    if not team_name or not isinstance(ids, list) or not ids:
+        raise HTTPException(
+            status_code=400,
+            detail="team_name and non-empty match_ids list are required.",
+        )
+    # Cap at 25 ids to avoid hammering Understat
+    ids = [int(i) for i in ids[:25] if str(i).isdigit()]
+    matches = []
+    for mid in ids:
+        m = await us.fetch_match_cached(db, mid)
+        if m:
+            matches.append(m)
+    agg = us.aggregate_team_form(matches, team_name)
+    if agg is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No Understat matches found for {team_name} in the given ids.",
+        )
+    return {
+        "ok":             True,
+        "team_form":      agg,
+        "matches_used":   len(matches),
+        "matches_asked":  len(ids),
+        "computed_at":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@api.post("/understat/link")
+async def understat_link(
+    payload: dict,
+    user: dict = Depends(get_current_user),
+):
+    """Link a Understat match_id to an API-Sports fixture and enrich it.
+
+    Body:
+      {
+        "match_id":            "<API-Sports match_id>",
+        "understat_match_id":  14091
+      }
+
+    On success persists the enrichment into the match doc under
+    `_understat` (the analyst engine consumes this field in its next run)
+    and adds `_provenance.understat = "linked"`. Returns the enrichment.
+    """
+    from services import understat_scraper as us
+    match_id = str(payload.get("match_id") or "").strip()
+    u_id_raw = payload.get("understat_match_id")
+    try:
+        u_id = int(u_id_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="understat_match_id must be int.")
+    if not match_id:
+        raise HTTPException(status_code=400, detail="match_id is required.")
+
+    # Ensure the fixture exists in our DB. `match_id` may be stored as int
+    # (API-Sports fixtures) or str (manual entries), so try both.
+    fixture = await db.matches.find_one({"match_id": match_id})
+    if not fixture and match_id.isdigit():
+        fixture = await db.matches.find_one({"match_id": int(match_id)})
+    if not fixture:
+        raise HTTPException(status_code=404, detail=f"match {match_id} not found.")
+
+    enrichment = await us.fetch_match_cached(db, u_id)
+    if enrichment is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Understat match {u_id} not reachable.",
+        )
+
+    # Use the same type the fixture uses for the update query
+    query_mid = fixture.get("match_id")
+    await db.matches.update_one(
+        {"match_id": query_mid},
+        {"$set": {
+            "_understat":                 enrichment,
+            "understat_match_id":         u_id,
+            "_provenance.understat":      "linked",
+            "_understat_linked_at":       datetime.now(timezone.utc).isoformat(),
+            "_understat_linked_by":       user["id"],
+        }},
+    )
+    return {
+        "ok":          True,
+        "match_id":    query_mid,
+        "linked_to":   u_id,
+        "enrichment":  enrichment,
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 # ── App registration ─────────────────────────────────────────────────────────
 app.include_router(api)
 app.add_middleware(

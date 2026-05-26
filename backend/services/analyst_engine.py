@@ -271,6 +271,8 @@ REGLAS GENERALES (todos los deportes):
 
 4. MÁXIMO 10 picks recomendados. ORDENADOS DE MAYOR A MENOR confianza (más confiable primero). Si NADA cumple devuelve verdict=no_value.
 
+4b. SI EL CAMPO `understat` ESTÁ PRESENTE EN EL PAYLOAD DEL MATCH: úsalo como fuente PREFERIDA de xG/PPDA sobre cualquier proxy interno. Entre otros (`understat.xg`, `understat.ppda`, `understat.shots`, `understat.deep_completions`) trátalos como evidencia validada externamente. Si los valores Understat contradicen marcadamente a las cuotas (xG desbalanceado >40% pero la cuota implica equilibrio), eso es una señal fuerte de valor de mercado — anótalo en `risks` o `motivation` según corresponda.
+
 5. SIEMPRE devuelve JSON ESTRICTO con la estructura del template (sin comentarios, sin markdown):
 {{
   "verdict": "value_found" | "no_value",
