@@ -126,6 +126,8 @@ def reevaluate_match(
     sport = (match.get("sport") or "football").lower()
     if sport == "basketball":
         return _reevaluate_basketball(match, manual_odds=manual_odds, manual_market=manual_market)
+    if sport == "baseball":
+        return _reevaluate_baseball(match, manual_odds=manual_odds, manual_market=manual_market)
     return _reevaluate_football(match, manual_odds=manual_odds, manual_market=manual_market,
                                  expected_goals_total=expected_goals_total)
 
@@ -726,6 +728,258 @@ def _reevaluate_basketball(
         live_snapshot={"minute": minute, "score": score, "is_live": True,
                        "sport": "basketball", "projected_total": projected_total,
                        "pace_ppm": round(pace, 2)},
+        manual_odds_used=(implied_source == "manual"),
+        computed_at=now,
+        live_analysis=analysis,
+        trap=trap,
+        interpreter=interpreter,
+    )
+
+
+
+# ─── Baseball re-evaluation ───────────────────────────────────────────────
+
+BASEBALL_AVG_RUN_RATE = 0.98   # ~8.9 runs/game combinado MLB ÷ 9 innings
+BASEBALL_REG_INNINGS  = 9
+
+
+def _baseball_estimate_probability(
+    market: str,
+    h_score: int,
+    a_score: int,
+    frac_remaining: float,
+    projected_total: float,
+    run_rate: float,
+) -> tuple[float, str]:
+    """Estimate probability for baseball markets.
+
+    Markets supported:
+      • "Money Line: home" / "Money Line: away"
+      • "Total: Over X.5"  / "Total: Under X.5"
+      • "Run Line: home -1.5" / "Run Line: away +1.5"
+
+    Returns (estimated_probability, basis_label).
+    """
+    import math
+    import re as _re
+    market_l  = (market or "").strip().lower()
+    cur_lead  = h_score - a_score
+    cur_total = h_score + a_score
+
+    # ── Money Line (no draw in baseball — extra innings to settle) ──────
+    if market_l.startswith("money line:") or market_l in ("home", "away"):
+        side          = "home" if "home" in market_l else "away"
+        lead_for_side = cur_lead if side == "home" else -cur_lead
+        # σ scales with innings remaining: less time = tighter distribution.
+        sigma = max(1.5, 3.5 * (frac_remaining ** 0.5))
+        z     = lead_for_side / sigma
+        p     = 0.5 * (1 + math.erf(z / math.sqrt(2)))
+        return max(0.02, min(0.98, p)), "normal_lead_model"
+
+    # ── Total Over / Under runs ─────────────────────────────────────────
+    if "total" in market_l and ("over" in market_l or "under" in market_l):
+        m = _re.search(r"(\d+(?:\.\d+)?)", market)
+        if not m:
+            return 0.5, "no_line"
+        line    = float(m.group(1))
+        is_over = "over" in market_l
+        remaining_innings = frac_remaining * BASEBALL_REG_INNINGS
+        exp_final = cur_total + (run_rate or BASEBALL_AVG_RUN_RATE) * remaining_innings
+        sigma = max(1.5, 3.0 * (frac_remaining ** 0.5) + 1.0)
+        z     = (exp_final - line) / sigma
+        p_over = 0.5 * (1 + math.erf(z / math.sqrt(2)))
+        prob   = p_over if is_over else (1 - p_over)
+        return max(0.02, min(0.98, prob)), "run_rate_projection"
+
+    # ── Run Line (-1.5 / +1.5) ─────────────────────────────────────────
+    if "run line" in market_l:
+        side = "home" if "home" in market_l else "away"
+        m    = _re.search(r"[-+]?\d+(?:\.\d+)?", market)
+        handicap      = float(m.group(0)) if m else -1.5
+        lead_for_side = cur_lead if side == "home" else -cur_lead
+        adjusted      = lead_for_side + handicap
+        sigma   = max(1.5, 3.5 * (frac_remaining ** 0.5))
+        z       = adjusted / sigma
+        p_cover = 0.5 * (1 + math.erf(z / math.sqrt(2)))
+        return max(0.02, min(0.98, p_cover)), "run_line_model"
+
+    # Fallback — unknown market
+    return 0.5, "unknown_market"
+
+
+def _baseball_infer_default_market(projected_total: float) -> str:
+    """When the user hasn't specified a market, default to the Over/Under
+    line closest to the projected final run total."""
+    common_lines = [6.5, 7.5, 8.5, 9.5, 10.5]
+    line = min(common_lines, key=lambda ln: abs(ln - projected_total))
+    return f"Total: Over {line}"
+
+
+def _reevaluate_baseball(
+    match: dict,
+    *,
+    manual_odds: Optional[float] = None,
+    manual_market: Optional[str] = None,
+) -> dict:
+    """Baseball-specific Live Re-Eval.
+
+    Uses live_baseball_analytics for live analysis + blowout-trap detection.
+    Supported markets: Money Line, Total (Over/Under runs), Run Line.
+    Follows the exact same structure as _reevaluate_basketball() so the
+    shared _build_response() envelope is preserved.
+    """
+    from datetime import datetime, timezone
+    from . import live_baseball_analytics as lba
+    now = datetime.now(timezone.utc).isoformat()
+
+    analysis  = lba.compute_live_analysis(match)
+    inning    = analysis.get("inning")
+    score     = analysis.get("score") or {}
+    h_score   = int(score.get("home") or 0)
+    a_score   = int(score.get("away") or 0)
+    run_rate  = (analysis.get("deltas") or {}).get("run_rate_combined") or BASEBALL_AVG_RUN_RATE
+    proj_tot  = (analysis.get("deltas") or {}).get("projected_total") or 0.0
+    frac_rem  = analysis.get("fraction_remaining") or 0.5
+    trap      = analysis.get("trap")
+
+    market    = manual_market or _baseball_infer_default_market(proj_tot)
+    selection = market
+
+    est_prob, est_basis = _baseball_estimate_probability(
+        market, h_score, a_score, frac_rem, proj_tot, run_rate,
+    )
+
+    # ── Implied probability: manual odds win; fallback to pre-match ─────
+    if manual_odds and manual_odds > 1.01:
+        implied        = 1.0 / float(manual_odds)
+        decimal_odds   = float(manual_odds)
+        implied_source = "manual"
+    else:
+        decimal_odds, implied = _best_pre_match_quote(match, market)
+        implied_source = "pre_match"
+
+    if implied is None:
+        return _build_response(
+            match_id=match.get("match_id"),
+            live_state="NO_LIVE_VALUE",
+            recommended_action="PASS",
+            market=market, selection=selection,
+            estimated_probability=est_prob,
+            implied_probability=None,
+            decimal_odds=None,
+            edge=None,
+            confidence=0,
+            risk_level="HIGH",
+            reason=(
+                "Sin cuota disponible para béisbol. "
+                "Ingresa la cuota de tu bookie para reevaluar."
+            ),
+            live_snapshot={
+                "minute": inning, "score": score,
+                "is_live": True, "sport": "baseball",
+                "projected_total": proj_tot,
+                "run_rate": round(run_rate, 2),
+            },
+            manual_odds_used=False,
+            computed_at=now,
+            live_analysis=analysis,
+            trap=trap,
+        )
+
+    edge     = est_prob - implied
+    market_l = market.lower()
+
+    # ── Blowout trap gate ───────────────────────────────────────────────
+    # If the user bets the leader's Money Line during a late blowout with
+    # sub-1.20 odds → hard PASS regardless of model edge.
+    leader_side = (
+        "home" if h_score > a_score else
+        "away" if a_score > h_score else None
+    )
+    trap_overrides = (
+        trap and trap.get("triggered") and leader_side
+        and "money line" in market_l and leader_side in market_l
+    )
+
+    if trap_overrides:
+        state, action, risk, reason = (
+            "TRAP_DETECTED", "PASS", "HIGH", trap["reason_es"]
+        )
+        confidence = 0
+    else:
+        if edge >= 0.05:
+            state  = "LIVE_VALUE_WINDOW"
+            action = "BET"
+            risk   = "LOW" if edge >= 0.10 else "MEDIUM"
+            reason = f"Ventana de valor béisbol: edge +{edge*100:.1f}% en {market}."
+        elif edge >= 0.02:
+            state, action, risk = "WATCHLIST", "WATCH", "MEDIUM"
+            reason = (
+                f"Posible valor en {market} (edge +{edge*100:.1f}%). "
+                f"Esperar confirmación de tendencia."
+            )
+        elif edge >= -0.02:
+            state, action, risk = "NO_LIVE_VALUE", "PASS", "MEDIUM"
+            reason = f"Sin edge claro en {market} (edge {edge*100:.1f}%)."
+        else:
+            state, action, risk = "NO_LIVE_VALUE", "PASS", "HIGH"
+            reason = f"Cuota sin valor en {market} (edge {edge*100:.1f}%)."
+
+        confidence = max(0, min(100, int(
+            50 + (edge * 200) + ((1 - frac_rem) * 30)
+        )))
+        # Attach secondary trap warning when trap fired but didn't hard-override.
+        if trap and trap.get("triggered"):
+            reason = f"{reason}  ⚠ {trap['reason_es']}"
+
+    # ── Interpreter: coach-voice payload for LiveCopilotCard ────────────
+    reeval_for_interpreter = {
+        "live_state":            state,
+        "recommended_action":    action,
+        "market":                market,
+        "edge":                  edge,
+        "edge_pct":              round((edge or 0) * 100, 2),
+        "confidence":            confidence,
+        "estimated_probability": round(est_prob or 0, 4),
+        "implied_probability":   round(implied or 0, 4) if implied is not None else None,
+        "decimal_odds":          decimal_odds,
+        "manual_odds_used":      (implied_source == "manual"),
+        "reason":                reason,
+    }
+    try:
+        from . import human_live_interpreter as hli
+        interpreter = hli.interpret_live(
+            match,
+            analysis=analysis,
+            reeval=reeval_for_interpreter,
+        )
+    except Exception as _exc:
+        import logging
+        logging.getLogger("live_reeval").warning(
+            "interpret_live (baseball) failed: %s", _exc
+        )
+        interpreter = None
+
+    return _build_response(
+        match_id=match.get("match_id"),
+        live_state=state,
+        recommended_action=action,
+        market=market, selection=selection,
+        estimated_probability=est_prob,
+        implied_probability=implied,
+        decimal_odds=decimal_odds,
+        edge=edge,
+        confidence=confidence,
+        risk_level=risk,
+        reason=reason,
+        live_snapshot={
+            "minute":          inning,
+            "score":           score,
+            "is_live":         True,
+            "sport":           "baseball",
+            "projected_total": proj_tot,
+            "run_rate":        round(run_rate, 2),
+        },
         manual_odds_used=(implied_source == "manual"),
         computed_at=now,
         live_analysis=analysis,

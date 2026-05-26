@@ -298,11 +298,9 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
 
     sport = _norm_sport(req.sport or "football")
     if sport == "baseball":
-        # MLB re-evaluation pendiente de implementación.
-        raise HTTPException(
-            status_code=400,
-            detail="Live re-evaluation no está disponible para baseball aún.",
-        )
+        # Baseball re-evaluation: implementado vía live_baseball_analytics +
+        # _reevaluate_baseball. El dispatcher en reevaluate_match() lo enruta.
+        pass
 
     if (req.manual_odds is not None) ^ (req.manual_market is not None):
         raise HTTPException(
@@ -1862,6 +1860,83 @@ async def understat_link(
         "linked_to":   u_id,
         "enrichment":  enrichment,
         "computed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@api.post("/understat/auto-link")
+async def understat_auto_link(
+    payload: dict,
+    user: dict = Depends(get_current_user),
+):
+    """Best-effort automatic linker: given an API-Sports match_id, search
+    Understat (via DDG) for the corresponding match and persist it.
+
+    Body:
+      { "match_id": "<API-Sports id>" }
+
+    Returns the same shape as `/understat/link` on success, or a 404
+    when no Understat coverage is found (out-of-scope league, no match
+    found, or team naming too different to fuzzy-match).
+    """
+    from services import understat_scraper as us
+    match_id = str(payload.get("match_id") or "").strip()
+    if not match_id:
+        raise HTTPException(status_code=400, detail="match_id is required.")
+
+    fixture = await db.matches.find_one({"match_id": match_id})
+    if not fixture and match_id.isdigit():
+        fixture = await db.matches.find_one({"match_id": int(match_id)})
+    if not fixture:
+        raise HTTPException(status_code=404, detail=f"match {match_id} not found.")
+
+    home = (fixture.get("home_team") or {}).get("name") or ""
+    away = (fixture.get("away_team") or {}).get("name") or ""
+    if not home or not away:
+        raise HTTPException(status_code=400, detail="fixture has no team names.")
+
+    # Run the DDG-backed fuzzy linker in an executor (blocking I/O).
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None,
+        lambda: us.fuzzy_link_match(home, away, fixture.get("kickoff_iso")),
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No Understat match found for {home} vs {away}. "
+                "Likely out-of-scope league (Understat covers top-5 + RFPL) "
+                "or team naming too different."
+            ),
+        )
+
+    u_id = result["understat_match_id"]
+    enrichment = result["enrichment"]
+    query_mid = fixture.get("match_id")
+    await db.matches.update_one(
+        {"match_id": query_mid},
+        {"$set": {
+            "_understat":             enrichment,
+            "understat_match_id":     u_id,
+            "_provenance.understat":  "auto_linked",
+            "_understat_linked_at":   datetime.now(timezone.utc).isoformat(),
+            "_understat_linked_by":   user["id"],
+        }},
+    )
+    return {
+        "ok":                  True,
+        "match_id":            query_mid,
+        "linked_to":           u_id,
+        "enrichment":          enrichment,
+        "candidates_checked":  result.get("candidates_checked"),
+        "fuzzy_score": {
+            "home_api":         home,
+            "away_api":         away,
+            "home_understat":   (enrichment.get("teams") or {}).get("home"),
+            "away_understat":   (enrichment.get("teams") or {}).get("away"),
+            "match_date":       result.get("match_date"),
+        },
+        "computed_at":         datetime.now(timezone.utc).isoformat(),
     }
 
 

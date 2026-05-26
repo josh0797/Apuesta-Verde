@@ -319,9 +319,234 @@ def aggregate_team_form(matches: list[dict[str, Any]], team_name: str) -> Option
     }
 
 
+# ── Fuzzy linker — find Understat match_id by team names + date ───────────────
+#
+# Understat 2025 removed embedded league/team JSON pages, so we cannot
+# enumerate matches directly anymore. Workaround: query search engines for
+# `site:understat.com/match <home> <away>` and parse the result URLs.
+# We try multiple engines in cascade (DDG Lite → Brave → StartPage) so a
+# single source going down doesn't break the linker. Then we hydrate each
+# candidate via fetch_match() and pick the one whose teams + date match
+# the input.
+#
+# This is best-effort: only EPL / La Liga / Bundesliga / Serie A / Ligue 1
+# / RFPL are covered by Understat, so other leagues will yield zero hits
+# and the caller must fall back to the Poisson proxy.
+
+_SEARCH_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.google.com/",
+}
+# Search engines tried in order. Each engine returns a query-URL function.
+_SEARCH_ENGINES = [
+    ("brave",       lambda q: f"https://search.brave.com/search?q={q}"),
+    ("ddg_lite",    lambda q: f"https://lite.duckduckgo.com/lite/?q={q}"),
+    ("ddg_html",    lambda q: f"https://html.duckduckgo.com/html/?q={q}"),
+    ("startpage",   lambda q: f"https://www.startpage.com/sp/search?query={q}"),
+]
+_UNDERSTAT_ID_RE = re.compile(r"understat\.com/match/(\d+)")
+
+
+def find_match_ids_by_teams(
+    home_team: str,
+    away_team: str,
+    *,
+    limit: int = 8,
+) -> list[int]:
+    """Best-effort search for Understat match_ids referencing both teams.
+
+    Cycles through multiple search engines (Brave, DDG Lite, DDG HTML,
+    StartPage) until at least one returns Understat URLs. Returns up to
+    `limit` candidate ids sorted high → low (most recent first; Understat
+    ids are monotonic). Empty list when nothing matches.
+    """
+    import urllib.parse
+
+    home_q = home_team.strip()
+    away_q = away_team.strip()
+    if not home_q or not away_q:
+        return []
+
+    raw_query = f'site:understat.com/match "{home_q}" "{away_q}"'
+    encoded   = urllib.parse.quote(raw_query)
+
+    for engine_name, url_fn in _SEARCH_ENGINES:
+        try:
+            r = requests.get(
+                url_fn(encoded),
+                headers=_SEARCH_HEADERS,
+                timeout=_TIMEOUT_SEC,
+            )
+        except requests.RequestException as exc:
+            log.debug("understat: search %s failed: %s", engine_name, exc)
+            continue
+
+        if r.status_code != 200:
+            log.debug("understat: search %s → HTTP %s", engine_name, r.status_code)
+            continue
+
+        ids = sorted(
+            {int(m) for m in _UNDERSTAT_ID_RE.findall(r.text)},
+            reverse=True,
+        )
+        if ids:
+            log.debug("understat: %s found %d ids", engine_name, len(ids))
+            return ids[:limit]
+
+    return []
+
+
+def _normalise_team_name(name: str) -> str:
+    """Lowercase + strip punctuation for fuzzy team name matching.
+
+    Understat uses slightly different team naming than API-Sports
+    (e.g. "Manchester United" vs "Manchester Utd"). We normalise both
+    sides before comparing so common variants still match.
+    """
+    if not name:
+        return ""
+    s = name.lower().strip()
+    # Drop common suffixes / fillers
+    for tok in [" fc", " cf", " sc", " ac", " club", " calcio", "afc ", "fc "]:
+        s = s.replace(tok, " ")
+    # Drop punctuation
+    s = re.sub(r"[^a-z0-9áéíóúñ ]", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _teams_match(api_home: str, api_away: str, u_home: str, u_away: str) -> bool:
+    """True if normalised Understat teams overlap with API-Sports teams.
+
+    Accepts both side orderings (Arsenal vs Chelsea matches both home/away
+    permutations on Understat — same two clubs are the relevant identity).
+    Uses substring containment in both directions so partial names match
+    (e.g. "Bayern Munich" vs "Bayern" or "Inter" vs "Inter Milan").
+    """
+    a_h = _normalise_team_name(api_home)
+    a_a = _normalise_team_name(api_away)
+    u_h = _normalise_team_name(u_home)
+    u_a = _normalise_team_name(u_away)
+    if not (a_h and a_a and u_h and u_a):
+        return False
+    def _overlap(a: str, b: str) -> bool:
+        if not a or not b:
+            return False
+        if a in b or b in a:
+            return True
+        # Accept if last token of either matches (e.g. "manchester united" vs "manchester utd")
+        tail_a = a.split()[-1][:4]
+        tail_b = b.split()[-1][:4]
+        return tail_a == tail_b and len(tail_a) >= 3
+    # Try both orderings: (api_home,api_away) ↔ (u_home,u_away) AND swapped.
+    same_order = _overlap(a_h, u_h) and _overlap(a_a, u_a)
+    reversed_  = _overlap(a_h, u_a) and _overlap(a_a, u_h)
+    return same_order or reversed_
+
+
+def fuzzy_link_match(
+    home_team: str,
+    away_team: str,
+    kickoff_iso: Optional[str] = None,
+    *,
+    candidates: int = 8,
+) -> Optional[dict]:
+    """Find the Understat match_id matching the given fixture.
+
+    Pipeline:
+      1. Build a DDG query `site:understat.com/match "<home>" "<away>"`.
+      2. For each candidate id, fetch the full match page.
+      3. Filter by fuzzy team-name overlap (handles Understat vs
+         API-Sports naming differences).
+      4. If `kickoff_iso` was passed, pick the candidate with the closest
+         date (within 7 days). Otherwise pick the highest-id (most recent).
+
+    Returns a dict:
+      {
+        "understat_match_id": int,
+        "enrichment":         <normalised dict>,
+        "score":              {"home": int, "away": int},
+        "match_date":         str,
+        "team_overlap":       True,
+        "candidates_checked": int,
+      }
+    or None when no acceptable candidate is found.
+    """
+    ids = find_match_ids_by_teams(home_team, away_team, limit=candidates)
+    if not ids:
+        return None
+
+    # Parse target kickoff date once (best-effort).
+    target_dt = None
+    if kickoff_iso:
+        try:
+            target_dt = datetime.fromisoformat(kickoff_iso.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            target_dt = None
+
+    best: Optional[dict] = None
+    best_delta = None
+    fallback: Optional[dict] = None   # any team-overlap, used when date-filter rejects all
+    checked = 0
+    for u_id in ids:
+        enr = enrich_match_dict(u_id)
+        checked += 1
+        if not enr:
+            continue
+        teams = enr.get("teams") or {}
+        u_home = teams.get("home") or ""
+        u_away = teams.get("away") or ""
+        if not _teams_match(home_team, away_team, u_home, u_away):
+            continue
+
+        # Compute date distance when possible.
+        if target_dt and enr.get("date"):
+            try:
+                u_dt = datetime.fromisoformat(enr["date"].replace(" ", "T"))
+                u_dt = u_dt.replace(tzinfo=timezone.utc) if u_dt.tzinfo is None else u_dt
+                delta = abs((u_dt - target_dt).total_seconds())
+            except (ValueError, TypeError):
+                delta = None
+        else:
+            delta = None
+
+        cand = {
+            "understat_match_id": u_id,
+            "enrichment":         enr,
+            "score":              enr.get("score"),
+            "match_date":         enr.get("date"),
+            "team_overlap":       True,
+            "candidates_checked": checked,
+            "date_delta_seconds": delta,
+        }
+        # If we have target date: prefer the closest within 7 days.
+        if delta is not None:
+            if delta <= 7 * 86400 and (best_delta is None or delta < best_delta):
+                best = cand
+                best_delta = delta
+            # Keep team-overlap as a fallback in case nothing falls in the window
+            elif fallback is None:
+                fallback = cand
+        elif best is None:
+            # No date filtering — take the first overlap (highest id = newest)
+            best = cand
+
+    chosen = best or fallback
+    if chosen:
+        chosen["candidates_checked"] = checked
+    return chosen
+
+
 __all__ = [
     "fetch_match",
     "enrich_match_dict",
     "fetch_match_cached",
     "aggregate_team_form",
+    "find_match_ids_by_teams",
+    "fuzzy_link_match",
 ]
