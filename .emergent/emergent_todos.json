@@ -1,22 +1,30 @@
 [
   {
-    "content": "Explorar normalizer.py, understat_scraper.py y live_baseball_analytics.py",
+    "content": "Fase 1: Crear /app/backend/services/market_tolerance.py",
     "status": "completed"
   },
   {
-    "content": "Tarea (d): Implementar normalize_live_stats_baseball() en normalizer.py + integrar en data_ingestion.py",
+    "content": "Fase 1: Refactor moneyball_layer.py con trap signals estructuradas + contextual_edge_decision + nuevos verdicts",
     "status": "completed"
   },
   {
-    "content": "Tarea (b): Reforzar fuzzy linker Understat con estrategias alternativas (Bing/búsqueda directa)",
+    "content": "Fase 1: Validar POC con casos sintéticos (python -c)",
     "status": "completed"
   },
   {
-    "content": "Tarea (a): Ejecutar testing agent backend end-to-end",
+    "content": "Fase 2: Crear /app/backend/services/alternative_rescue.py",
     "status": "completed"
   },
   {
-    "content": "Revisar reporte del testing agent y arreglar bugs detectados",
+    "content": "Fase 2: Integrar en analyst_engine.py (buckets + rescue layer expandido)",
     "status": "completed"
+  },
+  {
+    "content": "Fase 2: Refactor DashboardPage.jsx (nuevas secciones + UI humana de trap signals)",
+    "status": "completed"
+  },
+  {
+    "content": "Fase 3: Testing agent backend end-to-end + revisar bugs",
+    "status": "in_progress"
   }
 ]

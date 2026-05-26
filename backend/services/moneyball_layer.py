@@ -7,19 +7,22 @@ whether the price the market is paying is actually worth taking.
 Pipeline (universal):
     Sport Engine     → estimated_probability (from confidence × per-sport calibration)
     Market Odds      → implied_probability  = 1 / decimal_odds
+    Market Tolerance → category (aggressive | balanced | protected)
     Moneyball Layer  → edge, EV, ROI, fragility, overreaction, traps,
                        undervalued signals, final classification
 
-Classification space (9 final verdicts):
-    STRONG_VALUE_BET   — edge ≥ 5% AND high confidence AND low fragility
-    VALUE_BET          — edge ≥ threshold (3% simple / 5% live / 7% parlay)
-    UNDERVALUED_EDGE   — value + ≥1 undervalued signal (alternative line, prop, etc.)
-    LIVE_VALUE_WINDOW  — is_live AND edge ≥ 5% AND volatile state
-    FRAGILE_EDGE       — value present but fragility_score > 65 → reduce stake
+Classification space (11 final verdicts):
+    STRONG_VALUE_BET     — edge ≥ 5% AND high confidence AND low fragility
+    VALUE_BET            — edge ≥ threshold (3% simple / 5% live / 7% parlay)
+    UNDERVALUED_EDGE     — value + ≥1 undervalued signal (alternative line, prop, etc.)
+    LIVE_VALUE_WINDOW    — is_live AND edge ≥ 5% AND volatile state
+    FRAGILE_EDGE         — value present but fragility_score > 65 → reduce stake
     WAIT_FOR_BETTER_LINE — edge slightly below threshold AND line movement favourable
-    PUBLIC_OVERREACTION — public_overreaction_index ≥ 70 AND no strong undervalued
-    MARKET_TRAP        — ≥2 trap signals OR (negative edge + traps)
-    NO_BET_VALUE       — edge < threshold and no other redeeming signal
+    PROTECTED_ACCEPTABLE — edge slightly negative on protected market with low fragility (NEW)
+    WATCHLIST            — edge marginal/negative but market reads OK; monitor only (NEW)
+    PUBLIC_OVERREACTION  — public_overreaction_index ≥ 70 AND no strong undervalued
+    MARKET_TRAP          — ≥3 structured trap signals (or ≥2 of high severity)
+    NO_BET_VALUE         — edge < threshold and no other redeeming signal
 
 Subsumes the prior `services.market_guardrail`:
     • implied_probability  → exposed as `_market_edge.implied_probability`
@@ -33,6 +36,8 @@ import logging
 import os
 import re
 from typing import Any, Optional
+
+from . import market_tolerance as mt
 
 log = logging.getLogger("moneyball")
 
@@ -278,49 +283,247 @@ def compute_public_overreaction_index(pick: dict) -> dict:
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Market Trap detection
+# Market Trap detection — Structured (códigos canónicos + severidad)
 # ────────────────────────────────────────────────────────────────────────────
-def detect_market_traps(pick: dict, sport: str, edge: Optional[float], implied: Optional[float], overreaction_score: int) -> list[str]:
-    signals: list[str] = []
+# Cada señal devuelta tiene la forma:
+#   {
+#     "code":        "FAVORITE_NAME_BIAS",
+#     "label":       "Favorito sobrevalorado por nombre",
+#     "severity":    "low" | "medium" | "high",
+#     "explanation": "El mercado paga menos por la reputación...",
+#   }
+#
+# Esto reemplaza la lista plana de strings (`detect_market_traps` legacy)
+# que la UI mostraba como "Edge negativo + N señales de trampa".
+# La función legacy se mantiene como wrapper para back-compat.
+
+TRAP_CATALOG: dict[str, dict] = {
+    "FAVORITE_NAME_BIAS": {
+        "label":       "Favorito sobrevalorado por nombre",
+        "severity":    "high",
+        "explanation": "El mercado paga menos por la reputación del equipo que por dominio estadístico real.",
+    },
+    "LOW_ODDS_NO_VALUE": {
+        "label":       "Cuota baja sin valor real",
+        "severity":    "high",
+        "explanation": "Cuota corta sin colchón de EV: el mercado ya descuenta toda la probabilidad y no queda margen.",
+    },
+    "SCOREBOARD_TRAP": {
+        "label":       "Marcador engañoso",
+        "severity":    "medium",
+        "explanation": "El marcador no refleja el balance de juego — el equipo con ventaja puede estar siendo dominado.",
+    },
+    "NO_STATISTICAL_DOMINANCE": {
+        "label":       "Sin dominio estadístico real",
+        "severity":    "high",
+        "explanation": "El pick depende de la confianza del modelo, no de un dominio estadístico claro en xG/posesión/tiros.",
+    },
+    "PUBLIC_NARRATIVE_OVERREACTION": {
+        "label":       "Sobre-reacción de narrativa pública",
+        "severity":    "medium",
+        "explanation": "El reasoning apoya el pick en frases hechas ('necesitan ganar', 'equipo grande') sin métricas que las respalden.",
+    },
+    "MOTIVATION_OVERPRICED": {
+        "label":       "Motivación ya descontada por el mercado",
+        "severity":    "medium",
+        "explanation": "La presión / motivación está reflejada en la cuota; el upside ya se pagó hace días.",
+    },
+    "H2H_MISLEADING": {
+        "label":       "Histórico H2H engañoso",
+        "severity":    "low",
+        "explanation": "El H2H reciente sesga al pick, pero las condiciones de los equipos cambiaron desde entonces.",
+    },
+    "LINE_MOVEMENT_AGAINST_PICK": {
+        "label":       "Línea se mueve en contra",
+        "severity":    "high",
+        "explanation": "La cuota se ha alargado/movido contra el pick: el dinero inteligente está en el otro lado.",
+    },
+    "LOW_LIQUIDITY_MARKET": {
+        "label":       "Mercado con baja liquidez",
+        "severity":    "low",
+        "explanation": "Pocos books cotizan este mercado — la línea puede no reflejar consenso.",
+    },
+    "LIVE_MOMENTUM_OPPOSITE": {
+        "label":       "Momentum live contrario",
+        "severity":    "high",
+        "explanation": "El partido live tiene momentum claramente en contra del pick — riesgo de cambio de marcador.",
+    },
+    "RED_CARD_CONTEXT": {
+        "label":       "Contexto de tarjeta roja",
+        "severity":    "high",
+        "explanation": "Hay inferioridad numérica que altera la dinámica esperada del partido.",
+    },
+    "LATE_GAME_VOLATILITY": {
+        "label":       "Volatilidad de fin de partido",
+        "severity":    "medium",
+        "explanation": "El partido entra en fase volátil (último cuarto / final / extra) donde un evento decide todo.",
+    },
+    "WEAK_DEFENSIVE_PROFILE": {
+        "label":       "Perfil defensivo débil",
+        "severity":    "medium",
+        "explanation": "Las defensas no soportan el pick: equipos concedieron muchos goles/runs/puntos recientes.",
+    },
+    "OVERDEPENDENT_ON_ONE_EVENT": {
+        "label":       "Depende de un solo evento",
+        "severity":    "medium",
+        "explanation": "El pick necesita un evento puntual (gol exacto, scorer, primer corner) para resolverse positivamente.",
+    },
+    "CONFIDENCE_ALREADY_PRICED": {
+        "label":       "Confianza ya descontada",
+        "severity":    "medium",
+        "explanation": "Confianza alta pero la implied probability ya cubre el escenario — no hay margen de edge.",
+    },
+    "CASH_OUT_LOW": {
+        "label":       "Cash-out muy bajo",
+        "severity":    "low",
+        "explanation": "El cash-out ofrecido es bajo, indicando que el mercado descuenta probabilidad real baja.",
+    },
+}
+
+
+def _make_trap(code: str, *, extra_explanation: str = "") -> dict:
+    """Construye un trap signal estructurado a partir del catálogo."""
+    base = TRAP_CATALOG.get(code, {})
+    return {
+        "code":        code,
+        "label":       base.get("label", code),
+        "severity":    base.get("severity", "medium"),
+        "explanation": (base.get("explanation", "") + (" " + extra_explanation if extra_explanation else "")).strip(),
+    }
+
+
+def detect_trap_signals_structured(
+    pick: dict,
+    sport: str,
+    edge: Optional[float],
+    implied: Optional[float],
+    overreaction_score: int,
+    *,
+    market_category: Optional[str] = None,
+) -> list[dict]:
+    """Devuelve lista de señales trampa estructuradas (códigos canónicos)."""
+    signals: list[dict] = []
     rec = pick.get("recommendation") or {}
     market = (rec.get("market") or "").lower()
-    selection = (rec.get("selection") or "").lower()
     conf = rec.get("confidence_score") or 0
     odds_used = parse_midpoint_odds(rec.get("odds_range")) or 0
+    risks = pick.get("risks") or []
 
-    # 1) Popular favorite at very short price + high confidence
+    # 1) Favorito popular a cuota corta + alta confianza + sin edge real
     if 0 < odds_used <= 1.35 and conf >= 75 and (edge is None or edge < 0.02):
-        signals.append("Favorito popular a cuota corta sin edge real")
+        signals.append(_make_trap("FAVORITE_NAME_BIAS",
+                                  extra_explanation=f"Cuota {odds_used:.2f} con confianza {conf}."))
 
-    # 2) Doble Op / Draw No Bet "safety" trap (football)
-    if sport == "football" and ("doble" in market or "draw no bet" in market) and 0 < odds_used <= 1.25:
-        signals.append("Doble Op a cuota mínima: falsa sensación de seguridad")
+    # 2) Cuota baja sin valor real
+    if 0 < odds_used < 1.25 and (edge is None or edge < 0.01):
+        signals.append(_make_trap("LOW_ODDS_NO_VALUE",
+                                  extra_explanation=f"Cuota {odds_used:.2f}."))
 
-    # 3) Reputation / narrative-driven pick
+    # 3) Doble Op / DNB a cuota mínima (caso especial — riesgo sin retorno)
+    if sport == "football" and ("doble" in market or "draw no bet" in market or "dnb" in market) \
+            and 0 < odds_used <= 1.25:
+        signals.append(_make_trap("LOW_ODDS_NO_VALUE",
+                                  extra_explanation="Doble Op/DNB a cuota mínima sin colchón."))
+
+    # 4) Sobre-reacción narrativa pública
     if overreaction_score >= 45:
-        signals.append("Reasoning apoyado en narrativa pública")
+        signals.append(_make_trap("PUBLIC_NARRATIVE_OVERREACTION",
+                                  extra_explanation=f"Índice de narrativa: {overreaction_score}/100."))
 
-    # 4) Negative edge — paying less than the model says
-    if edge is not None and edge < 0:
-        signals.append(f"Edge negativo: cuota paga {(implied or 0)*100:.0f}% pero modelo estima menos")
-
-    # 5) High confidence claim but the implied probability already covers it
+    # 5) Confianza alta ya descontada por el mercado
     if conf >= 80 and implied is not None and implied >= 0.70 and (edge is None or edge < 0.02):
-        signals.append("Confianza alta pero ya descontada por el mercado")
+        signals.append(_make_trap("CONFIDENCE_ALREADY_PRICED",
+                                  extra_explanation=f"Implied {implied*100:.0f}% ≈ confianza {conf}."))
 
-    # 6) Line movement against our read
+    # 6) Línea se mueve en contra
     line_mv = (pick.get("key_data") or {}).get("line_movement")
-    if line_mv:
-        direction = str(line_mv.get("direction", "")).lower() if isinstance(line_mv, dict) else ""
+    if isinstance(line_mv, dict):
+        direction = str(line_mv.get("direction", "")).lower()
         if direction in ("drifting", "lengthening", "out", "drift"):
-            signals.append("Línea se está alargando: el mercado pierde confianza")
+            signals.append(_make_trap("LINE_MOVEMENT_AGAINST_PICK"))
 
-    # 7) Live cash-out signal explicitly low while we're holding
+    # 7) Cash-out bajo en live
     cash_out = (pick.get("cash_out") or "").lower()
     if cash_out and "bajo" in cash_out and edge is not None and edge < 0.03:
-        signals.append("Cash-out muy bajo: mercado descuenta probabilidad real baja")
+        signals.append(_make_trap("CASH_OUT_LOW"))
 
-    return signals
+    # 8) Mercado depende de un solo evento (scorer / exact / first goal)
+    if any(tok in market for tok in (
+        "scorer", "anotador", "goleador", "exact", "exacto",
+        "primer gol", "first goal", "primer corner",
+    )):
+        signals.append(_make_trap("OVERDEPENDENT_ON_ONE_EVENT"))
+
+    # 9) Riesgo de tarjeta roja señalado en risks o en live_stats
+    risk_blob = " ".join(str(r).lower() for r in risks) if risks else ""
+    if "tarjet" in risk_blob or "red card" in risk_blob or "expuls" in risk_blob:
+        signals.append(_make_trap("RED_CARD_CONTEXT"))
+
+    # 10) Live momentum opposite (señal explícita en live narrative)
+    live_state = (pick.get("live_state") or "")
+    if pick.get("is_live") and isinstance(live_state, str) and live_state.lower() in (
+        "momentum_against", "scoreboard_against", "trap_late_lead",
+    ):
+        signals.append(_make_trap("LIVE_MOMENTUM_OPPOSITE"))
+
+    # 11) Volatilidad de fin de partido
+    if pick.get("is_live"):
+        minute = (pick.get("live_stats") or {}).get("minute")
+        try:
+            m = int(minute) if minute is not None else None
+        except (TypeError, ValueError):
+            m = None
+        if m is not None and m >= 80:
+            signals.append(_make_trap("LATE_GAME_VOLATILITY"))
+
+    # 12) Perfil defensivo débil — señal proveniente del LLM context
+    key_data = pick.get("key_data") or {}
+    weak_def = key_data.get("weak_defensive_profile") or key_data.get("defensive_weakness")
+    if weak_def:
+        signals.append(_make_trap("WEAK_DEFENSIVE_PROFILE"))
+
+    # 13) Sin dominio estadístico — flag explícito o muchos risks
+    if (key_data.get("no_statistical_dominance") is True
+            or (isinstance(risks, list) and len(risks) >= 4)):
+        signals.append(_make_trap("NO_STATISTICAL_DOMINANCE"))
+
+    # 14) Liquidez baja
+    if (key_data.get("low_liquidity") is True
+            or (pick.get("_market_meta") or {}).get("bookmaker_count", 99) < 3):
+        signals.append(_make_trap("LOW_LIQUIDITY_MARKET"))
+
+    # 15) Motivation already priced — señal del stage_detector
+    pressure = (pick.get("pressure_state") or "").lower()
+    if pressure in ("priced_in", "already_priced", "overpriced"):
+        signals.append(_make_trap("MOTIVATION_OVERPRICED"))
+
+    # Dedup por código
+    seen = set()
+    deduped: list[dict] = []
+    for s in signals:
+        if s["code"] not in seen:
+            deduped.append(s)
+            seen.add(s["code"])
+    return deduped
+
+
+def detect_market_traps(
+    pick: dict,
+    sport: str,
+    edge: Optional[float],
+    implied: Optional[float],
+    overreaction_score: int,
+) -> list[str]:
+    """Wrapper legacy: devuelve lista de strings (back-compat).
+
+    Mantiene la firma original que esperaban learning_cases.py y otros
+    callers para no romper la API existente. Internamente usa la nueva
+    detección estructurada y aplana a labels.
+    """
+    structured = detect_trap_signals_structured(
+        pick, sport, edge, implied, overreaction_score,
+    )
+    return [s["label"] for s in structured]
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -366,8 +569,13 @@ def detect_undervalued_edges(pick: dict, sport: str, edge: Optional[float], matc
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Final classification (the 9-state space)
+# Final classification (the 11-state space)
 # ────────────────────────────────────────────────────────────────────────────
+def _high_severity_count(structured_traps: list[dict]) -> int:
+    """Cuenta señales trampa de severidad 'high'."""
+    return sum(1 for t in structured_traps if (t.get("severity") or "").lower() == "high")
+
+
 def classify_pick(
     *,
     edge: Optional[float],
@@ -379,63 +587,173 @@ def classify_pick(
     trap_signals: list[str],
     undervalued_signals: list[str],
     line_movement_favourable: bool,
+    market_category: str = mt.CATEGORY_UNKNOWN,
+    structured_traps: Optional[list[dict]] = None,
 ) -> dict:
+    """Decisión contextual por categoría de mercado.
+
+    Nuevos verdicts (vs versión previa):
+      - PROTECTED_ACCEPTABLE: edge ligeramente negativo en mercado protegido
+        con baja fragilidad, alta confianza y ≤1 trap signal.
+      - WATCHLIST: edge marginal/negativo pero la lectura del partido es
+        coherente; no se apuesta, se monitorea.
+    """
+    structured_traps = structured_traps or []
     if edge is None:
-        return {"classification": "NO_BET_VALUE", "reason": "Datos insuficientes para validar valor."}
-
-    # Hard rejections
-    if edge < 0 and len(trap_signals) >= 2:
-        return {"classification": "MARKET_TRAP",
-                "reason": f"Edge negativo + {len(trap_signals)} señales de trampa."}
-    if edge < 0:
         return {"classification": "NO_BET_VALUE",
-                "reason": f"Edge negativo ({edge*100:+.1f}%): el mercado paga menos de lo justo."}
-    if edge < threshold:
-        if line_movement_favourable and edge >= threshold - 0.015:
-            return {"classification": "WAIT_FOR_BETTER_LINE",
-                    "reason": f"Edge {edge*100:.1f}% justo bajo el umbral {threshold*100:.0f}%, "
-                              f"pero la línea se mueve a favor. Esperar mejor precio."}
-        return {"classification": "NO_BET_VALUE",
-                "reason": f"Edge {edge*100:.1f}% < umbral {threshold*100:.0f}%."}
+                "reason": "Datos insuficientes para validar valor.",
+                "tolerance_used": market_category}
 
-    # Edge ≥ threshold. Check for overrides.
+    # Parámetros de tolerancia para esta categoría de mercado
+    params = mt.tolerance_params(market_category)
+    n_traps_total = len(trap_signals)
+    n_traps_high  = _high_severity_count(structured_traps)
+
+    # ── Hard rejections universales ─────────────────────────────────────
+    # Trampa fuerte: ≥3 señales OR ≥2 high-severity
+    if n_traps_total >= 3 or n_traps_high >= 2:
+        # Excepción: mercado protegido con muy baja fragilidad puede
+        # sobrevivir 2 traps si edge no es demasiado negativo.
+        if (mt.is_protected(market_category)
+                and fragility < 30
+                and (edge or 0) >= params["negative_edge_floor"]
+                and n_traps_high <= 1):
+            pass  # caer al flujo de protegido
+        else:
+            return {"classification": "MARKET_TRAP",
+                    "reason": f"Señales de trampa significativas: {n_traps_total} totales, "
+                              f"{n_traps_high} de severidad alta.",
+                    "tolerance_used": market_category}
+
+    # ── Branch por categoría de mercado ─────────────────────────────────
+    if mt.is_aggressive(market_category):
+        # AGGRESSIVE: cero tolerancia a edge negativo
+        if edge < 0:
+            return {"classification": "NO_BET_VALUE",
+                    "reason": f"Mercado agresivo con edge {edge*100:+.1f}%: "
+                              f"no se acepta edge negativo en este tipo de mercado.",
+                    "tolerance_used": market_category}
+        if edge < params["min_edge"]:
+            if line_movement_favourable and edge >= params["min_edge"] - 0.015:
+                return {"classification": "WAIT_FOR_BETTER_LINE",
+                        "reason": f"Edge {edge*100:.1f}% bajo el umbral agresivo "
+                                  f"{params['min_edge']*100:.0f}%, pero línea favorable. "
+                                  f"Esperar mejor precio.",
+                        "tolerance_used": market_category}
+            return {"classification": "NO_BET_VALUE",
+                    "reason": f"Mercado agresivo requiere edge ≥{params['min_edge']*100:.0f}%; "
+                              f"actual {edge*100:+.1f}%.",
+                    "tolerance_used": market_category}
+        # edge >= min_edge en agresivo → sigue al flujo final de "positive edge"
+
+    elif mt.is_protected(market_category):
+        # PROTECTED: el flujo más flexible (este es el core de la spec)
+        floor    = params["negative_edge_floor"]    # típicamente -1.5%
+        wl_floor = params["watchlist_floor"]        # típicamente -2.5%
+        ok_frag  = fragility <= params["max_fragility_acceptable"]
+        ok_conf  = confidence >= params["min_confidence"]
+        ok_traps = n_traps_total <= params["max_trap_signals"]
+
+        if edge >= 0:
+            # Edge positivo en protegido → directamente VALUE_BET (la
+            # validación de fragility/traps se hace abajo en el flujo común)
+            pass
+        elif edge >= floor and ok_frag and ok_conf and ok_traps:
+            return {"classification": "PROTECTED_ACCEPTABLE",
+                    "reason": (
+                        f"Mercado protegido con edge {edge*100:+.1f}% (dentro de tolerancia "
+                        f"{floor*100:+.1f}%). Confianza {confidence}, fragilidad {fragility}, "
+                        f"{n_traps_total} señales trampa: lectura coherente del partido."
+                    ),
+                    "tolerance_used": market_category}
+        elif edge >= wl_floor and ok_frag:
+            return {"classification": "WATCHLIST",
+                    "reason": (
+                        f"Edge {edge*100:+.1f}% bajo tolerancia aceptable pero el mercado "
+                        f"protegido sigue siendo razonable. Monitorear, no apostar."
+                    ),
+                    "tolerance_used": market_category}
+        else:
+            return {"classification": "NO_BET_VALUE",
+                    "reason": (
+                        f"Mercado protegido con edge {edge*100:+.1f}% bajo el piso "
+                        f"de tolerancia ({wl_floor*100:.1f}%) o fragilidad/confianza "
+                        f"fuera de rango."
+                    ),
+                    "tolerance_used": market_category}
+
+    else:
+        # BALANCED / UNKNOWN
+        if edge < params["negative_edge_floor"]:
+            return {"classification": "NO_BET_VALUE",
+                    "reason": f"Edge {edge*100:+.1f}% < piso aceptable "
+                              f"({params['negative_edge_floor']*100:.1f}%) para mercado balanceado.",
+                    "tolerance_used": market_category}
+        if edge < params["min_edge"]:
+            # Entre piso y umbral → WATCHLIST si fragility OK
+            if fragility <= params["max_fragility_acceptable"]:
+                return {"classification": "WATCHLIST",
+                        "reason": (
+                            f"Edge {edge*100:+.1f}% en zona de monitoreo "
+                            f"({params['negative_edge_floor']*100:.1f}% a "
+                            f"{params['min_edge']*100:.1f}%). Sin apuesta pero seguir."
+                        ),
+                        "tolerance_used": market_category}
+            return {"classification": "NO_BET_VALUE",
+                    "reason": f"Edge {edge*100:.1f}% < umbral {params['min_edge']*100:.0f}% "
+                              f"+ fragilidad {fragility} alta.",
+                    "tolerance_used": market_category}
+        # edge >= min_edge → sigue al flujo final
+
+    # ── Flujo común para "edge positivo y suficiente" ───────────────────
     has_strong_undervalued = len(undervalued_signals) >= 1 and edge >= 0.04
     is_high_conf = confidence >= 75
     is_live = bet_type == "live"
 
-    # 1) Trap dominance — even with edge, ≥2 traps and no undervalued = trap
-    if len(trap_signals) >= 2 and not has_strong_undervalued:
-        return {"classification": "MARKET_TRAP",
-                "reason": f"Pese a edge {edge*100:+.1f}%, hay {len(trap_signals)} señales de trampa de mercado."}
-
-    # 2) Public overreaction — narrative-driven without undervalued backing
-    if overreaction >= 70 and not has_strong_undervalued:
-        return {"classification": "PUBLIC_OVERREACTION",
-                "reason": f"Reasoning con narrativa pública alta ({overreaction}/100) sin métricas que la respalden."}
-
-    # 3) Fragility override — value exists but the ticket is fragile
+    # Fragility override
+    if fragility > 75:
+        return {"classification": "NO_BET_VALUE",
+                "reason": f"Edge {edge*100:+.1f}% real pero fragilidad muy alta ({fragility}/100). Riesgo no aceptable.",
+                "tolerance_used": market_category}
     if fragility > 65:
         return {"classification": "FRAGILE_EDGE",
-                "reason": f"Edge {edge*100:+.1f}% real pero fragilidad alta ({fragility}/100). Reducir stake o evitar parlay."}
+                "reason": f"Edge {edge*100:+.1f}% real pero fragilidad alta ({fragility}/100). Reducir stake o evitar parlay.",
+                "tolerance_used": market_category}
 
-    # 4) Live value window
+    # Public overreaction
+    if overreaction >= 70 and not has_strong_undervalued:
+        return {"classification": "PUBLIC_OVERREACTION",
+                "reason": f"Reasoning con narrativa pública alta ({overreaction}/100) sin métricas que la respalden.",
+                "tolerance_used": market_category}
+
+    # Confidence demasiado baja para considerar valor
+    if confidence < 60 and edge < 0.05:
+        return {"classification": "WATCHLIST",
+                "reason": f"Edge {edge*100:+.1f}% pero confianza baja ({confidence}/100). Monitorear.",
+                "tolerance_used": market_category}
+
+    # Live value window
     if is_live and edge >= 0.05:
         return {"classification": "LIVE_VALUE_WINDOW",
-                "reason": f"Live bet con edge {edge*100:+.1f}% sobre línea volátil."}
+                "reason": f"Live bet con edge {edge*100:+.1f}% sobre línea volátil.",
+                "tolerance_used": market_category}
 
-    # 5) Undervalued edge (alternative lines, props, etc.)
+    # Undervalued edge
     if has_strong_undervalued and edge >= 0.04:
         return {"classification": "UNDERVALUED_EDGE",
-                "reason": f"Edge {edge*100:+.1f}% en mercado infravalorado: {undervalued_signals[0]}."}
+                "reason": f"Edge {edge*100:+.1f}% en mercado infravalorado: {undervalued_signals[0]}.",
+                "tolerance_used": market_category}
 
-    # 6) Strong value bet — edge >= 5% + high confidence + low fragility
+    # Strong value bet
     if edge >= 0.05 and is_high_conf and fragility <= 60:
         return {"classification": "STRONG_VALUE_BET",
-                "reason": f"Edge fuerte {edge*100:+.1f}% con confianza alta y baja fragilidad."}
+                "reason": f"Edge fuerte {edge*100:+.1f}% con confianza alta y baja fragilidad.",
+                "tolerance_used": market_category}
 
-    # 7) Default value bet
+    # Default value bet
     return {"classification": "VALUE_BET",
-            "reason": f"Edge {edge*100:+.1f}% ≥ umbral {threshold*100:.0f}%."}
+            "reason": f"Edge {edge*100:+.1f}% ≥ umbral {params['min_edge']*100:.1f}%.",
+            "tolerance_used": market_category}
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -459,11 +777,22 @@ def analyze_pick(pick: dict, sport: str, stake: float = 10.0) -> dict:
     if est is not None and odds_used:
         ev_payload = compute_expected_value(est, odds_used, stake=stake)
 
-    # Fragility + overreaction + traps + undervalued
+    # Market category (tolerance model) — drives the contextual decision
+    market_category = mt.classify_market_tolerance(
+        rec.get("market"),
+        rec.get("selection"),
+        decimal_odds=odds_used,
+    )
+
+    # Fragility + overreaction + traps (structured + legacy) + undervalued
     frag = compute_fragility_score(pick, sport)
     over = compute_public_overreaction_index(pick)
     matchup_signal = pick.get("mlb_matchup") or {}
-    traps = detect_market_traps(pick, sport, edge, imp, over["score"])
+    structured_traps = detect_trap_signals_structured(
+        pick, sport, edge, imp, over["score"],
+        market_category=market_category,
+    )
+    traps = [s["label"] for s in structured_traps]  # legacy flat list
     undervalued = detect_undervalued_edges(pick, sport, edge, matchup_signal)
 
     # Line-movement read
@@ -477,6 +806,8 @@ def analyze_pick(pick: dict, sport: str, stake: float = 10.0) -> dict:
         fragility=frag["score"], overreaction=over["score"],
         trap_signals=traps, undervalued_signals=undervalued,
         line_movement_favourable=line_favourable,
+        market_category=market_category,
+        structured_traps=structured_traps,
     )
 
     # Compose "why this can fail" — frag factors + traps + risks
@@ -503,13 +834,16 @@ def analyze_pick(pick: dict, sport: str, stake: float = 10.0) -> dict:
     moneyball = {
         "classification": cls["classification"],
         "classification_reason": cls["reason"],
+        "tolerance_used": cls.get("tolerance_used", market_category),
+        "market_category": market_category,
         "expected_value": ev_payload.get("expected_value"),
         "roi_projection_pct": ev_payload.get("roi_projection_pct"),
         "stake_used": ev_payload.get("stake"),
         "net_profit_if_win": ev_payload.get("net_profit_if_win"),
         "fragility": frag,
         "public_overreaction": over,
-        "market_trap_signals": traps,
+        "market_trap_signals": traps,            # legacy strings (back-compat)
+        "trap_signals_structured": structured_traps,  # NEW structured payload
         "undervalued_reasons": undervalued,
         "why_this_can_fail": why_can_fail,
         "learning_tags": learning_tags,
@@ -519,8 +853,14 @@ def analyze_pick(pick: dict, sport: str, stake: float = 10.0) -> dict:
     # Back-compat: keep `_market_edge` populated so the legacy panel keeps
     # working until it's fully replaced. Verdict here mirrors classification.
     verdict_legacy = (
-        "VALUE_FOUND" if cls["classification"] in {"VALUE_BET", "STRONG_VALUE_BET", "UNDERVALUED_EDGE", "LIVE_VALUE_WINDOW", "FRAGILE_EDGE"}
-        else "NO_BET_VALUE" if cls["classification"] in {"NO_BET_VALUE", "MARKET_TRAP", "PUBLIC_OVERREACTION", "WAIT_FOR_BETTER_LINE"}
+        "VALUE_FOUND" if cls["classification"] in {
+            "VALUE_BET", "STRONG_VALUE_BET", "UNDERVALUED_EDGE",
+            "LIVE_VALUE_WINDOW", "FRAGILE_EDGE", "PROTECTED_ACCEPTABLE",
+        }
+        else "NO_BET_VALUE" if cls["classification"] in {
+            "NO_BET_VALUE", "MARKET_TRAP", "PUBLIC_OVERREACTION",
+            "WAIT_FOR_BETTER_LINE", "WATCHLIST",
+        }
         else "INSUFFICIENT_DATA"
     )
     market_edge = {
@@ -541,18 +881,29 @@ def analyze_pick(pick: dict, sport: str, stake: float = 10.0) -> dict:
 # Classes that get REROUTED to summary.discarded_market (no real bet value):
 REROUTE_CLASSIFICATIONS = {"NO_BET_VALUE", "MARKET_TRAP", "PUBLIC_OVERREACTION"}
 
-# Classes kept in `picks` (these are the actionable ones):
+# Classes kept in `picks` (actionable, displayed as recommendations):
 KEEP_CLASSIFICATIONS = {
     "VALUE_BET", "STRONG_VALUE_BET", "UNDERVALUED_EDGE",
     "LIVE_VALUE_WINDOW", "FRAGILE_EDGE", "WAIT_FOR_BETTER_LINE",
 }
 
+# Classes routed to `protected_acceptable` bucket — recommendation kept
+# but flagged as "accepted via market protection override".
+PROTECTED_ACCEPTABLE_CLASSIFICATIONS = {"PROTECTED_ACCEPTABLE"}
+
+# Classes routed to `watchlist` bucket — not actionable, monitor only.
+WATCHLIST_CLASSIFICATIONS = {"WATCHLIST"}
+
 
 def apply_moneyball_layer(parsed: dict, sport: str = "football", stake: float = 10.0) -> dict:
     """Mutates `parsed`:
         • For each pick, attaches `_market_edge` (back-compat) AND `_moneyball`.
-        • Reroutes picks classified as NO_BET_VALUE / MARKET_TRAP / PUBLIC_OVERREACTION
-          to summary.discarded_market.
+        • Buckets picks by classification:
+            - `picks` (actionable): VALUE_BET, STRONG_VALUE_BET, UNDERVALUED_EDGE,
+              LIVE_VALUE_WINDOW, FRAGILE_EDGE, WAIT_FOR_BETTER_LINE
+            - `summary.protected_acceptable`: PROTECTED_ACCEPTABLE (NEW)
+            - `summary.watchlist`: WATCHLIST (NEW)
+            - `summary.discarded_market`: NO_BET_VALUE, MARKET_TRAP, PUBLIC_OVERREACTION
         • Updates `_pipeline.moneyball` with summary counters.
     """
     if not parsed or not isinstance(parsed, dict):
@@ -560,11 +911,15 @@ def apply_moneyball_layer(parsed: dict, sport: str = "football", stake: float = 
 
     picks = list(parsed.get("picks") or [])
     summary = parsed.get("summary") or {}
-    disc_mkt = list(summary.get("discarded_market") or [])
+    disc_mkt          = list(summary.get("discarded_market") or [])
+    protected_accept  = list(summary.get("protected_acceptable") or [])
+    watchlist         = list(summary.get("watchlist") or [])
 
     kept: list[dict] = []
     counts: dict[str, int] = {}
     rerouted = 0
+    accepted_protected = 0
+    watchlisted = 0
 
     for p in picks:
         result = analyze_pick(p, sport=sport, stake=stake)
@@ -584,24 +939,41 @@ def apply_moneyball_layer(parsed: dict, sport: str = "football", stake: float = 
                 "_moneyball": result["_moneyball"],
             })
             rerouted += 1
+        elif cls in PROTECTED_ACCEPTABLE_CLASSIFICATIONS:
+            # Mantener en summary.protected_acceptable Y en picks (con flag)
+            p["_bucket"] = "protected_acceptable"
+            protected_accept.append(p)
+            kept.append(p)
+            accepted_protected += 1
+        elif cls in WATCHLIST_CLASSIFICATIONS:
+            # Watchlist: NO ir a picks recomendados, solo al bucket de observación
+            p["_bucket"] = "watchlist"
+            watchlist.append(p)
+            watchlisted += 1
         else:
+            p["_bucket"] = "picks"
             kept.append(p)
 
     parsed["picks"] = kept
-    summary["discarded_market"] = disc_mkt
+    summary["discarded_market"]    = disc_mkt
+    summary["protected_acceptable"] = protected_accept
+    summary["watchlist"]            = watchlist
     parsed["summary"] = summary
     parsed.setdefault("_pipeline", {})
     parsed["_pipeline"]["moneyball"] = {
-        "evaluated": len(picks),
-        "kept": len(kept),
-        "rerouted": rerouted,
-        "by_classification": counts,
-        "stake_used": stake,
-        "thresholds": EDGE_THRESHOLDS,
+        "evaluated":          len(picks),
+        "kept":               len(kept),
+        "rerouted":           rerouted,
+        "protected_accepted": accepted_protected,
+        "watchlisted":        watchlisted,
+        "by_classification":  counts,
+        "stake_used":         stake,
+        "thresholds":         EDGE_THRESHOLDS,
     }
     if picks:
         log.info(
-            "moneyball[%s]: %d picks → %d kept / %d rerouted | %s",
-            sport, len(picks), len(kept), rerouted, counts,
+            "moneyball[%s]: %d picks → %d kept (%d protected_accept) / %d watchlist / %d rerouted | %s",
+            sport, len(picks), len(kept), accepted_protected,
+            watchlisted, rerouted, counts,
         )
     return parsed

@@ -1400,6 +1400,81 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         except Exception as exc:
             log.warning("protected alternative scan failed: %s", exc)
 
+    # ── Phase 10 — Universal Alternative Market Rescue ──────────────────
+    # Para CUALQUIER partido en summary.discarded_market (no solo Tier 1/2),
+    # intentamos una última pasada por mercados protegidos antes de descartar
+    # definitivamente. Esto cubre baseball/basketball y fútbol Tier 3/4 que
+    # quedan fuera del scope del scan especializado de Phase 9.
+    #
+    # Lo que se rescata se mueve a `summary.rescued_picks` (o
+    # `summary.watchlist` si la classification es WATCHLIST).
+    try:
+        from . import alternative_rescue as _ar
+        by_id = {m.get("match_id"): m for m in matches_payload}
+        rescued_now: list[dict] = list((parsed.get("summary") or {}).get("rescued_picks") or [])
+        watchlist_now: list[dict] = list((parsed.get("summary") or {}).get("watchlist") or [])
+
+        original_disc_mkt = list((parsed.get("summary") or {}).get("discarded_market") or [])
+        kept_disc_mkt: list[dict] = []
+        rescued_count = 0
+
+        # Tracking: para no procesar el mismo match dos veces.
+        already_rescued_ids = {r.get("match_id") for r in rescued_now} | \
+                               {r.get("match_id") for r in watchlist_now}
+
+        for entry in original_disc_mkt:
+            mid = entry.get("match_id")
+            if mid in already_rescued_ids:
+                # Ya fue rescatado por Phase 9 o por otra ronda — mantenerlo
+                # en discarded sería duplicar; saltamos.
+                continue
+
+            m = by_id.get(mid)
+            if not m:
+                kept_disc_mkt.append(entry)
+                continue
+
+            base_conf = (entry.get("_market_edge") or {}).get("estimated_probability") or 0
+            # Estimated_probability viene 0-1; convertir a confidence 0-100
+            # con calibración inversa. Como aproximación: 0.6 ⇒ 65 conf.
+            base_conf_int = int(round((base_conf or 0.6) * 100)) if base_conf else 60
+            base_conf_int = max(55, min(80, base_conf_int))
+
+            try:
+                rescue = _ar.attempt_alternative_market_rescue(
+                    m,
+                    sport=sport,
+                    base_confidence=base_conf_int,
+                    why_direct_failed=entry.get("reason"),
+                )
+            except Exception as exc:
+                log.debug("rescue Phase 10 failed for %s: %s", mid, exc)
+                rescue = None
+
+            if not rescue:
+                kept_disc_mkt.append(entry)
+                continue
+
+            # Construir entrada uniforme con match_id/label + payload de rescue.
+            payload = {
+                "match_id":    mid,
+                "match_label": entry.get("match_label"),
+                **rescue,
+            }
+            if rescue.get("routed_to") == "watchlist":
+                watchlist_now.append(payload)
+            else:
+                rescued_now.append(payload)
+                rescued_count += 1
+
+        (parsed.get("summary") or {})["rescued_picks"] = rescued_now
+        (parsed.get("summary") or {})["watchlist"]     = watchlist_now
+        (parsed.get("summary") or {})["discarded_market"] = kept_disc_mkt
+        if rescued_count:
+            log.info("rescue Phase 10: rescued %d match(es) from discarded → rescued_picks", rescued_count)
+    except Exception as exc:
+        log.warning("Phase 10 universal rescue failed: %s", exc)
+
     # Merge auto_discarded from pre-filter into the summary so the
     # categorization invariant len(picks)+lists == total_analyzed still holds
     # against the ORIGINAL input size (not just the shortlist).
@@ -1430,10 +1505,22 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         summary["discarded_market"] = disc_mkt
 
     # Reconciliation against the FULL input set
+    rescued_picks = summary.get("rescued_picks") or []
+    watchlist     = summary.get("watchlist") or []
+    protected_acc = summary.get("protected_acceptable") or []
     picked_ids = {p.get("match_id") for p in picks}
-    listed_ids = picked_ids | {x.get("match_id") for x in (disc_mot + disc_mkt + incomp)}
+    listed_ids = (
+        picked_ids
+        | {x.get("match_id") for x in (disc_mot + disc_mkt + incomp)}
+        | {x.get("match_id") for x in rescued_picks}
+        | {x.get("match_id") for x in watchlist}
+    )
     expected_total = len(matches_payload)
-    if (len(picks) + len(disc_mot) + len(disc_mkt) + len(incomp)) < expected_total:
+    accounted = (
+        len(picks) + len(disc_mot) + len(disc_mkt) + len(incomp)
+        + len(rescued_picks) + len(watchlist)
+    )
+    if accounted < expected_total:
         for m in matches_payload:
             mid = m.get("match_id")
             if mid in listed_ids:
@@ -1456,8 +1543,11 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         summary["discarded_market"] = disc_mkt
 
     summary["total_analyzed"] = expected_total
-    summary["total_recommended"] = len(picks)
+    summary["total_recommended"] = len(picks) + len(rescued_picks)
     summary["total_discarded"] = len(disc_mot) + len(disc_mkt) + len(incomp)
+    summary["total_watchlist"] = len(watchlist)
+    summary["total_protected_acceptable"] = len(protected_acc)
+    summary["total_rescued"] = len(rescued_picks)
     parsed["summary"] = summary
 
     parsed["_generated_at"] = datetime.now(timezone.utc).isoformat()
