@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Loader2, ChevronDown, ChevronUp, ExternalLink, Activity, Shield, TrendingDown, AlertCircle, Eye, ShieldAlert } from 'lucide-react';
+import { Sparkles, Loader2, ChevronDown, ChevronUp, ExternalLink, Activity, Shield, TrendingDown, AlertCircle, Eye, ShieldAlert, Flag } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useI18n, sportTerms } from '@/lib/i18n';
 import { useSport, sportLabel } from '@/lib/sport';
@@ -162,19 +162,24 @@ function DiscardedRow({ item, testId, type }) {
 function RescuedRow({ item, testId }) {
   const [open, setOpen] = useState(false);
   const edgePct = item.edge != null ? (item.edge * 100).toFixed(1) : null;
+  const isCorner = item.rescueType === 'CORNER_MARKET';
+  const m = item.metrics || {};
   return (
-    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/50 transition-colors" data-testid={testId}>
+    <div className={`rounded-md border ${isCorner ? 'border-violet-500/30 bg-violet-500/5 hover:border-violet-500/50' : 'border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/50'} transition-colors`} data-testid={testId}>
       <div className="flex items-center justify-between gap-3 px-3 py-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Sparkles className="h-3.5 w-3.5 text-emerald-300 shrink-0" />
+          {isCorner ? <Flag className="h-3.5 w-3.5 text-violet-300 shrink-0" /> : <Sparkles className="h-3.5 w-3.5 text-emerald-300 shrink-0" />}
           <span className="text-sm text-foreground/90 truncate">{item.match_label}</span>
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
-            {item.classification === 'PROTECTED_ACCEPTABLE' ? 'Protegido' : 'Rescatado'}
+          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border ${isCorner ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'}`}>
+            {isCorner ? 'Córners' : (item.classification === 'PROTECTED_ACCEPTABLE' ? 'Protegido' : 'Rescatado')}
           </span>
           {item.fragility_score != null && <FragilityChip score={item.fragility_score} />}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs font-mono text-foreground/80">{item.market} ({item.selection})</span>
+          <span className="text-xs font-mono text-foreground/80 truncate max-w-[260px]">
+            {isCorner ? item.selection : `${item.market} (${item.selection})`}
+          </span>
+          <span className="text-xs font-mono text-foreground/70">@{item.decimal_odds}</span>
           {edgePct != null && (
             <span className={`text-xs font-mono ${item.edge >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
               {item.edge >= 0 ? '+' : ''}{edgePct}%
@@ -182,7 +187,7 @@ function RescuedRow({ item, testId }) {
           )}
           <button
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen((v) => !v); }}
-            className="text-xs text-emerald-400 hover:text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30"
+            className={`text-xs ${isCorner ? 'text-violet-400 hover:text-violet-300 border-violet-500/30' : 'text-emerald-400 hover:text-emerald-300 border-emerald-500/30'} px-1.5 py-0.5 rounded border`}
             data-testid={`${testId}-toggle`}
           >
             {open ? '▲' : '▼'}
@@ -190,21 +195,83 @@ function RescuedRow({ item, testId }) {
         </div>
       </div>
       {open && (
-        <div className="border-t border-emerald-500/20 px-3 py-2.5 space-y-2 bg-background/30 text-xs">
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-red-300 font-semibold mb-1">¿Por qué falló el mercado directo?</div>
-            <div className="text-muted-foreground">{item.whyDirectMarketsFailed}</div>
-          </div>
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-emerald-300 font-semibold mb-1">¿Por qué este mercado es más seguro?</div>
-            <div className="text-muted-foreground">{item.whyThisMarketIsSafer}</div>
-          </div>
-          {item.reason && (
-            <div>
-              <div className="text-[11px] uppercase tracking-wide text-cyan-300 font-semibold mb-1">Veredicto del motor</div>
-              <div className="text-muted-foreground">{item.reason}</div>
+        <div className={`border-t ${isCorner ? 'border-violet-500/20' : 'border-emerald-500/20'} px-3 py-2.5 space-y-2.5 bg-background/30 text-xs`}>
+          {isCorner && (m.cornerForAvgHomeLast5 != null || m.cornerForAvgAwayLast5 != null) && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid={`${testId}-corner-metrics`}>
+              <div className="bg-card/60 rounded px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Local (Últ. 5)</div>
+                <div className="font-mono text-sm text-foreground/90">
+                  {m.cornerForAvgHomeLast5?.toFixed(1) ?? '—'} <span className="text-[10px] text-muted-foreground">a favor</span>
+                </div>
+                <div className="font-mono text-[11px] text-muted-foreground">
+                  {m.cornerAgainstAvgHomeLast5?.toFixed(1) ?? '—'} concedidos
+                </div>
+              </div>
+              <div className="bg-card/60 rounded px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Visitante (Últ. 5)</div>
+                <div className="font-mono text-sm text-foreground/90">
+                  {m.cornerForAvgAwayLast5?.toFixed(1) ?? '—'} <span className="text-[10px] text-muted-foreground">a favor</span>
+                </div>
+                <div className="font-mono text-[11px] text-muted-foreground">
+                  {m.cornerAgainstAvgAwayLast5?.toFixed(1) ?? '—'} concedidos
+                </div>
+              </div>
+              <div className="bg-violet-500/10 rounded px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-violet-300">Proyección motor</div>
+                <div className="font-mono text-sm text-violet-200">{m.combinedCornerProjection?.toFixed(1) ?? '—'}</div>
+                {m.h2hCornerAvg != null && (
+                  <div className="font-mono text-[11px] text-muted-foreground">H2H: {m.h2hCornerAvg?.toFixed(1)}</div>
+                )}
+              </div>
+              <div className="bg-card/60 rounded px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Fit / Fragilidad</div>
+                <div className="font-mono text-sm text-foreground/90">{m.cornerFitScore ?? 0}/100</div>
+                <div className="font-mono text-[11px] text-muted-foreground">Frag: {m.cornerFragilityScore ?? 0}/100</div>
+              </div>
             </div>
           )}
+          {item.reasons && item.reasons.length > 0 && (
+            <div>
+              <div className={`text-[11px] uppercase tracking-wide ${isCorner ? 'text-violet-300' : 'text-emerald-300'} font-semibold mb-1`}>Lectura del motor</div>
+              <ul className="space-y-0.5 list-disc list-inside text-muted-foreground">
+                {item.reasons.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            </div>
+          )}
+          {item.risks && item.risks.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-amber-300 font-semibold mb-1">Riesgos a considerar</div>
+              <ul className="space-y-0.5 list-disc list-inside text-muted-foreground">
+                {item.risks.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            </div>
+          )}
+          {item.trap_signals_structured && item.trap_signals_structured.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-amber-300 font-semibold mb-1">⚠️ Señales trampa detectadas</div>
+              <ul className="space-y-1">
+                {item.trap_signals_structured.map((t, i) => (
+                  <li key={t.code || i} className="flex items-start gap-2">
+                    <SeverityBadge severity={t.severity} />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-foreground/90">{t.label}</div>
+                      {t.explanation && <div className="text-muted-foreground text-[11px] mt-0.5">{t.explanation}</div>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="border-t border-border/40 pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-red-300 font-semibold mb-1">¿Por qué falló el mercado directo?</div>
+              <div className="text-muted-foreground">{item.whyDirectMarketsFailed}</div>
+            </div>
+            <div>
+              <div className={`text-[11px] uppercase tracking-wide ${isCorner ? 'text-violet-300' : 'text-emerald-300'} font-semibold mb-1`}>¿Por qué este mercado es más seguro?</div>
+              <div className="text-muted-foreground">{item.whyThisMarketIsSafer}</div>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -547,18 +614,24 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* NEW — Rescued picks (mercados protegidos rescatados) */}
+      {/* NEW — Rescued picks (mercados protegidos + córners rescatados) */}
       {!loading && data && rescued.length > 0 && (
         <div className="space-y-3" data-testid="rescued-section">
-          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs uppercase tracking-wide font-semibold text-emerald-200">
+          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs uppercase tracking-wide font-semibold text-emerald-200 flex items-center gap-2">
+            <Sparkles className="h-3.5 w-3.5" />
             {lang === 'en'
-              ? `Rescued via protected markets (${rescued.length})`
-              : `Rescatados vía mercados protegidos (${rescued.length})`}
+              ? `Rescued via alternative markets (${rescued.length})`
+              : `Rescatados vía mercados alternativos (${rescued.length})`}
+            {rescued.some(r => r.rescueType === 'CORNER_MARKET') && (
+              <span className="ml-2 inline-flex items-center gap-1 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-violet-500/40 bg-violet-500/15 text-violet-200">
+                <Flag className="h-3 w-3" /> {lang === 'en' ? 'Corners included' : 'Incluye córners'}
+              </span>
+            )}
           </div>
           <p className="text-xs text-muted-foreground">
             {lang === 'en'
-              ? 'Direct markets had no value, but a protected alternative does reflect the game read.'
-              : 'El ganador no tenía valor, pero un mercado protegido sí refleja la lectura del partido.'}
+              ? 'Direct markets had no value, but an alternative (goals coverage / corners) reflects the game read.'
+              : 'El ganador no tenía valor, pero un mercado alternativo (cobertura de goles / córners) sí refleja la lectura del partido.'}
           </p>
           <div className="grid gap-2">
             {rescued.map((r, i) => <RescuedRow key={r.match_id || i} item={r} testId={`rescued-row-${i}`} />)}

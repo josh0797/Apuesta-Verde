@@ -223,6 +223,7 @@ def attempt_alternative_market_rescue(
             )
             return {
                 "rescued":         ums_out["state"] == "PROTECTED_MARKET_RECOMMENDED",
+                "rescueType":      "GOAL_MARKET",
                 "routed_to":       routed_to,
                 "market":          ums_out.get("market"),
                 "selection":       ums_out.get("selection"),
@@ -254,8 +255,24 @@ def attempt_alternative_market_rescue(
                 ),
                 "_source": "scan_protected_alternatives_v1",
             }
-        # Si ums no encontró nada, NO seguimos al Path B genérico:
-        # el motor especializado ya lo descartó con base estadística real.
+
+        # ── Path B (NEW): Corner Market Rescue Layer ────────────────────
+        # Si el motor de goles no rescató, probamos el mercado de córners.
+        # Solo se activa cuando _corner_form fue pre-cargado por el caller
+        # (analyst_engine Phase 10a).
+        try:
+            from . import corner_market_layer as _cml
+            corner_out = _cml.find_corner_value(
+                match,
+                why_direct_failed=why_direct_failed,
+            )
+        except Exception as exc:
+            log.debug("rescue: corner_market_layer failed: %s", exc)
+            corner_out = None
+        if corner_out:
+            return corner_out
+
+        # Football: ningún path encontró rescate
         return None
 
     # ── Path B (basketball / baseball): construir candidatos directos ──
@@ -264,6 +281,20 @@ def attempt_alternative_market_rescue(
     candidates: list[tuple[str, str, float, Optional[str]]] = []
 
     if sport == "basketball":
+        # ── Path B1 (NEW): Basketball Pace & Scoring rescue ────────────
+        # Si el caller pre-cargó _basketball_pace_form, probarlo primero.
+        try:
+            from . import basketball_pace_layer as _bpl
+            bpl_out = _bpl.find_basketball_pace_value(
+                match,
+                why_direct_failed=why_direct_failed,
+            )
+        except Exception as exc:
+            log.debug("rescue: basketball_pace_layer failed: %s", exc)
+            bpl_out = None
+        if bpl_out:
+            return bpl_out
+        # Fall through to legacy total-line cascade if pace layer didn't trigger
         totals = _basketball_baseball_extract_total(markets)
         for line_key, o in totals.items():
             if "Over" in line_key:

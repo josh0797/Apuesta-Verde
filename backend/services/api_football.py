@@ -12,7 +12,7 @@ import os
 import time
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -238,9 +238,146 @@ async def injuries(client: httpx.AsyncClient, team_id: int, season: int = PROXY_
     return resp
 
 
-async def fixture_statistics(client: httpx.AsyncClient, fixture_id: int) -> list[dict]:
+async def fixture_statistics(client: httpx.AsyncClient, fixture_id: int, db=None) -> list[dict]:
+    """Per-team statistics for a finished fixture.
+
+    Includes Corner Kicks, Shots, Possession, Cards, etc. Cached aggressively
+    (7 days) because stats of a finished match never change.
+    """
+    key = {"fixture_id": int(fixture_id)}
+    cached = await _cache_get(db, "cache_fixture_stats", key, 7 * 24 * 60)
+    if cached is not None:
+        return cached
     data = await _get(client, "/fixtures/statistics", {"fixture": fixture_id})
-    return data.get("response", []) or []
+    resp = data.get("response", []) or []
+    await _cache_set(db, "cache_fixture_stats", key, resp)
+    return resp
+
+
+def _corners_from_fixture_stats(stats_resp: list[dict], team_id: int) -> tuple[int, int] | None:
+    """Extract (corners_for, corners_against) from a /fixtures/statistics response.
+
+    Returns None if the corner statistic is missing for either team.
+    Stats response shape:
+      [{"team":{"id":X,"name":...}, "statistics":[{"type":"Corner Kicks","value":7}, ...]},
+       {"team":{"id":Y,"name":...}, "statistics":[...]}]
+    """
+    if not stats_resp or not isinstance(stats_resp, list) or len(stats_resp) < 2:
+        return None
+    team_id = int(team_id)
+    my_corners: Optional[int] = None
+    opp_corners: Optional[int] = None
+    for block in stats_resp:
+        t_id = ((block.get("team") or {}).get("id"))
+        stats_arr = block.get("statistics") or []
+        cv = None
+        for s in stats_arr:
+            if (s.get("type") or "").strip().lower() in ("corner kicks", "corners"):
+                v = s.get("value")
+                if v is None:
+                    continue
+                try:
+                    cv = int(v)
+                except (TypeError, ValueError):
+                    try:
+                        cv = int(float(v))
+                    except (TypeError, ValueError):
+                        cv = None
+                break
+        if cv is None:
+            continue
+        if t_id == team_id:
+            my_corners = cv
+        else:
+            opp_corners = cv
+    if my_corners is None or opp_corners is None:
+        return None
+    return (my_corners, opp_corners)
+
+
+async def team_corner_form(
+    client: httpx.AsyncClient,
+    team_id: int,
+    *,
+    n: int = 5,
+    season: int = PROXY_SEASON,
+    db=None,
+) -> dict:
+    """Corner kicks form over the team's last N completed fixtures.
+
+    Cached by `(team_id, season)` for 12h (corners only change after each new
+    finished match). Internal per-fixture stats are cached 7 days.
+
+    Returns:
+        {
+          "team_id":         int,
+          "sample_size":     int,        # actual fixtures with corner data
+          "avg_for":         float,      # corners scored per game
+          "avg_against":     float,      # corners conceded per game
+          "avg_total":       float,      # avg_for + avg_against
+          "per_match":       list[dict], # [{fixture_id, date, corners_for, corners_against}]
+          "missing_data":    bool,       # True if sample_size < 3
+        }
+
+    Returns an empty-form dict (sample_size=0) when no data is available.
+    """
+    n = max(1, min(int(n or 5), 10))
+    key = {"team_id": int(team_id), "season": season, "n": n, "kind": "corner_form"}
+    cached = await _cache_get(db, "cache_team_corner_form", key, 12 * 60)
+    if cached is not None:
+        return cached
+
+    fixtures = await fixtures_last_n(client, team_id, n=n, season=season, db=db)
+
+    per_match: list[dict] = []
+    for fx in (fixtures or [])[:n]:
+        fx_id = (fx.get("fixture") or {}).get("id")
+        # Skip non-finished games (no corner stats available yet)
+        short = ((fx.get("fixture") or {}).get("status") or {}).get("short")
+        if short not in ("FT", "AET", "PEN"):
+            continue
+        if not fx_id:
+            continue
+        try:
+            stats = await fixture_statistics(client, fx_id, db=db)
+        except Exception:
+            continue
+        corners = _corners_from_fixture_stats(stats, team_id)
+        if not corners:
+            continue
+        c_for, c_against = corners
+        per_match.append({
+            "fixture_id":      int(fx_id),
+            "date":             (fx.get("fixture") or {}).get("date"),
+            "corners_for":      c_for,
+            "corners_against":  c_against,
+        })
+
+    sample = len(per_match)
+    if sample == 0:
+        result = {
+            "team_id":      int(team_id),
+            "sample_size":  0,
+            "avg_for":      None,
+            "avg_against":  None,
+            "avg_total":    None,
+            "per_match":    [],
+            "missing_data": True,
+        }
+    else:
+        avg_for     = sum(m["corners_for"]     for m in per_match) / sample
+        avg_against = sum(m["corners_against"] for m in per_match) / sample
+        result = {
+            "team_id":      int(team_id),
+            "sample_size":  sample,
+            "avg_for":      round(avg_for,     2),
+            "avg_against":  round(avg_against, 2),
+            "avg_total":    round(avg_for + avg_against, 2),
+            "per_match":    per_match,
+            "missing_data": sample < 3,
+        }
+    await _cache_set(db, "cache_team_corner_form", key, result)
+    return result
 
 
 async def fixtures_last_n(

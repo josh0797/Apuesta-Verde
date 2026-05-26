@@ -1,30 +1,34 @@
 [
   {
-    "content": "Fase 1: Crear /app/backend/services/market_tolerance.py",
+    "content": "Explorar disponibilidad de datos de córners",
     "status": "completed"
   },
   {
-    "content": "Fase 1: Refactor moneyball_layer.py con trap signals estructuradas + contextual_edge_decision + nuevos verdicts",
+    "content": "Step 1: Cache de fixture_statistics + helper team_corner_form() en api_football.py",
     "status": "completed"
   },
   {
-    "content": "Fase 1: Validar POC con casos sintéticos (python -c)",
+    "content": "Step 2: Crear /app/backend/services/corner_market_layer.py",
     "status": "completed"
   },
   {
-    "content": "Fase 2: Crear /app/backend/services/alternative_rescue.py",
+    "content": "Step 3: Pre-fetch corner forms + integración en analyst_engine.py",
     "status": "completed"
   },
   {
-    "content": "Fase 2: Integrar en analyst_engine.py (buckets + rescue layer expandido)",
+    "content": "Step 4: Añadir corner rescue branch en alternative_rescue.py",
     "status": "completed"
   },
   {
-    "content": "Fase 2: Refactor DashboardPage.jsx (nuevas secciones + UI humana de trap signals)",
+    "content": "Step 5: UI - sección 'Mercado alternativo: Córners' en DashboardPage",
     "status": "completed"
   },
   {
-    "content": "Fase 3: Testing agent backend end-to-end + revisar bugs",
+    "content": "Step 6: Basketball pace layer (estructura conservadora)",
+    "status": "completed"
+  },
+  {
+    "content": "Step 7: Testing agent end-to-end",
     "status": "in_progress"
   }
 ]

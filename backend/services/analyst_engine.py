@@ -32,7 +32,7 @@ import re
 import uuid
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 from pathlib import Path
@@ -626,6 +626,79 @@ def _select_candidates(
             "_overflow": True,
         })
     return to_analyze, auto_discarded
+
+async def _prefetch_corner_forms_for_rescue(
+    matches: list[Optional[dict]],
+    *,
+    db: Any = None,
+    timeout_seconds: float = 25.0,
+) -> int:
+    """Fetch corner-form (last 5 matches with corner kicks) for both teams of
+    every match passed in, in parallel. Mutates each match dict to add:
+
+        match["_corner_form"] = {
+            "home":              { ...team_corner_form... },
+            "away":              { ...team_corner_form... },
+            "league_avg_total":  10.0,   # placeholder; can be refined per liga
+            "h2h_avg_total":     None,   # computed from match["h2h"] if present
+        }
+
+    Skipped silently when:
+      - the match is None
+      - the match has no team IDs
+      - timeout fires (returns whatever was completed)
+
+    Returns the number of matches successfully enriched.
+    """
+    import asyncio as _aio
+    import httpx as _httpx
+    from . import api_football as _af
+
+    real_matches = [m for m in matches if m and (m.get("home_team") or {}).get("id")
+                    and (m.get("away_team") or {}).get("id")]
+    if not real_matches:
+        return 0
+
+    season = int(os.environ.get("API_SPORTS_SEASON", _af.PROXY_SEASON))
+    enriched = 0
+
+    async def _one(client, m):
+        nonlocal enriched
+        home_id = (m.get("home_team") or {}).get("id")
+        away_id = (m.get("away_team") or {}).get("id")
+        try:
+            home_form, away_form = await _aio.gather(
+                _af.team_corner_form(client, int(home_id), n=5, season=season, db=db),
+                _af.team_corner_form(client, int(away_id), n=5, season=season, db=db),
+                return_exceptions=False,
+            )
+        except Exception as exc:
+            log.debug("corner-form fetch failed for match %s: %s",
+                      m.get("match_id"), exc)
+            return
+        # Optional H2H average if h2h_recent has corner data; otherwise None
+        m["_corner_form"] = {
+            "home":             home_form,
+            "away":             away_form,
+            "league_avg_total": 10.0,   # neutral fallback (refine per-league later)
+            "h2h_avg_total":    None,
+        }
+        if (home_form.get("sample_size") or 0) >= 1 or (away_form.get("sample_size") or 0) >= 1:
+            enriched += 1
+
+    try:
+        async with _httpx.AsyncClient(timeout=10.0) as client:
+            tasks = [_one(client, m) for m in real_matches]
+            await _aio.wait_for(_aio.gather(*tasks, return_exceptions=True), timeout=timeout_seconds)
+    except _aio.TimeoutError:
+        log.info("corner pre-fetch timed out after %.0fs (enriched %d/%d so far)",
+                 timeout_seconds, enriched, len(real_matches))
+    except Exception as exc:
+        log.warning("corner pre-fetch error: %s", exc)
+    log.info("corner pre-fetch: enriched %d/%d matches", enriched, len(real_matches))
+    return enriched
+
+
 
 
 async def _hydrate_team_news(matches_payload: list[dict]) -> int:
@@ -1421,6 +1494,19 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         # Tracking: para no procesar el mismo match dos veces.
         already_rescued_ids = {r.get("match_id") for r in rescued_now} | \
                                {r.get("match_id") for r in watchlist_now}
+
+        # ── Phase 10a — Pre-fetch corner forms (football only) ─────────
+        # Hacemos pre-fetch en bulk async aquí porque alternative_rescue es
+        # sync. Cache muy agresivo (12h por equipo) amortiza el coste.
+        if sport == "football" and original_disc_mkt:
+            try:
+                await _prefetch_corner_forms_for_rescue(
+                    [by_id.get(e.get("match_id")) for e in original_disc_mkt
+                     if e.get("match_id") in by_id and e.get("match_id") not in already_rescued_ids],
+                    db=db,
+                )
+            except Exception as exc:
+                log.debug("corner pre-fetch failed: %s", exc)
 
         for entry in original_disc_mkt:
             mid = entry.get("match_id")
