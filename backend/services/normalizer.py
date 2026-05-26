@@ -615,13 +615,18 @@ def normalize_team_context_generic(stats: dict, standings_resp: list[dict], team
 
 
 def normalize_live_stats_generic(game: dict, sport: str) -> dict | None:
-    """Live stats for basketball/baseball games."""
+    """Live stats for basketball/baseball games.
+
+    For baseball, delegates to the specialised `normalize_live_stats_baseball`
+    so per-inning breakdowns, hits, errors and inning-half deduction are all
+    surfaced for `live_baseball_analytics.compute_live_analysis()`.
+    """
+    if sport == "baseball":
+        return normalize_live_stats_baseball(game)
     status = (game.get("status") or {})
     short = status.get("short")
     LIVE_HOOPS = {"Q1", "Q2", "Q3", "Q4", "OT", "BT", "HT", "LIVE"}
-    LIVE_BASEBALL = {"IN1", "IN2", "IN3", "IN4", "IN5", "IN6", "IN7", "IN8", "IN9", "LIVE", "IN"}
-    live_set = LIVE_HOOPS if sport == "basketball" else LIVE_BASEBALL
-    if short not in live_set and not (game.get("scores") and short in ("LIVE", None)):
+    if short not in LIVE_HOOPS and not (game.get("scores") and short in ("LIVE", None)):
         return None
     scores = game.get("scores") or {}
     return {
@@ -632,5 +637,209 @@ def normalize_live_stats_generic(game: dict, sport: str) -> dict | None:
             "away": (scores.get("away") or {}).get("total"),
         },
         "quarter_or_inning": status.get("long"),
+        "fetched_at": now_iso(),
+    }
+
+
+# ── Baseball-specific live normalizer ─────────────────────────────────────────
+LIVE_BASEBALL = {
+    "IN1", "IN2", "IN3", "IN4", "IN5", "IN6", "IN7", "IN8", "IN9",
+    "IN10", "IN11", "IN12", "IN13", "IN14", "IN15",
+    "IN", "LIVE", "BRK", "BT",
+}
+
+
+def _parse_baseball_inning_number(status_short: str | None, status_long: str | None) -> int | None:
+    """Best-effort extraction of the current inning number from API-Sports.
+
+    Priority:
+      1. Short code `IN<N>` (most reliable when present).
+      2. Long string parsing ("Top 7th", "Bottom of the 3rd", "Inning 5"…).
+    """
+    if status_short:
+        s = status_short.upper()
+        if s.startswith("IN") and len(s) > 2 and s[2:].isdigit():
+            return int(s[2:])
+    if status_long:
+        import re as _re
+        m = _re.search(r"(\d{1,2})\s*(st|nd|rd|th)?", status_long)
+        if m:
+            try:
+                n = int(m.group(1))
+                if 1 <= n <= 20:
+                    return n
+            except ValueError:
+                pass
+    return None
+
+
+def _deduce_inning_half(
+    home_innings: dict,
+    away_innings: dict,
+    current_inning: int | None,
+    status_long: str | None,
+) -> str | None:
+    """Deduce whether we're in the Top or Bottom of the current inning.
+
+    Rules (in order of priority):
+      1. If `status_long` mentions "top"/"bottom" explicitly, use that.
+      2. Compare per-inning counters for the current inning:
+         - away batted but home hasn't → "top"
+         - both have batted          → "bottom" (in progress or just ended)
+      3. Fallback to None when ambiguous.
+    """
+    if status_long:
+        sl = status_long.lower()
+        if "top" in sl:
+            return "top"
+        if "bot" in sl:
+            return "bottom"
+        if "mid" in sl:
+            return "middle"  # between halves
+        if "end" in sl:
+            return "end"
+
+    if current_inning is None:
+        return None
+    key = str(current_inning)
+    away_val = (away_innings or {}).get(key)
+    home_val = (home_innings or {}).get(key)
+    if away_val is not None and home_val is None:
+        return "top"
+    if away_val is not None and home_val is not None:
+        return "bottom"
+    return None
+
+
+def _innings_played_count(home_innings: dict, away_innings: dict) -> int:
+    """Count how many innings have been started (at least Top half played).
+
+    Excludes the `extra` synthetic key that API-Sports adds for runs-after-9.
+    """
+    if not isinstance(home_innings, dict) and not isinstance(away_innings, dict):
+        return 0
+    keys = set()
+    for d in (home_innings or {}, away_innings or {}):
+        for k, v in d.items():
+            if k == "extra":
+                continue
+            if v is not None and str(k).isdigit():
+                keys.add(int(k))
+    return max(keys) if keys else 0
+
+
+def normalize_live_stats_baseball(game: dict) -> dict | None:
+    """Normalize API-Sports baseball game response into a live_stats payload.
+
+    Returns a dict shape compatible with
+    `live_baseball_analytics.compute_live_analysis()`:
+
+      {
+        "minute": <inning>,                # reused field for UI parity
+        "status": "IN5",
+        "status_long": "Top of the 5th",
+        "score": {"home": int, "away": int},
+        "quarter_or_inning": "Inning 5",
+        "inning": int|None,
+        "inning_half": "top"|"bottom"|"middle"|"end"|None,
+        "innings_played": int,
+        "is_extra_innings": bool,
+        "innings_runs": {
+            "home": {"1":0,"2":0,...,"extra":None},
+            "away": {"1":0,...},
+        },
+        "last_inning_runs": {"home": int|None, "away": int|None},
+        "home_stats": {"Hits": int, "Errors": int, "Runs": int},
+        "away_stats": {"Hits": int, "Errors": int, "Runs": int},
+        "fetched_at": iso,
+      }
+
+    Returns None when the game has no status or hasn't started.
+    """
+    if not game:
+        return None
+    status      = (game.get("status") or {})
+    short       = status.get("short")
+    long_status = status.get("long") or ""
+
+    # Be lenient: keep payload for live OR recently-finished games (UI shows
+    # final-state cards too). Return None only when the game truly hasn't
+    # started or has no scores yet.
+    scores = game.get("scores") or {}
+    home_obj = scores.get("home") or {}
+    away_obj = scores.get("away") or {}
+
+    has_any_score = (
+        home_obj.get("total") is not None or
+        away_obj.get("total") is not None or
+        home_obj.get("hits") is not None or
+        away_obj.get("hits") is not None
+    )
+    if short in ("NS", "TBD", "PST", "CANC") and not has_any_score:
+        return None
+
+    home_innings = home_obj.get("innings") or {}
+    away_innings = away_obj.get("innings") or {}
+
+    inning      = _parse_baseball_inning_number(short, long_status)
+    if inning is None:
+        # Last resort: use the highest inning that has any score on either side
+        inning = _innings_played_count(home_innings, away_innings) or None
+
+    # Finished games never have an active half — clear inning_half to avoid
+    # misleading downstream logic.
+    if short in ("FT", "AOT", "POST", "CANC", "ABD", "INTR"):
+        inning_half = None
+    else:
+        inning_half = _deduce_inning_half(home_innings, away_innings, inning, long_status)
+    innings_played   = _innings_played_count(home_innings, away_innings)
+    is_extra_innings = innings_played > 9
+
+    def _int_or_none(v):
+        if v is None:
+            return None
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    # Last completed inning runs (excluding `extra`).
+    last_inning_runs = {"home": None, "away": None}
+    if innings_played > 0:
+        k = str(innings_played)
+        last_inning_runs["home"] = _int_or_none(home_innings.get(k))
+        last_inning_runs["away"] = _int_or_none(away_innings.get(k))
+
+    home_total  = _int_or_none(home_obj.get("total"))
+    away_total  = _int_or_none(away_obj.get("total"))
+    home_hits   = _int_or_none(home_obj.get("hits"))   or 0
+    away_hits   = _int_or_none(away_obj.get("hits"))   or 0
+    home_errors = _int_or_none(home_obj.get("errors")) or 0
+    away_errors = _int_or_none(away_obj.get("errors")) or 0
+
+    return {
+        "minute":           inning,            # reused for UI parity
+        "status":           short,
+        "status_long":      long_status,
+        "score":            {"home": home_total, "away": away_total},
+        "quarter_or_inning": long_status or (f"Inning {inning}" if inning else None),
+        "inning":           inning,
+        "inning_half":      inning_half,
+        "innings_played":   innings_played,
+        "is_extra_innings": is_extra_innings,
+        "innings_runs":     {"home": home_innings, "away": away_innings},
+        "last_inning_runs": last_inning_runs,
+        # Keys named to match what live_baseball_analytics reads from
+        # `home_stats[...]` / `away_stats[...]`.
+        "home_stats": {
+            "Hits":   home_hits,
+            "Errors": home_errors,
+            "Runs":   home_total if home_total is not None else 0,
+        },
+        "away_stats": {
+            "Hits":   away_hits,
+            "Errors": away_errors,
+            "Runs":   away_total if away_total is not None else 0,
+        },
         "fetched_at": now_iso(),
     }

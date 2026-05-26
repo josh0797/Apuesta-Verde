@@ -130,9 +130,17 @@ def compute_live_analysis(match: dict) -> dict:
     h_score  = int(score.get("home") or 0)
     a_score  = int(score.get("away") or 0)
 
-    inning         = _parse_inning(status)
+    # Prefer the structured inning info produced by normalize_live_stats_baseball;
+    # fall back to short-code parsing for legacy/test payloads.
+    inning         = live.get("inning") if live.get("inning") is not None else _parse_inning(status)
+    inning_half    = live.get("inning_half")
+    innings_runs   = live.get("innings_runs") or {}
+    last_inning_r  = live.get("last_inning_runs") or {}
+    is_extra       = bool(live.get("is_extra_innings"))
     frac_remaining = _fraction_remaining(inning)
-    innings_played = inning or 1
+    innings_played = live.get("innings_played") or inning or 1
+    if innings_played == 0:
+        innings_played = 1
 
     # Stats from normalize_live_stats home_stats / away_stats buckets.
     # API-Sports baseball statistics keys: "Hits", "Errors" (best-effort).
@@ -149,7 +157,6 @@ def compute_live_analysis(match: dict) -> dict:
     a_hits   = _int(away_raw, "Hits")
     h_errors = _int(home_raw, "Errors")
     a_errors = _int(away_raw, "Errors")
-
     h_run_rate        = round(h_score / max(1, innings_played), 3)
     a_run_rate        = round(a_score / max(1, innings_played), 3)
     total_runs        = h_score + a_score
@@ -289,6 +296,10 @@ def compute_live_analysis(match: dict) -> dict:
         "verdict":          verdict,
         "fraction_remaining": round(frac_remaining, 3),
         "inning":           inning,
+        "inning_half":      inning_half,
+        "innings_runs":     innings_runs,
+        "last_inning_runs": last_inning_r,
+        "is_extra_innings": is_extra,
         "_source":          "live_baseball_analytics_v1",
         "_sport":           "baseball",
     }

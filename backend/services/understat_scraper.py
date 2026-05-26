@@ -343,13 +343,282 @@ _SEARCH_HEADERS = {
     "Referer": "https://www.google.com/",
 }
 # Search engines tried in order. Each engine returns a query-URL function.
+# Order matters: cheaper / more reliable engines first. Bing + Mojeek were
+# added in v2 to reduce the dependency on DDG which frequently returns
+# HTTP 202 bot challenges from Kubernetes datacenter IPs.
 _SEARCH_ENGINES = [
+    ("bing",        lambda q: f"https://www.bing.com/search?q={q}"),
     ("brave",       lambda q: f"https://search.brave.com/search?q={q}"),
+    ("mojeek",      lambda q: f"https://www.mojeek.com/search?q={q}"),
     ("ddg_lite",    lambda q: f"https://lite.duckduckgo.com/lite/?q={q}"),
     ("ddg_html",    lambda q: f"https://html.duckduckgo.com/html/?q={q}"),
     ("startpage",   lambda q: f"https://www.startpage.com/sp/search?query={q}"),
+    ("yandex",      lambda q: f"https://yandex.com/search/?text={q}"),
 ]
 _UNDERSTAT_ID_RE = re.compile(r"understat\.com/match/(\d+)")
+
+
+# Team-name → Understat slug normalisation.
+# Understat slugs use Title_Case_With_Underscores and never include diacritics
+# or club suffixes. A manual override map fixes the worst mismatches between
+# API-Sports and Understat naming.
+_TEAM_SLUG_OVERRIDES = {
+    "manchester united":       "Manchester_United",
+    "manchester utd":          "Manchester_United",
+    "man united":              "Manchester_United",
+    "manchester city":         "Manchester_City",
+    "man city":                "Manchester_City",
+    "tottenham":               "Tottenham",
+    "tottenham hotspur":       "Tottenham",
+    "spurs":                   "Tottenham",
+    "wolverhampton wanderers": "Wolverhampton_Wanderers",
+    "wolves":                  "Wolverhampton_Wanderers",
+    "newcastle":               "Newcastle_United",
+    "newcastle united":        "Newcastle_United",
+    "leicester":               "Leicester",
+    "atletico madrid":         "Atletico_Madrid",
+    "atlético madrid":         "Atletico_Madrid",
+    "athletic bilbao":         "Athletic_Club",
+    "athletic club":           "Athletic_Club",
+    "real betis":              "Real_Betis",
+    "rayo vallecano":          "Rayo_Vallecano",
+    "real sociedad":           "Real_Sociedad",
+    "real madrid":             "Real_Madrid",
+    "celta vigo":              "Celta_Vigo",
+    "bayern munich":           "Bayern_Munich",
+    "bayern münchen":          "Bayern_Munich",
+    "borussia dortmund":       "Borussia_Dortmund",
+    "bvb":                     "Borussia_Dortmund",
+    "borussia monchengladbach":"Borussia_M.Gladbach",
+    "borussia mönchengladbach":"Borussia_M.Gladbach",
+    "bayer leverkusen":        "Bayer_Leverkusen",
+    "eintracht frankfurt":     "Eintracht_Frankfurt",
+    "rb leipzig":              "RasenBallsport_Leipzig",
+    "psg":                     "Paris_Saint_Germain",
+    "paris saint germain":     "Paris_Saint_Germain",
+    "paris saint-germain":     "Paris_Saint_Germain",
+    "olympique marseille":     "Marseille",
+    "olympique de marseille":  "Marseille",
+    "olympique lyonnais":      "Lyon",
+    "ol":                      "Lyon",
+    "inter milan":             "Inter",
+    "internazionale":          "Inter",
+    "inter":                   "Inter",
+    "ac milan":                "AC_Milan",
+    "milan":                   "AC_Milan",
+    "juventus":                "Juventus",
+    "roma":                    "Roma",
+    "as roma":                 "Roma",
+    "ss lazio":                "Lazio",
+    "lazio":                   "Lazio",
+    "napoli":                  "Napoli",
+    "ssc napoli":              "Napoli",
+    "atalanta":                "Atalanta",
+    "atalanta bc":             "Atalanta",
+}
+
+
+def _strip_diacritics(s: str) -> str:
+    """Remove accents/diacritics for ASCII slug-friendly comparison."""
+    import unicodedata
+    nfkd = unicodedata.normalize("NFKD", s or "")
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
+
+
+def _team_to_understat_slug(name: str) -> str:
+    """Convert an API-Sports team name to an Understat URL slug.
+
+    Strategy:
+      1. Lookup in `_TEAM_SLUG_OVERRIDES` (canonical naming).
+      2. Otherwise strip diacritics → drop sufijo (FC/CF/SC/AC/Calcio/Club) →
+         replace spaces with `_` → Title-case each token.
+    """
+    if not name:
+        return ""
+    raw = name.strip().lower()
+    if raw in _TEAM_SLUG_OVERRIDES:
+        return _TEAM_SLUG_OVERRIDES[raw]
+    s = _strip_diacritics(raw)
+    # Drop common suffixes / prefixes
+    for tok in [
+        " fc", " cf", " sc", " ac", " bc", " sk", " ks", " ks ",
+        " calcio", " club", " athletic", "afc ", "fc ", "ac ",
+    ]:
+        s = s.replace(tok, " ")
+    s = re.sub(r"[^a-z0-9 ]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    parts = [p.capitalize() for p in s.split() if p]
+    return "_".join(parts)
+
+
+def _understat_team_url(team_slug: str, year: int) -> str:
+    return f"{_BASE}/team/{team_slug}/{year}"
+
+
+def _understat_team_data_url(team_slug: str, year: int) -> str:
+    """Internal JSON endpoint that team.min.js calls via XHR.
+
+    Returns `{"dates": [{"id": <match_id>, "h": {...}, "a": {...}, "xG":
+    {...}, "datetime": "YYYY-MM-DD HH:MM:SS", ...}, ...]}`. Much more
+    reliable than `/team/<slug>/<year>` HTML which now requires JS to render.
+    """
+    return f"{_BASE}/main/getTeamData/{team_slug}/{year}"
+
+
+def _fetch_team_dates(team_slug: str, year: int) -> list[dict]:
+    """GET the internal JSON list of a team's matches for a given season.
+
+    Returns the `dates` array (empty on failure). Each item has at least:
+      id, isResult, side, h:{id,title,short_title}, a:{...},
+      goals:{h,a}, xG:{h,a}, datetime, forecast:{w,d,l}
+
+    The endpoint `/main/getTeamData/<slug>/<year>` only responds to XHR
+    calls (mirrors what `team.min.js` does via jQuery $.ajax). We therefore
+    forward `X-Requested-With: XMLHttpRequest` and a season-page Referer.
+    Calling without those headers yields a 404.
+    """
+    if not team_slug:
+        return []
+    url     = _understat_team_data_url(team_slug, year)
+    referer = _understat_team_url(team_slug, year)
+
+    # Throttle and forward XHR headers explicitly.
+    global _last_request_ts
+    elapsed = time.time() - _last_request_ts
+    if elapsed < _REQUEST_GAP_SEC:
+        time.sleep(_REQUEST_GAP_SEC - elapsed)
+    try:
+        r = _get_session().get(
+            url,
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer":          referer,
+                "Accept":           "application/json, text/javascript, */*; q=0.01",
+            },
+            timeout=_TIMEOUT_SEC,
+        )
+        _last_request_ts = time.time()
+    except requests.RequestException as exc:
+        log.debug("understat: getTeamData %s/%d network err: %s",
+                  team_slug, year, exc)
+        return []
+
+    if r.status_code != 200:
+        log.debug("understat: getTeamData %s/%d → HTTP %s",
+                  team_slug, year, r.status_code)
+        return []
+    try:
+        payload = r.json()
+    except (ValueError, json.JSONDecodeError) as exc:
+        log.debug("understat: getTeamData %s/%d not JSON: %s", team_slug, year, exc)
+        return []
+    dates = payload.get("dates") or []
+    return dates if isinstance(dates, list) else []
+
+
+def _direct_understat_team_ids(
+    team_name: str,
+    *,
+    years: list[int],
+    limit: int,
+) -> list[int]:
+    """Return match_ids for `team_name` via the internal JSON endpoint.
+
+    Falls back to legacy HTML scraping if the JSON endpoint is unreachable
+    (rare — but guards against Understat tightening access in the future).
+    """
+    slug = _team_to_understat_slug(team_name)
+    if not slug:
+        return []
+    ids: set[int] = set()
+    for year in years:
+        dates = _fetch_team_dates(slug, year)
+        for d in dates:
+            try:
+                ids.add(int(d.get("id")))
+            except (TypeError, ValueError):
+                continue
+        if len(ids) >= limit * 4:
+            break
+    # Legacy HTML fallback (only when JSON endpoint returned nothing)
+    if not ids:
+        for year in years:
+            url = _understat_team_url(slug, year)
+            r = _throttled_get(url)
+            if not r or r.status_code != 200:
+                continue
+            for mid in _UNDERSTAT_ID_RE.findall(r.text):
+                try:
+                    ids.add(int(mid))
+                except ValueError:
+                    continue
+    return sorted(ids, reverse=True)[: limit * 4]
+
+
+def _fetch_team_matches_full(
+    team_name: str,
+    *,
+    years: list[int],
+) -> list[dict]:
+    """Return enriched match rows for `team_name` from the JSON endpoint.
+
+    Each row includes both teams, goals, xG, kickoff datetime, etc.
+    Useful for the fuzzy linker because we can rank candidates by xG/date
+    without doing a second hydration request.
+    """
+    slug = _team_to_understat_slug(team_name)
+    if not slug:
+        return []
+    out: list[dict] = []
+    for year in years:
+        dates = _fetch_team_dates(slug, year)
+        out.extend(dates)
+    return out
+
+
+def _direct_understat_intersection(
+    home_team: str,
+    away_team: str,
+    *,
+    years: list[int],
+    limit: int,
+) -> list[int]:
+    """Direct path: intersect home + away team match-list JSON endpoints.
+
+    Significantly more reliable than third-party search engines (which keep
+    blocking datacenter IPs) when the teams are in a league Understat covers.
+    """
+    home_matches = _fetch_team_matches_full(home_team, years=years)
+    if not home_matches:
+        return []
+    home_ids = {int(m["id"]) for m in home_matches if m.get("id")}
+
+    away_matches = _fetch_team_matches_full(away_team, years=years)
+    if not away_matches:
+        return []
+    away_ids = {int(m["id"]) for m in away_matches if m.get("id")}
+
+    common = sorted(home_ids & away_ids, reverse=True)
+    return common[:limit]
+
+
+def _candidate_years(kickoff_iso: str | None) -> list[int]:
+    """Decide which Understat season pages to query.
+
+    Understat seasons run roughly Aug→May, so for a fixture in autumn 2025
+    we query `/team/<slug>/2025` (current season) and `/team/<slug>/2024`
+    (previous season — relevant for the h2h prior).
+    """
+    from datetime import datetime as _dt
+    base_year = None
+    if kickoff_iso:
+        try:
+            base_year = _dt.fromisoformat(kickoff_iso.replace("Z", "+00:00")).year
+        except (ValueError, TypeError):
+            base_year = None
+    if base_year is None:
+        base_year = _dt.now(timezone.utc).year
+    return [base_year, base_year - 1]
 
 
 def find_match_ids_by_teams(
@@ -357,13 +626,18 @@ def find_match_ids_by_teams(
     away_team: str,
     *,
     limit: int = 8,
+    kickoff_iso: str | None = None,
 ) -> list[int]:
     """Best-effort search for Understat match_ids referencing both teams.
 
-    Cycles through multiple search engines (Brave, DDG Lite, DDG HTML,
-    StartPage) until at least one returns Understat URLs. Returns up to
-    `limit` candidate ids sorted high → low (most recent first; Understat
-    ids are monotonic). Empty list when nothing matches.
+    Strategy (in priority order):
+      1. **Direct Understat scraping** of `/team/<slug>/<year>` pages and
+         intersect home ∩ away — most reliable, no third-party deps.
+      2. **Search-engine cascade** (Bing → Brave → Mojeek → DDG Lite →
+         DDG HTML → StartPage → Yandex) for `site:understat.com/match`.
+
+    Returns up to `limit` candidate ids sorted high → low (most recent
+    first; Understat ids are monotonic). Empty list when nothing matches.
     """
     import urllib.parse
 
@@ -372,6 +646,14 @@ def find_match_ids_by_teams(
     if not home_q or not away_q:
         return []
 
+    # ── Path 1: direct Understat intersection (no third-party engines) ──
+    years = _candidate_years(kickoff_iso)
+    direct_ids = _direct_understat_intersection(home_q, away_q, years=years, limit=limit)
+    if direct_ids:
+        log.debug("understat: direct intersection found %d ids", len(direct_ids))
+        return direct_ids
+
+    # ── Path 2: fall back to search engine cascade ──
     raw_query = f'site:understat.com/match "{home_q}" "{away_q}"'
     encoded   = urllib.parse.quote(raw_query)
 
@@ -425,9 +707,25 @@ def _teams_match(api_home: str, api_away: str, u_home: str, u_away: str) -> bool
 
     Accepts both side orderings (Arsenal vs Chelsea matches both home/away
     permutations on Understat — same two clubs are the relevant identity).
-    Uses substring containment in both directions so partial names match
-    (e.g. "Bayern Munich" vs "Bayern" or "Inter" vs "Inter Milan").
+
+    Comparison strategy (in priority order):
+      1. Slug equality — normalise both sides via `_team_to_understat_slug`
+         which handles abbreviations (PSG → Paris_Saint_Germain, BVB →
+         Borussia_Dortmund, etc.) and league suffixes.
+      2. Token overlap / tail-match — falls back to substring containment
+         on the diacritic-stripped lowercase names.
     """
+    # Path 1: slug-based comparison (covers abbreviations + tildes)
+    sl_a_h = _team_to_understat_slug(api_home)
+    sl_a_a = _team_to_understat_slug(api_away)
+    sl_u_h = _team_to_understat_slug(u_home)
+    sl_u_a = _team_to_understat_slug(u_away)
+    if sl_a_h and sl_a_a and sl_u_h and sl_u_a:
+        if (sl_a_h == sl_u_h and sl_a_a == sl_u_a) or \
+           (sl_a_h == sl_u_a and sl_a_a == sl_u_h):
+            return True
+
+    # Path 2: substring/tail overlap fallback
     a_h = _normalise_team_name(api_home)
     a_a = _normalise_team_name(api_away)
     u_h = _normalise_team_name(u_home)
@@ -443,7 +741,6 @@ def _teams_match(api_home: str, api_away: str, u_home: str, u_away: str) -> bool
         tail_a = a.split()[-1][:4]
         tail_b = b.split()[-1][:4]
         return tail_a == tail_b and len(tail_a) >= 3
-    # Try both orderings: (api_home,api_away) ↔ (u_home,u_away) AND swapped.
     same_order = _overlap(a_h, u_h) and _overlap(a_a, u_a)
     reversed_  = _overlap(a_h, u_a) and _overlap(a_a, u_h)
     return same_order or reversed_
@@ -477,7 +774,11 @@ def fuzzy_link_match(
       }
     or None when no acceptable candidate is found.
     """
-    ids = find_match_ids_by_teams(home_team, away_team, limit=candidates)
+    ids = find_match_ids_by_teams(
+        home_team, away_team,
+        limit=candidates,
+        kickoff_iso=kickoff_iso,
+    )
     if not ids:
         return None
 
@@ -549,4 +850,5 @@ __all__ = [
     "aggregate_team_form",
     "find_match_ids_by_teams",
     "fuzzy_link_match",
+    "_team_to_understat_slug",
 ]

@@ -1,18 +1,22 @@
 [
   {
-    "content": "Crear understat_scraper.py: fetch_match, enrich_match_dict, fetch_match_cached, aggregate_team_form",
+    "content": "Explorar normalizer.py, understat_scraper.py y live_baseball_analytics.py",
     "status": "completed"
   },
   {
-    "content": "Endpoints REST: GET /understat/match/{id}, POST /understat/team-form, POST /understat/link",
+    "content": "Tarea (d): Implementar normalize_live_stats_baseball() en normalizer.py + integrar en data_ingestion.py",
     "status": "completed"
   },
   {
-    "content": "Integración: summarize_match_for_llm propaga _understat → LLM lo usa como xG/PPDA autoritativo",
+    "content": "Tarea (b): Reforzar fuzzy linker Understat con estrategias alternativas (Bing/búsqueda directa)",
     "status": "completed"
   },
   {
-    "content": "Smoke test end-to-end: link + persistencia + payload LLM",
-    "status": "completed"
+    "content": "Tarea (a): Ejecutar testing agent backend end-to-end",
+    "status": "in_progress"
+  },
+  {
+    "content": "Revisar reporte del testing agent y arreglar bugs detectados",
+    "status": "pending"
   }
 ]

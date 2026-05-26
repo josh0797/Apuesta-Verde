@@ -1,0 +1,103 @@
+{
+  "summary": "Completed end-to-end validation of Phase 14+ enhancements: normalize_live_stats_baseball, reinforced Understat fuzzy linker, and asyncio.wait_for timeout wrapper",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [],
+    "notes": [
+      "All backend endpoints tested successfully",
+      "Live re-evaluation responds in <5s as expected with asyncio.wait_for timeout",
+      "Spanish-language fields (reason_es) confirmed in Human Live Interpreter output"
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "notes": [
+      "Frontend testing not requested - backend only testing scope"
+    ]
+  },
+  "passed_tests": [
+    "✅ Auth: POST /api/auth/login with demo@valuebet.app / demo1234 → returns token",
+    "✅ Understat: GET /api/understat/match/26651 → returns enrichment with provenance 'understat_v1' and xG data (home=2.75, away=1.28)",
+    "✅ Live Re-Evaluation: POST /api/live/reevaluate → responds in 0.42s (<5s requirement met)",
+    "✅ Spanish Language: Human Live Interpreter produces reason_es field correctly",
+    "✅ Baseball Dispatcher: All imports validated (services.live_reevaluation._reevaluate_baseball, services.live_baseball_analytics.compute_live_analysis, services.normalizer.normalize_live_stats_baseball)",
+    "✅ Unit Test: normalize_live_stats_baseball() correctly parses API-Sports baseball payload (inning=8, inning_half=top, innings_played=8, hits/errors/runs)",
+    "✅ Unit Test: live_baseball_analytics.compute_live_analysis() produces TRAP_LATE_LEAD verdict when lead>=5 inning>=8 and leader odds <=1.20",
+    "✅ Unit Test: understat_scraper.fuzzy_link_match('PSG', 'Marseille') returns match 28127 with xG data (network-dependent test passed)",
+    "✅ Regression: GET /api/matches/upcoming?sport=football → working",
+    "✅ Regression: GET /api/matches/live?sport=football → working (1 live match)",
+    "✅ Regression: GET /api/matches/live?sport=baseball → working (pipeline validated)"
+  ],
+  "test_report_links": [
+    "/app/backend_test.py",
+    "/app/test_reports/backend_phase14_test.json"
+  ],
+  "success_percentage": {
+    "backend": "100% (13/13 tests passed)",
+    "frontend": "N/A (not in scope)"
+  },
+  "action_item_for_main_agent": "",
+  "updated_files": [
+    "/app/backend_test.py"
+  ],
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  "detailed_findings": {
+    "normalize_live_stats_baseball": {
+      "status": "✅ WORKING",
+      "validation": "Correctly parses API-Sports baseball per-inning runs/hits/errors and exposes them for live_baseball_analytics.compute_live_analysis()",
+      "test_results": {
+        "inning_parsing": "✅ Correctly parsed inning=8 from status 'IN8'",
+        "inning_half_deduction": "✅ Correctly deduced inning_half='top' from innings_runs data",
+        "innings_played_count": "✅ Correctly counted innings_played=8",
+        "hits_parsing": "✅ Home hits=10, Away hits=5",
+        "errors_parsing": "✅ Home errors=1, Away errors=2",
+        "score_parsing": "✅ Home score=6, Away score=1"
+      }
+    },
+    "understat_fuzzy_linker": {
+      "status": "✅ WORKING",
+      "validation": "Successfully uses internal /main/getTeamData/<slug>/<year> JSON endpoint with X-Requested-With header, expanded slug map (PSG, Inter, AC Milan), and search-engine fallbacks",
+      "test_results": {
+        "direct_match_fetch": "✅ GET /api/understat/match/26651 returns enrichment with provenance 'understat_v1'",
+        "fuzzy_link_psg_marseille": "✅ fuzzy_link_match('PSG', 'Marseille') resolved to match 28127 with xG data (home=0.28, away=4.04)",
+        "team_overlap_validation": "✅ Team overlap confirmed",
+        "enrichment_structure": "✅ Enrichment payload includes xg, shots, ppda, win_probability"
+      }
+    },
+    "asyncio_wait_for_timeout": {
+      "status": "✅ WORKING",
+      "validation": "Live re-evaluation responds in <5s even when scan_protected_alternatives is invoked, thanks to asyncio.wait_for(timeout=3.0) wrap in server.py",
+      "test_results": {
+        "response_time": "✅ 0.42s < 5s requirement",
+        "timeout_wrapper_present": "✅ Confirmed in server.py lines 370-383",
+        "no_hangs_observed": "✅ No 20-second hangs detected"
+      }
+    },
+    "baseball_live_analytics": {
+      "status": "✅ WORKING",
+      "validation": "compute_live_analysis() correctly consumes normalize_live_stats_baseball output and produces TRAP_LATE_LEAD verdict",
+      "test_results": {
+        "verdict_classification": "✅ TRAP_LATE_LEAD when lead>=5 inning>=8 and leader odds <=1.20",
+        "home_away_blocks": "✅ Home/away blocks present with runs, hits, errors, run_rate, threat_score",
+        "sport_field": "✅ _sport='baseball' correctly set"
+      }
+    },
+    "spanish_language_fields": {
+      "status": "✅ WORKING",
+      "validation": "Human Live Interpreter produces reason_es field correctly when called via /api/live/reevaluate",
+      "test_results": {
+        "narration_field": "✅ Spanish narration present: 'Ritmo bajo, defensas dominando. Under es un perfil...'",
+        "interpreter_structure": "✅ Interpreter payload includes title, subtitle, mood, action, narration in Spanish"
+      }
+    }
+  },
+  "critical_notes": [
+    "✅ asyncio.wait_for(timeout=3.0) wrapper around scan_protected_alternatives is present and working (DO NOT REMOVE)",
+    "✅ Understat /main/getTeamData/ endpoint REQUIRES X-Requested-With:XMLHttpRequest header (confirmed in implementation)",
+    "✅ normalize_live_stats_baseball lives in services/normalizer.py and is delegated to from normalize_live_stats_generic when sport=='baseball'",
+    "✅ All response narrative fields for user-facing copilot remain in Spanish (reason_es)"
+  ]
+}

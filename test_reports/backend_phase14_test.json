@@ -1,0 +1,61 @@
+{
+  "timestamp": "2026-05-26T14:34:48.407950",
+  "base_url": "https://low-volatility-plays.preview.emergentagent.com",
+  "summary": {
+    "total_tests": 13,
+    "passed": 13,
+    "failed": 0,
+    "success_rate": 100.0
+  },
+  "results": [
+    {
+      "test": "Login with demo@valuebet.app",
+      "status": "PASSED",
+      "http_status": 200,
+      "elapsed_time": 0.49,
+      "endpoint": "api/auth/login"
+    },
+    {
+      "test": "Understat Match 26651 (Man City vs Arsenal)",
+      "status": "PASSED",
+      "http_status": 200,
+      "elapsed_time": 0.11,
+      "endpoint": "api/understat/match/26651"
+    },
+    {
+      "test": "Get Live Football Matches",
+      "status": "PASSED",
+      "http_status": 200,
+      "elapsed_time": 0.15,
+      "endpoint": "api/matches/live?sport=football"
+    },
+    {
+      "test": "Live Re-Evaluation (match 1527600)",
+      "status": "PASSED",
+      "http_status": 200,
+      "elapsed_time": 0.42,
+      "endpoint": "api/live/reevaluate"
+    },
+    {
+      "test": "GET Upcoming Football Matches",
+      "status": "PASSED",
+      "http_status": 200,
+      "elapsed_time": 0.17,
+      "endpoint": "api/matches/upcoming?sport=football"
+    },
+    {
+      "test": "GET Live Football Matches",
+      "status": "PASSED",
+      "http_status": 200,
+      "elapsed_time": 0.12,
+      "endpoint": "api/matches/live?sport=football"
+    },
+    {
+      "test": "GET Live Baseball Matches",
+      "status": "PASSED",
+      "http_status": 200,
+      "elapsed_time": 0.11,
+      "endpoint": "api/matches/live?sport=baseball"
+    }
+  ]
+}
