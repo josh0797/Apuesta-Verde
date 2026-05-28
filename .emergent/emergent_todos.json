@@ -17,10 +17,10 @@
   },
   {
     "content": "Testing backend con testing_agent_v3",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "Generar reporte ES: 'antes vs ahora'",
-    "status": "pending"
+    "status": "in_progress"
   }
 ]
