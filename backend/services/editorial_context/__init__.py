@@ -24,7 +24,12 @@ from .editorial_context_service import (
     EDITORIAL_CONTEXT_VERSION,
 )
 from .match_key import canonical_match_key, normalize_team_name
-from .editorial_source_registry import SOURCES, enabled_sources
+from .editorial_source_registry import (
+    SOURCES,
+    enabled_sources,
+    server_rendered_sources,
+    js_rendered_sources,
+)
 from . import editorial_signal_mapper as signal_mapper
 from . import moneyball_interpretation
 
@@ -36,6 +41,8 @@ __all__ = [
     "normalize_team_name",
     "SOURCES",
     "enabled_sources",
+    "server_rendered_sources",
+    "js_rendered_sources",
     "signal_mapper",
     "moneyball_interpretation",
 ]

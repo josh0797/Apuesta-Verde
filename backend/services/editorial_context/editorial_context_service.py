@@ -22,7 +22,11 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
-from .editorial_source_registry import enabled_sources
+from .editorial_source_registry import (
+    enabled_sources,
+    server_rendered_sources,
+    js_rendered_sources,
+)
 from .match_key import canonical_match_key
 from .editorial_normalizer import (
     build_editorial_context_signal,
@@ -207,15 +211,51 @@ async def fetch_editorial_context_bulk(
             "_match_key":  match_key,
         })
 
-    # Run the Scrapy subprocess once for all remaining matches.
+    # Run BOTH backends in parallel (Scrapy + Playwright) over the remaining
+    # matches. Each source is dispatched to its native backend based on the
+    # `requires_js` flag in the registry. Either backend can return empty
+    # (or fail) without affecting the other — the union of items is what we
+    # normalise downstream.
     new_raws: list[dict] = []
     if matches_needing_scrape:
         try:
             from .scrapy_runner import run_scrapy
-            sources = enabled_sources("football")
-            new_raws = await asyncio.wait_for(
-                run_scrapy(matches_needing_scrape, sources, timeout_sec=timeout_sec),
-                timeout=timeout_sec + 8.0,
+            from .playwright_runner import run_playwright
+
+            scrapy_sources     = server_rendered_sources("football")
+            playwright_sources = js_rendered_sources("football")
+
+            tasks: list = []
+            if scrapy_sources:
+                tasks.append(asyncio.create_task(
+                    run_scrapy(matches_needing_scrape, scrapy_sources, timeout_sec=timeout_sec),
+                ))
+            else:
+                tasks.append(asyncio.sleep(0, result=[]))
+            if playwright_sources:
+                tasks.append(asyncio.create_task(
+                    run_playwright(matches_needing_scrape, playwright_sources, timeout_sec=timeout_sec),
+                ))
+            else:
+                tasks.append(asyncio.sleep(0, result=[]))
+
+            try:
+                results = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=timeout_sec + 10.0,
+                )
+            except asyncio.TimeoutError:
+                log.warning("[EDITORIAL_FETCH_TIMEOUT] outer wait_for timed out — partial results only")
+                results = []
+
+            for r in results or []:
+                if isinstance(r, list):
+                    new_raws.extend(r)
+                elif isinstance(r, Exception):
+                    log.warning("[EDITORIAL_FETCH_ERROR] backend raised: %s", r)
+            log.info(
+                "[EDITORIAL_FETCH_DONE] scrapy_src=%d playwright_src=%d raw_items=%d",
+                len(scrapy_sources), len(playwright_sources), len(new_raws),
             )
         except asyncio.TimeoutError:
             log.warning("[SCRAPY_EDITORIAL_SOURCE_FAILED] outer timeout, returning soft-empty")

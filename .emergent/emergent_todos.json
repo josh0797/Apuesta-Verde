@@ -1,50 +1,30 @@
 [
   {
-    "content": "Crear estructura modular services/editorial_context/",
+    "content": "Crear playwright_fetcher.py: async fetcher con stealth + asset blocking",
     "status": "completed"
   },
   {
-    "content": "match_key.py: canonical_match_key normalizer",
+    "content": "Crear playwright_runner.py: subprocess invoker fail-soft",
     "status": "completed"
   },
   {
-    "content": "editorial_source_registry.py: BeSoccer + Sportytrader config",
+    "content": "Crear playwright_main.py: entry point para subprocess",
     "status": "completed"
   },
   {
-    "content": "editorial_signal_mapper.py: regex FACTUAL vs OPINION",
+    "content": "editorial_context_service.py: dispatch dual-backend (Scrapy + Playwright en paralelo)",
     "status": "completed"
   },
   {
-    "content": "editorial_normalizer.py: scoring freshness/reliability/narrative_bias",
+    "content": "editorial_source_registry.py: enabled_sources() incluye JS + helpers server_rendered/js_rendered",
     "status": "completed"
   },
   {
-    "content": "editorial_spider_main.py: Scrapy CrawlerProcess entrypoint",
+    "content": "scores24.live habilitado pero gated por env PLAYWRIGHT_PROXY (Cloudflare requiere residencial)",
     "status": "completed"
   },
   {
-    "content": "scrapy_runner.py: subprocess invoker fail-soft con timeout 25s",
-    "status": "completed"
-  },
-  {
-    "content": "editorial_context_service.py: cache 6h MongoDB + entrypoint",
-    "status": "completed"
-  },
-  {
-    "content": "moneyball_interpretation.py: editorial vs moneyball verdict",
-    "status": "completed"
-  },
-  {
-    "content": "Integración en analyst_engine (Stage 1.6 + Phase 12)",
-    "status": "completed"
-  },
-  {
-    "content": "UI block 'Contexto editorial' en MatchCard via EditorialContextPanel",
-    "status": "completed"
-  },
-  {
-    "content": "Testing backend smoke (14/14 PASS)",
-    "status": "completed"
+    "content": "Testing backend regression con testing_agent_v3",
+    "status": "in_progress"
   }
 ]

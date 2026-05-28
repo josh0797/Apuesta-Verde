@@ -204,17 +204,20 @@ SOURCES: list[dict[str, Any]] = [
     },
 
     # ────────────────────────────────────────────────────────────────────────
-    # 5) scores24.live — DISABLED (SPA / requires JavaScript)
-    #    The site is a fully client-side rendered React SPA (styled-components
-    #    with hashed class names like `sc-1xsn000-3`). Scrapy alone can't
-    #    extract content. Kept here as a registry placeholder so that when a
-    #    Playwright-based fetcher is added later, only `requires_js: false`
-    #    and the selectors need updating.
+    # 5) scores24.live — JS-rendered SPA, handled by Playwright runner (P4)
+    #    The site is a fully client-side rendered React SPA. Activated in P4
+    #    via Playwright. NOTE: scores24.live also runs Cloudflare's Bot Fight
+    #    Mode, which aggressively blocks datacenter IPs (Cloudflare shows the
+    #    "Un momento..." challenge). To unlock this source in production set
+    #    the env var `PLAYWRIGHT_PROXY=http://user:pass@residential-host:port`.
+    #    Without a residential proxy the fetcher logs
+    #    `[PLAYWRIGHT_EDITORIAL_BLOCKED]` and the rest of the editorial
+    #    pipeline keeps running normally.
     # ────────────────────────────────────────────────────────────────────────
     {
         "name":               "scores24_live",
         "base_url":           "https://scores24.live",
-        "enabled":            False,         # ← flip to true once JS rendering is wired up
+        "enabled":            True,          # ← infra ready; gated by PLAYWRIGHT_PROXY in prod
         "requires_js":        True,
         "sport":              "football",
         "country":            "Multi",
@@ -226,15 +229,14 @@ SOURCES: list[dict[str, Any]] = [
             "https://scores24.live/es/soccer/tomorrow",
         ],
         "article_url_patterns": [
-            "/es/soccer/m-",
-            "/predictions",
+            "/soccer/m-",
         ],
         "selectors": {
             "preview_anchors":  "a[href*='/soccer/m-']",
-            "title":            "h1::text",
-            "published_at":     "time::attr(datetime), meta[property='article:published_time']::attr(content)",
-            "body":             "main, .match-content",
-            "prediction":       None,
+            "title":            "h1",
+            "published_at":     "time, meta[property='article:published_time']::attr(content)",
+            "body":             "[class*='Match'], main, article",
+            "prediction":       "[class*='prediction'], [class*='Prediction']",
             "suggested_market": None,
             "suggested_odds":   None,
         },
@@ -242,22 +244,43 @@ SOURCES: list[dict[str, Any]] = [
 ]
 
 
-def enabled_sources(sport: str = "football") -> list[dict[str, Any]]:
+def enabled_sources(sport: str = "football", *, include_js: bool = True) -> list[dict[str, Any]]:
     """Return enabled sources for the given sport, ordered by priority asc.
 
-    Sources flagged `requires_js: True` are skipped here even if `enabled`,
-    because the current Scrapy spider does not run JavaScript. Once a
-    Playwright integration is added, this guard can be relaxed.
+    Args:
+        sport: filter by sport ('football' for MVP).
+        include_js: when False (legacy behaviour), sources flagged
+            `requires_js: True` are skipped. When True (default since P4),
+            JS-rendered sources are included so the editorial service can
+            dispatch them to the Playwright runner.
+
+    The default changed in P4 — most callers want to know about ALL enabled
+    sources and let the dispatcher decide which backend (Scrapy vs Playwright)
+    handles each.
     """
     sport_lower = (sport or "football").lower()
     src = [
         s for s in SOURCES
-        if s.get("enabled")
-        and s.get("sport") == sport_lower
-        and not s.get("requires_js")
+        if s.get("enabled") and s.get("sport") == sport_lower
+        and (include_js or not s.get("requires_js"))
     ]
     src.sort(key=lambda s: s.get("priority", 99))
     return src
 
 
-__all__ = ["SOURCES", "enabled_sources"]
+def server_rendered_sources(sport: str = "football") -> list[dict[str, Any]]:
+    """Convenience: enabled sources that DON'T need JS (Scrapy targets)."""
+    return [s for s in enabled_sources(sport, include_js=True) if not s.get("requires_js")]
+
+
+def js_rendered_sources(sport: str = "football") -> list[dict[str, Any]]:
+    """Convenience: enabled sources that DO need JS (Playwright targets)."""
+    return [s for s in enabled_sources(sport, include_js=True) if s.get("requires_js")]
+
+
+__all__ = [
+    "SOURCES",
+    "enabled_sources",
+    "server_rendered_sources",
+    "js_rendered_sources",
+]
