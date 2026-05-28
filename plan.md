@@ -90,6 +90,36 @@
 
 ---
 
+## Phase D — UX hardening (Mobile + Carry-over + Editorial NBA/MLB)
+**Estado:** ✅ COMPLETADO (2026-05-28)
+
+### D.1 P0 — Re-run discarda picks previos (Smart Carry-over)
+- Nuevo módulo `/app/backend/services/carryover_picks.py` con `apply_carryover()`.
+- Hooked en `_run_analysis_pipeline` (server.py) ANTES de persistir el record.
+- Reglas:
+  - sólo picks con `confidence_score >= 60`
+  - partido con status NS/TBD/SCHEDULED/PST (no live, no finished)
+  - sin invalidador duro en la nueva corrida (LOW_BOTH motivation, lesión/injury/suspend/red card)
+  - prior_run dentro de las últimas 24h
+  - tope MAX_CARRYOVER=6
+- UI: nueva sección "Picks previos preservados" en `DashboardPage` + badge "PREVIO/CARRYOVER" en `MatchCard`.
+- `summary.carryover_picks` aparece en el payload con `_carryover` metadata.
+
+### D.2 P1 — Editorial Context NBA/MLB no se ejecutaba
+- Causa raíz: filtro hardcoded `if sport != "football"` en `editorial_context_service.py`.
+- Fix: ahora usa `SUPPORTED_EDITORIAL_SPORTS = {football, basketball, baseball}`.
+- Las fuentes NBA (as_com_nba, marca_com_nba, covers_nba) y MLB (as_com_mlb, covers_mlb, espn_mlb) ya estaban en el registry — el dispatcher las ignoraba antes del fix.
+- Testing agent confirma: `editorial_context_evaluated=2` para basketball y baseball.
+
+### D.3 P1 — Mobile UI overflow
+- `flex-wrap` en headers, `w-full sm:w-auto` en botones, `overflow-x-hidden` en contenedor, KPIs 2 cols en mobile / 5 en desktop. Validado con screenshots a 375px y 390px.
+
+### D.4 P1 — Aceptar coma en cuotas
+- Confirmado funcionando en `LiveReevalPanel.jsx` (input regex `[0-9]+([.,][0-9]+)?`, sanitize `replace(',', '.')` antes de `parseFloat`).
+- Stake input en `HistoryPage.jsx` también acepta coma.
+
+---
+
 ## Phase A — Bright Data Web Unlocker (P1) + Editorial Basketball Sources
 **Estado:** ⏳ EN PROGRESO (nuevo)
 
