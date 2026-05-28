@@ -90,6 +90,40 @@
 
 ---
 
+## Phase E1 — Editorial Context Signals Transparency
+**Estado:** ✅ COMPLETADO (2026-05-28)
+
+### E1.1 Backend
+- Nuevo `services/signal_catalog.py` — 33 códigos canónicos con label/severity/category/signal_type (positive|negative|neutral)/explanation/default_impact/applicable_sports.
+- Sport-aware (validado en tests):
+  - `RED_CARD_CONTEXT` ✅ fútbol, ❌ basketball, ❌ baseball
+  - `CORNER_VOLUME_DETECTED` ✅ fútbol únicamente
+  - `PACE_OVER_SIGNAL` ✅ basketball únicamente
+  - `PITCHER_DUEL_SIGNAL`, `BULLPEN_FATIGUE_SIGNAL` ✅ baseball únicamente
+  - Editoriales (INJURY/MARKET/MOTIVATION/CONTRADICTION) ✅ todos los deportes
+- Nuevo `services/signal_aggregator.py` — función pura `aggregate_signals_for_payload(payload, sport)`. Unifica:
+  - trap_signals_structured (moneyball)
+  - editorial_context.signals (Scrapy/Playwright/BrightData)
+  - form_guard.signals
+  - protected_market / fragility (alternative_rescue)
+  - histórico (encounter_history, basketball_pace_form, baseball_stats)
+- `build_signal_summary()` para el resumen global.
+- Hook Phase 13 en `analyst_engine.analyze_matches`: adjunta `editorial_context_signals` a TODOS los buckets (picks, disc_mot, disc_mkt, incomp, rescued, watchlist, protected_acc) + `summary.editorial_signal_summary` + `_pipeline.editorial_signal_aggregation`.
+- Bug fix encontrado por testing agent: `parsed['_pipeline'] = pipeline_meta` sobrescribía la metadata recién añadida. Cambiado a merge.
+
+### E1.2 Frontend
+- Nuevo `components/EditorialSignalsPanel.jsx` con dos exports:
+  - `EditorialSignalsPanel` (compact|expanded, filter=positive|negative|undefined)
+  - `EditorialSignalsSummary` (top strip con 5 chips: protected/trap/historical/positive/negative)
+- `DashboardPage`: renderiza `EditorialSignalsSummary` después del KPI strip cuando `total_signals > 0`. `DiscardedRow` ahora muestra el panel expandido con todas las señales cuando hay editorial_context_signals.
+- `MatchCard`: renderiza dos paneles compact (positivos + negativos) para auditar el "por qué" del engine.
+
+### E1.3 Testing
+- Iteration 29: 7/7 backend tests passed (catalog completeness, signal contract, sport-aware filtering, aggregator unit, summary builder, E2E baseball, auth regression).
+- Bug crítico encontrado y arreglado en pipeline metadata merge.
+
+---
+
 ## Phase D — UX hardening (Mobile + Carry-over + Editorial NBA/MLB)
 **Estado:** ✅ COMPLETADO (2026-05-28)
 
