@@ -117,9 +117,18 @@ export default function HistoryPage() {
           <div className="flex items-center gap-2">
             <label htmlFor="stake-input" className="text-xs text-muted-foreground">{t.history.stakeLabel}</label>
             <Input
-              id="stake-input" data-testid="stake-input" type="number" min="0.1" step="0.1"
+              id="stake-input" data-testid="stake-input"
+              type="text"
+              inputMode="decimal"
+              pattern="[0-9]+([.,][0-9]+)?"
               value={stake}
-              onChange={(e) => updateStake(e.target.value)}
+              onChange={(e) => {
+                // P5 fix: accept BOTH "10.5" and "10,5" (es-ES keyboard).
+                // Strip everything but digits + single decimal sep, then
+                // normalise to dot before calling updateStake().
+                const v = e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.');
+                updateStake(v);
+              }}
               className="h-8 w-24 text-right mono font-mono-tabular"
             />
           </div>
