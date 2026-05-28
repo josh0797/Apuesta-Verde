@@ -1467,18 +1467,16 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
                 except Exception as exc2:
                     last_error = exc2
 
-    if not response and EMERGENT_LLM_KEY:
-        try:
-            log.info("Analyst[%s]: Stage 2 via Emergent Claude Sonnet 4.5", sport)
-            response = await _call_emergent(user_text, session_id, system_prompt)
-            provider_used = "emergent:claude-sonnet-4-5"
-            pipeline_meta["stage2_model"] = "claude-sonnet-4-5"
-        except Exception as exc:
-            log.error("Emergent fallback also failed: %s", exc)
-            last_error = exc
+    # NOTE (2026-05-28): Emergent Universal Key fallback DISABLED por
+    # política del usuario. El análisis SOLO usa OpenAI directo. Si
+    # OpenAI falla, devolvemos un error explícito en vez de colgar el
+    # job con un fallback que el usuario no quiere consumir.
 
     if not response:
-        raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
+        raise RuntimeError(
+            f"OpenAI Stage 2 failed and Emergent fallback is disabled. "
+            f"Last error: {last_error}"
+        )
 
     raw = _strip_to_json(response)
     parsed = json.loads(raw)
