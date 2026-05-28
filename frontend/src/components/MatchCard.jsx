@@ -86,6 +86,16 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
                 <Clock className="h-3 w-3" />{t.match.upcomingPill}
               </span>
             )}
+            {m._carryover?.is_carryover && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-sky-500/40 bg-sky-500/10 text-sky-200 text-[10px] font-semibold uppercase tracking-wide"
+                title={m._carryover?.reason || ''}
+                data-testid={`pick-carryover-badge-${m.match_id}`}
+              >
+                <BookmarkCheck className="h-3 w-3" />
+                {lang === 'en' ? 'Carryover' : 'Previo'}
+              </span>
+            )}
             <span className="text-[11px] text-muted-foreground">{m.league}</span>
             {/* Football Quality Badge (Phase 8) — only for football picks */}
             {sport === 'football' && m._football_quality && (

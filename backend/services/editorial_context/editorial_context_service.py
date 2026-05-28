@@ -187,11 +187,17 @@ async def fetch_editorial_context_bulk(
     matches_needing_scrape: list[dict] = []
     key_to_match_id: dict[str, str] = {}
 
+    # Supported sports (registry-driven). Any match whose sport is NOT in
+    # this set returns an empty payload immediately. Football was the MVP
+    # scope; basketball (NBA) and baseball (MLB) sources were added later
+    # to the registry — gate them in here so the dispatcher actually runs
+    # for those sports too. Previously this method hard-coded
+    # `if sport != "football"` and silently dropped every NBA/MLB match.
+    SUPPORTED_EDITORIAL_SPORTS = {"football", "basketball", "baseball"}
     for m in matches:
         home, away = _extract_pair(m)
         sport      = (m.get("sport") or "football").lower()
-        if sport != "football":
-            # P3 MVP scope: football only.
+        if sport not in SUPPORTED_EDITORIAL_SPORTS:
             out[_safe_match_id(m)] = _empty_payload("sport_not_supported")
             continue
         match_key  = canonical_match_key(sport, home, away, m.get("kickoff_iso"))

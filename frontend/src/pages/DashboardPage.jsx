@@ -496,8 +496,8 @@ export default function DashboardPage() {
       : fieldFiltered;
   }, [allPicks, filters]);
 
-  const { high, medium, discMot, discMkt, incomplete, skippedLowRel, rescued, watchlist, protectedAcceptable } = useMemo(() => {
-    if (!data) return { high: [], medium: [], discMot: [], discMkt: [], incomplete: [], skippedLowRel: [], rescued: [], watchlist: [], protectedAcceptable: [] };
+  const { high, medium, discMot, discMkt, incomplete, skippedLowRel, rescued, watchlist, protectedAcceptable, carryover } = useMemo(() => {
+    if (!data) return { high: [], medium: [], discMot: [], discMkt: [], incomplete: [], skippedLowRel: [], rescued: [], watchlist: [], protectedAcceptable: [], carryover: [] };
     return {
       high: filteredPicks.filter((p) => (p.recommendation?.confidence_score || 0) >= 70).sort((a, b) => (b.recommendation?.confidence_score || 0) - (a.recommendation?.confidence_score || 0)),
       medium: filteredPicks.filter((p) => { const c = p.recommendation?.confidence_score || 0; return c >= 60 && c < 70; }).sort((a, b) => (b.recommendation?.confidence_score || 0) - (a.recommendation?.confidence_score || 0)),
@@ -508,6 +508,7 @@ export default function DashboardPage() {
       rescued: data.summary?.rescued_picks || [],
       watchlist: data.summary?.watchlist || [],
       protectedAcceptable: data.summary?.protected_acceptable || [],
+      carryover: data.summary?.carryover_picks || [],
     };
   }, [data, filteredPicks]);
 
@@ -622,6 +623,28 @@ export default function DashboardPage() {
               <div className="grid gap-3">{medium.map((p, i) => <MatchCard key={p.match_id || i} pick={p} idx={i} sport={sport} runId={run?.id} />)}</div>
             </GroupSection>
           )}
+        </div>
+      )}
+
+      {/* NEW — Carryover picks (preserved from prior run, still valid) */}
+      {!loading && data && carryover.length > 0 && (
+        <div className="space-y-3" data-testid="carryover-section">
+          <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 px-3 py-2 text-xs uppercase tracking-wide font-semibold text-sky-200 flex items-center gap-2">
+            <Sparkles className="h-3.5 w-3.5" />
+            {lang === 'en'
+              ? `Carried over from your previous run (${carryover.length})`
+              : `Picks previos preservados (${carryover.length})`}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {lang === 'en'
+              ? 'These picks were recommended in your prior analysis and are still valid (the match has not started, and no hard invalidator was detected).'
+              : 'Estos picks venían de tu análisis anterior y siguen siendo válidos (el partido no ha empezado y no hay invalidador duro como lesión o cambio de marcador).'}
+          </p>
+          <div className="grid gap-3" data-testid="carryover-grid">
+            {carryover.map((p, i) => (
+              <MatchCard key={p.match_id || `carry-${i}`} pick={p} idx={i} sport={sport} runId={run?.id} />
+            ))}
+          </div>
         </div>
       )}
 

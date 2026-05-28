@@ -869,6 +869,25 @@ async def _run_analysis_pipeline(
     if not (result.get("picks") or []):
         result.setdefault("summary", {})["no_value_found"] = True
 
+    # ── Smart Carry-over (Option A) ─────────────────────────────────────
+    # Preserve previously-recommended picks that are still valid (match
+    # has NOT kicked off yet, no hard invalidator in the new run). This
+    # protects users from the LLM/odds variability that previously made
+    # the engine "discard" a pick they trusted just because they re-ran
+    # the analysis. See services/carryover_picks.py for the full policy.
+    try:
+        from services.carryover_picks import apply_carryover
+        prior_query = {
+            "user_id": user_id,
+            **({"sport": sport} if sport != "football"
+               else {"$or": [{"sport": "football"}, {"sport": {"$exists": False}}]}),
+        }
+        prior_run = await db.picks.find_one(prior_query, sort=[("generated_at", -1)])
+        result = apply_carryover(result, prior_run, candidates)
+    except Exception as exc:
+        # NEVER let carry-over logic break the pipeline.
+        log.warning("carryover step failed (non-fatal): %s", exc)
+
     record = {
         "id": pick_id_base,
         "user_id": user_id,

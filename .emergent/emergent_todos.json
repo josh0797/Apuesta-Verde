@@ -1,22 +1,22 @@
 [
   {
-    "content": "P0: Investigar y corregir regresión donde re-analizar descarta picks previamente válidos en analyst_engine.py",
+    "content": "P0: Merge Inteligente — preservar picks recomendados previos al re-correr el análisis",
+    "status": "completed"
+  },
+  {
+    "content": "P1: Fix bug raíz: remover filtro `if sport != football` en editorial_context_service.py",
+    "status": "completed"
+  },
+  {
+    "content": "P1: UI — Renderizar carryover picks con badge visual",
+    "status": "completed"
+  },
+  {
+    "content": "P1: Verificación final UI móvil + parsing coma en inputs",
+    "status": "completed"
+  },
+  {
+    "content": "Testing backend con testing_agent (carryover + editorial NBA/MLB)",
     "status": "in_progress"
-  },
-  {
-    "content": "P1: Verificar y completar arreglos de UI móvil en DashboardPage.jsx con screenshot tool (viewport móvil)",
-    "status": "pending"
-  },
-  {
-    "content": "P1: Agregar fuentes editoriales NBA/MLB al editorial_source_registry.py",
-    "status": "pending"
-  },
-  {
-    "content": "Verificar que el parsing de coma (,) en cuotas funcione en todos los inputs",
-    "status": "pending"
-  },
-  {
-    "content": "Testing final con testing_agent (backend) y screenshot (frontend móvil)",
-    "status": "pending"
   }
 ]
