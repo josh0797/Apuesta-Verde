@@ -1562,6 +1562,22 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
             except Exception as exc:
                 log.debug("basketball historical pre-fetch failed: %s", exc)
 
+        # ── Phase 10c — Pre-fetch baseball historical profile ──────────
+        # Misma regla para baseball: prefetch antes del rescue para que
+        # baseball_runs_rescue.find_baseball_runs_value() encuentre el
+        # `baseballHistoricalProfile` ya hidratado y pueda proyectar
+        # total runs / F5 / team-total / run line.
+        if sport == "baseball" and original_disc_mkt:
+            try:
+                from .historical_enrichment import prefetch_baseball_profiles
+                await prefetch_baseball_profiles(
+                    [by_id.get(e.get("match_id")) for e in original_disc_mkt
+                     if e.get("match_id") in by_id and e.get("match_id") not in already_rescued_ids],
+                    db=db,
+                )
+            except Exception as exc:
+                log.debug("baseball historical pre-fetch failed: %s", exc)
+
         for entry in original_disc_mkt:
             mid = entry.get("match_id")
             if mid in already_rescued_ids:
@@ -1747,6 +1763,37 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
             }
         except Exception as exc:
             log.warning("basketball historical annotation failed: %s", exc)
+
+    # ── Phase 12c — Baseball Historical Profile annotation ─────────────
+    if sport == "baseball":
+        try:
+            by_id_bb = {m.get("match_id"): m for m in matches_payload}
+            summary_bb = parsed.setdefault("summary", {})
+            picks_bb   = parsed.get("picks") or []
+            buckets = [
+                picks_bb,
+                summary_bb.get("discarded_market")    or [],
+                summary_bb.get("discarded_motivation") or [],
+                summary_bb.get("rescued_picks")       or [],
+                summary_bb.get("watchlist")           or [],
+                summary_bb.get("protected_acceptable") or [],
+            ]
+            attached = 0
+            for bucket in buckets:
+                for entry in bucket:
+                    mid = entry.get("match_id")
+                    src = by_id_bb.get(mid) or {}
+                    prof = src.get("baseballHistoricalProfile")
+                    if prof:
+                        entry["baseballHistoricalProfile"] = prof
+                        attached += 1
+            parsed.setdefault("_pipeline", {})
+            parsed["_pipeline"]["baseball_historical"] = {
+                "entries_annotated": attached,
+                "engine_version":    "baseball-hist.1",
+            }
+        except Exception as exc:
+            log.warning("baseball historical annotation failed: %s", exc)
 
     # Merge auto_discarded from pre-filter into the summary so the
     # categorization invariant len(picks)+lists == total_analyzed still holds

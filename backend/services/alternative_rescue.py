@@ -362,6 +362,45 @@ def attempt_alternative_market_rescue(
             elif "Under" in line_key:
                 candidates.append((line_key, "Under", o, None))
     elif sport == "baseball":
+        # ── Path B2 (NEW): Baseball Runs rescue from historical profile ─
+        # Cuando el caller pre-cargó `baseballHistoricalProfile` (vía
+        # `prefetch_baseball_profiles`), intentar primero el motor de
+        # runs/F5/team-total/run-line basado en últimos 10-15 juegos.
+        try:
+            from . import baseball_runs_rescue as _brr
+            brr_out = _brr.find_baseball_runs_value(
+                match,
+                why_direct_failed=why_direct_failed,
+            )
+        except Exception as exc:
+            log.debug("rescue: baseball_runs_rescue failed: %s", exc)
+            brr_out = None
+        if brr_out:
+            try:
+                from .historical_enrichment import (
+                    collect_baseball_trap_signals,
+                    compute_baseball_extra_fragility,
+                )
+                signals = collect_baseball_trap_signals(
+                    match,
+                    bookmaker_total_line=(brr_out.get("metrics") or {}).get("bookmaker_total_line"),
+                )
+                if signals:
+                    brr_out["trap_signals_structured"] = (
+                        list(brr_out.get("trap_signals_structured") or []) + signals
+                    )
+                    brr_out["fragility_score"] = min(
+                        100,
+                        int(brr_out.get("fragility_score") or 0)
+                        + compute_baseball_extra_fragility(signals),
+                    )
+                prof = match.get("baseballHistoricalProfile")
+                if prof:
+                    brr_out["baseballHistoricalProfile"] = prof
+            except Exception as exc:
+                log.debug("rescue: baseball trap enrichment failed: %s", exc)
+            return brr_out
+        # Fall through to legacy Run Line / Total cascade if runs layer didn't trigger.
         # Spreads direccionales (Run Line)
         spread_rows = markets.get("Spread") or []
         for r in spread_rows:

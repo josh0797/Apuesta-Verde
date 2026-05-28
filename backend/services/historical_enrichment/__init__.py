@@ -30,12 +30,30 @@ from .basketball_trap_signals import (  # noqa: F401
     collect_basketball_trap_signals,
     compute_extra_fragility,
 )
+from .baseball_historical import (      # noqa: F401
+    enrich_baseball_historical_profile,
+    compute_baseball_profile,
+    prefetch_baseball_profiles,
+    empty_baseball_profile,
+)
+from .baseball_trap_signals import (    # noqa: F401
+    collect_baseball_trap_signals,
+    compute_extra_fragility as compute_baseball_extra_fragility,
+)
 
 __all__ = [
+    # basketball
     "enrich_basketball_historical_profile",
     "compute_basketball_profile",
     "prefetch_basketball_profiles",
     "empty_basketball_profile",
     "collect_basketball_trap_signals",
     "compute_extra_fragility",
+    # baseball
+    "enrich_baseball_historical_profile",
+    "compute_baseball_profile",
+    "prefetch_baseball_profiles",
+    "empty_baseball_profile",
+    "collect_baseball_trap_signals",
+    "compute_baseball_extra_fragility",
 ]
