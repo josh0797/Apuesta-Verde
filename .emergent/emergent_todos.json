@@ -1,30 +1,22 @@
 [
   {
-    "content": "Crear playwright_fetcher.py: async fetcher con stealth + asset blocking",
+    "content": "Phase A.1 — Add BRIGHTDATA_API_KEY + BRIGHTDATA_ZONE to /app/backend/.env",
     "status": "completed"
   },
   {
-    "content": "Crear playwright_runner.py: subprocess invoker fail-soft",
-    "status": "completed"
-  },
-  {
-    "content": "Crear playwright_main.py: entry point para subprocess",
-    "status": "completed"
-  },
-  {
-    "content": "editorial_context_service.py: dispatch dual-backend (Scrapy + Playwright en paralelo)",
-    "status": "completed"
-  },
-  {
-    "content": "editorial_source_registry.py: enabled_sources() incluye JS + helpers server_rendered/js_rendered",
-    "status": "completed"
-  },
-  {
-    "content": "scores24.live habilitado pero gated por env PLAYWRIGHT_PROXY (Cloudflare requiere residencial)",
-    "status": "completed"
-  },
-  {
-    "content": "Testing backend regression con testing_agent_v3",
+    "content": "Phase A.2 — Create brightdata_fetcher.py (in-process HTTP client, no subprocess needed)",
     "status": "in_progress"
+  },
+  {
+    "content": "Phase A.4 — Extend editorial_context_service.py dispatcher to include BrightData as third backend",
+    "status": "pending"
+  },
+  {
+    "content": "Phase A.5 — Add requires_unlocker flag in registry; mark Sportytrader/BeSoccer/scores24; add NBA editorial sources",
+    "status": "pending"
+  },
+  {
+    "content": "Phase A.6 — Smoke test BrightData fetcher end-to-end with a real NBA + a blocked football source",
+    "status": "pending"
   }
 ]

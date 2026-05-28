@@ -1,4 +1,4 @@
-# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening + P3 Editorial Context + P4 Playwright (ACTUALIZADO)
+# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening + P3 Editorial Context + P4 Playwright + **Bright Data Unlocker** + **Historical Detail Enrichment (Basketball→Baseball)** (ACTUALIZADO)
 
 ## 1) Objectives
 - Reducir **falsos descartes**: no tratar igual todo edge negativo; permitir **tolerancia contextual** en mercados protegidos.
@@ -6,34 +6,40 @@
 - Exponer **trapSignals estructuradas** (`code/label/severity/explanation`) y **fragilityScore 0–100** como elementos UI.
 - Añadir **rescate de mercados alternativos** antes de descartar un partido (sin inventar valor).
 - Mantener compatibilidad: endpoints existentes, `_market_edge`, payloads legacy y narrativa ES. **No tocar** `asyncio.wait_for(timeout=3.0)`.
-- Hardening de pipeline: evitar bloqueos en `stage=enriching` (Understat/externos) con timeouts + degradación elegante.
+- Hardening de pipeline: evitar bloqueos en `stage=enriching` con timeouts + degradación elegante.
 
 - **(✅ COMPLETADO)** Robustez multi-deporte en LIVE:
-  - Detectar correctamente partidos LIVE en **basketball/baseball** (API-Sports v1 no soporta `live=all`).
-  - Evitar “zombies LIVE” en fútbol (partidos terminados mostrados como LIVE).
-  - Firewall de vocabulario para impedir **fugas de terminología** entre deportes.
+  - Detectar correctamente partidos LIVE en **basketball/baseball**.
+  - Evitar “zombies LIVE” en fútbol.
+  - Firewall de vocabulario para impedir **fugas de terminología**.
 
-- **(✅ COMPLETADO)** Enriquecimiento histórico fútbol (últimos 15): mejorar explicabilidad y señales para rescate Under (perfil histórico).
+- **(✅ COMPLETADO)** Enriquecimiento histórico fútbol (últimos 15): mejorar explicabilidad y señales para rescate Under.
 
 - **(✅ COMPLETADO)** **P3 — Editorial Context Engine (Scrapy)**:
-  - Añadir una capa opcional y **fail-soft** de enriquecimiento editorial profundo (previas, predicciones y contexto) **solo para fútbol** y **solo para matches shortlisteados**.
-  - No reemplazar Crawlee ni scrapers actuales: Scrapy **complementa** el stack existente.
-  - Separar **dato vs opinión** (heurístico por regex) y adjuntar interpretación de Moneyball (PUBLIC_NARRATIVE_RISK, alineación, warnings).
-  - Exponer en UI el bloque “Contexto editorial” en el detalle del partido.
+  - Capa opcional y **fail-soft** de enriquecimiento editorial profundo **solo para fútbol** y **solo para matches shortlisteados**.
+  - Separación **dato vs opinión** (heurístico regex) + interpretación Moneyball.
+  - UI: bloque “Contexto editorial”.
 
-- **(✅ COMPLETADO)** **P3 — Tuning de selectores + 3 fuentes adicionales**:
-  - Expandir cobertura editorial y reducir “ruido” de anchors en fuentes de noticias.
-  - Añadir AS.com y Marca.com como fuentes server-rendered de alta cobertura.
-  - Ajuste de selectores + filtros por patrón de URL (`article_url_patterns`) para evitar anchors irrelevantes.
+- **(✅ COMPLETADO / VALIDADO EN VIVO)** Tuning de selectores + fuentes nuevas:
+  - **AS.com** y **Marca** server-rendered.
+  - Añadido filtrado fino para Marca (evitar `mercado-fichajes` / `-directo.html`).
+  - Spider con dedupe por URL y soporte de exclusión por patrón.
 
-- **(✅ COMPLETADO)** **P4 — Playwright para fuentes JS-heavy (scores24.live + futuras)**:
-  - Añadir Playwright como backend editorial **paralelo** a Scrapy.
-  - Dispatch por fuente usando `requires_js`:
-    - server-rendered → Scrapy
-    - JS-rendered → Playwright
-  - Ejecutar ambos backends **en paralelo** (no se bloquean).
-  - Fail-soft ante Cloudflare/anti-bot (“Un momento…”): no romper análisis.
-  - Habilitar scores24.live como fuente JS-rendered (requiere proxy residencial para desbloquear en datacenter).
+- **(✅ COMPLETADO)** **P4 — Playwright** para fuentes JS-heavy:
+  - Subprocess + stealth + dispatch paralelo Scrapy/Playwright.
+  - Detecta challenges anti-bot y degrada sin romper análisis.
+
+- **(🆕 NUEVO OBJETIVO)** **Bright Data Web Unlocker** como **tercer backend**:
+  - Integrar Bright Data (API mode) para desbloquear fuentes con Cloudflare/PerimeterX.
+  - Usarlo para **Sportytrader/BeSoccer/scores24** y extenderlo a **fuentes editoriales NBA/basketball**.
+
+- **(🆕 NUEVO OBJETIVO)** **Historical Detail Enrichment**:
+  - Antes de analizar/descartar **basketball/baseball**, enriquecer con histórico profundo (10–15 juegos) y generar perfiles por equipo + combinado.
+  - Añadir capas de rescate específicas:
+    - `basketballTotalPointsRescueLayer(match)`
+    - `baseballRunsRescueLayer(match)`
+  - Todo pasa por Moneyball (edge/guardrails), con traps históricas.
+  - UI: sección “Historial profundo” por deporte.
 
 ---
 
@@ -42,260 +48,255 @@
 ### Phase 1 — Core POC (aislado) para el flujo “tolerancia + decisión contextual + señales trampa”
 **Estado:** ✅ COMPLETADO
 
-**Core probado**: dado (market, edge, confidence, fragility, trapSignals) → clasificación correcta + payload estructurado.
-
-**User stories (POC) — completadas**
-1. `Under 3.5` con edge ligeramente negativo, conf alta y frag baja ⇒ `PROTECTED_ACCEPTABLE`.
-2. `Moneyline favorito` con edge negativo ⇒ `NO_BET_VALUE`.
-3. Edge positivo con fragility alta ⇒ `FRAGILE_EDGE`.
-4. Visualización de lista de trapSignals estructuradas.
-5. `trapSignals>=3` ⇒ `MARKET_TRAP` salvo protected con frag<30.
-
-**Entregables (Phase 1)**
-1. ✅ `/app/backend/services/market_tolerance.py`
-2. ✅ `/app/backend/services/moneyball_layer.py` (refactor + catálogo trap + clasificación contextual)
-3. ✅ Validación POC sintética: **7/7 assertions passed**
-
 ---
 
 ### Phase 2 — V1 App Development (backend + wiring de rescate)
 **Estado:** ✅ COMPLETADO
-
-**User stories (V1) — completadas**
-1. Separación de buckets: Recomendados / Protegidos aceptables / Watchlist / Rescatados / Descartados.
-2. Descartes con explicación humana + señales trampa detalladas.
-3. FragilityScore visible y usable como guardrail.
-4. Motor intenta rescate antes de descartar.
-5. Empty state con desglose por bucket.
-
-**Backend (V1) — entregables**
-1. ✅ `/app/backend/services/alternative_rescue.py`
-2. ✅ `analyst_engine.py` (Phase 10 Universal Rescue)
-3. ✅ Compatibilidad preservada
 
 ---
 
 ### Phase 3 — Frontend UI (V1)
 **Estado:** ✅ COMPLETADO
 
-**Frontend (V1) — entregables**
-1. ✅ `/app/frontend/src/pages/DashboardPage.jsx`
-   - DiscardedRow expandible, RescuedRow, WatchlistRow, FragilityChip, nuevas secciones.
-2. ✅ Lint / build OK
-3. ✅ Screenshots verificados
-
 ---
 
-### Phase 4 — P0 LIVE Hardening + P2 Historical Profile
+### Phase 4 — P0 LIVE Hardening + P2 Historical Profile (fútbol)
 **Estado:** ✅ COMPLETADO
-
-**Objetivo:** restaurar LIVE multi-deporte + evitar matches zombies + eliminar fugas de vocabulario + enriquecer rescate Under con histórico (15).
-
-#### 4.1 P0-1 — LIVE basketball/baseball no detectaba partidos
-**Estado:** ✅ COMPLETADO
-- ✅ `/app/backend/services/api_sports.py`
-  - `fixtures_live(sport)`:
-    - Football: `/fixtures?live=all`
-    - Basketball/Baseball: `/games?date=today_utc` + `/games?date=yesterday_utc` + filtro por `status.short`
-
-#### 4.2 P0-3 — Fútbol mostraba partidos terminados como LIVE (zombies)
-**Estado:** ✅ COMPLETADO
-- ✅ `/app/backend/services/live_lifecycle.py`
-  - `2H` y `minute>=90` con `heartbeat_age>180s` ⇒ stale (“ghost-FT”).
-  - Motivo explícito en `compute_live_state()`.
-  - Añadido `BRK` a `LIVE_STATUSES['baseball']`.
-
-#### 4.3 P0-2 — Sport Routing & Terminology Leakage
-**Estado:** ✅ COMPLETADO
-- ✅ `/app/backend/services/sport_vocab_guard.py` (NUEVO)
-  - Firewall por deporte: reroute a `discarded_market` con `SPORT_VOCAB_LEAK`.
-- ✅ Integración:
-  - `analyst_engine.py` Phase 11
-  - `server.py` `/api/matches/live` defensa final
-
-#### 4.4 P2-1 — Enriquecimiento histórico fútbol (últimos 15)
-**Estado:** ✅ COMPLETADO
-- ✅ `data_ingestion._enrich_football(deep=True)` + `fixtures_last_n(n=15)`
-- ✅ `normalizer.normalize_recent_fixtures()` crea `historical_goal_profile`
-- ✅ `under_market_scan.py` usa `historical_goal_profile` para boost y reasons
-- ✅ `alternative_rescue.py` expone `historical_profile` en rescate
-
-#### 4.5 Testing
-**Estado:** ✅ COMPLETADO
-- ✅ Reporte: `/app/test_reports/iteration_24.json`
 
 ---
 
 ### Phase 5 — P3 Editorial Context Engine (Scrapy) — MVP
 **Estado:** ✅ COMPLETADO
 
-**Propósito:** añadir contexto editorial profundo (motivación real, objetivos, bajas, rotaciones, predicción editorial, riesgos) como capa P3 opcional **solo para fútbol** y **solo para matches shortlisteados**.
+---
 
-**Arquitectura implementada**
-- ✅ Nuevo módulo: `/app/backend/services/editorial_context/`
-  - `match_key.py`: `canonical_match_key()` + normalización de equipos
-  - `editorial_source_registry.py`: registry declarativo de fuentes
-  - `editorial_signal_mapper.py`: clasificador heurístico (regex) + extractores (score/market)
-  - `editorial_normalizer.py`: normalización + scoring
-    - `freshness_score` (24h/48h/72h)
-    - `reliability_score` (baseline por fuente + bonus)
-    - `narrative_bias_score` (detección hype)
-    - `build_consensus()` (consenso por match)
-  - `editorial_spider_main.py`: Scrapy spider entrypoint (crawler process)
-  - `scrapy_runner.py`: ejecución **subprocess** (Twisted aislado, timeout, fail-soft)
-  - `editorial_context_service.py`:
-    - cache MongoDB (`editorial_context_signals`)
-    - TTL lógico 6h por match_key
-    - feature flag `EDITORIAL_CONTEXT_ENABLED`
-  - `moneyball_interpretation.py`: “How Moneyball interprets editorial context”
+### Phase 6 — P3 Selector Tuning + New Sources (AS.com, Marca) + limpieza de falsos positivos
+**Estado:** ✅ COMPLETADO (validación real 2026-05-28)
 
-**Integración en el pipeline**
-- ✅ `analyst_engine.py`
-  - Stage 1.6: `fetch_editorial_context_bulk()` sobre shortlist (máx 8) → adjunta `match.editorial_context`
-  - Phase 12: adjunta `_editorial_context` + `_editorial_interpretation` a:
-    - picks kept
-    - `summary.discarded_market` (warnings de narrativa)
-- ✅ `normalizer.summarize_match_for_llm()`
-  - añade `editorial_context` compacto al payload LLM (solo campos esenciales, sin inflar tokens)
-
-**UI**
-- ✅ Nuevo componente: `/app/frontend/src/components/EditorialContextPanel.jsx`
-- ✅ Integrado en `/app/frontend/src/components/MatchCard.jsx`
-  - bloque colapsable “Contexto editorial”
-  - muestra fuentes, mercado consenso, notas de motivación/factual, bajas, riesgos
-  - muestra “Lectura del motor” con flags `PUBLIC_NARRATIVE_RISK` / sesgo
-
-**No reemplazar stack actual (cumplido)**
-- Crawlee y scrapers existentes permanecen intactos.
-- Scrapy es P3 complementario; si falla o devuelve 0 items:
-  - no rompe análisis
-  - retorna `available=false`
-  - logs `[SCRAPY_EDITORIAL_*]`
-
-**Testing**
-- ✅ Reporte: `/app/test_reports/iteration_25.json` — **14/14 tests passed**
+**Cambios confirmados**
+- Marca:
+  - `article_url_patterns` endurecidos (previa/crónica/analisis/alineaciones)
+  - `article_url_exclude_patterns` (directos, fichajes, opinión, etc.)
+- Spider:
+  - soporte exclusión + dedupe estricto por URL+match
 
 ---
 
-### Phase 6 — P3 Selector Tuning + 3 New Sources (AS.com, Marca + limpieza de falsos positivos)
-**Estado:** ✅ COMPLETADO
+### Phase 7 — P4 Playwright Integration (fuentes JS-heavy)
+**Estado:** ✅ COMPLETADO (infra lista; desbloqueo real requiere unlocking)
 
-**Objetivo:** mejorar cobertura editorial real en producción y disminuir ruido de anchors.
-
-**Cambios realizados**
-1. ✅ **Inspección de HTML real (2026-05-28)** y ajuste de selectores.
-2. ✅ `editorial_source_registry.py` expandido (y priorizado):
-   - **AS.com** (`as_com`, prioridad 1) — alta cobertura, tip principal, cuotas.
-   - Sportytrader ES (`sportytrader_es`, prioridad 2)
-   - BeSoccer ES (`besoccer_es`, prioridad 3)
-   - **Marca.com** (`marca_com`, prioridad 4) — contexto/lesiones/alineaciones.
-3. ✅ `editorial_spider_main.py` mejorado:
-   - Soporte Scrapy 2.13+: `async def start()`.
-   - `article_url_patterns` para filtrar anchors irrelevantes.
-   - Headers endurecidos + cookies habilitadas.
-4. ✅ `editorial_signal_mapper.py` afinado:
-   - Evita falso positivo “Más de 10 partidos” (Over/Under requiere `.5` y unidad cuando aplica).
-   - Añadidos patrones 1X2/Victoria (“Tip principal: victoria de …”).
-
-**Resultados verificados**
-- ✅ Scrapy captura correctamente artículos de AS.com con cuerpo ~4.7–4.9k caracteres.
-- ✅ Consenso detectado en producción:
-  - `Victoria local (1X2)`
-  - `Menos de 2.5`
-- ✅ E2E timing: ~15s para 3 matches.
-
-**Testing**
-- ✅ Reporte: `/app/test_reports/iteration_26.json` — **13/13 tests passed**
+**Observación de producción**
+- Sportytrader (Cloudflare 403) y BeSoccer (Client Challenge/PerimeterX) bloquean incluso con Playwright sin proxy residencial.
 
 ---
 
-### Phase 7 — P4 Playwright Integration (fuentes JS-heavy) + scores24.live
-**Estado:** ✅ COMPLETADO (infra lista; desbloqueo en prod requiere proxy residencial)
+## Phase A — Bright Data Web Unlocker (P1) + Editorial Basketball Sources
+**Estado:** ⏳ EN PROGRESO (nuevo)
 
-**Objetivo:** habilitar fuentes editoriales renderizadas con JavaScript sin reemplazar Scrapy.
+### A.1 Config & secretos
+1. Añadir a `/app/backend/.env`:
+   - `BRIGHTDATA_API_KEY=708ff637-d3c2-47b2-b950-ff700f8e1c47`
+   - `BRIGHTDATA_ZONE=web_unlocker1`
+2. Añadir validación “import-safe” (si no hay key, no rompe; retorna vacío).
 
-**Entregables**
-1. ✅ **Backend Playwright (subprocess, fail-soft)**
-   - ✅ `/app/backend/services/editorial_context/playwright_fetcher.py`
-     - navegador stealth + bloqueo de assets
-     - detección de challenge (“Un momento…”) y salida limpia
-     - soporte proxy por env `PLAYWRIGHT_PROXY`
-   - ✅ `/app/backend/services/editorial_context/playwright_runner.py`
-     - runner subprocess fail-soft con `PLAYWRIGHT_BROWSERS_PATH=/pw-browsers`
-   - ✅ `/app/backend/services/editorial_context/playwright_main.py`
-     - entrypoint del subprocess (I/O JSON)
+### A.2 Nuevo backend: `brightdata_fetcher.py`
+**Entregables backend**
+- `/app/backend/services/editorial_context/brightdata_fetcher.py`
+  - Función: `fetch_with_brightdata(matches, sources, timeout_sec, user_agent) -> list[raw_items]`
+  - Implementación:
+    - Para cada `index_url` de la fuente: request BrightData → HTML.
+    - Extraer anchors con una regex/BeautifulSoup (sin Scrapy) usando `preview_anchors` como hint si es posible.
+    - Filtrar anchors por:
+      - `article_url_patterns`
+      - `article_url_exclude_patterns`
+      - `_article_matches_pair(home, away)`
+    - Para cada artículo elegido: request BrightData → HTML → extraer `title/published_at/body` con selectores (CSS) usando parsel/bs4.
+    - Emitir items en el MISMO shape que Scrapy/Playwright (`source, source_url, raw_text, title, published_at, scraped_at, _match_payload`).
+  - Fail-soft:
+    - Timeouts por request
+    - 0 items ante errores
+    - Logs `[BRIGHTDATA_EDITORIAL_*]`
 
-2. ✅ **Dispatcher dual-backend en paralelo**
-   - ✅ `/app/backend/services/editorial_context/editorial_context_service.py`
-     - ejecuta **Scrapy + Playwright en paralelo** via `asyncio.gather`
-     - unifica items crudos antes de normalizar
+### A.3 Runner subprocess (opcional)
+- Decidir: (recomendado) correr BrightData dentro del proceso principal porque no usa reactor/Chromium.
+- Si se prefiere aislamiento:
+  - `brightdata_runner.py` + `brightdata_main.py` estilo Scrapy/Playwright.
 
-3. ✅ **Registry extendido para dispatch**
-   - ✅ `/app/backend/services/editorial_context/editorial_source_registry.py`
-     - `enabled_sources(include_js=True|False)`
-     - helpers `server_rendered_sources()` + `js_rendered_sources()`
-     - `scores24_live` ahora `enabled=true`, `requires_js=true`
+### A.4 Dispatch tri-backend en `editorial_context_service.py`
+- Ampliar dispatcher:
+  - `Scrapy` para `requires_js=False` (server-rendered)
+  - `Playwright` para `requires_js=True`
+  - **BrightData** para fuentes con `requires_unlocker=True` o `anti_bot_level='hard'`
+- Política:
+  - Para Sportytrader/BeSoccer/scores24: intentar BrightData primero; si falla, no romper.
+  - Mantener paralelismo: `asyncio.gather(scrapy, playwright, brightdata)`.
 
-4. ✅ **Operación en entorno actual**
-   - Chromium instalado en `/pw-browsers`.
-   - scores24.live está **bloqueado por Cloudflare** desde IPs de datacenter:
-     - comportamiento esperado: Playwright devuelve 0 items y el pipeline sigue.
-     - para activarlo en producción: **configurar proxy residencial**
-       `PLAYWRIGHT_PROXY=http://user:pass@residential-host:port`.
+### A.5 Registry: flags de desbloqueo + nuevas fuentes NBA/basketball
+1. Extender el schema de fuente:
+   - `requires_unlocker: bool` (nuevo)
+   - `anti_bot_level: 'none'|'soft'|'hard'` (opcional)
+2. Marcar:
+   - `sportytrader_es`: `requires_unlocker=True`
+   - `besoccer_es`: `requires_unlocker=True`
+   - `scores24_live`: `requires_unlocker=True`
+3. **Añadir fuentes basketball editoriales (NBA)** a `editorial_source_registry.py`:
+   - `covers_nba` (previas/picks)
+   - `actionnetwork_nba` o alternativa accesible
+   - `espn_nba_preview` (si estructura permite; si no, omit)
+   - Cada fuente con:
+     - `sport: 'basketball'`
+     - `index_urls` de previews
+     - patrones de URL
+     - selectores `title/published_at/body`
+     - `requires_unlocker=True` si tienen bot protection
 
-**Testing**
-- ✅ Reporte: `/app/test_reports/iteration_27.json` — **12/12 tests passed**
+### A.6 Testing
+- Tests manuales:
+  - `python -c` llamando a `fetch_editorial_context_bulk` para 1 partido NBA dummy.
+  - Confirmar que el payload se adjunta con `available=true` cuando hay items.
+- Test report: `/app/test_reports/iteration_28.json`.
+
+---
+
+## Phase B — Historical Detail Enrichment (Basketball) — vertical slice
+**Estado:** ⏳ PENDIENTE (prioridad #1 del enrichment)
+
+### B.1 Backend: `enrichBasketballHistoricalProfile(match)`
+**Objetivo**: computar últimos 10–15 partidos y métricas avanzadas.
+
+**Fuentes de datos**
+- API-Sports basketball endpoints disponibles (ver límites de plan; si rate-limit, cache agresiva).
+- Persistencia opcional en Mongo (cache TTL) para no recalcular.
+
+**Implementación**
+1. Nuevo módulo:
+   - `/app/backend/services/historical/basketball_historical.py`
+2. Funciones:
+   - `fetch_last_n_games(team_id, n=15)`
+   - `compute_basketball_profile(games) -> dict`
+   - `enrichBasketballHistoricalProfile(match) -> basketballHistoricalProfile`
+3. Métricas:
+   - puntos for/against, total, tendencias last5, home/away split
+   - pace estimado (posesiones aproximadas si hay FGA/FTA/TO/ORB)
+   - offensive/defensive rating (si se puede aproximar)
+   - %FG / %3PT / FTA / TO / REB
+   - back-to-back / descanso (por fechas)
+   - H2H recientes si existe endpoint; si no, aproximar por partidos cruzados disponibles
+   - over/under rate vs líneas recientes si existen; si no, vs umbrales internos
+
+### B.2 Integración en pipeline (regla: no descartar sin histórico)
+- Nuevo flujo:
+  - `selectedMatches → enrichHistoricalProfileBySport() → sportSpecificAnalysis() → alternativeMarketRescueLayer() → MoneyballGuardrail() → finalRecommendation`
+- Implementar `enrichHistoricalProfileBySport()` en `analyst_engine.py` antes de análisis por deporte.
+
+### B.3 Rescue layer: `basketballTotalPointsRescueLayer(match)`
+- Se ejecuta si moneyline/spread no aportan valor.
+- Evalúa:
+  - Totales (Over/Under)
+  - Team totals
+  - Alternate spread protegido
+- Reglas basadas en:
+  - `projectedTotalPoints` vs `bookmakerLine ± margen`
+  - `paceTrend`, consistencia de anotación, defensa, fatiga/b2b
+- Devuelve candidato(s) a Moneyball.
+
+### B.4 Moneyball + traps históricas
+- Todas las propuestas pasan por:
+  - `impliedProbability = 1/odds`
+  - `estimatedProbability` del modelo
+  - `edge` y clasificación
+- Trap signals basketball:
+  - overtime inflation
+  - schedule strength
+  - lesión ofensiva
+  - b2b
+  - blowout risk
+  - línea ya ajustada
+
+### B.5 UI — “Historial profundo” (Basketball)
+- Nuevo panel en MatchCard:
+  - últimos 15
+  - promedios, trends O/U, pace, splits
+  - frases humanas
+
+### B.6 Testing
+- Dataset sintético + 2 partidos reales cuando el plan API lo permita.
+- Test report: `/app/test_reports/iteration_29.json`.
+
+---
+
+## Phase C — Historical Detail Enrichment (Baseball) — vertical slice
+**Estado:** ⏳ PENDIENTE (después de Basketball)
+
+### C.1 Backend: `enrichBaseballHistoricalProfile(match)`
+- Nuevo módulo:
+  - `/app/backend/services/historical/baseball_historical.py`
+- Métricas:
+  - runs for/against, hits, HR, errores
+  - OBP/SLG/OPS (si la API lo expone; si no, aproximación con hits/BB/AB)
+  - K/BB trends
+  - bullpen usage 3–5 días y fatiga
+  - starters last5: ERA/WHIP, innings
+  - H2H, O/U trends
+
+### C.2 Rescue layer: `baseballRunsRescueLayer(match)`
+- Evalúa:
+  - total runs O/U
+  - team totals
+  - F5 ML / F5 totals
+  - Run Line +1.5
+- Reglas: ofensiva + pitchers + bullpen + (park/weather si disponible).
+
+### C.3 Moneyball + traps históricas
+- Trap signals baseball:
+  - producción inflada por serie previa
+  - bullpen agotado no considerado
+  - pitch count limitado
+  - parque/clima
+  - sobrevaloración por nombre
+  - ofensiva fría con cuota inflada
+
+### C.4 UI — “Historial profundo” (Baseball)
+- Panel con:
+  - últimos 15
+  - carreras, OPS/hits, bullpen fatigue, pitchers, O/U, F5 trend
+  - frases humanas
+
+### C.5 Testing
+- Reporte: `/app/test_reports/iteration_30.json`.
 
 ---
 
 ## 3) Next Actions
 
-### A) Hardening de enrichment (P1)
-**Motivo:** se observó que una generación puede quedarse en `stage=enriching` (scraping/Understat/editorial).
-1. Timeouts agresivos + fallback en enrichment Understat (2–4s).
-2. Telemetría: tiempos por etapa + ratio de fallos.
-3. Job progress reliability: `/api/analysis/jobs/{job_id}` status monotónico.
+### A) Bright Data Unlocker (P1) — inmediato
+1. Añadir `.env` keys y `brightdata_fetcher.py`.
+2. Activar unlocker para Sportytrader/BeSoccer/scores24.
+3. Añadir 2–3 fuentes NBA/basketball al registry con `requires_unlocker=True`.
 
-### B) Refinamiento Editorial (P1/P2)
-1. Mejorar cobertura de scraping:
-   - Añadir index URLs por fuente cuando cambien estructura.
-   - Ajustar selectores sin tocar spider.
-2. Mejorar `sourceReliabilityScore` con histórico interno (accuracy tracking).
-3. Añadir `contradiction_flags` más ricos:
-   - contradicción motivación vs standings
-   - contradicción forma reciente vs narrativa
-4. Persistencia avanzada:
-   - TTL real por tipo (pre-match 7 días vs live 24h) si se amplía a live.
+### B) Basketball Historical Detail (P1) — siguiente
+1. Implementar profile + integración pipeline.
+2. Añadir rescue layer totales/team totals.
+3. UI “Historial profundo”.
 
-### C) Proxies residenciales (P2)
-- **Bloqueado por credenciales**: necesarias para habilitar scores24.live en P4 y mejorar fallback de Sofascore.
+### C) Baseball Historical Detail (P1) — después
+1. Implementar profile + rescue + UI.
 
 ---
 
 ## 4) Success Criteria
-- Aparición de resultados en **Protected acceptable** y/o **Watchlist** cuando corresponde (sin inventar valor).
-- `Moneyline favorito` con edge negativo sigue siendo `NO_BET_VALUE`.
-- Descartados muestran: mensaje humano + señales trampa + fragility.
-- Rescatados muestran: por qué falló el directo + por qué el protegido es más seguro.
-
-- LIVE multi-deporte estable:
-  - Basketball/Baseball: LIVE detectado sin depender de `live=all`.
-  - Fútbol: no se muestran FT/90’ zombies; sweeper archiva.
-  - Firewall vocabulario: no hay “goles/córners” fuera de fútbol.
-
-- Editorial Context (P3/P4):
-  - Se adjunta `editorial_context` a matches shortlisteados cuando hay contenido.
-  - `available=false` y pipeline intacto cuando Scrapy/Playwright no encuentra señales.
-  - UI muestra “Contexto editorial” con fuentes/argumentos/riesgos.
-  - Moneyball nunca recomienda “a ciegas”: si editorial sugiere mercado pero Moneyball no ve edge → `PUBLIC_NARRATIVE_RISK`.
-  - Fuentes server-rendered (AS/Marca/Sportytrader/BeSoccer) continúan aportando señales.
-  - Fuentes JS-heavy pueden activarse vía Playwright; si Cloudflare bloquea, el sistema degrada elegantemente.
-
+- Market tolerance y rescue layers funcionan sin inventar valor.
+- LIVE multi-deporte estable; sin zombies; sin fugas de vocabulario.
+- Editorial Context:
+  - Scrapy/Playwright/BrightData degradan elegante.
+  - Fuentes bloqueadas se desbloquean con Unlocker cuando procede.
+  - UI muestra contexto con fuentes y warnings.
+- Historical Detail Enrichment:
+  - Ningún match basketball/baseball prioritario se descarta sin histórico profundo.
+  - Se detectan oportunidades en **totales/team totals/F5/run line** con razonamiento humano.
+  - Moneyball guardrail siempre manda: sin edge → no recomendación.
 - No regresiones:
   - endpoints existentes responden
-  - `_market_edge` no cambia
+  - `_market_edge` y payload legacy intactos
   - `asyncio.wait_for(timeout=3.0)` intacto
   - narrativa ES intacta
-
-- Hardening:
-  - ningún job queda colgado en `enriching`; si falla Understat, Scrapy o Playwright, el pipeline termina con degradación elegante.
