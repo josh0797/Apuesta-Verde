@@ -120,6 +120,34 @@ export function LiveCopilotCard({ interpreter, lang = 'es', testId = 'live-copil
               {subtitle}
             </p>
           )}
+          {/* P1 fix (2026-05-28): scoreboard context badges. Surface
+              "Ventaja clara" / "Marcador pesa más que métricas" /
+              "Posible trampa de marcador" so the copilot never reads as
+              "balanced" when the scoreline already settled the question. */}
+          {Array.isArray(interpreter.scoreboard_context?.badges) && interpreter.scoreboard_context.badges.length > 0 && (
+            <div
+              className="flex flex-wrap items-center gap-1.5 mt-1.5"
+              data-testid={`${testId}-scoreboard-badges`}
+            >
+              {interpreter.scoreboard_context.badges.map((b, i) => {
+                const sev = (b?.severity || 'info').toLowerCase();
+                const cls = sev === 'high'
+                  ? 'bg-amber-500/15 text-amber-200 border-amber-500/30'
+                  : sev === 'medium'
+                    ? 'bg-sky-500/15 text-sky-200 border-sky-500/30'
+                    : 'bg-slate-500/15 text-slate-200 border-slate-500/30';
+                return (
+                  <span
+                    key={i}
+                    className={`inline-flex items-center px-1.5 py-0.5 rounded-md border text-[10px] font-medium uppercase tracking-wide ${cls}`}
+                    data-testid={`${testId}-scoreboard-badge-${i}`}
+                  >
+                    {b?.label || ''}
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
         <ConfidenceBar value={interpreter.confidence} tone={mood} />
       </div>

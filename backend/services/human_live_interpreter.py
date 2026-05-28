@@ -61,15 +61,138 @@ def _team_name(match: dict, side: str) -> str:
     return str(name)
 
 
+def _build_scoreboard_context(
+    *, home_name: str, away_name: str,
+    h_score: int, a_score: int,
+    minute: Optional[int],
+    strength: float,
+    verdict_label: str,
+) -> dict:
+    """Build a structured scoreboard context block.
+
+    The UI uses this block to render badges ("Ventaja clara", "Control
+    por marcador", "Marcador pesa más que métricas") without having to
+    re-implement the scoreline classifier.
+
+    `scoreState` taxonomy (machine-readable, exported to the UI):
+      • LEVEL_SCORE              — diff == 0
+      • ONE_GOAL_LEAD            — diff == 1
+      • CLEAR_LEAD               — diff == 2 (cualquier minuto)
+      • BLOWOUT                  — diff >= 3
+      • LATE_PROTECTED_LEAD      — diff == 1 con min >= 70
+      • CONTROLLED_LEAD          — diff >= 2 con min >= 70
+
+    `dynamicState` further qualifies CLEAR_LEAD / BLOWOUT:
+      • DOMINANT_LEAD                       — líder también domina stats
+      • STATISTICAL_BALANCE_WITH_CLEAR_LEAD — líder no domina stats pero
+                                              tiene ventaja en marcador
+      • SCOREBOARD_TRAP                     — líder gana pero stats lo
+                                              contradicen (trap señal)
+      • SCOREBOARD_CONTROL                  — ventaja consolidada tarde
+      • LEADING_WITHOUT_DOMINANCE           — ventaja de 1 sin dominio
+      • TRAILING_BUT_PRESSING               — perdedor empujando fuerte
+    """
+    diff   = h_score - a_score
+    m      = minute or 0
+    abs_d  = abs(diff)
+    leader   = home_name if diff > 0 else (away_name if diff < 0 else None)
+    trailing = away_name if diff > 0 else (home_name if diff < 0 else None)
+
+    # 1. Base state
+    if abs_d == 0:
+        score_state = "LEVEL_SCORE"
+    elif abs_d >= 3:
+        score_state = "BLOWOUT"
+    elif abs_d == 2:
+        score_state = "CONTROLLED_LEAD" if m >= 70 else "CLEAR_LEAD"
+    else:  # abs_d == 1
+        score_state = "LATE_PROTECTED_LEAD" if m >= 70 else "ONE_GOAL_LEAD"
+
+    # 2. Dynamic qualifier on top of base state
+    dyn: Optional[str] = None
+    if score_state in ("CLEAR_LEAD", "BLOWOUT", "CONTROLLED_LEAD"):
+        if verdict_label == "TRAP_LATE_LEAD":
+            dyn = "SCOREBOARD_TRAP"
+        elif strength >= 0.18:
+            # Strong direction → check direction matches leader
+            dyn = "DOMINANT_LEAD"
+        else:
+            dyn = "STATISTICAL_BALANCE_WITH_CLEAR_LEAD"
+        # Override with SCOREBOARD_CONTROL if we're past 70'
+        if score_state == "CONTROLLED_LEAD":
+            dyn = dyn or "SCOREBOARD_CONTROL"
+    elif score_state in ("ONE_GOAL_LEAD", "LATE_PROTECTED_LEAD"):
+        if strength < 0.10:
+            dyn = "LEADING_WITHOUT_DOMINANCE"
+        elif verdict_label == "TRAP_LATE_LEAD":
+            dyn = "SCOREBOARD_TRAP"
+    elif score_state == "LEVEL_SCORE":
+        if verdict_label == "LIVE_VALUE_PUSH":
+            dyn = "TRAILING_BUT_PRESSING"  # no leader but momentum push
+
+    # 3. UI badges — list of (label, severity) pairs (ES)
+    badges: list[dict] = []
+    if score_state == "BLOWOUT":
+        badges.append({"label": "Marcador definido", "severity": "high"})
+    elif score_state == "CONTROLLED_LEAD":
+        badges.append({"label": "Control por marcador", "severity": "medium"})
+    elif score_state == "CLEAR_LEAD":
+        badges.append({"label": "Ventaja clara", "severity": "medium"})
+    elif score_state == "LATE_PROTECTED_LEAD":
+        badges.append({"label": "Líder defendiendo", "severity": "medium"})
+    if dyn == "STATISTICAL_BALANCE_WITH_CLEAR_LEAD":
+        badges.append({"label": "Marcador pesa más que métricas", "severity": "info"})
+    elif dyn == "DOMINANT_LEAD":
+        badges.append({"label": "Dominio total", "severity": "info"})
+    elif dyn == "SCOREBOARD_TRAP":
+        badges.append({"label": "Posible trampa de marcador", "severity": "high"})
+    elif dyn == "LEADING_WITHOUT_DOMINANCE":
+        badges.append({"label": "Gana sin dominar", "severity": "info"})
+
+    return {
+        "scoreState":      score_state,
+        "dynamicState":    dyn,
+        "leadingTeam":     leader,
+        "trailingTeam":    trailing,
+        "goalDifference":  diff,
+        "minute":          minute,
+        "gamePhase":       _game_phase(minute),
+        "badges":          badges,
+    }
+
+
+def _game_phase(minute: Optional[int]) -> str:
+    m = minute or 0
+    if m < 1:
+        return "pre_kick"
+    if m < 30:
+        return "first_third"
+    if m < 45:
+        return "mid_first_half"
+    if m < 50:
+        return "half_time"
+    if m < 70:
+        return "second_half_open"
+    if m < 85:
+        return "closing_phase"
+    return "stoppage"
+
+
 def _scoreline_context(diff: int, h_score: int, a_score: int, minute: Optional[int]) -> str:
     """Classify the match state based on scoreline + time.
 
     Returns a context key that takes priority over pace in title/narration:
       'blowout'        — diff >= 3 (partido sentenciado)
       'commanding'     — diff == 2 con min >= 60 (ventaja consolidada)
+      'clear_lead'     — diff == 2 con min < 60 (ventaja clara, todavía jugable)
       'late_lead'      — diff == 1 con min >= 75 (líder defendiendo)
       'one_goal_early' — diff == 1 con min < 60 (partido vivo)
       'level'          — diff == 0 (empatado)
+
+    NOTE (P1 fix 2026-05-28): se añadió `clear_lead` para diff == 2 antes
+    de la hora 60. Antes este caso caía en `level` y el copilot decía
+    "ningún equipo domina claramente" pese a un 0-2 al descanso, que es
+    una contradicción evidente con el marcador.
     """
     m = minute or 0
     abs_diff = abs(diff)
@@ -77,6 +200,8 @@ def _scoreline_context(diff: int, h_score: int, a_score: int, minute: Optional[i
         return "blowout"
     if abs_diff == 2 and m >= 60:
         return "commanding"
+    if abs_diff == 2:
+        return "clear_lead"
     if abs_diff == 1 and m >= 75:
         return "late_lead"
     if abs_diff == 1:
@@ -650,6 +775,39 @@ def interpret_live(
                 risk, urgency = "MEDIUM", "low"
                 why.append(f"Ventaja de {abs(_diff)} goles desde la hora de juego.")
                 why.append("Remontada estadísticamente improbable — Under restante puede tener valor.")
+            elif _ctx == "clear_lead":
+                # P1 fix: 0-2 al descanso → el marcador YA cambia el partido,
+                # aunque las stats estén equilibradas. Nunca decir "partido
+                # parejo" cuando hay 2 goles de diferencia.
+                mood, icon = "watch", "🎯"
+                action, action_label = "WATCHLIST", "VENTAJA CLARA EN MARCADOR"
+                recommendation = f"🎯 Ventaja clara — {_leader} gana {h_score}-{a_score}"
+                risk, urgency = "MEDIUM", "medium"
+                why.append(
+                    f"El partido no está igualado: {_leader} tiene ventaja "
+                    f"{h_score}-{a_score} a falta de {max(0, 90 - (minute or 0))} min."
+                )
+                # Distinguir paliza estadística de "stats parejas + marcador claro"
+                if strength < 0.18:
+                    why.append(
+                        f"Las estadísticas son parejas, pero el marcador ya favorece "
+                        f"claramente a {_leader}: efectividad por encima del rival."
+                    )
+                else:
+                    why.append(
+                        f"{_leader} no solo gana en el marcador, también domina las "
+                        f"métricas — control real del partido."
+                    )
+                why.append(
+                    f"{_trailing} tendrá que arriesgar para volver — pueden abrirse espacios."
+                )
+                # Mercado protegido razonable: Doble Oportunidad del líder o ganador
+                # restante / +0.5 si la cuota está castigada.
+                suggested_market = (
+                    f"Doble Oportunidad — {_leader}"
+                    if (minute or 0) < 60
+                    else f"Gana {_leader} (resto del partido)"
+                )
             elif _ctx == "late_lead":
                 mood, icon = "watch", "⏱️"
                 action, action_label = "WATCHLIST", "TRAMO FINAL — CUIDADO"
@@ -752,7 +910,8 @@ def interpret_live(
     title, subtitle = _title_for(
         mood=mood, verdict=verdict_label, pace=pace, direction=direction,
         strength=strength, home_name=home_name, away_name=away_name,
-        diff=diff, minute=minute, trap=trap,
+        diff=diff, h_score=h_score, a_score=a_score,
+        minute=minute, trap=trap,
     )
 
     # ── 3. Confidence (0-100) ───────────────────────────────────────────
@@ -815,6 +974,14 @@ def interpret_live(
         "why":              why[:4],
         "narration":        narration,
         "trap":             trap,
+        # ── P1 fix: structured scoreboard context for the UI badges ──
+        # This lets the LiveCopilotCard render badges like "Ventaja clara"
+        # / "Control por marcador" without re-deriving the state.
+        "scoreboard_context": _build_scoreboard_context(
+            home_name=home_name, away_name=away_name,
+            h_score=h_score, a_score=a_score, minute=minute,
+            strength=strength, verdict_label=verdict_label,
+        ),
         "_source":          "human_live_interpreter_v1",
     }
 
@@ -822,20 +989,24 @@ def interpret_live(
 # ─── Title / subtitle ───────────────────────────────────────────────────────
 
 def _title_for(*, mood, verdict, pace, direction, strength,
-               home_name, away_name, diff, minute, trap) -> tuple[str, str]:
+               home_name, away_name, diff, h_score=None, a_score=None,
+               minute, trap) -> tuple[str, str]:
     """Replace cold labels with human framings, in ES.
 
     Priority order:
       1. Trap detected (market mispricing)
-      2. Scoreline context (blowout / commanding / late lead) — ANTES que pace
+      2. Scoreline context (blowout / commanding / clear_lead / late_lead) — ANTES que pace
       3. Value/Push (xG momentum)
       4. Pace (tactical rhythm)
       5. Strength + direction fallback
     """
     leader   = home_name if diff > 0 else away_name
     trailing = away_name if diff > 0 else home_name
-    h_score = max(0, (diff if diff > 0 else 0))
-    a_score = max(0, (-diff if diff < 0 else 0))
+    # When real scoreline is not provided, fall back to a diff-only render
+    # (preserves backwards compatibility but loses absolute numbers).
+    if h_score is None or a_score is None:
+        h_score = max(0, (diff if diff > 0 else 0))
+        a_score = max(0, (-diff if diff < 0 else 0))
     ctx = _scoreline_context(diff, h_score, a_score, minute)
 
     # 1. Trap always wins.
@@ -857,6 +1028,14 @@ def _title_for(*, mood, verdict, pace, direction, strength,
         return (
             f"📊 {leader} controla con autoridad",
             f"Ventaja de {abs(diff)} goles desde la hora de juego — difícil de remontar.",
+        )
+    if ctx == "clear_lead":
+        # P1 fix: 0-2 al descanso debe leerse como ventaja clara, no como
+        # "partido equilibrado". El marcador pesa más que las métricas.
+        return (
+            f"🎯 Ventaja clara para {leader}",
+            f"{leader} gana {h_score}-{a_score} — el partido no está parejo aunque las "
+            f"métricas lo parezcan.",
         )
     if ctx == "late_lead":
         return (
@@ -948,6 +1127,17 @@ def _compose_narration(*, home_name, away_name, h_score, a_score, minute,
             f"{leader} controla con {abs(diff)} goles de ventaja desde la hora de juego. "
             f"La remontada es estadísticamente improbable. "
             f"Under de goles restantes podría tener valor si la cuota lo justifica."
+        )
+        return " ".join(parts)
+
+    if ctx == "clear_lead":
+        # P1 fix (2026-05-28): el marcador 0-2 al descanso es una señal por
+        # sí misma, aunque las stats estén equilibradas. Nunca decir "sin
+        # señal direccional" cuando hay ventaja de 2 goles.
+        parts.append(
+            f"{leader} no domina todas las métricas, pero ya tiene una ventaja fuerte "
+            f"en el marcador. El partido no está parejo: {trailing} tendrá que arriesgar "
+            f"y eso puede generar más espacios para {leader}."
         )
         return " ".join(parts)
 
