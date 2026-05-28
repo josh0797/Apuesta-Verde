@@ -15,6 +15,7 @@ import { FootballQualityBadge } from './FootballQualityBadge';
 import { ProtectedMarketBadge } from './ProtectedMarketBadge';
 import { ProvenanceBadge } from './ProvenancePanel';
 import { EditorialContextPanel } from './EditorialContextPanel';
+import { HistoricalProfilePanel } from './HistoricalProfilePanel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -209,6 +210,15 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
         editorial={m._editorial_context}
         interpretation={m._editorial_interpretation}
         testId={`editorial-context-${m.match_id}`}
+      />
+
+      {/* Historical Detail Enrichment — Basketball/Baseball "Historial profundo"
+          block. Renders only when the backend pre-fetch produced a usable
+          profile (available=true). */}
+      <HistoricalProfilePanel
+        profile={m.basketballHistoricalProfile || m.baseballHistoricalProfile}
+        sport={m.baseballHistoricalProfile ? 'baseball' : 'basketball'}
+        testId={`historical-profile-${m.match_id}`}
       />
 
       {/* Inline drivers preview + expand */}

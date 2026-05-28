@@ -83,6 +83,7 @@ SOURCES: list[dict[str, Any]] = [
         "base_url":           "https://www.sportytrader.es",
         "enabled":            True,
         "requires_js":        True,        # ← dispatched to Playwright
+        "requires_unlocker":  True,        # ← BrightData preferred when available
         "sport":              "football",
         "country":            "ES",
         "language":           "es",
@@ -119,6 +120,7 @@ SOURCES: list[dict[str, Any]] = [
         "base_url":           "https://es.besoccer.com",
         "enabled":            True,
         "requires_js":        True,        # ← dispatched to Playwright
+        "requires_unlocker":  True,        # ← BrightData preferred when available
         "sport":              "football",
         "country":            "ES",
         "language":           "es",
@@ -238,6 +240,7 @@ SOURCES: list[dict[str, Any]] = [
         "base_url":           "https://scores24.live",
         "enabled":            True,          # ← infra ready; gated by PLAYWRIGHT_PROXY in prod
         "requires_js":        True,
+        "requires_unlocker":  True,           # ← BrightData preferred when available
         "sport":              "football",
         "country":            "Multi",
         "language":           "es",

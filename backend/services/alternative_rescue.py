@@ -327,6 +327,32 @@ def attempt_alternative_market_rescue(
             log.debug("rescue: basketball_pace_layer failed: %s", exc)
             bpl_out = None
         if bpl_out:
+            # Enrich with historical trap signals + raw historical profile so
+            # the UI can render the "Historial profundo" panel alongside the
+            # rescue pick.
+            try:
+                from .historical_enrichment import (
+                    collect_basketball_trap_signals,
+                    compute_extra_fragility,
+                )
+                signals = collect_basketball_trap_signals(
+                    match,
+                    bookmaker_total_line=(bpl_out.get("metrics") or {}).get("leagueAvgTotal"),
+                )
+                if signals:
+                    bpl_out["trap_signals_structured"] = (
+                        list(bpl_out.get("trap_signals_structured") or []) + signals
+                    )
+                    bpl_out["fragility_score"] = min(
+                        100,
+                        int(bpl_out.get("fragility_score") or 0)
+                        + compute_extra_fragility(signals),
+                    )
+                prof = match.get("basketballHistoricalProfile")
+                if prof:
+                    bpl_out["basketballHistoricalProfile"] = prof
+            except Exception as exc:
+                log.debug("rescue: basketball trap enrichment failed: %s", exc)
             return bpl_out
         # Fall through to legacy total-line cascade if pace layer didn't trigger
         totals = _basketball_baseball_extract_total(markets)

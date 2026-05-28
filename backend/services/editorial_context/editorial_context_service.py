@@ -211,19 +211,32 @@ async def fetch_editorial_context_bulk(
             "_match_key":  match_key,
         })
 
-    # Run BOTH backends in parallel (Scrapy + Playwright) over the remaining
-    # matches. Each source is dispatched to its native backend based on the
-    # `requires_js` flag in the registry. Either backend can return empty
-    # (or fail) without affecting the other — the union of items is what we
-    # normalise downstream.
+    # Run THREE backends in parallel (Scrapy + Playwright + Bright Data) over
+    # the remaining matches. Each source is dispatched to its native backend
+    # based on the registry flags:
+    #     • requires_unlocker=True  → Bright Data Web Unlocker API
+    #     • requires_js=True        → Playwright (chromium)
+    #     • else                    → Scrapy
+    # `requires_unlocker` takes precedence over `requires_js` (a source can
+    # legitimately need both; the unlocker is the safer bet). Either backend
+    # can return empty (or fail) without affecting the others — the union of
+    # items is what we normalise downstream.
     new_raws: list[dict] = []
     if matches_needing_scrape:
         try:
-            from .scrapy_runner import run_scrapy
+            from .scrapy_runner     import run_scrapy
             from .playwright_runner import run_playwright
+            from .brightdata_fetcher import run_brightdata
 
-            scrapy_sources     = server_rendered_sources("football")
-            playwright_sources = js_rendered_sources("football")
+            unlocker_sources    = [s for s in enabled_sources("football")
+                                   if s.get("requires_unlocker")]
+            unlocker_names      = {s["name"] for s in unlocker_sources}
+            # Avoid double-dispatch: a source flagged for the unlocker
+            # should NOT be sent to Scrapy/Playwright too.
+            scrapy_sources      = [s for s in server_rendered_sources("football")
+                                   if s["name"] not in unlocker_names]
+            playwright_sources  = [s for s in js_rendered_sources("football")
+                                   if s["name"] not in unlocker_names]
 
             tasks: list = []
             if scrapy_sources:
@@ -235,6 +248,12 @@ async def fetch_editorial_context_bulk(
             if playwright_sources:
                 tasks.append(asyncio.create_task(
                     run_playwright(matches_needing_scrape, playwright_sources, timeout_sec=timeout_sec),
+                ))
+            else:
+                tasks.append(asyncio.sleep(0, result=[]))
+            if unlocker_sources:
+                tasks.append(asyncio.create_task(
+                    run_brightdata(matches_needing_scrape, unlocker_sources, timeout_sec=timeout_sec),
                 ))
             else:
                 tasks.append(asyncio.sleep(0, result=[]))
@@ -254,8 +273,9 @@ async def fetch_editorial_context_bulk(
                 elif isinstance(r, Exception):
                     log.warning("[EDITORIAL_FETCH_ERROR] backend raised: %s", r)
             log.info(
-                "[EDITORIAL_FETCH_DONE] scrapy_src=%d playwright_src=%d raw_items=%d",
-                len(scrapy_sources), len(playwright_sources), len(new_raws),
+                "[EDITORIAL_FETCH_DONE] scrapy_src=%d playwright_src=%d unlocker_src=%d raw_items=%d",
+                len(scrapy_sources), len(playwright_sources), len(unlocker_sources),
+                len(new_raws),
             )
         except asyncio.TimeoutError:
             log.warning("[SCRAPY_EDITORIAL_SOURCE_FAILED] outer timeout, returning soft-empty")

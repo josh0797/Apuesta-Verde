@@ -1545,6 +1545,23 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
             except Exception as exc:
                 log.debug("corner pre-fetch failed: %s", exc)
 
+        # ── Phase 10b — Pre-fetch basketball historical profile ─────────
+        # Regla del producto: ningún match basketball que pase el filtro
+        # prioritario puede descartarse sin antes consultar su historial
+        # profundo (últimos 10–15 partidos por equipo + H2H). El profile
+        # también queda adjunto al match para que la UI lo muestre incluso
+        # cuando el rescue no genera pick.
+        if sport == "basketball" and original_disc_mkt:
+            try:
+                from .historical_enrichment import prefetch_basketball_profiles
+                await prefetch_basketball_profiles(
+                    [by_id.get(e.get("match_id")) for e in original_disc_mkt
+                     if e.get("match_id") in by_id and e.get("match_id") not in already_rescued_ids],
+                    db=db,
+                )
+            except Exception as exc:
+                log.debug("basketball historical pre-fetch failed: %s", exc)
+
         for entry in original_disc_mkt:
             mid = entry.get("match_id")
             if mid in already_rescued_ids:
@@ -1696,6 +1713,40 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         except Exception as exc:
             log.warning("editorial_interpretation Phase 12 failed: %s", exc)
 
+    # ── Phase 12b — Basketball Historical Profile annotation ────────────
+    # When the basketball pre-fetch produced a profile (Phase 10b), copy it
+    # into the user-facing payload entries (picks, discarded_market,
+    # rescued_picks, watchlist, protected_acceptable) so the UI can render
+    # the "Historial profundo" panel without re-fetching anything.
+    if sport == "basketball":
+        try:
+            by_id_bk = {m.get("match_id"): m for m in matches_payload}
+            summary_bk = parsed.setdefault("summary", {})
+            picks_bk   = parsed.get("picks") or []
+            buckets = [
+                picks_bk,
+                summary_bk.get("discarded_market")    or [],
+                summary_bk.get("discarded_motivation") or [],
+                summary_bk.get("rescued_picks")       or [],
+                summary_bk.get("watchlist")           or [],
+                summary_bk.get("protected_acceptable") or [],
+            ]
+            attached = 0
+            for bucket in buckets:
+                for entry in bucket:
+                    mid = entry.get("match_id")
+                    src = by_id_bk.get(mid) or {}
+                    prof = src.get("basketballHistoricalProfile")
+                    if prof:
+                        entry["basketballHistoricalProfile"] = prof
+                        attached += 1
+            parsed.setdefault("_pipeline", {})
+            parsed["_pipeline"]["basketball_historical"] = {
+                "entries_annotated": attached,
+                "engine_version":    "basketball-hist.1",
+            }
+        except Exception as exc:
+            log.warning("basketball historical annotation failed: %s", exc)
 
     # Merge auto_discarded from pre-filter into the summary so the
     # categorization invariant len(picks)+lists == total_analyzed still holds

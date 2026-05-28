@@ -1,22 +1,42 @@
 [
   {
-    "content": "Phase A.1 — Add BRIGHTDATA_API_KEY + BRIGHTDATA_ZONE to /app/backend/.env",
+    "content": "Phase A (Bright Data Unlocker) — unlocker, dispatcher, registry, smoke test",
     "status": "completed"
   },
   {
-    "content": "Phase A.2 — Create brightdata_fetcher.py (in-process HTTP client, no subprocess needed)",
-    "status": "in_progress"
+    "content": "Phase B.1 — explored API-Sports basketball + existing pace stub",
+    "status": "completed"
   },
   {
-    "content": "Phase A.4 — Extend editorial_context_service.py dispatcher to include BrightData as third backend",
-    "status": "pending"
+    "content": "Phase B.2 — basketball_historical.py: compute + enrich + bulk prefetch",
+    "status": "completed"
   },
   {
-    "content": "Phase A.5 — Add requires_unlocker flag in registry; mark Sportytrader/BeSoccer/scores24; add NBA editorial sources",
-    "status": "pending"
+    "content": "Phase B.3 — analyst_engine.py Phase 10b prefetch + Phase 12b annotation",
+    "status": "completed"
   },
   {
-    "content": "Phase A.6 — Smoke test BrightData fetcher end-to-end with a real NBA + a blocked football source",
+    "content": "Phase B.4 — basketball_pace_layer rescue uses _basketball_pace_form populated by prefetch",
+    "status": "completed"
+  },
+  {
+    "content": "Phase B.5 — trap_signals_basketball.py for OT, schedule, b2b, blowout, injuries, market-adjusted",
+    "status": "completed"
+  },
+  {
+    "content": "Phase B.6 — HistoricalProfilePanel.jsx with last-15 metrics + human phrases + trap signals tone",
+    "status": "completed"
+  },
+  {
+    "content": "Phase B.7 — wired HistoricalProfilePanel into MatchCard",
+    "status": "completed"
+  },
+  {
+    "content": "Phase B.8 — integration smoke test (compute + trap signals + tri-backend editorial)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase C (Baseball Historical Enrichment) — pending user confirmation",
     "status": "pending"
   }
 ]
