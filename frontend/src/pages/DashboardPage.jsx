@@ -101,26 +101,35 @@ function DiscardedRow({ item, testId, type }) {
 
   const inner = (
     <div className="rounded-md border border-border bg-card/60 hover:border-cyan-500/30 transition-colors" data-testid={testId}>
-      <div className="flex items-center justify-between gap-3 px-3 py-2">
+      {/* Mobile-first: stack icon+label on row 1, reason+chip+toggle on row 2.
+          Desktop (md+) keeps the original horizontal layout. */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 px-3 py-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {type === 'incomplete' && <AlertCircle className="h-3.5 w-3.5 text-slate-300 shrink-0" />}
           {type === 'motivation' && <TrendingDown className="h-3.5 w-3.5 text-orange-300 shrink-0" />}
           {type === 'market' && <Shield className="h-3.5 w-3.5 text-red-300 shrink-0" />}
-          <span className="text-sm text-foreground/90 truncate">{item.match_label}</span>
+          <span className="text-sm text-foreground/90 truncate min-w-0">{item.match_label}</span>
           {frag.score != null && <FragilityChip score={frag.score} label={frag.label} />}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs text-muted-foreground text-right max-w-[420px] truncate" title={humanReason}>{humanReason}</span>
+        <div className="flex items-center gap-2 md:shrink-0 min-w-0">
+          {/* On mobile the reason wraps freely (no max-w cap); on desktop
+              we keep the 420px cap with truncate for visual balance. */}
+          <span
+            className="text-xs text-muted-foreground md:text-right md:max-w-[420px] md:truncate flex-1 md:flex-initial min-w-0"
+            title={humanReason}
+          >
+            {humanReason}
+          </span>
           {hasDetails && (
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen((v) => !v); }}
-              className="text-xs text-cyan-400 hover:text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-500/30"
+              className="text-xs text-cyan-400 hover:text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-500/30 shrink-0"
               data-testid={`${testId}-toggle`}
             >
               {open ? '▲' : '▼'}
             </button>
           )}
-          {item.match_id && <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />}
+          {item.match_id && <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0 hidden md:inline" />}
         </div>
       </div>
       {open && hasDetails && (
@@ -512,7 +521,7 @@ export default function DashboardPage() {
   const hasAnyDiscarded = (discMot.length + discMkt.length + incomplete.length + skippedLowRel.length) > 0;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 md:py-8 space-y-6 overflow-x-hidden">
       {activeJobId && (
         <AnalysisProgressModal
           jobId={activeJobId}
@@ -521,24 +530,26 @@ export default function DashboardPage() {
           sport={sport}
         />
       )}
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-semibold tracking-tight flex items-center gap-3">
-            <span className="text-3xl" aria-hidden>{currentSport?.icon}</span>
-            <span>{t.dashboard.title}</span>
-            <span className="text-xs font-normal text-muted-foreground border border-border rounded-md px-2 py-0.5 align-middle" data-testid="active-sport-pill">
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 md:gap-4">
+        <div className="min-w-0">
+          {/* Mobile: 2xl heading. Desktop: 4xl. flex-wrap so long sport
+              pills don't push the title off-screen. */}
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight flex flex-wrap items-center gap-2 md:gap-3">
+            <span className="text-2xl md:text-3xl" aria-hidden>{currentSport?.icon}</span>
+            <span className="break-words">{t.dashboard.title}</span>
+            <span className="text-[10px] md:text-xs font-normal text-muted-foreground border border-border rounded-md px-2 py-0.5 align-middle" data-testid="active-sport-pill">
               {sportLabel(currentSport, lang)}
             </span>
           </h1>
-          <p className="text-muted-foreground mt-1 text-sm">{dynamicSubtitle}</p>
+          <p className="text-muted-foreground mt-1 text-xs md:text-sm break-words">{dynamicSubtitle}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 shrink-0">
           {run?.generated_at && (
-            <div className="text-xs text-muted-foreground">
+            <div className="text-[11px] md:text-xs text-muted-foreground">
               {t.dashboard.lastRun}: <span className="mono font-mono-tabular text-foreground">{formatDateTime(run.generated_at, lang)}</span>
             </div>
           )}
-          <Button onClick={generate} disabled={running || !!activeJobId} data-testid="generate-picks-button" className="shadow-[0_0_0_1px_rgba(46,229,157,0.2),0_8px_24px_rgba(46,229,157,0.15)]">
+          <Button onClick={generate} disabled={running || !!activeJobId} data-testid="generate-picks-button" className="w-full sm:w-auto shadow-[0_0_0_1px_rgba(46,229,157,0.2),0_8px_24px_rgba(46,229,157,0.15)]">
             {activeJobId ? (
               <><Loader2 className="h-4 w-4 animate-spin mr-2" />{lang === 'es' ? 'Procesando…' : 'Processing…'}</>
             ) : running ? (

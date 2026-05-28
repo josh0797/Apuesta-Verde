@@ -1371,13 +1371,16 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
     # consensus (motivation_notes, factual_notes, suggested_market) to each
     # match payload. Fail-soft: any failure → editorial_context.available=False
     # and analysis continues with P1+P2 data only.
-    if sport == "football":
+    # P4.1 (2026-05-28): editorial context se ejecuta para los 3 deportes,
+    # no solo football. Los registries ahora incluyen fuentes NBA y MLB
+    # (AS.com NBA, Marca NBA, Covers.com NBA/MLB, ESPN MLB, AS.com MLB).
+    if sport in ("football", "basketball", "baseball"):
         try:
             from .editorial_context import fetch_editorial_context_bulk
             editorial_input = [
                 {
                     "match_id":     m.get("match_id"),
-                    "sport":        "football",
+                    "sport":        sport,
                     "home_team":    m.get("home_team") or {},
                     "away_team":    m.get("away_team") or {},
                     "league":       m.get("league"),
@@ -1404,8 +1407,8 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
                         attached += 1
             pipeline_meta["editorial_context_attached"] = attached
             pipeline_meta["editorial_context_evaluated"] = len(editorial_input)
-            log.info("Analyst[football]: editorial context attached %d/%d matches",
-                     attached, len(editorial_input))
+            log.info("Analyst[%s]: editorial context attached %d/%d matches",
+                     sport, attached, len(editorial_input))
         except asyncio.TimeoutError:
             log.warning("editorial_context Stage 1.6 timeout (>30s) — skipping, pipeline continues")
             pipeline_meta["editorial_context_error"] = "timeout"

@@ -1,34 +1,22 @@
 [
   {
-    "content": "Phase C.1 — explored MLB Stats API helpers",
-    "status": "completed"
+    "content": "P0: Investigar y corregir regresión donde re-analizar descarta picks previamente válidos en analyst_engine.py",
+    "status": "in_progress"
   },
   {
-    "content": "Phase C.2 — baseball_historical.py: compute + enrich + bulk prefetch with MLB Stats API + API-Sports fallback",
-    "status": "completed"
+    "content": "P1: Verificar y completar arreglos de UI móvil en DashboardPage.jsx con screenshot tool (viewport móvil)",
+    "status": "pending"
   },
   {
-    "content": "Phase C.3 — baseball_trap_signals.py (7 traps: bullpen, cold offense, pitcher inflation, F5 mismatch, extra-innings, weather-blind, prior-series-inflation)",
-    "status": "completed"
+    "content": "P1: Agregar fuentes editoriales NBA/MLB al editorial_source_registry.py",
+    "status": "pending"
   },
   {
-    "content": "Phase C.4 — baseball_runs_rescue.py (Total Runs Over/Under, F5 Total Runs, Run Line +1.5, Team Total Under)",
-    "status": "completed"
+    "content": "Verificar que el parsing de coma (,) en cuotas funcione en todos los inputs",
+    "status": "pending"
   },
   {
-    "content": "Phase C.5 — analyst_engine.py Phase 10c prefetch + Phase 12c annotation",
-    "status": "completed"
-  },
-  {
-    "content": "Phase C.6 — alternative_rescue.py wire baseball_runs_rescue + trap signal enrichment",
-    "status": "completed"
-  },
-  {
-    "content": "Phase C.7 — HistoricalProfilePanel.jsx extended for baseball (pitching block, F5, bullpen fatigue label)",
-    "status": "completed"
-  },
-  {
-    "content": "Phase C.8 — integration smoke test: 5 trap signals firing + Total Runs Under recommendation + 3 alt markets",
-    "status": "completed"
+    "content": "Testing final con testing_agent (backend) y screenshot (frontend móvil)",
+    "status": "pending"
   }
 ]

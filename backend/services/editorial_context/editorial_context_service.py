@@ -228,14 +228,32 @@ async def fetch_editorial_context_bulk(
             from .playwright_runner import run_playwright
             from .brightdata_fetcher import run_brightdata
 
-            unlocker_sources    = [s for s in enabled_sources("football")
-                                   if s.get("requires_unlocker")]
+            # P4.1 (2026-05-28): the registry now contains NBA + MLB
+            # sources. Build the union of enabled sources from EVERY
+            # sport that appears in the matches batch — the dispatcher
+            # used to hard-code "football" which silently ignored
+            # basketball / baseball editorial coverage.
+            sports_in_batch = {
+                (m.get("sport") or "football").lower()
+                for m in matches_needing_scrape
+            } or {"football"}
+
+            def _union(fn):
+                seen = set()
+                out  = []
+                for sp in sports_in_batch:
+                    for s in fn(sp):
+                        if s["name"] not in seen:
+                            seen.add(s["name"])
+                            out.append(s)
+                return out
+
+            all_enabled         = _union(enabled_sources)
+            unlocker_sources    = [s for s in all_enabled if s.get("requires_unlocker")]
             unlocker_names      = {s["name"] for s in unlocker_sources}
-            # Avoid double-dispatch: a source flagged for the unlocker
-            # should NOT be sent to Scrapy/Playwright too.
-            scrapy_sources      = [s for s in server_rendered_sources("football")
+            scrapy_sources      = [s for s in _union(server_rendered_sources)
                                    if s["name"] not in unlocker_names]
-            playwright_sources  = [s for s in js_rendered_sources("football")
+            playwright_sources  = [s for s in _union(js_rendered_sources)
                                    if s["name"] not in unlocker_names]
 
             tasks: list = []

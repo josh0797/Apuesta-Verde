@@ -263,6 +263,177 @@ SOURCES: list[dict[str, Any]] = [
             "suggested_odds":   None,
         },
     },
+    # ════════════════════════════════════════════════════════════════════
+    # ─── NBA / BASKETBALL editorial sources ─────────────────────────────
+    # ════════════════════════════════════════════════════════════════════
+    # AS.com NBA section — Spanish-language NBA previews / analysis.
+    {
+        "name":               "as_com_nba",
+        "base_url":           "https://as.com",
+        "enabled":            True,
+        "requires_js":        False,
+        "sport":              "basketball",
+        "country":            "ES",
+        "language":           "es",
+        "priority":           1,
+        "rate_limit_seconds": 2.0,
+        "index_urls": [
+            "https://as.com/baloncesto/nba/",
+        ],
+        "article_url_patterns": ["/baloncesto/nba/", "/nba/"],
+        "article_url_exclude_patterns": ["/album/", "/podcast/", "/video/", "/opinion/"],
+        "selectors": {
+            "preview_anchors": "a[href*='/baloncesto/nba/'], a[href*='/nba/']",
+            "title":           "h1::text, h1 *::text",
+            "published_at":    "time::attr(datetime), meta[property='article:published_time']::attr(content)",
+            "body":            "article, .article-content, [class*='article-body'], main",
+            "prediction":      None,
+            "suggested_market": None,
+            "suggested_odds":   None,
+        },
+    },
+    # Marca NBA section — Spanish-language NBA news + previews.
+    {
+        "name":               "marca_com_nba",
+        "base_url":           "https://www.marca.com",
+        "enabled":            True,
+        "requires_js":        False,
+        "sport":              "basketball",
+        "country":            "ES",
+        "language":           "es",
+        "priority":           2,
+        "rate_limit_seconds": 2.0,
+        "index_urls": [
+            "https://www.marca.com/baloncesto/nba.html",
+        ],
+        "article_url_patterns": ["/baloncesto/nba/", "/nba/"],
+        "article_url_exclude_patterns": [
+            "-directo.html", "/opinion/", "/podcast/", "/album/", "/video/",
+        ],
+        "selectors": {
+            "preview_anchors": "a[href*='/baloncesto/nba/'], a.ue-c-cover-content__link-whole-content[href*='/nba/']",
+            "title":           "h1::text, h1 *::text",
+            "published_at":    "time::attr(datetime), meta[property='article:published_time']::attr(content)",
+            "body":            ".ue-c-article__body, article, main",
+            "prediction":      None,
+            "suggested_market": None,
+            "suggested_odds":   None,
+        },
+    },
+    # Covers.com NBA — English-language with consensus picks & previews.
+    # Datacenter IPs sometimes get challenged → route via Bright Data.
+    {
+        "name":               "covers_nba",
+        "base_url":           "https://www.covers.com",
+        "enabled":            True,
+        "requires_js":        True,
+        "requires_unlocker":  True,
+        "sport":              "basketball",
+        "country":            "US",
+        "language":           "en",
+        "priority":           3,
+        "rate_limit_seconds": 2.5,
+        "index_urls": [
+            "https://www.covers.com/sport/basketball/nba/picks",
+            "https://www.covers.com/sport/basketball/nba/news",
+        ],
+        "article_url_patterns": ["/picks/", "/news/"],
+        "article_url_exclude_patterns": ["/podcast/", "/video/"],
+        "selectors": {
+            "preview_anchors": "a[href*='/sport/basketball/nba/picks/'], a[href*='/sport/basketball/nba/news/']",
+            "title":           "h1, .article-title",
+            "published_at":    "time::attr(datetime), meta[property='article:published_time']::attr(content)",
+            "body":            ".article-body, article, main",
+            "prediction":      ".prediction, .pick-summary",
+            "suggested_market": ".bet-recommendation",
+            "suggested_odds":   ".odds-value, .odds",
+        },
+    },
+
+    # ════════════════════════════════════════════════════════════════════
+    # ─── MLB / BASEBALL editorial sources ───────────────────────────────
+    # ════════════════════════════════════════════════════════════════════
+    # AS.com MLB / béisbol — Spanish-language MLB coverage.
+    {
+        "name":               "as_com_mlb",
+        "base_url":           "https://as.com",
+        "enabled":            True,
+        "requires_js":        False,
+        "sport":              "baseball",
+        "country":            "ES",
+        "language":           "es",
+        "priority":           1,
+        "rate_limit_seconds": 2.0,
+        "index_urls": [
+            "https://as.com/beisbol/mlb/",
+        ],
+        "article_url_patterns": ["/beisbol/mlb/", "/mlb/"],
+        "article_url_exclude_patterns": ["/album/", "/podcast/", "/video/", "/opinion/"],
+        "selectors": {
+            "preview_anchors": "a[href*='/beisbol/mlb/'], a[href*='/mlb/']",
+            "title":           "h1::text, h1 *::text",
+            "published_at":    "time::attr(datetime), meta[property='article:published_time']::attr(content)",
+            "body":            "article, .article-content, main",
+            "prediction":      None,
+            "suggested_market": None,
+            "suggested_odds":   None,
+        },
+    },
+    # Covers.com MLB — English with picks. Likely challenged → unlocker.
+    {
+        "name":               "covers_mlb",
+        "base_url":           "https://www.covers.com",
+        "enabled":            True,
+        "requires_js":        True,
+        "requires_unlocker":  True,
+        "sport":              "baseball",
+        "country":            "US",
+        "language":           "en",
+        "priority":           2,
+        "rate_limit_seconds": 2.5,
+        "index_urls": [
+            "https://www.covers.com/sport/baseball/mlb/picks",
+            "https://www.covers.com/sport/baseball/mlb/news",
+        ],
+        "article_url_patterns": ["/picks/", "/news/"],
+        "article_url_exclude_patterns": ["/podcast/", "/video/"],
+        "selectors": {
+            "preview_anchors": "a[href*='/sport/baseball/mlb/picks/'], a[href*='/sport/baseball/mlb/news/']",
+            "title":           "h1, .article-title",
+            "published_at":    "time::attr(datetime), meta[property='article:published_time']::attr(content)",
+            "body":            ".article-body, article, main",
+            "prediction":      ".prediction, .pick-summary",
+            "suggested_market": ".bet-recommendation",
+            "suggested_odds":   ".odds-value, .odds",
+        },
+    },
+    # ESPN MLB previews — public preview pages.
+    {
+        "name":               "espn_mlb",
+        "base_url":           "https://www.espn.com",
+        "enabled":            True,
+        "requires_js":        False,
+        "sport":              "baseball",
+        "country":            "US",
+        "language":           "en",
+        "priority":           3,
+        "rate_limit_seconds": 2.0,
+        "index_urls": [
+            "https://www.espn.com/mlb/",
+            "https://www.espn.com/mlb/lines",
+        ],
+        "article_url_patterns": ["/mlb/preview", "/mlb/story", "/mlb/recap"],
+        "article_url_exclude_patterns": ["/video/", "/podcast/"],
+        "selectors": {
+            "preview_anchors": "a[href*='/mlb/preview'], a[href*='/mlb/story'], a[href*='/mlb/recap']",
+            "title":           "h1, h1 *::text",
+            "published_at":    "meta[property='article:published_time']::attr(content), time::attr(datetime)",
+            "body":            "article, main, .article-body",
+            "prediction":      None,
+            "suggested_market": None,
+            "suggested_odds":   None,
+        },
+    },
 ]
 
 
@@ -270,15 +441,15 @@ def enabled_sources(sport: str = "football", *, include_js: bool = True) -> list
     """Return enabled sources for the given sport, ordered by priority asc.
 
     Args:
-        sport: filter by sport ('football' for MVP).
+        sport: filter by sport ('football' | 'basketball' | 'baseball').
         include_js: when False (legacy behaviour), sources flagged
             `requires_js: True` are skipped. When True (default since P4),
             JS-rendered sources are included so the editorial service can
             dispatch them to the Playwright runner.
 
     The default changed in P4 — most callers want to know about ALL enabled
-    sources and let the dispatcher decide which backend (Scrapy vs Playwright)
-    handles each.
+    sources and let the dispatcher decide which backend (Scrapy vs Playwright
+    vs Bright Data) handles each.
     """
     sport_lower = (sport or "football").lower()
     src = [

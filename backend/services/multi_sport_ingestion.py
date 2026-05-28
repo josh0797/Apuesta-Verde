@@ -48,9 +48,28 @@ def _is_live_status(sport: str, short: str | None) -> bool:
     if sport == "football":
         return short in ("1H", "2H", "HT", "ET", "P", "LIVE", "BT")
     if sport == "basketball":
-        return short in ("Q1", "Q2", "Q3", "Q4", "OT", "BT")
+        return short in ("Q1", "Q2", "Q3", "Q4", "OT", "BT", "HT", "LIVE", "IN_PLAY", "in_play")
     if sport == "baseball":
-        return short in ("IN1", "IN2", "IN3", "IN4", "IN5", "IN6", "IN7", "IN8", "IN9", "BT", "MID1", "MID2", "MID3", "MID4", "MID5", "MID6", "MID7", "MID8", "MID9")
+        # P5 fix (2026-05-28): the previous list was incomplete —
+        # API-Sports baseball uses several status codes that were missing,
+        # so games already in play (e.g. Detroit Tigers between innings)
+        # were classified as upcoming. Now we mirror the (richer)
+        # LIVE_STATUSES set used by live_lifecycle.compute_live_state().
+        if short in (
+            "IN1", "IN2", "IN3", "IN4", "IN5", "IN6", "IN7", "IN8", "IN9",
+            "MID1", "MID2", "MID3", "MID4", "MID5", "MID6", "MID7", "MID8", "MID9",
+            "BT", "MID", "END", "BRK", "LIVE", "IN_PLAY", "in_play",
+        ):
+            return True
+        # Long-form statuses ("Top 1st" / "Bottom 5th" / "Middle 3rd")
+        s_low = short.lower()
+        if (s_low.startswith("top ") or s_low.startswith("bottom ") or s_low.startswith("middle ")) \
+                and any(o in s_low for o in ("st", "nd", "rd", "th")):
+            return True
+        # Fallback: anything containing "inning" is live
+        if "inning" in s_low:
+            return True
+        return False
     return False
 
 
