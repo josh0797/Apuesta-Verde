@@ -1385,8 +1385,15 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
                 }
                 for m in to_analyze[:8]
             ]
-            editorial_by_id = await fetch_editorial_context_bulk(
-                editorial_input, db=db, force_refresh=False, timeout_sec=25.0,
+            # Hard outer timeout (defence-in-depth): the dispatcher already
+            # wraps Scrapy + Playwright + Bright Data with their own wait_for,
+            # but we wrap one more level so a misbehaving backend can NEVER
+            # freeze the analyst engine. 30s = 25s internal + 5s safety.
+            editorial_by_id = await asyncio.wait_for(
+                fetch_editorial_context_bulk(
+                    editorial_input, db=db, force_refresh=False, timeout_sec=25.0,
+                ),
+                timeout=30.0,
             )
             attached = 0
             for m in to_analyze:
@@ -1399,6 +1406,9 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
             pipeline_meta["editorial_context_evaluated"] = len(editorial_input)
             log.info("Analyst[football]: editorial context attached %d/%d matches",
                      attached, len(editorial_input))
+        except asyncio.TimeoutError:
+            log.warning("editorial_context Stage 1.6 timeout (>30s) — skipping, pipeline continues")
+            pipeline_meta["editorial_context_error"] = "timeout"
         except Exception as exc:
             log.warning("editorial_context Stage 1.6 failed: %s", exc)
             pipeline_meta["editorial_context_error"] = str(exc)[:200]
@@ -1565,11 +1575,16 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         # sync. Cache muy agresivo (12h por equipo) amortiza el coste.
         if sport == "football" and original_disc_mkt:
             try:
-                await _prefetch_corner_forms_for_rescue(
-                    [by_id.get(e.get("match_id")) for e in original_disc_mkt
-                     if e.get("match_id") in by_id and e.get("match_id") not in already_rescued_ids],
-                    db=db,
+                await asyncio.wait_for(
+                    _prefetch_corner_forms_for_rescue(
+                        [by_id.get(e.get("match_id")) for e in original_disc_mkt
+                         if e.get("match_id") in by_id and e.get("match_id") not in already_rescued_ids],
+                        db=db,
+                    ),
+                    timeout=12.0,
                 )
+            except asyncio.TimeoutError:
+                log.warning("corner pre-fetch timeout (>12s) — skipping, pipeline continues")
             except Exception as exc:
                 log.debug("corner pre-fetch failed: %s", exc)
 
@@ -1582,11 +1597,16 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         if sport == "basketball" and original_disc_mkt:
             try:
                 from .historical_enrichment import prefetch_basketball_profiles
-                await prefetch_basketball_profiles(
-                    [by_id.get(e.get("match_id")) for e in original_disc_mkt
-                     if e.get("match_id") in by_id and e.get("match_id") not in already_rescued_ids],
-                    db=db,
+                await asyncio.wait_for(
+                    prefetch_basketball_profiles(
+                        [by_id.get(e.get("match_id")) for e in original_disc_mkt
+                         if e.get("match_id") in by_id and e.get("match_id") not in already_rescued_ids],
+                        db=db,
+                    ),
+                    timeout=12.0,
                 )
+            except asyncio.TimeoutError:
+                log.warning("basketball historical pre-fetch timeout (>12s) — skipping, pipeline continues")
             except Exception as exc:
                 log.debug("basketball historical pre-fetch failed: %s", exc)
 
@@ -1598,11 +1618,16 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         if sport == "baseball" and original_disc_mkt:
             try:
                 from .historical_enrichment import prefetch_baseball_profiles
-                await prefetch_baseball_profiles(
-                    [by_id.get(e.get("match_id")) for e in original_disc_mkt
-                     if e.get("match_id") in by_id and e.get("match_id") not in already_rescued_ids],
-                    db=db,
+                await asyncio.wait_for(
+                    prefetch_baseball_profiles(
+                        [by_id.get(e.get("match_id")) for e in original_disc_mkt
+                         if e.get("match_id") in by_id and e.get("match_id") not in already_rescued_ids],
+                        db=db,
+                    ),
+                    timeout=12.0,
                 )
+            except asyncio.TimeoutError:
+                log.warning("baseball historical pre-fetch timeout (>12s) — skipping, pipeline continues")
             except Exception as exc:
                 log.debug("baseball historical pre-fetch failed: %s", exc)
 
@@ -1625,12 +1650,22 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
             base_conf_int = max(55, min(80, base_conf_int))
 
             try:
-                rescue = _ar.attempt_alternative_market_rescue(
-                    m,
-                    sport=sport,
-                    base_confidence=base_conf_int,
-                    why_direct_failed=entry.get("reason"),
+                loop = asyncio.get_event_loop()
+                rescue = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda m=m: _ar.attempt_alternative_market_rescue(
+                            m,
+                            sport=sport,
+                            base_confidence=base_conf_int,
+                            why_direct_failed=entry.get("reason"),
+                        ),
+                    ),
+                    timeout=4.0,
                 )
+            except asyncio.TimeoutError:
+                log.info("rescue Phase 10 timeout (>4s) for %s — skipping", mid)
+                rescue = None
             except Exception as exc:
                 log.debug("rescue Phase 10 failed for %s: %s", mid, exc)
                 rescue = None

@@ -761,7 +761,22 @@ async def _run_analysis_pipeline(
     await _emit("analyzing", 65, f"LLM analyzing {len(candidates)} {sport} matches…")
     llm_payload = [nz.summarize_match_for_llm(_clean(c)) for c in candidates]
     try:
-        result = await analyst_engine.analyze_matches(llm_payload, sport=sport, db=db)
+        result = await asyncio.wait_for(
+            analyst_engine.analyze_matches(llm_payload, sport=sport, db=db),
+            timeout=240.0,  # 4 min hard cap — evita jobs zombies indefinidos
+        )
+    except asyncio.TimeoutError:
+        log.error(
+            "LLM analysis timed out after 240s for %d %s candidates",
+            len(candidates), sport,
+        )
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "El análisis tardó demasiado (>4 min). "
+                "Intenta reducir el número de partidos o reintenta."
+            ),
+        )
     except Exception as exc:
         log.exception("LLM analysis failed")
         raise HTTPException(status_code=502, detail=f"analyst engine error: {exc}")
