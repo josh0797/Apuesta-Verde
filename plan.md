@@ -21,6 +21,11 @@
   - Separar **dato vs opinión** (heurístico por regex) y adjuntar interpretación de Moneyball (PUBLIC_NARRATIVE_RISK, alineación, warnings).
   - Exponer en UI el bloque “Contexto editorial” en el detalle del partido.
 
+- **(✅ COMPLETADO)** **P3 — Tuning de selectores + 3 fuentes adicionales**:
+  - Expandir cobertura editorial y reducir “ruido” de anchors en fuentes de noticias.
+  - Añadir AS.com y Marca.com como fuentes server-rendered de alta cobertura.
+  - Registrar scores24.live como placeholder (requiere JS) sin romper el pipeline.
+
 ---
 
 ## 2) Implementation Steps
@@ -112,7 +117,7 @@
 
 ---
 
-### Phase 5 — P3 Editorial Context Engine (Scrapy)
+### Phase 5 — P3 Editorial Context Engine (Scrapy) — MVP
 **Estado:** ✅ COMPLETADO
 
 **Propósito:** añadir contexto editorial profundo (motivación real, objetivos, bajas, rotaciones, predicción editorial, riesgos) como capa P3 opcional **solo para fútbol** y **solo para matches shortlisteados**.
@@ -120,7 +125,7 @@
 **Arquitectura implementada**
 - ✅ Nuevo módulo: `/app/backend/services/editorial_context/`
   - `match_key.py`: `canonical_match_key()` + normalización de equipos
-  - `editorial_source_registry.py`: registry de fuentes (Sportytrader ES + BeSoccer ES)
+  - `editorial_source_registry.py`: registry de fuentes (inicialmente Sportytrader ES + BeSoccer ES)
   - `editorial_signal_mapper.py`: clasificador heurístico (regex) + extractores (score/market)
   - `editorial_normalizer.py`: normalización + scoring
     - `freshness_score` (24h/48h/72h)
@@ -160,11 +165,39 @@
 
 **Testing**
 - ✅ Reporte: `/app/test_reports/iteration_25.json` — **14/14 tests passed**
-  - imports OK
-  - señalización heurística OK
-  - subprocess OK
-  - env flag OK
-  - regresión LIVE + pipeline OK
+
+---
+
+### Phase 6 — P3 Selector Tuning + 3 New Sources (AS.com, Marca, scores24 placeholder)
+**Estado:** ✅ COMPLETADO
+
+**Objetivo:** mejorar cobertura editorial real en producción y disminuir ruido de anchors.
+
+**Cambios realizados**
+1. ✅ **Inspección de HTML real (2026-05-28)** y ajuste de selectores.
+2. ✅ `editorial_source_registry.py` expandido de **2 → 5** fuentes:
+   - **AS.com** (`as_com`, prioridad 1) — mejor cobertura y estructura server-rendered.
+   - Sportytrader ES (`sportytrader_es`, prioridad 2)
+   - BeSoccer ES (`besoccer_es`, prioridad 3)
+   - **Marca.com** (`marca_com`, prioridad 4) — útil para contexto/lesiones/alineaciones.
+   - **scores24.live** (`scores24_live`) — **DISABLED** con `requires_js: true` (placeholder para futura integración Playwright).
+3. ✅ `editorial_spider_main.py` mejorado:
+   - Soporte Scrapy 2.13+: `async def start()` (evita “0 pages crawled”).
+   - `article_url_patterns` para filtrar anchors irrelevantes (crítico para Marca).
+   - Headers endurecidos + cookies habilitadas.
+4. ✅ `editorial_signal_mapper.py` afinado:
+   - Evita falso positivo “Más de 10 partidos”: ahora Over/Under requiere **decimal .5** y (para ES) unidad (goles/córners/tarjetas) en patrones clave.
+   - Añadidos patrones 1X2/Victoria (comunes en AS.com: “Tip principal: victoria de …”).
+
+**Resultados verificados**
+- ✅ Scrapy captura correctamente artículos de AS.com con cuerpo ~4.7–4.9k caracteres.
+- ✅ Consenso detectado en producción:
+  - `Victoria local (1X2)`
+  - `Menos de 2.5`
+- ✅ E2E timing: ~15s para 3 matches.
+
+**Testing**
+- ✅ Reporte: `/app/test_reports/iteration_26.json` — **13/13 tests passed**
 
 ---
 
@@ -178,14 +211,16 @@
 
 ### B) Refinamiento P3 Editorial (P1/P2)
 1. Mejorar cobertura de scraping:
-   - Añadir endpoints/paths adicionales dentro de Sportytrader/BeSoccer
-   - Ajustar selectores en el registry sin tocar spider.
+   - Añadir endpoints/paths adicionales por fuente en el registry.
+   - Ajustar selectores sin tocar spider.
 2. Mejorar `sourceReliabilityScore` con histórico interno (accuracy tracking).
 3. Añadir `contradiction_flags` más ricos:
    - contradicción motivación vs standings
    - contradicción forma reciente vs narrativa
 4. Persistencia avanzada:
    - TTL real por tipo (pre-match 7 días vs live 24h) si se amplía a live.
+5. **scores24.live (JS)**:
+   - Implementar Playwright/Chromium como P4 (no Scrapy puro) para habilitar esta fuente.
 
 ### C) Scraper resiliency (P2)
 - Proxies residenciales para Sofascore fallback (bloqueado por credenciales).
@@ -208,11 +243,13 @@
   - `available=false` y pipeline intacto cuando Scrapy no encuentra señales.
   - UI muestra “Contexto editorial” con fuentes/fecha/argumentos/riesgos.
   - Moneyball nunca recomienda “a ciegas”: si editorial sugiere mercado pero Moneyball no ve edge → `PUBLIC_NARRATIVE_RISK`.
+  - Fuentes ampliadas (AS.com, Marca.com) proveen cobertura real; scores24.live queda registrado pero deshabilitado hasta integrar JS.
 
 - No regresiones:
   - endpoints existentes responden
   - `_market_edge` no cambia
   - `asyncio.wait_for(timeout=3.0)` intacto
   - narrativa ES intacta
+
 - Hardening:
   - ningún job queda colgado en `enriching`; si falla Understat o Scrapy, el pipeline termina con degradación elegante.
