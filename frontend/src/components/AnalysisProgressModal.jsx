@@ -75,18 +75,39 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
   const terms = sportTerms(lang, sport);
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
+  const [reconnecting, setReconnecting] = useState(false);
   const doneFiredRef = useRef(false);
+  const transientFailRef = useRef(0);
 
   useEffect(() => {
     if (!jobId) return undefined;
     let cancelled = false;
     let timeoutId;
 
+    // Resilient polling: a single Cloudflare 520 / 502 / 504 / network blip
+    // must NOT kill the modal. The background job is still running. We
+    // only give up after 8 consecutive failures (~20s of unreachable
+    // backend) OR when the job itself reports `stage=failed`.
+    const TRANSIENT_THRESHOLD = 8;
+    const isTransient = (e) => {
+      const s = e?.response?.status;
+      // No response = network blip / Cloudflare 520.
+      if (!e?.response) return true;
+      // 502 (bad gateway), 503 (svc unavailable), 504 (gateway timeout),
+      // 520-527 (Cloudflare origin errors), 408 (timeout)
+      if (s === 408 || s === 502 || s === 503 || s === 504) return true;
+      if (s >= 520 && s <= 527) return true;
+      return false;
+    };
+
     const poll = async () => {
       if (cancelled) return;
       try {
         const r = await api.get(`/analysis/jobs/${jobId}`);
         if (cancelled) return;
+        // Successful poll → reset the transient counter and clear banner.
+        transientFailRef.current = 0;
+        if (reconnecting) setReconnecting(false);
         setJob(r.data);
         const stage = r.data?.stage;
         if (stage === 'done' && !doneFiredRef.current) {
@@ -101,6 +122,24 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
           return;
         }
       } catch (e) {
+        if (cancelled) return;
+        if (isTransient(e)) {
+          transientFailRef.current += 1;
+          setReconnecting(true);
+          // Exponential-ish backoff: 1.5s, 2s, 3s, 4s, 5s … capped at 5s
+          const delay = Math.min(5000, 1500 + transientFailRef.current * 500);
+          if (transientFailRef.current >= TRANSIENT_THRESHOLD) {
+            setError(
+              lang === 'en'
+                ? `Connection to backend lost (${transientFailRef.current} consecutive errors). The analysis may still complete — refresh to check.`
+                : `Se perdió conexión con el backend (${transientFailRef.current} errores seguidos). El análisis puede seguir corriendo — recarga para verificar.`
+            );
+            return;
+          }
+          timeoutId = setTimeout(poll, delay);
+          return;
+        }
+        // Non-transient (e.g. 401 / 403 / 404 / 4xx) → give up immediately.
         setError(e?.response?.data?.detail || e.message);
         return;
       }
@@ -112,7 +151,8 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [jobId, onDone]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, onDone, lang]);
 
   if (!jobId) return null;
 
@@ -181,6 +221,19 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
               <span data-testid="progress-modal-message" className="truncate pr-2">{job?.message || '…'}</span>
               <span className="tabular-nums font-medium" data-testid="progress-modal-pct">{progress}%</span>
             </div>
+            {/* Transient connectivity banner: shown when the polling
+                endpoint is returning 520/502/504/no-response while the
+                backend job is presumably still running. */}
+            {reconnecting && !isDone && (
+              <div
+                className="text-[10px] text-amber-300/90 bg-amber-500/5 border border-amber-500/20 rounded px-2 py-1"
+                data-testid="progress-modal-reconnecting"
+              >
+                {lang === 'en'
+                  ? 'Connection blip — backend may be slow, retrying…'
+                  : 'Conexión inestable — reintentando con el backend…'}
+              </div>
+            )}
           </div>
         )}
 
