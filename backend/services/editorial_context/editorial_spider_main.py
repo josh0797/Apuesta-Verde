@@ -136,12 +136,20 @@ class EditorialSpider(scrapy.Spider):
         "AUTOTHROTTLE_ENABLED":    True,
         "AUTOTHROTTLE_TARGET_CONCURRENCY": 1.5,
         "LOG_LEVEL":               "WARNING",
-        "COOKIES_ENABLED":         False,
+        "COOKIES_ENABLED":         True,         # some sites (BeSoccer, Marca) require session cookies
         "REDIRECT_MAX_TIMES":      3,
-        "HTTPERROR_ALLOWED_CODES": [404],
+        "HTTPERROR_ALLOWED_CODES": [403, 404, 406],   # ingest soft-block pages so we can fall back gracefully
         "DEFAULT_REQUEST_HEADERS": {
             "Accept-Language": "es-ES,es;q=0.9,en;q=0.5",
-            "Accept":          "text/html,application/xhtml+xml",
+            "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Cache-Control":   "no-cache",
+            "Pragma":          "no-cache",
+            "Sec-Fetch-Dest":  "document",
+            "Sec-Fetch-Mode":  "navigate",
+            "Sec-Fetch-Site":  "none",
+            "Sec-Fetch-User":  "?1",
+            "Upgrade-Insecure-Requests": "1",
         },
     }
 
@@ -157,10 +165,33 @@ class EditorialSpider(scrapy.Spider):
         self._timeout    = float(self._payload.get("timeout_sec") or 25.0)
         self._visited:   set[str] = set()
 
-    # ── entry point ─────────────────────────────────────────────
-    def start_requests(self) -> Iterable[scrapy.Request]:
+    # ── entry point ──────────────────────────────────────────────────
+    # Scrapy 2.13+ deprecated synchronous start_requests() in favour of
+    # `async def start()`. We support both: `start()` is the canonical path
+    # in Scrapy 2.13+; `start_requests()` is kept as fallback for older
+    # versions.
+    async def start(self):
         for src in self._sources:
             if not src.get("enabled"):
+                continue
+            if src.get("requires_js"):
+                continue
+            urls = src.get("index_urls") or []
+            for url in urls:
+                yield scrapy.Request(
+                    url,
+                    callback=self.parse_index,
+                    cb_kwargs={"source": src},
+                    dont_filter=True,
+                    meta={"source_name": src.get("name")},
+                )
+
+    def start_requests(self) -> Iterable[scrapy.Request]:
+        """Legacy fallback for Scrapy < 2.13."""
+        for src in self._sources:
+            if not src.get("enabled"):
+                continue
+            if src.get("requires_js"):
                 continue
             urls = src.get("index_urls") or []
             for url in urls:
@@ -185,9 +216,18 @@ class EditorialSpider(scrapy.Spider):
                         response.url, exc)
             return
 
+        url_patterns = [p.lower() for p in (source.get("article_url_patterns") or [])]
         wanted: list[tuple[str, dict]] = []
         for link in links:
             anchor = (link.text or "") + " " + link.url
+            # Source-level URL filter: drop anchors whose URL doesn't match
+            # one of the registry's article_url_patterns. This is critical for
+            # news-heavy sites like Marca where most index anchors are general
+            # news, not match-preview articles.
+            if url_patterns:
+                lower_url = link.url.lower()
+                if not any(p in lower_url for p in url_patterns):
+                    continue
             for m in self._matches:
                 if _article_matches_pair(anchor, m.get("home", ""), m.get("away", "")):
                     if link.url not in self._visited:

@@ -1,0 +1,48 @@
+{
+  "summary": "P3 Editorial Context Engine — Selector Tuning + 3 New Sources verification complete. All 13 tests passed (100% success rate). Verified: (1) Registry has exactly 4 enabled football sources (as_com, sportytrader_es, besoccer_es, marca_com); (2) scores24_live is correctly DISABLED via requires_js=True flag; (3) Market suggestion regex tuning works correctly - rejects 'Más de 10 partidos' false positive, accepts 'Más de 2.5 goles' and 'victoria de Boca Juniors' patterns; (4) End-to-end real scraping from AS.com/Marca successfully retrieved editorial content for Real Madrid vs Barcelona match (available=True, sources_count=1); (5) All regression tests passed - live endpoints work for all sports (football/basketball/baseball), sport_vocab_guard firewall correctly detects forbidden terms, backend health endpoint operational.",
+  
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  
+  "passed_tests": [
+    "Registry: enabled_sources('football') returns exactly 4 sources",
+    "Registry: enabled sources are {as_com, sportytrader_es, besoccer_es, marca_com}",
+    "Registry: scores24_live is DISABLED via requires_js=True",
+    "Regex: extract_market_suggestion('Más de 10 partidos') returns None (false positive rejection)",
+    "Regex: extract_market_suggestion('Más de 2.5 goles')['market'] == 'Más de 2.5'",
+    "Regex: extract_market_suggestion('Tip principal: victoria de Boca Juniors (mercado 1X2)') contains 'Victoria'",
+    "End-to-end: fetch_editorial_context_bulk scrapes real content from AS.com/Marca (Real Madrid vs Barcelona: available=True, sources_count=1)",
+    "Regression: GET /api/ (root/health) returns 200",
+    "Regression: Auth flow works (POST /api/auth/login)",
+    "Regression: GET /api/matches/live?sport=football works",
+    "Regression: GET /api/matches/live?sport=basketball works",
+    "Regression: GET /api/matches/live?sport=baseball works",
+    "Regression: sport_vocab_guard correctly detects 'goles' and 'Over 2.5' as forbidden terms for baseball"
+  ],
+  
+  "test_report_links": [
+    "/app/backend/test_p3_selector_tuning.py"
+  ],
+  
+  "success_percentage": {
+    "backend": "100% (13/13 tests passed)",
+    "frontend": "N/A (backend-only testing as requested)"
+  },
+  
+  "updated_files": [
+    "/app/backend/test_p3_selector_tuning.py"
+  ],
+  
+  "action_item_for_main_agent": "",
+  
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false
+}

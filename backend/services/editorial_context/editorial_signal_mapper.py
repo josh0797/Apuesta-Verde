@@ -263,12 +263,20 @@ def extract_predicted_score(text: str) -> Optional[str]:
 _MARKET_HINTS = [
     (r"\bdoble\s+oportunidad\b", "Doble Oportunidad"),
     (r"\bno\s+pierde\b",         "No Pierde"),
-    (r"\bover\s+(\d+(?:[.,]\d+)?)\b", "Over {0}"),
-    (r"\bm[aá]s\s+de\s+(\d+(?:[.,]\d+)?)\b", "Más de {0}"),
-    (r"\bunder\s+(\d+(?:[.,]\d+)?)\b", "Under {0}"),
-    (r"\bmenos\s+de\s+(\d+(?:[.,]\d+)?)\b", "Menos de {0}"),
+    # Over/Under MUST be a float (0.5/1.5/2.5/3.5/etc) — integer-only like
+    # "Más de 10 partidos" produces false positives so we require the
+    # decimal point. This is the canonical betting format anyway.
+    (r"\bover\s+(\d+[.,]5)\s*(?:goles?|corners?|c[oó]rner(?:es|s)?|tarjetas?)?\b", "Over {0}"),
+    (r"\bm[aá]s\s+de\s+(\d+[.,]5)\s*(?:goles?|corners?|c[oó]rner(?:es|s)?|tarjetas?)\b", "Más de {0}"),
+    (r"\bunder\s+(\d+[.,]5)\s*(?:goles?|corners?|c[oó]rner(?:es|s)?|tarjetas?)?\b", "Under {0}"),
+    (r"\bmenos\s+de\s+(\d+[.,]5)\s*(?:goles?|corners?|c[oó]rner(?:es|s)?|tarjetas?)\b", "Menos de {0}"),
     (r"\bambos\s+equipos\s+marcan\b", "BTTS"),
     (r"\bbtts\b", "BTTS"),
+    # 1X2 / direct outcome markets (common in AS.com previews)
+    (r"\btip\s+principal\s*:\s*victoria\s+de\s+([\w\s\u00C0-\u017F\-]{3,40}?)(?=[,\.\(]|$)", "Victoria {0}"),
+    (r"\brecomendamos?\s+victoria\s+de\s+([\w\s\u00C0-\u017F\-]{3,40}?)(?=[,\.\(]|$)", "Victoria {0}"),
+    (r"\bvictoria\s+local\b", "Victoria local (1X2)"),
+    (r"\bvictoria\s+visitante\b", "Victoria visitante (1X2)"),
     (r"\bh[aá]nd[ie]cap\s+as[ií]atico\b", "Hándicap Asiático"),
     (r"\bh[aá]nd[ie]cap\b", "Hándicap"),
 ]
