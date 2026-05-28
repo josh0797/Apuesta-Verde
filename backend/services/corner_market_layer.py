@@ -416,6 +416,14 @@ def find_corner_value(
         None si no hay valor o no hay datos suficientes,
         o un dict con la recomendación lista para incluir en summary.rescued_picks.
     """
+    # ── Sport guardrail (defense-in-depth) ──
+    # Este módulo es FOOTBALL-ONLY. Si por error llega un match de otro
+    # deporte, salir limpio sin generar texto contaminado.
+    sport = match.get("sport") or "football"
+    if sport != "football":
+        log.debug("corner_market_layer skipped: sport=%s is not football", sport)
+        return None
+
     corner_form = match.get("_corner_form") or {}
     home_form = corner_form.get("home") or {}
     away_form = corner_form.get("away") or {}

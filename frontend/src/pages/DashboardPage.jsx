@@ -630,8 +630,12 @@ export default function DashboardPage() {
           </div>
           <p className="text-xs text-muted-foreground">
             {lang === 'en'
-              ? 'Direct markets had no value, but an alternative (goals coverage / corners) reflects the game read.'
-              : 'El ganador no tenía valor, pero un mercado alternativo (cobertura de goles / córners) sí refleja la lectura del partido.'}
+              ? 'Direct markets had no value, but an alternative reflects the game read better.'
+              : (sport === 'baseball'
+                  ? 'El ganador no tenía valor, pero un mercado alternativo (Total Runs / Run Line / Team Total) sí refleja la lectura del partido.'
+                  : sport === 'basketball'
+                    ? 'El ganador no tenía valor, pero un mercado alternativo (Total Points / Spread alt / Team Total) sí refleja la lectura del partido.'
+                    : 'El ganador no tenía valor, pero un mercado alternativo (cobertura de goles / córners) sí refleja la lectura del partido.')}
           </p>
           <div className="grid gap-2">
             {rescued.map((r, i) => <RescuedRow key={r.match_id || i} item={r} testId={`rescued-row-${i}`} />)}

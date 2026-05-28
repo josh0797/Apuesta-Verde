@@ -291,6 +291,65 @@ def normalize_recent_fixtures(fixtures: list[dict], team_id: int, *, n: int = 10
         out["ga_avg_home"] = round(sum(ga_home) / len(ga_home), 3)
     if ga_away:
         out["ga_avg_away"] = round(sum(ga_away) / len(ga_away), 3)
+
+    # ── HistoricalGoalProfile (P2) ──────────────────────────────────────
+    # Extra agregados para alimentar el Protected Market Rescue Layer:
+    #   - team_exceeded_2_goals: cuántos partidos el equipo anotó >2 goles
+    #   - match_exceeded_2_total / match_exceeded_3_total: total goles >2 / >3
+    #   - under_2_5_rate, under_3_5_rate
+    #   - failed_to_score_over_2_rate: partidos donde el equipo NO anotó más de 2
+    #   - trend_summary: texto humano corto (ES)
+    if n_eff:
+        team_exceeded_2_goals = sum(1 for gf in out["gf"] if gf > 2)
+        team_exceeded_2_rate  = round(team_exceeded_2_goals / n_eff, 3)
+        match_exceeded_2_total = sum(1 for t in out["totals"] if t > 2)
+        match_exceeded_3_total = sum(1 for t in out["totals"] if t > 3)
+        under_2_5_rate = round(out["under_2_5_count"] / n_eff, 3)
+        under_3_5_rate = round(out["under_3_5_count"] / n_eff, 3)
+        failed_to_score_over_2_rate = round(
+            sum(1 for gf in out["gf"] if gf <= 2) / n_eff, 3,
+        )
+
+        # Trend summary — narrativa humana corta (ES)
+        if team_exceeded_2_rate <= 0.20 and n_eff >= 10:
+            trend = (
+                f"No ha superado los 2 goles en {n_eff - team_exceeded_2_goals} "
+                f"de sus últimos {n_eff} partidos."
+            )
+        elif under_3_5_rate >= 0.70 and n_eff >= 10:
+            trend = (
+                f"Under 3.5 se cumplió en {out['under_3_5_count']} de los últimos "
+                f"{n_eff} partidos ({int(under_3_5_rate*100)}%)."
+            )
+        elif team_exceeded_2_rate >= 0.50:
+            trend = (
+                f"Equipo ofensivo: superó los 2 goles en {team_exceeded_2_goals} "
+                f"de sus últimos {n_eff} partidos."
+            )
+        else:
+            trend = (
+                f"Promedio de {out['gf_avg']:.2f} goles a favor en últimos "
+                f"{n_eff} partidos."
+            )
+
+        out["historical_goal_profile"] = {
+            "matches_analyzed":              n_eff,
+            "goals_for_avg":                 out["gf_avg"],
+            "goals_against_avg":             out["ga_avg"],
+            "total_goals_avg":               out["total_avg"],
+            "under_2_5_rate":                under_2_5_rate,
+            "under_3_5_rate":                under_3_5_rate,
+            "team_exceeded_2_goals_count":   team_exceeded_2_goals,
+            "team_exceeded_2_goals_rate":    team_exceeded_2_rate,
+            "match_exceeded_2_total_count":  match_exceeded_2_total,
+            "match_exceeded_3_total_count":  match_exceeded_3_total,
+            "failed_to_score_over_2_rate":   failed_to_score_over_2_rate,
+            "clean_sheet_rate":              round(out["clean_sheets"] / n_eff, 3),
+            "failed_to_score_rate":          round(out["failed_to_score"] / n_eff, 3),
+            "btts_rate":                     round(out["btts"] / n_eff, 3),
+            "trend_summary":                 trend,
+        }
+
     return out
 
 

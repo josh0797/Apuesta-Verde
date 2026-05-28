@@ -413,33 +413,80 @@ def _why_safer_explanation(
     sport: str,
     moneyball_payload: dict,
 ) -> str:
-    """Genera explicación humana de por qué este mercado es más seguro."""
+    """Genera explicación humana de por qué este mercado es más seguro.
+
+    CRÍTICO: el texto debe ser sport-aware. Baseball NUNCA debe decir
+    "goles" o "córners". Basketball NUNCA debe decir "goles". Football usa
+    su vocabulario natural.
+    """
     market_l = (market or "").lower()
     cat      = moneyball_payload.get("market_category")
     frag     = (moneyball_payload.get("fragility") or {}).get("score", 50)
 
+    # ── Baseball — siempre lenguaje MLB ──
+    if sport == "baseball":
+        if "run line" in market_l and "+" in (selection or ""):
+            return (
+                f"Run Line {selection} permite que el equipo pierda por hasta {selection[1:]} "
+                f"carreras y aún así cubrir. Más resistente a explosiones aisladas del rival "
+                f"(rallies de bullpen, jonrones puntuales)."
+            )
+        if "total runs" in market_l or "total" in market_l:
+            side = "Under" if "under" in market_l or "menos" in (selection or "").lower() else "Over"
+            return (
+                f"Total Runs {side} cubre el escenario sin importar el ganador del partido. "
+                f"Ideal cuando hay incertidumbre sobre quién gana pero buena lectura del "
+                f"matchup de pitchers/bullpen."
+            )
+        if "team total" in market_l:
+            return (
+                f"Team Total ({selection}) aísla el rendimiento ofensivo de un solo equipo, "
+                f"sin depender del resultado final del partido."
+            )
+        # Fallback baseball
+        return (
+            f"Mercado protegido de baseball ({cat}) con fragilidad {frag}/100. "
+            f"Menor dependencia del resultado puntual del partido."
+        )
+
+    # ── Basketball — lenguaje hoops ──
+    if sport == "basketball":
+        if "total" in market_l and ("over" in market_l or "under" in market_l):
+            side = "Over" if "over" in market_l else "Under"
+            return (
+                f"Total Points {side} captura el ritmo global del partido sin necesidad de "
+                f"acertar al ganador. Cubre cualquier diferencia de marcador dentro de la línea."
+            )
+        if "spread" in market_l:
+            return (
+                f"Spread alternativo ({selection}) absorbe rachas puntuales del rival. "
+                f"Más robusto frente a runs ofensivos cortos que un Moneyline directo."
+            )
+        if "team total" in market_l:
+            return (
+                f"Team Total ({selection}) mide solo la producción ofensiva de un equipo "
+                f"— independiente del resultado final."
+            )
+        return (
+            f"Mercado protegido de baloncesto ({cat}) con fragilidad {frag}/100. "
+            f"Cobertura sobre el ritmo o el spread, no sobre el ganador exacto."
+        )
+
+    # ── Football — lenguaje fútbol (default histórico) ──
     if "under" in market_l and "3.5" in market_l:
-        return ("Under 3.5 cubre todos los partidos con ≤3 goles: una franja amplia. "
+        return ("Under 3.5 goles cubre todos los partidos con ≤3 goles: una franja amplia. "
                 "Si la lectura del partido apunta a ritmo bajo o defensas dominando, "
                 "esta cobertura es estadísticamente más robusta que el ganador.")
     if "under" in market_l and "4.5" in market_l:
-        return ("Under 4.5 cubre prácticamente cualquier partido salvo goleadas. "
+        return ("Under 4.5 goles cubre prácticamente cualquier partido salvo goleadas. "
                 "Riesgo mínimo cuando no hay señales claras de festival ofensivo.")
     if "over 1.5" in market_l:
-        return ("Over 1.5 solo exige 2 goles en el partido — escenario muy probable "
+        return ("Over 1.5 goles solo exige 2 goles en el partido — escenario muy probable "
                 "salvo en duelos extremadamente cerrados.")
     if "doble" in market_l or "double chance" in market_l:
         return (f"Doble Oportunidad ({selection}) cubre dos de los tres resultados posibles. "
                 "Pierdes valor frente a Moneyline directo pero ganas amplitud de cobertura.")
-    if "run line" in market_l and "+" in (selection or ""):
-        return (f"Run Line {selection} permite que el equipo pierda por hasta {selection[1:]} carreras "
-                "y aún así cubrir. Más resistente a explosiones aisladas del rival.")
-    if "total runs" in market_l or "total" in market_l:
-        return ("Línea de Total cubre el escenario sin importar el ganador — "
-                "ideal cuando hay incertidumbre sobre quién gana pero buena lectura del ritmo.")
-
-    # Fallback
-    return (f"Mercado protegido ({cat}) con fragilidad {frag}/100. "
+    return (f"Mercado protegido de fútbol ({cat}) con fragilidad {frag}/100. "
             f"Menor dependencia de un único evento decisivo.")
 
 

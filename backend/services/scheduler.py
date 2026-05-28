@@ -61,16 +61,30 @@ async def _job_refresh_upcoming(db):
 
 
 async def _job_refresh_live(db):
-    """Re-ingest live football matches (more frequent for live stats)."""
-    log.info("Scheduler: refresh_live (football) starting")
+    """Re-ingest live matches across ALL sports (football, basketball, baseball).
+
+    Previously this job only refreshed football, leaving basketball and
+    baseball with stale `is_live=True` rows from the last manual ingest.
+    """
+    import asyncio
+    log.info("Scheduler: refresh_live (multi-sport) starting")
     started = datetime.now(timezone.utc)
+    results: dict[str, int] = {}
     try:
         async with httpx.AsyncClient() as client:
-            items = await data_ingestion.ingest_live(client, db, sport="football", max_total=15)
+            async def _one(s: str):
+                try:
+                    items = await data_ingestion.ingest_live(client, db, sport=s, max_total=15)
+                    results[s] = len(items or [])
+                except Exception as exc:
+                    log.warning("Scheduler refresh_live[%s] failed: %s", s, exc)
+                    results[s] = -1
+            await asyncio.gather(*[_one(s) for s in ("football", "basketball", "baseball")],
+                                  return_exceptions=True)
         _status["last_run"]["live"] = {
             "started_at": started.isoformat(),
             "finished_at": datetime.now(timezone.utc).isoformat(),
-            "count": len(items),
+            "by_sport":  results,
             "ok": True,
         }
     except Exception as exc:
@@ -80,7 +94,37 @@ async def _job_refresh_live(db):
             "finished_at": datetime.now(timezone.utc).isoformat(),
             "ok": False,
             "error": str(exc),
+            "by_sport": results,
         }
+
+
+async def _job_sweep_stale_live(db):
+    """Backup sweeper that flips stale `is_live=True` rows across all sports.
+
+    Even though `/api/matches/live` runs the sweep on every request, this
+    background job ensures we don't accumulate ghost-live rows when nobody
+    queries the endpoint for a long time (off-hours, weekends, etc.).
+    """
+    from services import live_lifecycle as ll
+    log.info("Scheduler: sweep_stale_live starting")
+    started = datetime.now(timezone.utc)
+    totals: dict[str, int] = {}
+    try:
+        for s in ("football", "basketball", "baseball"):
+            try:
+                flipped = await ll.sweep_expired_live(db, sport=s)
+                totals[s] = int(flipped or 0)
+            except Exception as exc:
+                log.warning("Scheduler sweep_stale_live[%s] failed: %s", s, exc)
+                totals[s] = -1
+        _status["last_run"]["sweep_stale"] = {
+            "started_at": started.isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "by_sport":  totals,
+            "ok": True,
+        }
+    except Exception as exc:
+        log.exception("Scheduler sweep_stale_live failed: %s", exc)
 
 
 async def _job_purge_context_cache(db):
@@ -117,12 +161,22 @@ def start_scheduler(db) -> None:
         max_instances=1,
         coalesce=True,
     )
-    # Live refresh every 3 minutes
+    # Live refresh every 3 minutes (multi-sport)
     sch.add_job(
         _job_refresh_live, args=[db],
         trigger=IntervalTrigger(minutes=3),
         id="refresh_live",
         next_run_time=datetime.now(timezone.utc) + timedelta(minutes=1),
+        max_instances=1,
+        coalesce=True,
+    )
+    # Sweep stale live rows every 5 minutes — catches matches that finished
+    # but were not flipped is_live=False because nobody queried /matches/live.
+    sch.add_job(
+        _job_sweep_stale_live, args=[db],
+        trigger=IntervalTrigger(minutes=5),
+        id="sweep_stale_live",
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=2),
         max_instances=1,
         coalesce=True,
     )

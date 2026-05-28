@@ -229,6 +229,169 @@ def _direction(home: dict, away: dict) -> tuple[str, float]:
 
 # ─── Public API ─────────────────────────────────────────────────────────────
 
+def _interpret_baseball_live(match: dict, analysis: dict) -> dict:
+    """MLB-language copilot payload — speaks runs/hits/innings, never goals.
+
+    Drives from the output of `live_baseball_analytics.compute_live_analysis`
+    which already exposes inning, score, run_rate, threat_score and verdict.
+    """
+    home = _team_name(match, "home")
+    away = _team_name(match, "away")
+    inning = analysis.get("inning") or analysis.get("minute")
+    inning_half = analysis.get("inning_half")  # 'top' / 'bottom' / None
+    score = analysis.get("score") or {}
+    h_score = int(score.get("home") or 0)
+    a_score = int(score.get("away") or 0)
+    diff = h_score - a_score
+    verdict = (analysis.get("verdict") or {})
+    trap = analysis.get("trap") or {}
+    leader_odds = analysis.get("leader_odds")
+    proj_total = (analysis.get("deltas") or {}).get("projected_total")
+
+    # Score readout in MLB terms
+    leader = home if h_score > a_score else (away if a_score > h_score else None)
+    half_label = "Top" if inning_half == "top" else ("Bottom" if inning_half == "bottom" else "")
+    inning_str = f"{half_label} {inning}".strip() if inning else "—"
+
+    why: list[str] = []
+    risks: list[str] = []
+    market_suggestion: dict | None = None
+    action = "WAIT"
+    action_label = "ESPERAR"
+
+    # Trap detection in MLB context
+    if trap.get("type") == "LATE_LEAD_TRAP":
+        action = "AVOID_LEADER_ML"
+        action_label = "EVITAR ML DEL LÍDER"
+        why.append(
+            f"{leader} lidera {abs(diff)} carrera{'s' if abs(diff) != 1 else ''} en el "
+            f"{inning_str} con cuota {leader_odds:.2f}: el mercado ya descuenta el resultado."
+            if leader and leader_odds else
+            f"Líder con ventaja en el {inning_str} a cuota muy corta — sin EV en el ML."
+        )
+        risks.append("Un rally del rival en innings finales puede romper la línea sin avisar.")
+    elif diff != 0 and inning and inning >= 7 and abs(diff) >= 4:
+        action = "TOTAL_UNDER_REMAINING"
+        action_label = "CONSIDERAR TOTAL UNDER RESTANTE"
+        why.append(
+            f"Ventaja amplia ({abs(diff)} carreras) en el {inning_str}: el bullpen suele "
+            f"administrar y el ritmo ofensivo baja."
+        )
+        if proj_total:
+            market_suggestion = {
+                "market":   "Total Runs Under",
+                "selection": f"Bajo proyección {proj_total:.1f}",
+                "reason":   f"Run rate del partido proyecta {proj_total:.1f} carreras totales.",
+            }
+    elif diff == 0 and inning and inning >= 6:
+        action = "WATCH"
+        action_label = "MONITOREAR"
+        why.append(f"Partido empatado en el {inning_str} — alta volatilidad de bullpen.")
+        risks.append("Cualquier base por bolas puede desencadenar el rally decisivo.")
+    else:
+        why.append(f"Marcador {h_score}-{a_score} en el {inning_str}. Run rate combinado "
+                   f"{(analysis.get('deltas') or {}).get('run_rate_combined') or 0:.2f}/inning.")
+
+    # Pace context
+    if proj_total:
+        why.append(f"Proyección total del partido: {proj_total:.1f} carreras.")
+
+    title = (
+        "Trampa de marcador (bullpen)" if action == "AVOID_LEADER_ML" else
+        "Total restante bajo presión"   if action == "TOTAL_UNDER_REMAINING" else
+        "Partido en zona de bullpen"    if action == "WATCH" else
+        "Partido en desarrollo"
+    )
+    return {
+        "sport":          "baseball",
+        "title":          title,
+        "mood":           "neutral" if action == "WAIT" else ("danger" if action == "AVOID_LEADER_ML" else "watch"),
+        "verdict":        verdict.get("label") or "BALANCED",
+        "action":         action,
+        "action_label":   action_label,
+        "score_summary":  f"{home} {h_score} — {a_score} {away} ({inning_str})",
+        "why":            why,
+        "risks":          risks,
+        "market_suggestion": market_suggestion,
+        "trap":           trap if trap else None,
+        "_source":        "human_live_interpreter_baseball_v1",
+    }
+
+
+def _interpret_basketball_live(match: dict, analysis: dict) -> dict:
+    """Basketball-language copilot payload — speaks pace/points/quarter."""
+    home = _team_name(match, "home")
+    away = _team_name(match, "away")
+    score = analysis.get("score") or {}
+    h_score = int(score.get("home") or 0)
+    a_score = int(score.get("away") or 0)
+    diff = h_score - a_score
+    period = analysis.get("period") or analysis.get("quarter") or analysis.get("status")
+    verdict = (analysis.get("verdict") or {})
+    trap = analysis.get("trap") or {}
+    proj_total = (analysis.get("deltas") or {}).get("projected_total")
+    pace_combined = (analysis.get("deltas") or {}).get("pace_combined")
+
+    period_str = str(period) if period else "—"
+    leader = home if h_score > a_score else (away if a_score > h_score else None)
+
+    why: list[str] = []
+    risks: list[str] = []
+    market_suggestion: dict | None = None
+    action = "WAIT"
+    action_label = "ESPERAR"
+
+    if trap.get("type") == "BLOWOUT_TRAP":
+        action = "AVOID_LEADER_ML"
+        action_label = "EVITAR ML DEL LÍDER"
+        why.append(
+            f"{leader} domina {abs(diff)} puntos en el {period_str}: garbage time inminente."
+        )
+        risks.append("Sustituciones masivas reducen pace; cualquier triple recorta sin reflejar dominio real.")
+    elif abs(diff) >= 12 and period_str in ("Q4", "OT"):
+        action = "TOTAL_UNDER_REMAINING"
+        action_label = "TOTAL UNDER RESTANTE"
+        why.append(f"Diferencia de {abs(diff)} en {period_str}: pace cae con cierre administrado.")
+        if proj_total:
+            market_suggestion = {
+                "market": "Total Points Under",
+                "selection": f"Bajo proyección {proj_total:.0f}",
+                "reason":   f"Proyección actual del partido: {proj_total:.0f} puntos.",
+            }
+    elif abs(diff) <= 4 and period_str in ("Q3", "Q4"):
+        action = "WATCH"
+        action_label = "MONITOREAR"
+        why.append(f"Partido cerrado ({h_score}-{a_score}) en {period_str} — momentum decide.")
+    else:
+        why.append(f"Marcador {h_score}-{a_score} en {period_str}.")
+
+    if pace_combined:
+        why.append(f"Pace combinado: {pace_combined:.1f} pos/48min.")
+    if proj_total:
+        why.append(f"Proyección total: {proj_total:.0f} puntos.")
+
+    title = (
+        "Trampa de paliza (garbage time)"    if action == "AVOID_LEADER_ML" else
+        "Total restante bajo presión"         if action == "TOTAL_UNDER_REMAINING" else
+        "Partido cerrado en cuarto decisivo"  if action == "WATCH" else
+        "Partido en desarrollo"
+    )
+    return {
+        "sport":          "basketball",
+        "title":          title,
+        "mood":           "neutral" if action == "WAIT" else ("danger" if action == "AVOID_LEADER_ML" else "watch"),
+        "verdict":        verdict.get("label") or "BALANCED",
+        "action":         action,
+        "action_label":   action_label,
+        "score_summary":  f"{home} {h_score} — {a_score} {away} ({period_str})",
+        "why":            why,
+        "risks":          risks,
+        "market_suggestion": market_suggestion,
+        "trap":           trap if trap else None,
+        "_source":        "human_live_interpreter_basketball_v1",
+    }
+
+
 def interpret_live(
     match: dict,
     *,
@@ -238,14 +401,18 @@ def interpret_live(
 ) -> dict:
     """Build the copilot-style payload.
 
-    Args:
-        match: hydrated match doc (has live_stats, odds_snapshots, h2h).
-        analysis: output of `live_xg_proxy.compute_live_analysis(match)`.
-        reeval: optional output of `live_reevaluation.reevaluate_match(match, ...)`.
-        alt_market: optional output of `under_market_scan.scan_protected_alternatives(match)`.
-
-    Returns: dict ready to ship to the UI (`LiveCopilotCard`).
+    SPORT GATE: dispatch to sport-specific interpreters. The football flow
+    (the original body of this function) speaks goles/Moneyline/BTTS. For
+    basket/baseball we route to dedicated interpreters that speak the
+    correct vocabulary — never returning "goles" or "córners" for non-football.
     """
+    sport = (match.get("sport") or analysis.get("_sport") if analysis else None) or "football"
+    if sport == "baseball":
+        return _interpret_baseball_live(match, analysis or {})
+    if sport == "basketball":
+        return _interpret_basketball_live(match, analysis or {})
+
+    # ── Football pathway (original logic) ───────────────────────────────
     analysis = analysis or {}
     minute = analysis.get("minute")
     score = analysis.get("score") or {}

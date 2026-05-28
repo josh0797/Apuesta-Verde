@@ -487,22 +487,24 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             except Exception: pass
             try: inj_a = await af.injuries(client, away["id"], db=db)
             except Exception: pass
-            # P2A — pull last-10 fixtures per team for the StatsBomb-inspired
-            # Poisson model. Cached 12h per (team, season) so re-analyzing
-            # different fixtures of the same team doesn't burn API quota.
-            try: recent_h_raw = await af.fixtures_last_n(client, home["id"], n=10, season=season, db=db)
+            # P2A — pull last-15 fixtures per team for the historical goal
+            # profile (under_3_5_rate, team_exceeded_2_goals_rate, etc.).
+            # Cached 12h per (team, season). 15 games gives a robust sample
+            # for under-tendency detection (case Atlético-MG style).
+            try: recent_h_raw = await af.fixtures_last_n(client, home["id"], n=15, season=season, db=db)
             except Exception: pass
-            try: recent_a_raw = await af.fixtures_last_n(client, away["id"], n=10, season=season, db=db)
+            try: recent_a_raw = await af.fixtures_last_n(client, away["id"], n=15, season=season, db=db)
             except Exception: pass
 
         norm_odds = nz.normalize_odds(odds_resp)
         ctx_home = nz.normalize_team_context(stats_h, stand_resp, inj_h, home["id"])
         ctx_away = nz.normalize_team_context(stats_a, stand_resp, inj_a, away["id"])
-        # Attach last-N goal distributions used by statsbomb_features.
+        # Attach last-15 goal distributions used by statsbomb_features and the
+        # historicalGoalProfile feeder for the Protected Market Rescue Layer.
         if recent_h_raw:
-            ctx_home["recent_fixtures"] = nz.normalize_recent_fixtures(recent_h_raw, home["id"], n=10)
+            ctx_home["recent_fixtures"] = nz.normalize_recent_fixtures(recent_h_raw, home["id"], n=15)
         if recent_a_raw:
-            ctx_away["recent_fixtures"] = nz.normalize_recent_fixtures(recent_a_raw, away["id"], n=10)
+            ctx_away["recent_fixtures"] = nz.normalize_recent_fixtures(recent_a_raw, away["id"], n=15)
         live_stats = nz.normalize_live_stats(fx_raw) if is_live else None
         # When live, the /fixtures?live=all payload from API-Sports often
         # omits the per-team statistics array on the free tier — meaning

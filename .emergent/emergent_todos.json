@@ -1,34 +1,22 @@
 [
   {
-    "content": "Explorar disponibilidad de datos de córners",
+    "content": "P0-A: Fix texto sport-aware en _why_safer_explanation (backend) y DashboardPage (frontend)",
     "status": "completed"
   },
   {
-    "content": "Step 1: Cache de fixture_statistics + helper team_corner_form() en api_football.py",
+    "content": "P0-B: Implementar sweep_expired_live en live_lifecycle scheduler",
     "status": "completed"
   },
   {
-    "content": "Step 2: Crear /app/backend/services/corner_market_layer.py",
+    "content": "P0-C: Validar ingest_live multi-sport (baseball/basketball) + sport gate en interpret_live",
     "status": "completed"
   },
   {
-    "content": "Step 3: Pre-fetch corner forms + integración en analyst_engine.py",
+    "content": "P2: historicalGoalProfile — últimos 15 partidos exceeded2GoalsRate / under35Rate",
     "status": "completed"
   },
   {
-    "content": "Step 4: Añadir corner rescue branch en alternative_rescue.py",
+    "content": "Reportar comparativa antes/después al usuario",
     "status": "completed"
-  },
-  {
-    "content": "Step 5: UI - sección 'Mercado alternativo: Córners' en DashboardPage",
-    "status": "completed"
-  },
-  {
-    "content": "Step 6: Basketball pace layer (estructura conservadora)",
-    "status": "completed"
-  },
-  {
-    "content": "Step 7: Testing agent end-to-end",
-    "status": "in_progress"
   }
 ]

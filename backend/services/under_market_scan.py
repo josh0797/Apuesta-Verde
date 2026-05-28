@@ -232,6 +232,41 @@ def compute_under_profile_score(match: dict, line: float = 3.5, *, tactical_scor
     else:
         sub_form = 50.0  # neutral when no form
 
+    # 3b) Historical goal profile boost (P2 — últimos 15 partidos) ────────
+    # Si ambos equipos tienen tendencia under fuerte y bajo overshoot ofensivo,
+    # subimos el score y dejamos un trend_summary en reasons.
+    home_hgp = (((match.get("home_team") or {}).get("context") or {}).get("recent_fixtures") or {}).get("historical_goal_profile") or {}
+    away_hgp = (((match.get("away_team") or {}).get("context") or {}).get("recent_fixtures") or {}).get("historical_goal_profile") or {}
+    hgp_boost = 0.0
+    if home_hgp and away_hgp:
+        h_under = home_hgp.get(f"under_{int(line)}_5_rate".replace("_5", "_5_rate"))
+        a_under = away_hgp.get(f"under_{int(line)}_5_rate".replace("_5", "_5_rate"))
+        # Para line=3.5 usamos under_3_5_rate; para line=2.5 usamos under_2_5_rate
+        key = "under_3_5_rate" if abs(line - 3.5) < 1e-6 else "under_2_5_rate"
+        h_under = home_hgp.get(key)
+        a_under = away_hgp.get(key)
+        h_exceed = home_hgp.get("team_exceeded_2_goals_rate")
+        a_exceed = away_hgp.get("team_exceeded_2_goals_rate")
+        if h_under is not None and a_under is not None:
+            # Si ambos tienen under_rate >= 70% (line 3.5) o >= 60% (line 2.5)
+            threshold = 0.70 if abs(line - 3.5) < 1e-6 else 0.60
+            if h_under >= threshold and a_under >= threshold:
+                hgp_boost = 10.0
+                reasons.append(
+                    f"Histórico 15 partidos: ambos equipos cumplieron Under {line} "
+                    f"en {int(h_under*100)}% y {int(a_under*100)}% de sus juegos."
+                )
+        if h_exceed is not None and h_exceed <= 0.25 and home_hgp.get("matches_analyzed", 0) >= 10:
+            hgp_boost += 5.0
+            tsum = home_hgp.get("trend_summary") or ""
+            if tsum:
+                reasons.append(f"{(match.get('home_team') or {}).get('name','Local')}: {tsum}")
+        if a_exceed is not None and a_exceed <= 0.25 and away_hgp.get("matches_analyzed", 0) >= 10:
+            hgp_boost += 5.0
+            tsum = away_hgp.get("trend_summary") or ""
+            if tsum:
+                reasons.append(f"{(match.get('away_team') or {}).get('name','Visitante')}: {tsum}")
+
     # 4) Tactical profile hint (passed from caller) ───────────────────────
     sub_tactical = max(0, min(100, int(tactical_score)))
     if sub_tactical >= 75:
@@ -290,7 +325,7 @@ def compute_under_profile_score(match: dict, line: float = 3.5, *, tactical_scor
             sub_market   * weights["market_under_trend"]
         )
 
-    score = int(round(max(0.0, min(100.0, score))))
+    score = int(round(max(0.0, min(100.0, score + hgp_boost))))
     if score >= TH_RECOMMEND and fragility_score <= TH_FRAGILITY_MAX:
         state = "UNDER_VALUE_FOUND"
     elif score >= TH_WATCHLIST and fragility_score <= TH_FRAGILITY_MAX + 15:
