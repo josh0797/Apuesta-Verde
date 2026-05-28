@@ -26,6 +26,7 @@ Backwards compatibility:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -490,27 +491,47 @@ def _strip_to_json(text: str) -> str:
 async def _call_openai_with_model(
     user_text: str, session_id: str, system_prompt: str, model: str
 ) -> str:
-    """Call OpenAI Chat Completions for a specific model with JSON-mode."""
+    """Call OpenAI Chat Completions for a specific model with JSON-mode.
+
+    Hard 90s timeout so a stalled API call (credits exhausted, rate-limit
+    backoff, network glitch) can never freeze the modal. The progress
+    poller will see `stage=failed` and surface a user-friendly message
+    via `humanizeError()`.
+    """
     from openai import AsyncOpenAI
 
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY not configured")
-    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-    resp = await client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text},
-        ],
-        temperature=0.2,
-        max_tokens=4096,
-        response_format={"type": "json_object"},
-    )
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=90.0, max_retries=1)
+    try:
+        resp = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_text},
+                ],
+                temperature=0.2,
+                max_tokens=4096,
+                response_format={"type": "json_object"},
+            ),
+            timeout=95.0,   # extra grace over client timeout
+        )
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError(
+            "openai_timeout: la llamada al LLM superó 90s — probablemente "
+            "rate-limit, créditos agotados o problema de red. Reintenta en breve."
+        ) from exc
     return resp.choices[0].message.content or ""
 
 
 async def _call_emergent(user_text: str, session_id: str, system_prompt: str) -> str:
-    """Fallback provider: Claude Sonnet 4.5 via Emergent Universal Key."""
+    """Fallback provider: Claude Sonnet 4.5 via Emergent Universal Key.
+
+    Same 90s timeout policy as `_call_openai_with_model` — keeps the job
+    queue moving even when the universal key is rate-limited or out of
+    credits.
+    """
     from emergentintegrations.llm.chat import LlmChat, UserMessage
 
     if not EMERGENT_LLM_KEY:
@@ -520,7 +541,16 @@ async def _call_emergent(user_text: str, session_id: str, system_prompt: str) ->
         session_id=session_id,
         system_message=system_prompt,
     ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-    return await chat.send_message(UserMessage(text=user_text))
+    try:
+        return await asyncio.wait_for(
+            chat.send_message(UserMessage(text=user_text)),
+            timeout=95.0,
+        )
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError(
+            "emergent_llm_timeout: la llamada al Emergent LLM superó 90s — "
+            "probablemente créditos agotados o rate-limit. Reintenta en breve."
+        ) from exc
 
 
 async def _run_prefilter(
