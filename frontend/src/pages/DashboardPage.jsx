@@ -16,6 +16,7 @@ import { EmptyStateNoValue } from '@/components/EmptyStateNoValue';
 import { PicksFilterBar } from '@/components/PicksFilterBar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDateTime, tierClass } from '@/lib/format';
+import { EditorialSignalsPanel, EditorialSignalsSummary } from '@/components/EditorialSignalsPanel';
 
 function GroupSection({ title, count, tier, children, defaultOpen = true, testId, sectionRef, icon: Icon }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -91,13 +92,18 @@ function DiscardedRow({ item, testId, type }) {
   const mb = item._moneyball || {};
   const structuredTraps = mb.trap_signals_structured || [];
   const frag = mb.fragility || {};
-  const hasDetails = structuredTraps.length > 0 || frag.score != null;
+  const editorialSignals = item.editorial_context_signals || [];
+  const hasDetails = structuredTraps.length > 0 || frag.score != null || editorialSignals.length > 0;
   const trapCount = structuredTraps.length;
+  const sigCount = editorialSignals.length;
   const humanReason = useMemo(() => {
-    if (!trapCount) return item.reason || item.missing || '';
+    if (!trapCount && !sigCount) return item.reason || item.missing || '';
     const verb = type === 'market' ? 'Descartado: mercado directo sin valor' : (item.reason || '');
-    return `${verb}. Se detectaron ${trapCount} señal${trapCount === 1 ? '' : 'es'} trampa.`;
-  }, [item, type, trapCount]);
+    const parts = [];
+    if (trapCount) parts.push(`${trapCount} señal${trapCount === 1 ? '' : 'es'} trampa`);
+    if (sigCount && sigCount !== trapCount) parts.push(`${sigCount} señal${sigCount === 1 ? '' : 'es'} de contexto`);
+    return parts.length ? `${verb}. ${parts.join(' · ')}.` : verb;
+  }, [item, type, trapCount, sigCount]);
 
   const inner = (
     <div className="rounded-md border border-border bg-card/60 hover:border-cyan-500/30 transition-colors" data-testid={testId}>
@@ -134,6 +140,13 @@ function DiscardedRow({ item, testId, type }) {
       </div>
       {open && hasDetails && (
         <div className="border-t border-border/60 px-3 py-2.5 space-y-2 bg-background/30">
+          {editorialSignals.length > 0 && (
+            <EditorialSignalsPanel
+              signals={editorialSignals}
+              variant="expanded"
+              testId={`${testId}-signals`}
+            />
+          )}
           {structuredTraps.length > 0 && (
             <div data-testid={`${testId}-traps`}>
               <div className="text-[11px] uppercase tracking-wide text-amber-300 font-semibold mb-1.5">⚠️ Señales trampa detectadas</div>
@@ -591,6 +604,14 @@ export default function DashboardPage() {
           />
           <KpiCard label="Live" value={data.summary.data_freshness?.live_active ?? 0} accent="cyan" testId="kpi-live" />
         </div>
+      )}
+
+      {data?.summary?.editorial_signal_summary?.total_signals > 0 && (
+        <EditorialSignalsSummary
+          summary={data.summary.editorial_signal_summary}
+          lang={lang}
+          testId="editorial-signal-summary"
+        />
       )}
 
       {data && allPicks.length > 0 && (

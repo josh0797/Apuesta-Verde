@@ -16,6 +16,7 @@ import { ProtectedMarketBadge } from './ProtectedMarketBadge';
 import { ProvenanceBadge } from './ProvenancePanel';
 import { EditorialContextPanel } from './EditorialContextPanel';
 import { HistoricalProfilePanel } from './HistoricalProfilePanel';
+import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -185,6 +186,28 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           </span>
         )}
       </div>
+
+      {/* Editorial context signals — split into "positive" (why the engine
+          likes it) and "negative" (risk signals) so the user can audit
+          both sides of the recommendation transparently. */}
+      {Array.isArray(m.editorial_context_signals) && m.editorial_context_signals.length > 0 && (
+        <div className="space-y-2">
+          <EditorialSignalsPanel
+            signals={m.editorial_context_signals}
+            variant="compact"
+            filter="positive"
+            defaultOpen={false}
+            testId={`pick-signals-positive-${m.match_id}`}
+          />
+          <EditorialSignalsPanel
+            signals={m.editorial_context_signals}
+            variant="compact"
+            filter="negative"
+            defaultOpen={false}
+            testId={`pick-signals-negative-${m.match_id}`}
+          />
+        </div>
+      )}
 
       {/* Track-pending action — works for every sport. Hidden if we don't
           have a runId (e.g. live picks rendered without a persisted run). */}

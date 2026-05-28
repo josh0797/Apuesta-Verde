@@ -1936,10 +1936,56 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
     summary["total_rescued"] = len(rescued_picks)
     parsed["summary"] = summary
 
+    # ── Phase 13 — Editorial Context Signals propagation ────────────────
+    # Build canonical `editorial_context_signals` for EVERY entry in
+    # every bucket so the UI can show transparent reasoning even on
+    # discarded matches. Sport-aware: codes from the catalog that are
+    # not applicable to the current sport are silently dropped.
+    try:
+        from .signal_aggregator import (
+            aggregate_signals_for_payload,
+            build_signal_summary,
+        )
+        by_id_sg = {m.get("match_id"): m for m in matches_payload}
+        bucket_lists: list[list[dict]] = [
+            picks, disc_mot, disc_mkt, incomp,
+            rescued_picks, watchlist, protected_acc,
+        ]
+        all_signals_by_match: dict[str, list[dict]] = {}
+        for bucket in bucket_lists:
+            for entry in bucket:
+                if not isinstance(entry, dict):
+                    continue
+                mid = entry.get("match_id")
+                src = by_id_sg.get(mid) or {}
+                # Merge the source match fields the extractors need with
+                # whatever the entry already carries (trap_signals etc.).
+                merged_payload = {
+                    **{k: v for k, v in src.items() if k.startswith("_") or k in (
+                        "editorial_context", "_editorial_context",
+                        "_basketball_pace_form", "_baseball_stats",
+                        "_encounter_history", "_form_guard",
+                    )},
+                    **{k: v for k, v in entry.items()},
+                }
+                signals = aggregate_signals_for_payload(merged_payload, sport)
+                entry["editorial_context_signals"] = signals
+                if signals and mid is not None:
+                    all_signals_by_match[str(mid)] = signals
+        summary["editorial_signal_summary"] = build_signal_summary(all_signals_by_match)
+        parsed.setdefault("_pipeline", {})["editorial_signal_aggregation"] = {
+            "entries_annotated": sum(1 for k in all_signals_by_match),
+            "total_signals":      summary["editorial_signal_summary"]["total_signals"],
+        }
+    except Exception as exc:
+        log.warning("signal_aggregator Phase 13 failed: %s", exc)
+
     parsed["_generated_at"] = datetime.now(timezone.utc).isoformat()
     parsed["_session_id"] = session_id
     parsed["_provider"] = provider_used
     parsed["_sport"] = sport
+    # Merge editorial_signal_aggregation into pipeline_meta instead of overwriting
+    pipeline_meta.update(parsed.get("_pipeline", {}))
     parsed["_pipeline"] = pipeline_meta
     return parsed
 

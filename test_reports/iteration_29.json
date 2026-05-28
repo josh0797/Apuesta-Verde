@@ -1,0 +1,234 @@
+{
+  "summary": "Phase E1 - Editorial Context Signals Transparency: Completed comprehensive backend testing of sport-aware signal aggregation, catalog completeness, and E2E integration. All 7 tests passed after fixing a critical bug in analyst_engine.py where pipeline metadata was being overwritten.",
+  "backend_issues": {
+    "critical_bugs": [
+      {
+        "file": "/app/backend/services/analyst_engine.py",
+        "line": 1987,
+        "issue": "pipeline_meta was overwriting _pipeline dict, causing editorial_signal_aggregation metadata to be lost",
+        "impact": "Pipeline metadata for signal aggregation was not being persisted in API responses",
+        "fix_applied": "Changed line 1987 to merge editorial_signal_aggregation into pipeline_meta before assignment",
+        "fix_priority": "HIGH",
+        "status": "FIXED"
+      }
+    ],
+    "flaky_endpoints": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Catalog completeness: 33 signals with sport-aware filtering (football: 30, basketball: 29, baseball: 30 applicable codes)",
+    "Signal contract shape: All 89 signal instances validated with required fields (code, label, severity, category, signal_type, explanation, impact, confidence)",
+    "Sport-aware filtering (CRITICAL): RED_CARD_CONTEXT dropped for baseball, CORNER_VOLUME_DETECTED dropped for basketball, PACE_OVER_SIGNAL dropped for football, PITCHER_DUEL_SIGNAL dropped for basketball, editorial signals work for all sports",
+    "aggregate_signals_for_payload unit test: Correctly filters signals by sport (football includes corners, basketball drops corners, baseball drops red cards and includes pitcher signals)",
+    "build_signal_summary: Correctly aggregates counts by signal_type, category, and severity",
+    "E2E baseball analysis: POST /api/analysis/run with sport=baseball returns editorial_signal_summary and editorial_context_signals on all entries, no football-only signals present",
+    "Auth regression: demo@valuebet.app / demo1234 login still works"
+  ],
+  "test_report_links": [
+    "/app/backend/test_signal_aggregation.py"
+  ],
+  "success_percentage": {
+    "backend": "100% (7/7 tests passed)",
+    "frontend": "N/A (frontend testing skipped per request)"
+  },
+  "updated_files": [
+    "/app/backend/services/analyst_engine.py (fixed pipeline metadata overwrite bug)",
+    "/app/backend/test_signal_aggregation.py (new comprehensive test suite)"
+  ],
+  "action_item_for_main_agent": "",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  "detailed_test_results": {
+    "unit_tests": {
+      "catalog_completeness": {
+        "status": "PASSED",
+        "total_signals": 33,
+        "sport_breakdown": {
+          "football": 30,
+          "basketball": 29,
+          "baseball": 30
+        },
+        "required_codes_verified": [
+          "FAVORITE_NAME_BIAS",
+          "LOW_ODDS_NO_VALUE",
+          "UNDER_TREND_DETECTED",
+          "CORNER_VOLUME_DETECTED",
+          "PROTECTED_MARKET_AVAILABLE",
+          "LOW_FRAGILITY_MARKET",
+          "STRONG_H2H_PATTERN",
+          "PACE_OVER_SIGNAL",
+          "PITCHER_DUEL_SIGNAL",
+          "MOTIVATION_NORMAL",
+          "BALANCED_MATCH",
+          "DATA_PARTIAL",
+          "EDITORIAL_INJURY_NOTE",
+          "EDITORIAL_MARKET_SUGGESTION",
+          "EDITORIAL_MOTIVATION_NOTE",
+          "EDITORIAL_CONTRADICTION",
+          "FORM_CRITICAL_STREAK"
+        ]
+      },
+      "signal_contract_validation": {
+        "status": "PASSED",
+        "instances_validated": 89,
+        "required_fields": [
+          "code",
+          "label",
+          "severity",
+          "category",
+          "signal_type",
+          "explanation",
+          "impact",
+          "confidence"
+        ],
+        "severity_values_validated": [
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ],
+        "signal_types_validated": [
+          "positive",
+          "negative",
+          "neutral"
+        ]
+      },
+      "sport_aware_filtering": {
+        "status": "PASSED",
+        "critical_validations": [
+          "RED_CARD_CONTEXT returns None for baseball (football-only signal)",
+          "CORNER_VOLUME_DETECTED returns None for basketball (football-only signal)",
+          "PACE_OVER_SIGNAL returns None for football (basketball-only signal)",
+          "PITCHER_DUEL_SIGNAL returns None for basketball (baseball-only signal)",
+          "EDITORIAL_INJURY_NOTE works for all sports (ALL_SPORTS signal)",
+          "EDITORIAL_MARKET_SUGGESTION works for all sports (ALL_SPORTS signal)"
+        ]
+      },
+      "aggregate_signals_unit": {
+        "status": "PASSED",
+        "test_cases": [
+          {
+            "sport": "football",
+            "signals_returned": 4,
+            "includes": [
+              "FAVORITE_NAME_BIAS",
+              "CORNER_VOLUME_DETECTED",
+              "UNDER_TREND_DETECTED",
+              "EDITORIAL_INJURY_NOTE"
+            ]
+          },
+          {
+            "sport": "basketball",
+            "signals_returned": 3,
+            "excludes": [
+              "CORNER_VOLUME_DETECTED"
+            ],
+            "includes": [
+              "EDITORIAL_INJURY_NOTE"
+            ]
+          },
+          {
+            "sport": "baseball",
+            "signals_returned": 1,
+            "excludes": [
+              "RED_CARD_CONTEXT"
+            ],
+            "includes": [
+              "PITCHER_DUEL_SIGNAL"
+            ]
+          }
+        ]
+      },
+      "build_signal_summary": {
+        "status": "PASSED",
+        "test_input": {
+          "total_matches": 2,
+          "total_signals": 3
+        },
+        "validated_fields": [
+          "total_signals",
+          "positive_signals",
+          "negative_signals",
+          "neutral_signals",
+          "trap_signals",
+          "protected_market_signals",
+          "historical_signals",
+          "by_category",
+          "by_severity"
+        ]
+      }
+    },
+    "e2e_tests": {
+      "baseball_analysis": {
+        "status": "PASSED",
+        "endpoint": "POST /api/analysis/run",
+        "sport": "baseball",
+        "job_completion_time": "40 seconds",
+        "validations": [
+          "editorial_signal_summary present in response",
+          "editorial_signal_aggregation metadata present in _pipeline",
+          "editorial_context_signals field exists on all entries (picks, discarded_motivation, discarded_market)",
+          "No football-only signals (RED_CARD, CORNER) in baseball response",
+          "No basketball-only signals (PACE_OVER) in baseball response"
+        ],
+        "signal_counts": {
+          "total_signals": 0,
+          "entries_annotated": 0,
+          "note": "0 signals is valid - depends on match data available"
+        }
+      },
+      "auth_regression": {
+        "status": "PASSED",
+        "endpoint": "POST /api/auth/login",
+        "credentials": "demo@valuebet.app / demo1234",
+        "validation": "Token returned successfully"
+      }
+    }
+  },
+  "bugs_fixed_during_testing": [
+    {
+      "bug": "Pipeline metadata overwrite in analyst_engine.py",
+      "location": "/app/backend/services/analyst_engine.py:1987",
+      "description": "The line `parsed['_pipeline'] = pipeline_meta` was overwriting the entire _pipeline dict, causing the editorial_signal_aggregation metadata (set on line 1976) to be lost",
+      "fix": "Changed to `pipeline_meta.update(parsed.get('_pipeline', {})); parsed['_pipeline'] = pipeline_meta` to merge instead of overwrite",
+      "impact": "HIGH - Pipeline metadata for signal aggregation was not being persisted",
+      "verification": "Re-ran E2E test after fix, editorial_signal_aggregation now present in response"
+    }
+  ],
+  "regression_checks": [
+    {
+      "feature": "Authentication",
+      "status": "PASSED",
+      "note": "demo@valuebet.app login still works"
+    },
+    {
+      "feature": "Carryover picks (from previous iteration)",
+      "status": "NOT_TESTED",
+      "note": "E2E test did not verify carryover metadata presence - would need prior run to test"
+    },
+    {
+      "feature": "NBA/MLB editorial sources (from previous iteration)",
+      "status": "PASSED",
+      "note": "Baseball analysis completed without sport_not_supported error"
+    }
+  ],
+  "test_environment": {
+    "backend_url": "https://low-volatility-plays.preview.emergentagent.com/api",
+    "test_credentials": "demo@valuebet.app / demo1234",
+    "test_duration": "41 seconds",
+    "tests_run": 7,
+    "tests_passed": 7,
+    "tests_failed": 0
+  },
+  "notes": [
+    "All critical sport-aware filtering validations passed",
+    "Signal catalog is complete with 33 codes as specified",
+    "E2E integration working correctly after bug fix",
+    "0 signals in E2E test is expected - depends on available match data and whether signals fire",
+    "Frontend testing was skipped per testing_type='backend only(skip frontend)' in review request"
+  ]
+}

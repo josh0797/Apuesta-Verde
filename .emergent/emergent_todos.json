@@ -1,22 +1,34 @@
 [
   {
-    "content": "P0: Merge Inteligente — preservar picks recomendados previos al re-correr el análisis",
+    "content": "Crear catálogo extendido de signals + nuevos códigos",
     "status": "completed"
   },
   {
-    "content": "P1: Fix bug raíz: remover filtro `if sport != football` en editorial_context_service.py",
+    "content": "Construir signal_aggregator.py sport-aware que unifica todas las fuentes",
     "status": "completed"
   },
   {
-    "content": "P1: UI — Renderizar carryover picks con badge visual",
+    "content": "Propagar editorial_context_signals a TODOS los buckets en analyst_engine",
     "status": "completed"
   },
   {
-    "content": "P1: Verificación final UI móvil + parsing coma en inputs",
+    "content": "Construir summary.editorial_signal_summary en analyst_engine",
     "status": "completed"
   },
   {
-    "content": "Testing backend con testing_agent (carryover + editorial NBA/MLB)",
+    "content": "UI Dashboard: panel superior 'Señales detectadas hoy'",
     "status": "completed"
+  },
+  {
+    "content": "UI Dashboard: accordion 'Ver señales' en DiscardedRow",
+    "status": "completed"
+  },
+  {
+    "content": "UI MatchCard: sección 'Por qué el engine sí lo considera' (señales positivas)",
+    "status": "completed"
+  },
+  {
+    "content": "Test backend (signal_aggregator) + screenshot UI",
+    "status": "in_progress"
   }
 ]
