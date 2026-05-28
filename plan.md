@@ -1,4 +1,4 @@
-# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening + P3 Editorial Context (ACTUALIZADO)
+# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening + P3 Editorial Context + P4 Playwright (ACTUALIZADO)
 
 ## 1) Objectives
 - Reducir **falsos descartes**: no tratar igual todo edge negativo; permitir **tolerancia contextual** en mercados protegidos.
@@ -24,7 +24,16 @@
 - **(✅ COMPLETADO)** **P3 — Tuning de selectores + 3 fuentes adicionales**:
   - Expandir cobertura editorial y reducir “ruido” de anchors en fuentes de noticias.
   - Añadir AS.com y Marca.com como fuentes server-rendered de alta cobertura.
-  - Registrar scores24.live como placeholder (requiere JS) sin romper el pipeline.
+  - Ajuste de selectores + filtros por patrón de URL (`article_url_patterns`) para evitar anchors irrelevantes.
+
+- **(✅ COMPLETADO)** **P4 — Playwright para fuentes JS-heavy (scores24.live + futuras)**:
+  - Añadir Playwright como backend editorial **paralelo** a Scrapy.
+  - Dispatch por fuente usando `requires_js`:
+    - server-rendered → Scrapy
+    - JS-rendered → Playwright
+  - Ejecutar ambos backends **en paralelo** (no se bloquean).
+  - Fail-soft ante Cloudflare/anti-bot (“Un momento…”): no romper análisis.
+  - Habilitar scores24.live como fuente JS-rendered (requiere proxy residencial para desbloquear en datacenter).
 
 ---
 
@@ -125,7 +134,7 @@
 **Arquitectura implementada**
 - ✅ Nuevo módulo: `/app/backend/services/editorial_context/`
   - `match_key.py`: `canonical_match_key()` + normalización de equipos
-  - `editorial_source_registry.py`: registry de fuentes (inicialmente Sportytrader ES + BeSoccer ES)
+  - `editorial_source_registry.py`: registry declarativo de fuentes
   - `editorial_signal_mapper.py`: clasificador heurístico (regex) + extractores (score/market)
   - `editorial_normalizer.py`: normalización + scoring
     - `freshness_score` (24h/48h/72h)
@@ -168,26 +177,25 @@
 
 ---
 
-### Phase 6 — P3 Selector Tuning + 3 New Sources (AS.com, Marca, scores24 placeholder)
+### Phase 6 — P3 Selector Tuning + 3 New Sources (AS.com, Marca + limpieza de falsos positivos)
 **Estado:** ✅ COMPLETADO
 
 **Objetivo:** mejorar cobertura editorial real en producción y disminuir ruido de anchors.
 
 **Cambios realizados**
 1. ✅ **Inspección de HTML real (2026-05-28)** y ajuste de selectores.
-2. ✅ `editorial_source_registry.py` expandido de **2 → 5** fuentes:
-   - **AS.com** (`as_com`, prioridad 1) — mejor cobertura y estructura server-rendered.
+2. ✅ `editorial_source_registry.py` expandido (y priorizado):
+   - **AS.com** (`as_com`, prioridad 1) — alta cobertura, tip principal, cuotas.
    - Sportytrader ES (`sportytrader_es`, prioridad 2)
    - BeSoccer ES (`besoccer_es`, prioridad 3)
-   - **Marca.com** (`marca_com`, prioridad 4) — útil para contexto/lesiones/alineaciones.
-   - **scores24.live** (`scores24_live`) — **DISABLED** con `requires_js: true` (placeholder para futura integración Playwright).
+   - **Marca.com** (`marca_com`, prioridad 4) — contexto/lesiones/alineaciones.
 3. ✅ `editorial_spider_main.py` mejorado:
-   - Soporte Scrapy 2.13+: `async def start()` (evita “0 pages crawled”).
-   - `article_url_patterns` para filtrar anchors irrelevantes (crítico para Marca).
+   - Soporte Scrapy 2.13+: `async def start()`.
+   - `article_url_patterns` para filtrar anchors irrelevantes.
    - Headers endurecidos + cookies habilitadas.
 4. ✅ `editorial_signal_mapper.py` afinado:
-   - Evita falso positivo “Más de 10 partidos”: ahora Over/Under requiere **decimal .5** y (para ES) unidad (goles/córners/tarjetas) en patrones clave.
-   - Añadidos patrones 1X2/Victoria (comunes en AS.com: “Tip principal: victoria de …”).
+   - Evita falso positivo “Más de 10 partidos” (Over/Under requiere `.5` y unidad cuando aplica).
+   - Añadidos patrones 1X2/Victoria (“Tip principal: victoria de …”).
 
 **Resultados verificados**
 - ✅ Scrapy captura correctamente artículos de AS.com con cuerpo ~4.7–4.9k caracteres.
@@ -201,17 +209,56 @@
 
 ---
 
+### Phase 7 — P4 Playwright Integration (fuentes JS-heavy) + scores24.live
+**Estado:** ✅ COMPLETADO (infra lista; desbloqueo en prod requiere proxy residencial)
+
+**Objetivo:** habilitar fuentes editoriales renderizadas con JavaScript sin reemplazar Scrapy.
+
+**Entregables**
+1. ✅ **Backend Playwright (subprocess, fail-soft)**
+   - ✅ `/app/backend/services/editorial_context/playwright_fetcher.py`
+     - navegador stealth + bloqueo de assets
+     - detección de challenge (“Un momento…”) y salida limpia
+     - soporte proxy por env `PLAYWRIGHT_PROXY`
+   - ✅ `/app/backend/services/editorial_context/playwright_runner.py`
+     - runner subprocess fail-soft con `PLAYWRIGHT_BROWSERS_PATH=/pw-browsers`
+   - ✅ `/app/backend/services/editorial_context/playwright_main.py`
+     - entrypoint del subprocess (I/O JSON)
+
+2. ✅ **Dispatcher dual-backend en paralelo**
+   - ✅ `/app/backend/services/editorial_context/editorial_context_service.py`
+     - ejecuta **Scrapy + Playwright en paralelo** via `asyncio.gather`
+     - unifica items crudos antes de normalizar
+
+3. ✅ **Registry extendido para dispatch**
+   - ✅ `/app/backend/services/editorial_context/editorial_source_registry.py`
+     - `enabled_sources(include_js=True|False)`
+     - helpers `server_rendered_sources()` + `js_rendered_sources()`
+     - `scores24_live` ahora `enabled=true`, `requires_js=true`
+
+4. ✅ **Operación en entorno actual**
+   - Chromium instalado en `/pw-browsers`.
+   - scores24.live está **bloqueado por Cloudflare** desde IPs de datacenter:
+     - comportamiento esperado: Playwright devuelve 0 items y el pipeline sigue.
+     - para activarlo en producción: **configurar proxy residencial**
+       `PLAYWRIGHT_PROXY=http://user:pass@residential-host:port`.
+
+**Testing**
+- ✅ Reporte: `/app/test_reports/iteration_27.json` — **12/12 tests passed**
+
+---
+
 ## 3) Next Actions
 
 ### A) Hardening de enrichment (P1)
-**Motivo:** se observó que una generación puede quedarse en `stage=enriching` (scraping/Understat).
+**Motivo:** se observó que una generación puede quedarse en `stage=enriching` (scraping/Understat/editorial).
 1. Timeouts agresivos + fallback en enrichment Understat (2–4s).
 2. Telemetría: tiempos por etapa + ratio de fallos.
 3. Job progress reliability: `/api/analysis/jobs/{job_id}` status monotónico.
 
-### B) Refinamiento P3 Editorial (P1/P2)
+### B) Refinamiento Editorial (P1/P2)
 1. Mejorar cobertura de scraping:
-   - Añadir endpoints/paths adicionales por fuente en el registry.
+   - Añadir index URLs por fuente cuando cambien estructura.
    - Ajustar selectores sin tocar spider.
 2. Mejorar `sourceReliabilityScore` con histórico interno (accuracy tracking).
 3. Añadir `contradiction_flags` más ricos:
@@ -219,11 +266,9 @@
    - contradicción forma reciente vs narrativa
 4. Persistencia avanzada:
    - TTL real por tipo (pre-match 7 días vs live 24h) si se amplía a live.
-5. **scores24.live (JS)**:
-   - Implementar Playwright/Chromium como P4 (no Scrapy puro) para habilitar esta fuente.
 
-### C) Scraper resiliency (P2)
-- Proxies residenciales para Sofascore fallback (bloqueado por credenciales).
+### C) Proxies residenciales (P2)
+- **Bloqueado por credenciales**: necesarias para habilitar scores24.live en P4 y mejorar fallback de Sofascore.
 
 ---
 
@@ -238,12 +283,13 @@
   - Fútbol: no se muestran FT/90’ zombies; sweeper archiva.
   - Firewall vocabulario: no hay “goles/córners” fuera de fútbol.
 
-- P3 Editorial Context:
+- Editorial Context (P3/P4):
   - Se adjunta `editorial_context` a matches shortlisteados cuando hay contenido.
-  - `available=false` y pipeline intacto cuando Scrapy no encuentra señales.
-  - UI muestra “Contexto editorial” con fuentes/fecha/argumentos/riesgos.
+  - `available=false` y pipeline intacto cuando Scrapy/Playwright no encuentra señales.
+  - UI muestra “Contexto editorial” con fuentes/argumentos/riesgos.
   - Moneyball nunca recomienda “a ciegas”: si editorial sugiere mercado pero Moneyball no ve edge → `PUBLIC_NARRATIVE_RISK`.
-  - Fuentes ampliadas (AS.com, Marca.com) proveen cobertura real; scores24.live queda registrado pero deshabilitado hasta integrar JS.
+  - Fuentes server-rendered (AS/Marca/Sportytrader/BeSoccer) continúan aportando señales.
+  - Fuentes JS-heavy pueden activarse vía Playwright; si Cloudflare bloquea, el sistema degrada elegantemente.
 
 - No regresiones:
   - endpoints existentes responden
@@ -252,4 +298,4 @@
   - narrativa ES intacta
 
 - Hardening:
-  - ningún job queda colgado en `enriching`; si falla Understat o Scrapy, el pipeline termina con degradación elegante.
+  - ningún job queda colgado en `enriching`; si falla Understat, Scrapy o Playwright, el pipeline termina con degradación elegante.
