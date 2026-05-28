@@ -1561,6 +1561,55 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
     except Exception as exc:
         log.warning("Phase 10 universal rescue failed: %s", exc)
 
+    # ── Phase 11 — Sport Vocabulary Firewall ────────────────────────────
+    # Last line of defense against terminology leaks. Re-routes any pick
+    # whose `recommendation` / `reasoning` / `risks` references a sport
+    # that doesn't match (e.g. baseball pick using "goles", basketball pick
+    # talking about "córners", football pick using "carreras"). This is
+    # the deterministic fix for the user-reported bug where MLB cards
+    # rendered with football-only markets.
+    try:
+        from . import sport_vocab_guard as _svg
+        parsed = _svg.apply_sport_vocab_guard(parsed, sport=sport)
+        # Also scrub rescued_picks and watchlist — those bypass picks[] but
+        # still surface in the UI.
+        summary_now = parsed.get("summary") or {}
+        for bucket in ("rescued_picks", "watchlist", "protected_acceptable"):
+            items = summary_now.get(bucket) or []
+            cleaned: list[dict] = []
+            evicted: list[dict] = []
+            for it in items:
+                leaks = _svg.detect_vocab_leaks(it, sport)
+                if leaks:
+                    it["_sport_vocab_guard"] = {
+                        "sport": sport, "forbidden_terms_found": leaks, "rerouted": True,
+                    }
+                    evicted.append({
+                        "match_id":    it.get("match_id"),
+                        "match_label": it.get("match_label"),
+                        "reason": (
+                            f"SPORT_VOCAB_LEAK ({bucket}): vocabulario incorrecto para {sport} "
+                            f"({', '.join(set(leaks[:5]))})."
+                        ),
+                        "_sport_vocab_guard": it["_sport_vocab_guard"],
+                        "_origin_bucket": bucket,
+                    })
+                else:
+                    cleaned.append(it)
+            summary_now[bucket] = cleaned
+            if evicted:
+                disc_now = list(summary_now.get("discarded_market") or [])
+                disc_now.extend(evicted)
+                summary_now["discarded_market"] = disc_now
+                log.warning(
+                    "sport_vocab_guard[%s]: evicted %d items from %s",
+                    sport, len(evicted), bucket,
+                )
+        parsed["summary"] = summary_now
+    except Exception as exc:
+        log.warning("sport_vocab_guard failed: %s", exc)
+
+
     # Merge auto_discarded from pre-filter into the summary so the
     # categorization invariant len(picks)+lists == total_analyzed still holds
     # against the ORIGINAL input size (not just the shortlist).

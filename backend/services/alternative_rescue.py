@@ -221,6 +221,39 @@ def attempt_alternative_market_rescue(
                 if ums_out["state"] == "PROTECTED_MARKET_RECOMMENDED"
                 else "watchlist"
             )
+            # P2A — Expose home/away historical_goal_profile in the rescue
+            # payload so the UI can render a transparent "Tendencia últimos
+            # 15 partidos" section per team (under_rate, failed_to_score>2
+            # rate, trend_summary). This is what made the engine confident
+            # enough to rescue — show it explicitly to the user.
+            home_hgp = (((match.get("home_team") or {}).get("context") or {})
+                        .get("recent_fixtures") or {}).get("historical_goal_profile") or {}
+            away_hgp = (((match.get("away_team") or {}).get("context") or {})
+                        .get("recent_fixtures") or {}).get("historical_goal_profile") or {}
+            historical_profile_summary: dict | None = None
+            if home_hgp or away_hgp:
+                historical_profile_summary = {
+                    "home": {
+                        "team":                     (match.get("home_team") or {}).get("name"),
+                        "matches_analyzed":         home_hgp.get("matches_analyzed"),
+                        "goals_for_avg":            home_hgp.get("goals_for_avg"),
+                        "under_3_5_rate":           home_hgp.get("under_3_5_rate"),
+                        "under_2_5_rate":           home_hgp.get("under_2_5_rate"),
+                        "team_exceeded_2_goals_rate": home_hgp.get("team_exceeded_2_goals_rate"),
+                        "failed_to_score_over_2_rate": home_hgp.get("failed_to_score_over_2_rate"),
+                        "trend_summary":            home_hgp.get("trend_summary"),
+                    } if home_hgp else None,
+                    "away": {
+                        "team":                     (match.get("away_team") or {}).get("name"),
+                        "matches_analyzed":         away_hgp.get("matches_analyzed"),
+                        "goals_for_avg":            away_hgp.get("goals_for_avg"),
+                        "under_3_5_rate":           away_hgp.get("under_3_5_rate"),
+                        "under_2_5_rate":           away_hgp.get("under_2_5_rate"),
+                        "team_exceeded_2_goals_rate": away_hgp.get("team_exceeded_2_goals_rate"),
+                        "failed_to_score_over_2_rate": away_hgp.get("failed_to_score_over_2_rate"),
+                        "trend_summary":            away_hgp.get("trend_summary"),
+                    } if away_hgp else None,
+                }
             return {
                 "rescued":         ums_out["state"] == "PROTECTED_MARKET_RECOMMENDED",
                 "rescueType":      "GOAL_MARKET",
@@ -244,6 +277,7 @@ def attempt_alternative_market_rescue(
                 "profile_score":         ums_out.get("profile_score"),
                 "h2h_under_rate":        ums_out.get("h2h_under_rate"),
                 "statsbomb_features":    ums_out.get("statsbomb_features"),
+                "historical_profile":    historical_profile_summary,
                 "whyDirectMarketsFailed": (
                     why_direct_failed
                     or "Mercados directos (Moneyline / 1X2) sin edge real frente al modelo."

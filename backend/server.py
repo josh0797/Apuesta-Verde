@@ -276,6 +276,32 @@ async def matches_live(refresh: bool = False, sport: Optional[str] = None, user:
                 logging.getLogger("live").warning("live_baseball_analytics failed for %s: %s", m.get("match_id"), exc)
                 m["_live_analysis"] = None
                 m["_live_interpreter"] = None
+
+        # ── Final defense: sport-vocab firewall on the live payload ────
+        # Even with sport-specific interpreters, a future regression could
+        # leak football vocabulary into a basketball/baseball card. We scan
+        # the interpreter output here and null it out if a leak is detected
+        # so the UI never renders "Más de 2.5 goles" on an MLB card.
+        try:
+            from services import sport_vocab_guard as _svg
+            if m.get("_live_interpreter"):
+                leaks = _svg.detect_vocab_leaks(
+                    {"recommendation": m["_live_interpreter"], "risks": m["_live_interpreter"].get("risks") or []},
+                    s,
+                )
+                if leaks:
+                    logging.getLogger("live").warning(
+                        "sport_vocab_guard[live %s]: interpreter for %s had leaks=%s — nulled",
+                        s, m.get("match_id"), leaks,
+                    )
+                    m["_live_interpreter"] = {
+                        "_blocked_by_sport_vocab_guard": True,
+                        "forbidden_terms_found":         leaks,
+                        "sport":                         s,
+                    }
+        except Exception:
+            pass
+
         items.append(m)
 
     return {

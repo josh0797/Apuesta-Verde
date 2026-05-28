@@ -1,22 +1,26 @@
 [
   {
-    "content": "P0-A: Fix texto sport-aware en _why_safer_explanation (backend) y DashboardPage (frontend)",
+    "content": "P0-1: Mapear status LIVE para basketball y baseball",
     "status": "completed"
   },
   {
-    "content": "P0-B: Implementar sweep_expired_live en live_lifecycle scheduler",
+    "content": "P0-2: Bloquear terminología cruzada (firewall sport_vocab_guard)",
     "status": "completed"
   },
   {
-    "content": "P0-C: Validar ingest_live multi-sport (baseball/basketball) + sport gate en interpret_live",
+    "content": "P0-3: Tightening sweep_expired_live() para football",
     "status": "completed"
   },
   {
-    "content": "P2: historicalGoalProfile — últimos 15 partidos exceeded2GoalsRate / under35Rate",
+    "content": "P2-1: Enriquecimiento histórico fútbol (últimos 15 partidos) + expone historical_profile en rescue payload",
     "status": "completed"
   },
   {
-    "content": "Reportar comparativa antes/después al usuario",
-    "status": "completed"
+    "content": "Testing backend con testing_agent_v3",
+    "status": "in_progress"
+  },
+  {
+    "content": "Generar reporte ES: 'antes vs ahora'",
+    "status": "pending"
   }
 ]

@@ -183,10 +183,69 @@ async def fixtures_next_48h(sport: str, client: httpx.AsyncClient) -> list[dict]
     return res
 
 
+# Status sets used to identify in-play (live) games on the
+# basketball/baseball endpoints. API-Sports v1 for these sports does NOT
+# accept `?live=all` (returns `The Live field do not exist.`), so we
+# fetch all games for "today" and "yesterday" (to cover late starters
+# that cross midnight UTC) and filter client-side by the API's
+# `status.short` codes.
+_LIVE_STATUS_SHORT: dict[str, set[str]] = {
+    "basketball": {
+        "Q1", "Q2", "Q3", "Q4", "OT", "BT", "HT",
+        "in_play", "IN_PLAY", "LIVE",
+    },
+    "baseball": {
+        "IN1", "IN2", "IN3", "IN4", "IN5", "IN6", "IN7", "IN8", "IN9",
+        "IN10", "IN11", "IN12", "IN13", "IN14", "IN15",
+        "BT", "MID", "END", "BRK",
+        "in_play", "IN_PLAY", "LIVE",
+    },
+}
+
+
 async def fixtures_live(sport: str, client: httpx.AsyncClient) -> list[dict]:
-    path = "/fixtures" if sport == "football" else "/games"
-    data = await _get(sport, client, path, {"live": "all"})
-    return data.get("response", []) or []
+    """Return raw fixture objects that are currently in-play.
+
+    Football uses the native `/fixtures?live=all` endpoint, which is reliable.
+
+    Basketball / Baseball **do not** expose a `live` filter on API-Sports v1:
+        GET /games?live=all  →  {"errors":{"live":"The Live field do not exist."}}
+
+    Instead, we fetch the day's games (today UTC + yesterday UTC to catch
+    late starts) and filter by `status.short` against the per-sport
+    in-play set. This is the SAME data the API would return for a working
+    live endpoint, just shaped client-side.
+    """
+    if sport == "football":
+        data = await _get(sport, client, "/fixtures", {"live": "all"})
+        return data.get("response", []) or []
+
+    # Basketball / Baseball — date-window filter
+    from datetime import datetime, timezone, timedelta
+    today_utc = datetime.now(timezone.utc).date()
+    dates = [today_utc.isoformat(), (today_utc - timedelta(days=1)).isoformat()]
+    live_set = _LIVE_STATUS_SHORT.get(sport, set())
+    seen_ids: set = set()
+    live: list[dict] = []
+    for d in dates:
+        try:
+            data = await _get(sport, client, "/games", {"date": d})
+        except Exception as exc:
+            log.warning("fixtures_live[%s] date=%s failed: %s", sport, d, exc)
+            continue
+        for g in data.get("response", []) or []:
+            try:
+                gid = g.get("id")
+                if gid in seen_ids:
+                    continue
+                short = ((g.get("status") or {}).get("short") or "").strip()
+                if short in live_set:
+                    live.append(g)
+                    seen_ids.add(gid)
+            except Exception:
+                continue
+    log.info("fixtures_live[%s] dates=%s → %d live games", sport, dates, len(live))
+    return live
 
 
 async def fixture_by_id(sport: str, client: httpx.AsyncClient, fixture_id: int) -> dict | None:

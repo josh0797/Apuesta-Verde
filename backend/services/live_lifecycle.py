@@ -41,7 +41,7 @@ LIVE_STATUSES: dict[str, set[str]] = {
     "basketball": {"Q1", "Q2", "Q3", "Q4", "OT", "BT", "HT", "LIVE", "IN_PLAY", "in_play"},
     "baseball": {
         "IN1", "IN2", "IN3", "IN4", "IN5", "IN6", "IN7", "IN8", "IN9",
-        "BT", "MID", "END", "LIVE", "in_play", "IN_PLAY",
+        "BT", "MID", "END", "BRK", "LIVE", "in_play", "IN_PLAY",
         "Top 1st", "Bottom 1st", "Top 2nd", "Bottom 2nd", "Top 3rd", "Bottom 3rd",
         "Top 4th", "Bottom 4th", "Top 5th", "Bottom 5th", "Top 6th", "Bottom 6th",
         "Top 7th", "Bottom 7th", "Top 8th", "Bottom 8th", "Top 9th", "Bottom 9th",
@@ -158,8 +158,17 @@ def is_match_live(match: dict, *, now: Optional[datetime] = None) -> bool:
         if minute is not None:
             if minute >= FOOTBALL_HARD_MINUTE_CAP:
                 return False
-            # 2H + minute>=95 is "stale 90'" — the bug we're explicitly fixing.
+            # 2H + minute>=95 is "stale 90'" — historical bug we explicitly fix.
             if status == "2H" and minute >= 95:
+                return False
+            # NEW (P0-3 hardening): 2H + minute>=90 with NO recent heartbeat
+            # is effectively a ghost-FT — API-Sports dropped the match without
+            # flipping status to FT. We tighten the heartbeat threshold at
+            # end-game to 3 min (vs the regular 10 min) so these don't linger.
+            if status == "2H" and minute >= 90 and age is not None and age > 180:
+                return False
+            # ET endgame — same logic but 105' minute cap is already enforced.
+            if status == "ET" and minute >= 105 and age is not None and age > 180:
                 return False
 
     # Final defensive check on the persisted flag — if we never marked it
@@ -245,6 +254,12 @@ def compute_live_state(match: dict, *, now: Optional[datetime] = None) -> dict:
             elif status == "2H" and minute is not None and minute >= 95:
                 state = "LIVE_STALE"
                 reason = "stale 2H @ 95+ — feed not refreshing"
+                label = f"{minute}' (stale)"
+            elif status == "2H" and minute is not None and minute >= 90 and age is not None and age > 180:
+                # Ghost-FT: API dropped the match but never sent a FT update.
+                # Heartbeat age > 3 min at 90'+ → assume the match has ended.
+                state = "LIVE_STALE"
+                reason = f"ghost-FT @ 2H {minute}' (heartbeat {int(age)}s)"
                 label = f"{minute}' (stale)"
         elif sport == "basketball":
             # Basketball: use period + clock if present
