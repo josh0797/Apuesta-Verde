@@ -1,26 +1,50 @@
 [
   {
-    "content": "P0-1: Mapear status LIVE para basketball y baseball",
+    "content": "Crear estructura modular services/editorial_context/",
     "status": "completed"
   },
   {
-    "content": "P0-2: Bloquear terminología cruzada (firewall sport_vocab_guard)",
+    "content": "match_key.py: canonical_match_key normalizer",
     "status": "completed"
   },
   {
-    "content": "P0-3: Tightening sweep_expired_live() para football",
+    "content": "editorial_source_registry.py: BeSoccer + Sportytrader config",
     "status": "completed"
   },
   {
-    "content": "P2-1: Enriquecimiento histórico fútbol (últimos 15 partidos) + expone historical_profile en rescue payload",
+    "content": "editorial_signal_mapper.py: regex FACTUAL vs OPINION",
     "status": "completed"
   },
   {
-    "content": "Testing backend con testing_agent_v3",
+    "content": "editorial_normalizer.py: scoring freshness/reliability/narrative_bias",
     "status": "completed"
   },
   {
-    "content": "Generar reporte ES: 'antes vs ahora'",
+    "content": "editorial_spider_main.py: Scrapy CrawlerProcess entrypoint",
+    "status": "completed"
+  },
+  {
+    "content": "scrapy_runner.py: subprocess invoker fail-soft con timeout 25s",
+    "status": "completed"
+  },
+  {
+    "content": "editorial_context_service.py: cache 6h MongoDB + entrypoint",
+    "status": "completed"
+  },
+  {
+    "content": "moneyball_interpretation.py: editorial vs moneyball verdict",
+    "status": "completed"
+  },
+  {
+    "content": "Integración en analyst_engine (Stage 1.6 + Phase 12)",
+    "status": "completed"
+  },
+  {
+    "content": "UI block 'Contexto editorial' en MatchCard via EditorialContextPanel",
+    "status": "completed"
+  },
+  {
+    "content": "Testing backend smoke",
     "status": "in_progress"
   }
 ]

@@ -527,6 +527,37 @@ def summarize_match_for_llm(match_doc: dict) -> dict:
         # automatic linker. When present the LLM treats it as authoritative
         # over the internal Poisson xG proxy.
         "understat": match_doc.get("_understat"),
+        # Optional: P3 Editorial Context (Scrapy). Compact subset of fields
+        # the LLM should consider (motivation_notes, factual_notes,
+        # consensus_market) WITHOUT being allowed to recommend a pick
+        # purely because the editorial does. Read-only contextual hint.
+        "editorial_context": _compact_editorial_context(match_doc.get("editorial_context")),
+    }
+
+
+def _compact_editorial_context(ec: dict | None) -> dict | None:
+    """Strip the editorial context dict to the fields the LLM actually needs.
+
+    Keeps motivation_notes / risks / injury_notes / factual_notes /
+    consensus_market / scores; drops the full raw signal list and metadata
+    to save token budget.
+    """
+    if not ec or not isinstance(ec, dict) or not ec.get("available"):
+        return None
+    return {
+        "available":             True,
+        "sources_count":         ec.get("sources_count"),
+        "sources":               ec.get("sources"),
+        "consensus_market":      ec.get("consensus_market"),
+        "consensus_direction":   ec.get("consensus_direction"),
+        "motivation_notes":      (ec.get("motivation_notes") or [])[:6],
+        "factual_notes":         (ec.get("factual_notes") or [])[:6],
+        "risks":                 (ec.get("risks") or [])[:5],
+        "injury_notes":          (ec.get("injury_notes") or [])[:5],
+        "contradiction_flags":   ec.get("contradiction_flags") or [],
+        "freshness_score":       ec.get("freshness_score"),
+        "reliability_score":     ec.get("reliability_score"),
+        "narrative_bias_score":  ec.get("narrative_bias_score"),
     }
 
 

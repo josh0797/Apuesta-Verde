@@ -14,6 +14,7 @@ import { MoneyballBadge } from './MoneyballPanel';
 import { FootballQualityBadge } from './FootballQualityBadge';
 import { ProtectedMarketBadge } from './ProtectedMarketBadge';
 import { ProvenanceBadge } from './ProvenancePanel';
+import { EditorialContextPanel } from './EditorialContextPanel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -202,6 +203,13 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           </Button>
         </div>
       )}
+
+      {/* P3 — Editorial Context block (only renders when available) */}
+      <EditorialContextPanel
+        editorial={m._editorial_context}
+        interpretation={m._editorial_interpretation}
+        testId={`editorial-context-${m.match_id}`}
+      />
 
       {/* Inline drivers preview + expand */}
       {intel && (visibleDrivers.length > 0 || intel.bestFor?.length > 0) && (

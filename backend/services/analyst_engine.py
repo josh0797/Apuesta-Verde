@@ -1336,6 +1336,43 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
     if enriched_count:
         pipeline_meta["stage1_5_team_news_enriched"] = enriched_count
 
+    # ── Stage 1.6 ── P3 Editorial Context Engine (Scrapy, football only)
+    # On-demand enrichment over the shortlist (max 8 matches). Adds editorial
+    # consensus (motivation_notes, factual_notes, suggested_market) to each
+    # match payload. Fail-soft: any failure → editorial_context.available=False
+    # and analysis continues with P1+P2 data only.
+    if sport == "football":
+        try:
+            from .editorial_context import fetch_editorial_context_bulk
+            editorial_input = [
+                {
+                    "match_id":     m.get("match_id"),
+                    "sport":        "football",
+                    "home_team":    m.get("home_team") or {},
+                    "away_team":    m.get("away_team") or {},
+                    "league":       m.get("league"),
+                    "kickoff_iso":  m.get("kickoff_iso"),
+                }
+                for m in to_analyze[:8]
+            ]
+            editorial_by_id = await fetch_editorial_context_bulk(
+                editorial_input, db=db, force_refresh=False, timeout_sec=25.0,
+            )
+            attached = 0
+            for m in to_analyze:
+                mid = str(m.get("match_id"))
+                if mid in editorial_by_id:
+                    m["editorial_context"] = editorial_by_id[mid]
+                    if editorial_by_id[mid].get("available"):
+                        attached += 1
+            pipeline_meta["editorial_context_attached"] = attached
+            pipeline_meta["editorial_context_evaluated"] = len(editorial_input)
+            log.info("Analyst[football]: editorial context attached %d/%d matches",
+                     attached, len(editorial_input))
+        except Exception as exc:
+            log.warning("editorial_context Stage 1.6 failed: %s", exc)
+            pipeline_meta["editorial_context_error"] = str(exc)[:200]
+
     # ── Optional Stage 1.7 ── MLB Stats API hydration (baseball only)
     # Attaches `mlb_context` + `mlb_matchup` to each baseball match payload so
     # the LLM uses real pitcher/bullpen/batting data instead of soccer-style
@@ -1608,6 +1645,56 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         parsed["summary"] = summary_now
     except Exception as exc:
         log.warning("sport_vocab_guard failed: %s", exc)
+
+    # ── Phase 12 — Moneyball ↔ Editorial Context interpretation ─────────
+    # For every kept pick attach the "How Moneyball interprets editorial
+    # context" payload. Also attach a passive interpretation to discarded
+    # entries so the UI can render PUBLIC_NARRATIVE_RISK warnings when the
+    # press recommended a market the motor rejected.
+    if sport == "football":
+        try:
+            from .editorial_context import moneyball_interpretation as _mi
+            by_id = {m.get("match_id"): m for m in matches_payload}
+            picks_now = parsed.get("picks") or []
+            for p in picks_now:
+                mid = p.get("match_id")
+                src = by_id.get(mid) or {}
+                ed = src.get("editorial_context")
+                if ed and ed.get("available"):
+                    mb_market = (p.get("recommendation") or {}).get("market")
+                    classification = (p.get("_moneyball") or {}).get("classification") \
+                                    or (p.get("_market_edge") or {}).get("verdict")
+                    p["_editorial_interpretation"] = _mi.interpret(
+                        editorial=ed,
+                        moneyball_pick={"market": mb_market, "recommendation": p.get("recommendation")},
+                        moneyball_classification=classification,
+                    )
+                    # Mirror the available editorial context onto the pick so the
+                    # UI doesn't need to cross-reference the match document.
+                    p["_editorial_context"] = ed
+            # Also annotate discarded_market with PUBLIC_NARRATIVE_RISK when
+            # the editorial recommended that very market.
+            summary_now = parsed.get("summary") or {}
+            disc = summary_now.get("discarded_market") or []
+            for entry in disc:
+                mid = entry.get("match_id")
+                src = by_id.get(mid) or {}
+                ed = src.get("editorial_context")
+                if ed and ed.get("available"):
+                    interp = _mi.interpret(
+                        editorial=ed,
+                        moneyball_pick=None,
+                        moneyball_classification="NO_BET_VALUE",
+                    )
+                    entry["_editorial_interpretation"] = interp
+                    entry["_editorial_context"] = ed
+            parsed.setdefault("_pipeline", {})
+            parsed["_pipeline"]["editorial_interpretation"] = {
+                "picks_annotated":         sum(1 for p in picks_now if p.get("_editorial_interpretation")),
+                "discarded_annotated":     sum(1 for d in disc if d.get("_editorial_interpretation")),
+            }
+        except Exception as exc:
+            log.warning("editorial_interpretation Phase 12 failed: %s", exc)
 
 
     # Merge auto_discarded from pre-filter into the summary so the
