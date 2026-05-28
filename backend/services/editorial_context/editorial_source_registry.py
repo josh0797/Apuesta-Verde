@@ -73,13 +73,16 @@ SOURCES: list[dict[str, Any]] = [
 
     # ────────────────────────────────────────────────────────────────────────
     # 2) Sportytrader ES — dedicated to football predictions
-    #    Loose selectors so we don't break on minor template tweaks
+    #    ⚠ Datacenter IPs receive HTTP 403 from Sportytrader's CDN regardless
+    #    of UA/headers. Marked `requires_js: True` so the editorial dispatcher
+    #    routes it through Playwright (with stealth + optional residential
+    #    proxy via PLAYWRIGHT_PROXY).
     # ────────────────────────────────────────────────────────────────────────
     {
         "name":               "sportytrader_es",
         "base_url":           "https://www.sportytrader.es",
         "enabled":            True,
-        "requires_js":        False,
+        "requires_js":        True,        # ← dispatched to Playwright
         "sport":              "football",
         "country":            "ES",
         "language":           "es",
@@ -91,7 +94,6 @@ SOURCES: list[dict[str, Any]] = [
         ],
         "article_url_patterns": [
             "/pronostico",
-            "/futbol/",
         ],
         "selectors": {
             "preview_anchors": (
@@ -99,10 +101,10 @@ SOURCES: list[dict[str, Any]] = [
                 "a[href*='/pronosticos/futbol/'], "
                 "a[href*='/pronosticos-futbol/']"
             ),
-            "title":              "h1::text, h1 *::text, .article-title::text",
-            "published_at":       "time::attr(datetime), meta[property='article:published_time']::attr(content), .article-date::text",
+            "title":              "h1, h1 *, .article-title",
+            "published_at":       "time::attr(datetime), meta[property='article:published_time']::attr(content), .article-date",
             "body":               "article, .article-content, .pronostico-content, main .container, main",
-            "prediction":         ".prono-fact h2::text, .prediction h2::text, .prono h3::text",
+            "prediction":         ".prono-fact h2, .prediction h2, .prono h3",
             "suggested_market":   ".pari-recommande, .bet-recommendation, .recommendation, .prono-recommended",
             "suggested_odds":     ".odd, .cuota, .cote, span.odds",
         },
@@ -110,13 +112,13 @@ SOURCES: list[dict[str, Any]] = [
 
     # ────────────────────────────────────────────────────────────────────────
     # 3) BeSoccer ES — analysis + match preview articles
-    #    Articles live under /analisis/, /noticias/ and /match/{slug}
+    #    ⚠ HTTP 406 from Scrapy regardless of headers. Routed via Playwright.
     # ────────────────────────────────────────────────────────────────────────
     {
         "name":               "besoccer_es",
         "base_url":           "https://es.besoccer.com",
         "enabled":            True,
-        "requires_js":        False,
+        "requires_js":        True,        # ← dispatched to Playwright
         "sport":              "football",
         "country":            "ES",
         "language":           "es",
@@ -140,7 +142,7 @@ SOURCES: list[dict[str, Any]] = [
                 "a[href*='/match/'], "
                 "a[href*='/previa/']"
             ),
-            "title":              "h1::text, h1 *::text, .article-title::text",
+            "title":              "h1, h1 *, .article-title",
             "published_at":       "time::attr(datetime), meta[property='article:published_time']::attr(content)",
             "body":               "article, .article-body, .news-body, .content-body, main",
             "prediction":         ".prediction, .prono, .tipster",
@@ -173,14 +175,31 @@ SOURCES: list[dict[str, Any]] = [
             "https://www.marca.com/futbol/europa-league.html",
             "https://www.marca.com/futbol/premier-league.html",
         ],
-        # Marca uses long topic-based URLs. We filter for things that look like
-        # match-related editorial pieces (alineaciones, prevía, crónica, análisis).
+        # Marca uses long topic-based URLs. We filter for things that look
+        # like match-related editorial pieces (alineaciones, previa, crónica,
+        # análisis). NOTE: `/futbol/` is intentionally NOT in the inclusion
+        # list — it would match every Marca football article including
+        # transfer news. The narrow patterns below are what discriminate true
+        # match-preview / post-match articles.
         "article_url_patterns": [
-            "/futbol/",
             "alineaciones-probables",
-            "previa",
-            "cronica",
-            "analisis",
+            "/cronica/",
+            "/previa/",
+            "/analisis/",
+        ],
+        # Even when an anchor matches the inclusion list above, drop it if its
+        # URL contains any of these substrings — those are usually live news
+        # tickers, transfer-market round-ups, opinion pieces or podcasts that
+        # mention multiple teams in passing and would otherwise pass the
+        # team-pair semantic filter.
+        "article_url_exclude_patterns": [
+            "-directo.html",
+            "mercado-fichajes",
+            "/opinion/",
+            "/podcast/",
+            "/album/",
+            "/video/",
+            "/programacion-tv/",
         ],
         "selectors": {
             "preview_anchors": (

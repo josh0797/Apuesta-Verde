@@ -164,6 +164,7 @@ class EditorialSpider(scrapy.Spider):
         self._sources    = self._payload.get("sources") or []
         self._timeout    = float(self._payload.get("timeout_sec") or 25.0)
         self._visited:   set[str] = set()
+        self._emitted:   set[tuple] = set()    # dedupe key set for emitted items
 
     # ── entry point ──────────────────────────────────────────────────
     # Scrapy 2.13+ deprecated synchronous start_requests() in favour of
@@ -217,17 +218,27 @@ class EditorialSpider(scrapy.Spider):
             return
 
         url_patterns = [p.lower() for p in (source.get("article_url_patterns") or [])]
+        url_excludes = [p.lower() for p in (source.get("article_url_exclude_patterns") or [])]
         wanted: list[tuple[str, dict]] = []
         for link in links:
             anchor = (link.text or "") + " " + link.url
+            lower_url = link.url.lower()
             # Source-level URL filter: drop anchors whose URL doesn't match
             # one of the registry's article_url_patterns. This is critical for
             # news-heavy sites like Marca where most index anchors are general
             # news, not match-preview articles.
             if url_patterns:
-                lower_url = link.url.lower()
                 if not any(p in lower_url for p in url_patterns):
                     continue
+            # Source-level URL exclusion (added P3.1): even when an anchor
+            # matches the inclusion list, drop it when it contains any
+            # excluded substring. Used to reject Marca's live-feed tickers
+            # (`-directo.html`), transfer-market roundups (`mercado-fichajes`),
+            # opinion columns, podcasts, etc., which can fool the
+            # `_article_matches_pair` heuristic when they mention both team
+            # names in passing.
+            if url_excludes and any(p in lower_url for p in url_excludes):
+                continue
             for m in self._matches:
                 if _article_matches_pair(anchor, m.get("home", ""), m.get("away", "")):
                     if link.url not in self._visited:
@@ -280,6 +291,19 @@ class EditorialSpider(scrapy.Spider):
                 "scraped_at":     _now_iso(),
                 "_match_payload": match_info,
             }
+            # Strict per-URL dedupe at the item level: even when Scrapy's
+            # LinkExtractor or a redirect chain surfaces the same article
+            # twice (different anchors → same canonical URL), we only emit
+            # it once per spider run.
+            dup_key = (
+                source.get("name"),
+                response.url,
+                (match_info.get("home") or "").lower(),
+                (match_info.get("away") or "").lower(),
+            )
+            if dup_key in self._emitted:
+                return
+            self._emitted.add(dup_key)
             self._items.append(item)
             log.info("[SCRAPY_EDITORIAL_SOURCE_OK] %s captured %s",
                      source.get("name"), response.url)

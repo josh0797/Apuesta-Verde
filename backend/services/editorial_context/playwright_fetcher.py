@@ -62,7 +62,15 @@ _MAX_ARTICLES_PER_SOURCE = 12
 _INDEX_NAV_TIMEOUT_MS    = 30_000
 _ARTICLE_NAV_TIMEOUT_MS  = 20_000
 _CHALLENGE_MAX_WAIT_SEC  = 12
-_BLOCKED_TITLE_HINTS = ("un momento", "just a moment", "checking your browser")
+_BLOCKED_TITLE_HINTS = (
+    "un momento",
+    "just a moment",
+    "checking your browser",
+    "client challenge",          # PerimeterX / Akamai (BeSoccer)
+    "access denied",
+    "attention required",        # Cloudflare classic block
+    "verifying you are human",   # Cloudflare Turnstile
+)
 
 # Block heavy assets to keep memory + latency reasonable in subprocess.
 _ABORT_RESOURCE_TYPES = {"image", "font", "media", "stylesheet"}
@@ -259,6 +267,7 @@ async def _fetch_source(
     selectors = source.get("selectors") or {}
     anchor_css = selectors.get("preview_anchors") or "a"
     url_patterns = [p_.lower() for p_ in (source.get("article_url_patterns") or [])]
+    url_excludes = [p_.lower() for p_ in (source.get("article_url_exclude_patterns") or [])]
 
     browser = None
     try:
@@ -304,6 +313,8 @@ async def _fetch_source(
                 if url_patterns:
                     if not any(p_ in href.lower() for p_ in url_patterns):
                         continue
+                if url_excludes and any(p_ in href.lower() for p_ in url_excludes):
+                    continue
                 ctx_text = href + " " + (text or "")
                 for m in matches:
                     if _article_matches_pair(ctx_text, m.get("home"), m.get("away")):
