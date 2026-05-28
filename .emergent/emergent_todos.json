@@ -44,7 +44,7 @@
     "status": "completed"
   },
   {
-    "content": "Testing backend smoke",
-    "status": "in_progress"
+    "content": "Testing backend smoke (14/14 PASS)",
+    "status": "completed"
   }
 ]

@@ -1,4 +1,4 @@
-# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening (ACTUALIZADO)
+# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening + P3 Editorial Context (ACTUALIZADO)
 
 ## 1) Objectives
 - Reducir **falsos descartes**: no tratar igual todo edge negativo; permitir **tolerancia contextual** en mercados protegidos.
@@ -7,11 +7,21 @@
 - Añadir **rescate de mercados alternativos** antes de descartar un partido (sin inventar valor).
 - Mantener compatibilidad: endpoints existentes, `_market_edge`, payloads legacy y narrativa ES. **No tocar** `asyncio.wait_for(timeout=3.0)`.
 - Hardening de pipeline: evitar bloqueos en `stage=enriching` (Understat/externos) con timeouts + degradación elegante.
-- **(NUEVO ✅)** Robustez multi-deporte en LIVE:
+
+- **(✅ COMPLETADO)** Robustez multi-deporte en LIVE:
   - Detectar correctamente partidos LIVE en **basketball/baseball** (API-Sports v1 no soporta `live=all`).
   - Evitar “zombies LIVE” en fútbol (partidos terminados mostrados como LIVE).
   - Firewall de vocabulario para impedir **fugas de terminología** entre deportes.
-- **(NUEVO ✅)** Enriquecimiento histórico fútbol (últimos 15): mejorar explicabilidad y señales para rescate Under (perfil histórico).
+
+- **(✅ COMPLETADO)** Enriquecimiento histórico fútbol (últimos 15): mejorar explicabilidad y señales para rescate Under (perfil histórico).
+
+- **(✅ COMPLETADO)** **P3 — Editorial Context Engine (Scrapy)**:
+  - Añadir una capa opcional y **fail-soft** de enriquecimiento editorial profundo (previas, predicciones y contexto) **solo para fútbol** y **solo para matches shortlisteados**.
+  - No reemplazar Crawlee ni scrapers actuales: Scrapy **complementa** el stack existente.
+  - Separar **dato vs opinión** (heurístico por regex) y adjuntar interpretación de Moneyball (PUBLIC_NARRATIVE_RISK, alineación, warnings).
+  - Exponer en UI el bloque “Contexto editorial” en el detalle del partido.
+
+---
 
 ## 2) Implementation Steps
 
@@ -29,19 +39,7 @@
 
 **Entregables (Phase 1)**
 1. ✅ `/app/backend/services/market_tolerance.py`
-   - `classify_market_tolerance(market, selection, decimal_odds)` → aggressive|balanced|protected|unknown
-   - `tolerance_params(category)`
-   - Excepción **Moneyline favorito** (cuota corta) ⇒ agresivo
-2. ✅ `/app/backend/services/moneyball_layer.py` (refactor)
-   - `detect_trap_signals_structured()` devuelve `list[dict]` con `code/label/severity/explanation`
-   - `TRAP_CATALOG` con **16 códigos canónicos**
-   - `classify_pick()` con reglas contextuales por categoría:
-     - AGGRESSIVE: edge<0 ⇒ descartar
-     - PROTECTED: tolera hasta -1.5% con fragility<=45, confidence>=68, traps<=1
-     - BALANCED: zona watchlist (-1% a +1.5%)
-   - Nuevos verdicts: `PROTECTED_ACCEPTABLE`, `WATCHLIST`
-   - Back-compat: `market_trap_signals` (strings) se mantiene
-   - `apply_moneyball_layer()` crea buckets: `summary.protected_acceptable`, `summary.watchlist`
+2. ✅ `/app/backend/services/moneyball_layer.py` (refactor + catálogo trap + clasificación contextual)
 3. ✅ Validación POC sintética: **7/7 assertions passed**
 
 ---
@@ -58,21 +56,8 @@
 
 **Backend (V1) — entregables**
 1. ✅ `/app/backend/services/alternative_rescue.py`
-   - `attempt_alternative_market_rescue(match, sport, base_confidence, why_direct_failed, original_pick_side=None)`
-   - Guardrails:
-     - Solo mercados `PROTECTED` (tolerance model)
-     - Por defecto rescate **no-direccional** (totales) para evitar invertir el lado
-     - `original_pick_side` habilita rescates direccionales solo si coincide
-   - Football: delega a `scan_protected_alternatives` (Poisson + H2H)
-   - Basketball/Baseball: candidatos protegidos conservadores
-2. ✅ `analyst_engine.py`
-   - Añadida **Phase 10 Universal Rescue** sobre `summary.discarded_market`
-   - Mueve a `summary.rescued_picks` o `summary.watchlist`
-   - Reconciliación final actualizada con conteos: `total_rescued`, `total_watchlist`, `total_protected_acceptable`
+2. ✅ `analyst_engine.py` (Phase 10 Universal Rescue)
 3. ✅ Compatibilidad preservada
-   - `_market_edge` intacto
-   - Endpoints existentes sin cambios
-   - `asyncio.wait_for(timeout=3.0)` intacto
 
 ---
 
@@ -81,12 +66,7 @@
 
 **Frontend (V1) — entregables**
 1. ✅ `/app/frontend/src/pages/DashboardPage.jsx`
-   - `DiscardedRow` expandible (▼): trapSignals estructuradas + fragility
-   - `RescuedRow` (verde): `whyDirectMarketsFailed` + `whyThisMarketIsSafer`
-   - `WatchlistRow` (ámbar)
-   - `FragilityChip` (semáforo por score)
-   - Nuevas secciones: `rescued`, `protected-acceptable`, `watchlist`
-   - Empty state mejorado
+   - DiscardedRow expandible, RescuedRow, WatchlistRow, FragilityChip, nuevas secciones.
 2. ✅ Lint / build OK
 3. ✅ Screenshots verificados
 
@@ -99,64 +79,92 @@
 
 #### 4.1 P0-1 — LIVE basketball/baseball no detectaba partidos
 **Estado:** ✅ COMPLETADO
-
-**Problema:** API-Sports v1 para basketball/baseball no soporta `?live=all` (retorna error `The Live field do not exist.`) ⇒ `ingest_live()` traía 0.
-
-**Cambio implementado**
 - ✅ `/app/backend/services/api_sports.py`
   - `fixtures_live(sport)`:
-    - Football sigue con `/fixtures?live=all`.
-    - Basketball/Baseball ahora hace fetch por fechas: `/games?date=today_utc` + `/games?date=yesterday_utc` y filtra por `status.short` en sets `_LIVE_STATUS_SHORT`.
-
-**Resultado:** `/api/matches/live?sport=basketball|baseball` vuelve a listar partidos LIVE.
+    - Football: `/fixtures?live=all`
+    - Basketball/Baseball: `/games?date=today_utc` + `/games?date=yesterday_utc` + filtro por `status.short`
 
 #### 4.2 P0-3 — Fútbol mostraba partidos terminados como LIVE (zombies)
 **Estado:** ✅ COMPLETADO
-
-**Cambio implementado**
 - ✅ `/app/backend/services/live_lifecycle.py`
-  - Endgame tightening: `2H` y `minute>=90` con `heartbeat_age>180s` ⇒ se considera stale (“ghost-FT”).
-  - Se añade motivo explícito en `compute_live_state()`.
-  - Se añadió `BRK` a `LIVE_STATUSES['baseball']`.
-
-**Resultado:** `/api/matches/live?sport=football` deja de mostrar FT/90’ colgados; se archivan via sweeper.
+  - `2H` y `minute>=90` con `heartbeat_age>180s` ⇒ stale (“ghost-FT”).
+  - Motivo explícito en `compute_live_state()`.
+  - Añadido `BRK` a `LIVE_STATUSES['baseball']`.
 
 #### 4.3 P0-2 — Sport Routing & Terminology Leakage
 **Estado:** ✅ COMPLETADO
-
-**Problema:** picks/explicaciones de MLB/NBA usando vocabulario de fútbol (“goles”, “córners”, “BTTS”), y riesgo de regresiones futuras.
-
-**Cambio implementado**
 - ✅ `/app/backend/services/sport_vocab_guard.py` (NUEVO)
-  - Firewall estricto por deporte (regex). Si detecta vocabulario prohibido:
-    - Re-rutea picks contaminados a `summary.discarded_market` con razón `SPORT_VOCAB_LEAK`.
-    - Añade auditoría `_pipeline.sport_vocab_guard`.
-- ✅ Integración en pipeline:
-  - `analyst_engine.py` **Phase 11**: aplica firewall a `picks` y también limpia `rescued_picks/watchlist/protected_acceptable`.
-  - `server.py` `/api/matches/live`: defensa final que nulifica/etiqueta `_live_interpreter` si detecta fuga.
-
-**Resultado:** imposible (por diseño) que MLB/NBA vuelvan a mostrar “goles/córners”; se descarta o bloquea el payload.
+  - Firewall por deporte: reroute a `discarded_market` con `SPORT_VOCAB_LEAK`.
+- ✅ Integración:
+  - `analyst_engine.py` Phase 11
+  - `server.py` `/api/matches/live` defensa final
 
 #### 4.4 P2-1 — Enriquecimiento histórico fútbol (últimos 15)
 **Estado:** ✅ COMPLETADO
-
-**Cambio implementado**
-- ✅ `data_ingestion._enrich_football(deep=True)`
-  - Fetch de `fixtures_last_n(n=15)` para home/away.
-  - `normalizer.normalize_recent_fixtures()` genera `historical_goal_profile`:
-    - `under_3_5_rate`, `under_2_5_rate`, `team_exceeded_2_goals_rate`, `trend_summary`, etc.
-- ✅ `under_market_scan.py`: usa `historical_goal_profile` para boost y reasons.
-- ✅ `alternative_rescue.py`: expone `historical_profile` (home/away) directamente en el payload de rescate.
-
-**Resultado:** rescates Under muestran explicación más transparente y trazable (tendencia últimos 15).
+- ✅ `data_ingestion._enrich_football(deep=True)` + `fixtures_last_n(n=15)`
+- ✅ `normalizer.normalize_recent_fixtures()` crea `historical_goal_profile`
+- ✅ `under_market_scan.py` usa `historical_goal_profile` para boost y reasons
+- ✅ `alternative_rescue.py` expone `historical_profile` en rescate
 
 #### 4.5 Testing
 **Estado:** ✅ COMPLETADO
 - ✅ Reporte: `/app/test_reports/iteration_24.json`
-  - LIVE basketball: detecta 6 (en el momento de test)
-  - LIVE baseball: detecta 8 (en el momento de test)
-  - Football stale: archiva 35 zombies
-  - Firewall vocabulario: unit tests + integración OK
+
+---
+
+### Phase 5 — P3 Editorial Context Engine (Scrapy)
+**Estado:** ✅ COMPLETADO
+
+**Propósito:** añadir contexto editorial profundo (motivación real, objetivos, bajas, rotaciones, predicción editorial, riesgos) como capa P3 opcional **solo para fútbol** y **solo para matches shortlisteados**.
+
+**Arquitectura implementada**
+- ✅ Nuevo módulo: `/app/backend/services/editorial_context/`
+  - `match_key.py`: `canonical_match_key()` + normalización de equipos
+  - `editorial_source_registry.py`: registry de fuentes (Sportytrader ES + BeSoccer ES)
+  - `editorial_signal_mapper.py`: clasificador heurístico (regex) + extractores (score/market)
+  - `editorial_normalizer.py`: normalización + scoring
+    - `freshness_score` (24h/48h/72h)
+    - `reliability_score` (baseline por fuente + bonus)
+    - `narrative_bias_score` (detección hype)
+    - `build_consensus()` (consenso por match)
+  - `editorial_spider_main.py`: Scrapy spider entrypoint (crawler process)
+  - `scrapy_runner.py`: ejecución **subprocess** (Twisted aislado, timeout, fail-soft)
+  - `editorial_context_service.py`:
+    - cache MongoDB (`editorial_context_signals`)
+    - TTL lógico 6h por match_key
+    - feature flag `EDITORIAL_CONTEXT_ENABLED`
+  - `moneyball_interpretation.py`: “How Moneyball interprets editorial context”
+
+**Integración en el pipeline**
+- ✅ `analyst_engine.py`
+  - Stage 1.6: `fetch_editorial_context_bulk()` sobre shortlist (máx 8) → adjunta `match.editorial_context`
+  - Phase 12: adjunta `_editorial_context` + `_editorial_interpretation` a:
+    - picks kept
+    - `summary.discarded_market` (warnings de narrativa)
+- ✅ `normalizer.summarize_match_for_llm()`
+  - añade `editorial_context` compacto al payload LLM (solo campos esenciales, sin inflar tokens)
+
+**UI**
+- ✅ Nuevo componente: `/app/frontend/src/components/EditorialContextPanel.jsx`
+- ✅ Integrado en `/app/frontend/src/components/MatchCard.jsx`
+  - bloque colapsable “Contexto editorial”
+  - muestra fuentes, mercado consenso, notas de motivación/factual, bajas, riesgos
+  - muestra “Lectura del motor” con flags `PUBLIC_NARRATIVE_RISK` / sesgo
+
+**No reemplazar stack actual (cumplido)**
+- Crawlee y scrapers existentes permanecen intactos.
+- Scrapy es P3 complementario; si falla o devuelve 0 items:
+  - no rompe análisis
+  - retorna `available=false`
+  - logs `[SCRAPY_EDITORIAL_*]`
+
+**Testing**
+- ✅ Reporte: `/app/test_reports/iteration_25.json` — **14/14 tests passed**
+  - imports OK
+  - señalización heurística OK
+  - subprocess OK
+  - env flag OK
+  - regresión LIVE + pipeline OK
 
 ---
 
@@ -164,41 +172,47 @@
 
 ### A) Hardening de enrichment (P1)
 **Motivo:** se observó que una generación puede quedarse en `stage=enriching` (scraping/Understat).
-
 1. Timeouts agresivos + fallback en enrichment Understat (2–4s).
 2. Telemetría: tiempos por etapa + ratio de fallos.
 3. Job progress reliability: `/api/analysis/jobs/{job_id}` status monotónico.
 
-### B) Regeneración de datos (P1)
-1. Ejecutar run desde UI o API:
-   - `POST /api/analysis/run` con `{sport, max_matches, background:true, force:true}`
-2. Validar en `/api/picks/today`:
-   - `summary.rescued_picks`, `summary.watchlist`, `summary.protected_acceptable`
-   - `total_rescued`, `total_watchlist`, `total_protected_acceptable`
-   - `_pipeline.sport_vocab_guard` presente
+### B) Refinamiento P3 Editorial (P1/P2)
+1. Mejorar cobertura de scraping:
+   - Añadir endpoints/paths adicionales dentro de Sportytrader/BeSoccer
+   - Ajustar selectores en el registry sin tocar spider.
+2. Mejorar `sourceReliabilityScore` con histórico interno (accuracy tracking).
+3. Añadir `contradiction_flags` más ricos:
+   - contradicción motivación vs standings
+   - contradicción forma reciente vs narrativa
+4. Persistencia avanzada:
+   - TTL real por tipo (pre-match 7 días vs live 24h) si se amplía a live.
 
-### C) Refinamiento (P2)
-1. Expandir alias de mercados multi-sport sin sobre-ingeniería.
-2. Ajustar severidades/códigos trap según feedback real.
-3. Mejorar `whyThisMarketIsSafer` con ejemplos por deporte.
+### C) Scraper resiliency (P2)
+- Proxies residenciales para Sofascore fallback (bloqueado por credenciales).
 
-### D) Scrapy integration (P2 — pendiente)
-- Migrar scraping a Scrapy (según solicitud), manteniendo Understat via XHR JSON como baseline.
-- Plan de proxies residenciales para Sofascore fallback (bloqueado por credenciales).
+---
 
 ## 4) Success Criteria
 - Aparición de resultados en **Protected acceptable** y/o **Watchlist** cuando corresponde (sin inventar valor).
 - `Moneyline favorito` con edge negativo sigue siendo `NO_BET_VALUE`.
 - Descartados muestran: mensaje humano + señales trampa + fragility.
 - Rescatados muestran: por qué falló el directo + por qué el protegido es más seguro.
+
 - LIVE multi-deporte estable:
   - Basketball/Baseball: LIVE detectado sin depender de `live=all`.
   - Fútbol: no se muestran FT/90’ zombies; sweeper archiva.
   - Firewall vocabulario: no hay “goles/córners” fuera de fútbol.
+
+- P3 Editorial Context:
+  - Se adjunta `editorial_context` a matches shortlisteados cuando hay contenido.
+  - `available=false` y pipeline intacto cuando Scrapy no encuentra señales.
+  - UI muestra “Contexto editorial” con fuentes/fecha/argumentos/riesgos.
+  - Moneyball nunca recomienda “a ciegas”: si editorial sugiere mercado pero Moneyball no ve edge → `PUBLIC_NARRATIVE_RISK`.
+
 - No regresiones:
   - endpoints existentes responden
   - `_market_edge` no cambia
   - `asyncio.wait_for(timeout=3.0)` intacto
   - narrativa ES intacta
 - Hardening:
-  - ningún job queda colgado en `enriching`; si falla Understat, el pipeline termina con degradación elegante.
+  - ningún job queda colgado en `enriching`; si falla Understat o Scrapy, el pipeline termina con degradación elegante.
