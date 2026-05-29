@@ -39,6 +39,13 @@ from .mlb_pregame_analytics import (
     mlb_starter_lineup_under_profile,
     emit_signals,
 )
+# MLB Margin & Total Script Engine v2 — only used inside MLB orchestrator
+# (sport=baseball). Football/basketball pipelines never import this layer.
+from .mlb_pregame_analytics_v2 import (
+    build_v2_payload as _v2_build_payload,
+    emit_v2_signals as _v2_emit_signals,
+    mlb_parlay_builder as _v2_mlb_parlay_builder,
+)
 
 log = logging.getLogger("mlb_day_orchestrator")
 
@@ -613,6 +620,16 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 "home_pitcher": home_p.get("_savant_url"),
                 "away_pitcher": away_p.get("_savant_url"),
             },
+            # MLB-V2 additions: favourite-side identification + bullpen/lineup
+            # context used by run_line_dominance_model and same_game_correlation.
+            "favorite_side":              "home" if favorite_is_home else "away",
+            "favorite_team":              (conf.get("home_team_name") if favorite_is_home else conf.get("away_team_name")),
+            "underdog_bullpen_era_7d":    float((a_bullpen_usage if favorite_is_home else h_bullpen_usage).get("bullpen_era_7d") or 0),
+            "favorite_margin_profile":    conf.get("favorite_margin_profile") or {},
+            "underdog_margin_profile":    conf.get("underdog_margin_profile") or {},
+            "lineup_status":              (conf.get("_external_rescue") or {}).get("lineup_status") or ("confirmed" if (conf.get("home_pitcher_name") and conf.get("away_pitcher_name")) else "missing"),
+            "home_lineup":                conf.get("home_lineup") or [],
+            "away_lineup":                conf.get("away_lineup") or [],
         }
         run_line   = run_line_predictor(scoring_ctx)
         over_under = over_under_predictor(scoring_ctx, conf.get("book_total"))
@@ -621,6 +638,24 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         # starters are solid and lineups don't project explosion, the
         # natural market is Under — not Run Line or Moneyline.
         under_profile = mlb_starter_lineup_under_profile(scoring_ctx, conf.get("book_total"))
+        # MLB Margin & Total Script Engine v2 — composed from v1 outputs.
+        # Active ONLY inside this baseball orchestrator. Adds:
+        #   • marginProjection / coverProbability / runLineScore (Run Line -1.5)
+        #   • bestLine / safeLine / aggressiveLine / lineSafetyScore (Over/Under)
+        #   • sameGameCorrelation + pickType classification
+        # Builds the per-game `_mlb_script_v2` payload attached to each pick.
+        scoring_ctx["under_profile"] = under_profile
+        try:
+            v2_payload = _v2_build_payload(
+                scoring_ctx,
+                expected_runs=over_under.get("expected_runs"),
+                run_line_v1=run_line,
+                over_under_v1=over_under,
+                book_total=conf.get("book_total"),
+            )
+        except Exception as exc:
+            log.warning("v2 build_v2_payload failed for game %s: %s", conf.get("game_pk"), exc)
+            v2_payload = {}
         rescue     = mlb_alternative_rescue(scoring_ctx, run_line, over_under, nrfi)
 
         frag = mlb_fragility_score(scoring_ctx)
@@ -689,6 +724,17 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             "rescued_candidates": rescue.get("candidates") or [],
         }
         signals = emit_signals(scoring_ctx, parts, source_url=statsapi_url)
+        # v2 signals: RUN_LINE_MARGIN_EDGE, SMART_OVER_LINE_SELECTED,
+        # STRONG_STARTING_PITCHER_EDGE, PITCHER_MISMATCH_DETECTED,
+        # LINEUP_VS_PITCHER_EDGE, SAME_GAME_CORRELATED_PAIR.
+        try:
+            v2_signals = _v2_emit_signals(v2_payload or {})
+            for s in v2_signals:
+                s.setdefault("source_url", statsapi_url)
+                s.setdefault("source", "MLB Stats API + v2 analytics")
+            signals.extend(v2_signals)
+        except Exception as exc:
+            log.debug("v2 emit_v2_signals failed: %s", exc)
         # Inject the Under-profile editorial signals so the UI sees the
         # exact codes the user listed (STRONG_STARTING_PITCHER_PROFILE,
         # UNDER_TREND_DETECTED, etc.). The codes come from the catalog so
@@ -812,7 +858,27 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 "conflict":          bool(ext_rescue.get("conflict")),
                 "rescued":           bool(ext_rescue),
             },
+            # MLB Margin & Total Script Engine v2 payload — only for baseball.
+            # Consumed by the frontend MLBScriptPanel (sport === "baseball").
+            "_mlb_script_v2":  v2_payload or {},
+            "sport":           "baseball",
         }
+
+        # Storage hook (P1 minimal — feedback loop full recalibration → P2).
+        # Persist the v2 fields directly on the pick_payload so they survive
+        # round-trips to /api/mlb/day responses + DB upserts downstream.
+        if v2_payload:
+            pick_payload["margin_v2"] = {
+                "marginProjection":  v2_payload.get("marginProjection"),
+                "coverProbability":  v2_payload.get("coverProbability"),
+                "runLineScore":      v2_payload.get("runLineScore"),
+                "expectedRuns":      v2_payload.get("expectedRuns"),
+                "recommendedLine":   v2_payload.get("recommendedLine"),
+                "lineSafetyScore":   v2_payload.get("lineSafetyScore"),
+                "pickType":          v2_payload.get("pickType"),
+                "sameGameCorrelation": v2_payload.get("sameGameCorrelation"),
+                "result_placeholder": None,   # populated by feedback loop in P2
+            }
 
         if chosen_market and best_score >= 72:
             pick_payload["recommendation"] = chosen_market
@@ -856,9 +922,9 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
 
     # ── Parlay builder + correlation validator ──────────────────────────
     # Combine picks + rescued (max_size=4 per user spec) and run the
-    # correlation validator. The result is attached as `parlay_suggested`.
+    # MLB-only parlay builder (v2). The generic parlay_builder remains
+    # untouched for football/basketball orchestrators.
     try:
-        from .parlay_correlation_validator import parlay_builder
         # Each pick payload needs `home_team`, `away_team`, `venue`,
         # weather tags for the validator. Inject them from the
         # confirmation block.
@@ -872,17 +938,19 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                              (p.get("all_components") or {}).get("park", {}).get("tags") or [])
                 p.setdefault("pitcher_home_id", conf.get("home_pitcher_id"))
                 p.setdefault("pitcher_away_id", conf.get("away_pitcher_id"))
-        parlay = parlay_builder(picks + rescued, max_size=4, min_score=60)
-        pipeline_meta["parlay_built"] = bool(parlay.get("parlay"))
+                p.setdefault("sport", "baseball")
+        parlay = _v2_mlb_parlay_builder(picks + rescued, max_size=4, min_correlation=60)
+        pipeline_meta["parlay_built"] = bool(parlay.get("picks"))
+        pipeline_meta["parlay_type"]  = parlay.get("parlayType")
     except Exception as exc:
-        log.warning("parlay_builder failed: %s", exc)
-        parlay = {"parlay": [], "validator": {"correlation_score": 100,
-                                                "risk_level": "LOW",
-                                                "positive_correlations": [],
-                                                "negative_correlations": [],
-                                                "warnings": [],
-                                                "recommended_adjustments": []},
-                  "combined_score": 0, "size": 0, "rejected_count": 0}
+        log.warning("mlb_parlay_builder failed: %s", exc)
+        parlay = {"parlayType": "MLB_ONLY", "picks": [], "size": 0,
+                  "correlationScore": 0, "averagePickScore": 0,
+                  "averageFragility": 100, "pitcherConfidence": 0,
+                  "finalParlayScore": 0, "estimatedOdds": "",
+                  "riskLevel": "HIGH", "whyThisParlayWorks": [],
+                  "whyThisParlayCanFail": [f"parlay_builder_error: {exc}"],
+                  "rejected_reasons": []}
 
     return {
         "picks":            picks,
@@ -902,13 +970,13 @@ def _empty_payload(pipeline_meta: dict) -> dict:
         "discarded_picks":  [],
         "fragility_scores": {},
         "editorial_context_signals_by_game": {},
-        "parlay_suggested": {"parlay": [], "validator": {"correlation_score": 100,
-                                                          "risk_level": "LOW",
-                                                          "positive_correlations": [],
-                                                          "negative_correlations": [],
-                                                          "warnings": [],
-                                                          "recommended_adjustments": []},
-                              "combined_score": 0, "size": 0, "rejected_count": 0},
+        "parlay_suggested": {"parlayType": "MLB_ONLY", "picks": [], "size": 0,
+                              "correlationScore": 0, "averagePickScore": 0,
+                              "averageFragility": 100, "pitcherConfidence": 0,
+                              "finalParlayScore": 0, "estimatedOdds": "",
+                              "riskLevel": "HIGH", "whyThisParlayWorks": [],
+                              "whyThisParlayCanFail": [],
+                              "rejected_reasons": []},
         "pipeline_meta":    pipeline_meta,
     }
 

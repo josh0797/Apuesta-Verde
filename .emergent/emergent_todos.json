@@ -1,18 +1,22 @@
 [
   {
-    "content": "Create basketball_rescue.py orchestrator wiring sofascore + flashscore",
+    "content": "Phase MLB-V2.1 — Create mlb_pregame_analytics_v2.py with 7 v2 functions",
     "status": "completed"
   },
   {
-    "content": "Add ingest_basketball_sofascore_fallback to data_ingestion.py (tertiary ingestion)",
+    "content": "Phase MLB-V2.2 — Add new signal codes to signal_catalog.py",
     "status": "completed"
   },
   {
-    "content": "Wire basketball_rescue + sofascore fallback into server.py pipeline_meta",
+    "content": "Phase MLB-V2.2 — Wire v2 into mlb_day_orchestrator.py (script payload + parlay swap)",
     "status": "completed"
   },
   {
-    "content": "Test integration via testing_agent_v3 (backend)",
+    "content": "Phase MLB-V2.3 — Create MLBScriptPanel.jsx and mount in MatchCard.jsx (baseball-only)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase MLB-V2.4 — Backend testing via testing_agent_v3",
     "status": "in_progress"
   }
 ]

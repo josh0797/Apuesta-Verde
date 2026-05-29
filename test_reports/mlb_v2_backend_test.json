@@ -1,0 +1,70 @@
+{
+  "test_suite": "MLB v2 Backend Tests",
+  "timestamp": "2026-05-29T20:56:19.242548",
+  "total_tests": 12,
+  "passed": 12,
+  "failed": 0,
+  "success_rate": "100.0%",
+  "results": [
+    {
+      "test": "Authentication",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "Import Sanity",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "favorite_margin_profile",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "run_line_dominance_model",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "smart_total_line_selector",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "pitcher_centered_evaluation",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "same_game_correlation_rule",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "classify_pick_type",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "mlb_parlay_builder",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "Signal Catalog Sport Filtering",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB Day Orchestrator Integration",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "Basketball Regression",
+      "status": "PASS",
+      "error": null
+    }
+  ]
+}

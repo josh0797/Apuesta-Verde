@@ -19,6 +19,7 @@ import { HistoricalProfilePanel } from './HistoricalProfilePanel';
 import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
+import { MLBScriptPanel } from './MLBScriptPanel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -272,6 +273,20 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
         sport={m.baseballHistoricalProfile ? 'baseball' : 'basketball'}
         testId={`historical-profile-${m.match_id}`}
       />
+
+      {/* MLB Margin & Total Script Engine v2 — baseball-only.
+          Renders the per-pick `_mlb_script_v2` payload (margin projection,
+          cover probability, smart total line, same-game correlation, pick
+          type, reasons & risks). Strictly gated by `sport === "baseball"`
+          per the user requirement: basketball/football pickcards must NOT
+          change. */}
+      {sport === 'baseball' && (m._mlb_script_v2 || m.margin_v2) ? (
+        <MLBScriptPanel
+          scriptV2={m._mlb_script_v2 || {}}
+          parlay={m._mlb_parlay_context || null}
+          testId={`mlb-script-${m.match_id}`}
+        />
+      ) : null}
 
       {/* Inline drivers preview + expand */}
       {intel && (visibleDrivers.length > 0 || intel.bestFor?.length > 0) && (
