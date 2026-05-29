@@ -90,6 +90,29 @@
 
 ---
 
+## Phase G2 — Baseball Savant + Parlay Correlation Validator
+**Estado:** ✅ COMPLETADO (2026-05-29)
+
+### G2A — Enrichment Layer
+- `services/baseball_savant.py` — `fetch_pitcher_savant(player_id, season, db)` consume CSV de baseballsavant.mlb.com (xera/fip/xfip/hard_hit/barrel/exit_velocity). `enrich_pitcher_dict(p, db)` merge fail-soft. Cache 24h.
+- `services/mlb_team_stats.py` — `get_team_hand_splits(db, team_id)` (vs LHP/RHP via MLB Stats API statSplits) + `get_team_bullpen_usage(db, team_id, days=7)` (innings_last_48h/3d/7d + bullpen_era_7d desde gameLogs). Cache 30min. Cada uno expone `_source_url` literal.
+- `mlb_day_orchestrator.py` — enriquecimiento **paralelo** (asyncio.gather con 6s wait_for por task). `MAX_GAMES_PER_CALL=8` para no exceder ingress 60s. Cada pick carga `per_source_urls` con TODAS las URLs de fuentes. Signals re-tageados: PITCHER_OVERPERFORMING/UNDERVALUED → savant URL; BULLPEN_FATIGUE_SIGNAL → gameLog URL.
+
+### G2B — Parlay Correlation Validator
+- `services/parlay_correlation_validator.py` — función pura `correlation_validator(picks)` con reglas:
+  - **Positivas:** Run Line + Over mismo juego (+12), Run Line + Team Total Over mismo equipo (+10), NRFI + Under (+5), NRFI + F5 Under (+8).
+  - **Negativas:** Run Line + Under tight (-12), Run Line favorito + Team Total Under mismo equipo (-20 contradicción), mismo pitcher (-6), mismo estadio (-5), mismo equipo (-4), 2 Overs comparten weather tag (-7).
+  - **Concentración:** ≥3 Overs/Unders warning, 2+ picks mismo juego warning, repeats de estadio -3.
+  - Output: correlation_score 0-100, risk_level LOW/MEDIUM/HIGH, positive[], negative[], warnings[], recommended_adjustments[].
+- `parlay_builder(picks, max_size=4, min_score=60)` — enumera combinaciones top10 candidates, descarta HIGH risk, ranking combined = indiv×0.6 + corr×0.4×size.
+- Orchestrator response añade `parlay_suggested`.
+
+### Testing — Iteration 31
+- 22/22 tests passed (correlation rules, parlay_builder, fail-soft Savant, fail-soft team_stats, integración E2E con 15 partidos reales 2025-08-15 → 8 procesados, 6 rescued + 2 discarded, parlay size=4 generado).
+- 0 bugs encontrados. 0 regresiones.
+
+---
+
 ## Phase G1 — MLB Pre-game Analytics Engine
 **Estado:** ✅ COMPLETADO (2026-05-29)
 
