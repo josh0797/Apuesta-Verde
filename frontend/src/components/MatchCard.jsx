@@ -17,6 +17,7 @@ import { ProvenanceBadge } from './ProvenancePanel';
 import { EditorialContextPanel } from './EditorialContextPanel';
 import { HistoricalProfilePanel } from './HistoricalProfilePanel';
 import { EditorialSignalsPanel } from './EditorialSignalsPanel';
+import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -207,6 +208,14 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
             testId={`pick-signals-negative-${m.match_id}`}
           />
         </div>
+      )}
+
+      {/* External source evidence — what external providers told us */}
+      {Array.isArray(m.external_source_evidence) && m.external_source_evidence.length > 0 && (
+        <ExternalSourceEvidencePanel
+          evidence={m.external_source_evidence}
+          testId={`pick-ext-sources-${m.match_id}`}
+        />
       )}
 
       {/* Track-pending action — works for every sport. Hidden if we don't

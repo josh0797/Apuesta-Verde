@@ -1036,6 +1036,32 @@ async def picks_today(sport: Optional[str] = None, user: dict = Depends(get_curr
     return {"pick_run": _clean(doc), "sport": s}
 
 
+@api.get("/mlb/day")
+async def mlb_day(date: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """MLB Pre-game Analytics Engine — repeatable-edge focused.
+
+    Returns picks / rescued_picks / discarded_picks plus
+    `editorial_context_signals_by_game` and `fragility_scores`. Every
+    signal embeds the literal `source_url` that confirmed the pitcher so
+    the user can verify independently.
+
+    Query params
+    ------------
+    date : YYYY-MM-DD. Defaults to today (UTC).
+    """
+    if not date:
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        from services.mlb_day_orchestrator import analyze_mlb_day
+        result = await analyze_mlb_day(date, db=db)
+    except Exception as exc:
+        logger.exception("mlb_day failed")
+        raise HTTPException(status_code=500, detail=f"mlb_day_failed: {exc}")
+    return {"date": date, "engine": "mlb_pregame_analytics_v1", **result}
+
+
+
+
 @api.get("/picks/history")
 async def picks_history(sport: Optional[str] = None, user: dict = Depends(get_current_user), limit: int = 50):
     s = _norm_sport(sport) if sport else None

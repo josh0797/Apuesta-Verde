@@ -1,34 +1,26 @@
 [
   {
-    "content": "Crear catálogo extendido de signals + nuevos códigos",
+    "content": "Crear mlb_pregame_analytics.py con 9 funciones",
     "status": "completed"
   },
   {
-    "content": "Construir signal_aggregator.py sport-aware que unifica todas las fuentes",
+    "content": "Pitcher confirmation con MLB Stats API + URL literal de confirmación",
     "status": "completed"
   },
   {
-    "content": "Propagar editorial_context_signals a TODOS los buckets en analyst_engine",
+    "content": "Generar editorial_context_signals MLB-específicos con source_url + integrar en signal_catalog",
     "status": "completed"
   },
   {
-    "content": "Construir summary.editorial_signal_summary en analyst_engine",
+    "content": "Alternative Market Rescue Layer MLB",
     "status": "completed"
   },
   {
-    "content": "UI Dashboard: panel superior 'Señales detectadas hoy'",
+    "content": "analyze_mlb_day(date) función pública + hook en analyst_engine",
     "status": "completed"
   },
   {
-    "content": "UI Dashboard: accordion 'Ver señales' en DiscardedRow",
-    "status": "completed"
-  },
-  {
-    "content": "UI MatchCard: sección 'Por qué el engine sí lo considera' (señales positivas)",
-    "status": "completed"
-  },
-  {
-    "content": "Test backend (signal_aggregator) + screenshot UI",
-    "status": "completed"
+    "content": "Testing + screenshot",
+    "status": "in_progress"
   }
 ]

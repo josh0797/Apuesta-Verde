@@ -1,0 +1,113 @@
+{
+  "summary": "Completed comprehensive testing of MLB Pre-game Analytics Engine (Phase MLB-1). All 9 pure scoring functions tested, signal catalog sport-aware validation verified, and integration endpoint /api/mlb/day working correctly with source_url transparency.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [],
+    "notes": [
+      "No picks/rescued returned on test date 2025-08-15 (15 games confirmed, all discarded). This is EXPECTED per MVP scope - full enrichment (offense/bullpen/weather data) via Baseball Savant deferred to G2. The contract is met: every discarded entry has pitcher_confirmation_source_url and every signal has source_url embedded."
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Auth: Login with demo@valuebet.app / demo1234 ✅",
+    "Unit: pitcher_quality_score - PITCHER_OVERPERFORMING tag (ERA=2.80, xERA=4.50) ✅",
+    "Unit: pitcher_quality_score - PITCHER_UNDERVALUED tag (ERA=4.60, xERA=3.20) ✅",
+    "Unit: pitcher_quality_score - Normal pitcher (no regression tags) ✅",
+    "Unit: bullpen_fatigue_score - 10+ IP triggers BULLPEN_FATIGUE tag and caps score at 40 ✅",
+    "Unit: bullpen_fatigue_score - ERA 7d >= 4.75 triggers BULLPEN_FATIGUE ✅",
+    "Unit: bullpen_fatigue_score - Fresh bullpen (no BULLPEN_FATIGUE, score >= 70) ✅",
+    "Unit: park_factor_analyzer - Coors Field + 85F + wind 15mph out → PARK_OVER_SIGNAL + HOT_WEATHER_OVER + WIND_OUT_OVER ✅",
+    "Unit: park_factor_analyzer - Oracle Park + wind 12mph in → PARK_UNDER_SIGNAL + WIND_IN_UNDER ✅",
+    "Unit: park_factor_analyzer - Park multipliers correct (Coors=1.15, Oracle=0.92) ✅",
+    "Unit: run_line_predictor - RUN_LINE_TRAP tag when bullpen_era_7d=5.20, ip_48h=10, 1-run-win%=45% ✅",
+    "Unit: run_line_predictor - RUN_LINE_TRAP caps score at 45 ✅",
+    "Unit: run_line_predictor - No RUN_LINE_TRAP when conditions not met ✅",
+    "Unit: over_under_predictor - Elite pitchers (h_q=80, a_q=78) + Oracle (0.92) + line=8.5 → UNDER verdict + UNDER_VALUE tag + score>=85 ✅",
+    "Unit: over_under_predictor - Weak pitchers + Coors (1.15) → OVER verdict + OVER_VALUE tag ✅",
+    "Unit: nrfi_yrfi_analyzer - Sharp pitchers (first_pitch_strike=0.65, era_1st=2.5) + weak top3 (obp=0.290, slg=0.380) → nrfi_score>50 ✅",
+    "Unit: nrfi_yrfi_analyzer - yrfi_score = 100 - nrfi_score + 8 ✅",
+    "Unit: mlb_fragility_score - High fragility (BULLPEN_FATIGUE + extreme_weather + low pitcher quality) → score>=60 + label=FRAGIL ✅",
+    "Unit: mlb_fragility_score - Empty context → label=MUY_PROTEGIDO ✅",
+    "Unit: emit_signals - Returns list of signals with source_url field ✅",
+    "Unit: emit_signals - Every signal has source_url = statsapi URL ✅",
+    "Unit: emit_signals - All signals have required fields (code, label, severity, category, signal_type) ✅",
+    "Signal Catalog: PITCHER_OVERPERFORMING valid for baseball, returns None for football/basketball ✅",
+    "Signal Catalog: RUN_LINE_TRAP valid for baseball, returns None for football ✅",
+    "Signal Catalog: All 8 new MLB codes (PITCHER_OVERPERFORMING, PITCHER_UNDERVALUED, RUN_LINE_TRAP, STRONG_PITCHER_EDGE, PARK_OVER_SIGNAL, PARK_UNDER_SIGNAL, NRFI_SIGNAL, YRFI_SIGNAL) are BASEBALL_ONLY ✅",
+    "Integration: GET /api/mlb/day?date=2025-08-15 returns 200 ✅",
+    "Integration: Response has all required fields (date, engine, picks, rescued_picks, discarded_picks, fragility_scores, editorial_context_signals_by_game, pipeline_meta) ✅",
+    "Integration: engine = 'mlb_pregame_analytics_v1' ✅",
+    "Integration: pipeline_meta.statsapi_url present and starts with https://statsapi.mlb.com ✅",
+    "Integration: 15 games confirmed on 2025-08-15 ✅",
+    "Integration: All 15 discarded entries have pitcher_confirmation_source_url field = statsapi_url ✅",
+    "Integration: editorial_context_signals_by_game structure correct (signal arrays per game_pk) ✅",
+    "Integration: All signals in signals_by_game have source_url field ✅",
+    "Integration: fragility_scores have correct structure (score + label) ✅",
+    "Integration: fragility_scores labels are valid (MUY_PROTEGIDO/PROTEGIDO/RIESGO_MEDIO/FRAGIL) ✅"
+  ],
+  "test_report_links": [
+    "/app/backend/test_mlb_pregame_analytics.py"
+  ],
+  "action_item_for_main_agent": "",
+  "updated_files": [
+    "/app/backend/test_mlb_pregame_analytics.py"
+  ],
+  "success_percentage": {
+    "backend": "100% (76/76 tests passed)",
+    "frontend": "N/A (backend only testing per review request)"
+  },
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  "test_details": {
+    "total_tests": 76,
+    "passed": 76,
+    "failed": 0,
+    "success_rate": "100.0%",
+    "test_categories": {
+      "auth": 1,
+      "unit_tests_pitcher_quality": 3,
+      "unit_tests_bullpen_fatigue": 3,
+      "unit_tests_park_factor": 4,
+      "unit_tests_run_line": 3,
+      "unit_tests_over_under": 3,
+      "unit_tests_nrfi_yrfi": 2,
+      "unit_tests_fragility": 2,
+      "unit_tests_emit_signals": 9,
+      "signal_catalog_sport_aware": 11,
+      "integration_endpoint": 35
+    },
+    "key_validations": [
+      "pitcher_quality_score correctly detects PITCHER_OVERPERFORMING when xERA - ERA >= 1.20 and reduces score",
+      "pitcher_quality_score correctly detects PITCHER_UNDERVALUED when ERA - xERA >= 1.20 and boosts score",
+      "bullpen_fatigue_score correctly caps score at 40 when innings_last_48h >= 10",
+      "bullpen_fatigue_score correctly fires BULLPEN_FATIGUE tag when bullpen_era_7d >= 4.75",
+      "park_factor_analyzer correctly returns PARK_OVER_SIGNAL for Coors Field + hot weather + wind out",
+      "park_factor_analyzer correctly returns PARK_UNDER_SIGNAL for Oracle Park + wind in",
+      "run_line_predictor correctly fires RUN_LINE_TRAP tag when favorite_bullpen_era_7d > 4.75 OR favorite_bullpen_ip_48h > 8 OR favorite_one_run_win_pct > 0.40",
+      "run_line_predictor correctly caps score at 45 when RUN_LINE_TRAP is triggered",
+      "over_under_predictor correctly returns UNDER verdict when dual elite pitchers + pitcher-friendly park",
+      "over_under_predictor correctly returns OVER verdict when weak pitchers + hitter-friendly park",
+      "nrfi_yrfi_analyzer correctly computes nrfi_score > 50 when sharp pitchers + weak top3 lineup",
+      "mlb_fragility_score correctly returns label=FRAGIL when score >= 60",
+      "mlb_fragility_score correctly returns label=MUY_PROTEGIDO when context is empty",
+      "emit_signals correctly embeds source_url in every signal when source_url is provided",
+      "Signal catalog correctly returns None for BASEBALL_ONLY codes when sport is football or basketball",
+      "GET /api/mlb/day endpoint correctly returns 200 with all required fields",
+      "GET /api/mlb/day endpoint correctly embeds pitcher_confirmation_source_url in every discarded entry",
+      "GET /api/mlb/day endpoint correctly embeds source_url in every editorial_context_signal"
+    ],
+    "mlb_stats_api_integration": {
+      "confirmed_games": 15,
+      "statsapi_url": "https://statsapi.mlb.com/api/v1/schedule?date=2025-08-15&sportId=1&hydrate=probablePitcher,linescore,team,venue",
+      "picks": 0,
+      "rescued": 0,
+      "discarded": 15,
+      "transparency_requirement_met": true,
+      "note": "All discarded entries have pitcher_confirmation_source_url field. All signals have source_url field. Transparency requirement fully met."
+    }
+  }
+}

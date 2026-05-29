@@ -1297,6 +1297,59 @@ def _apply_protected_alternative_scan(parsed: dict, input_payload: list[dict]) -
     return len(promoted)
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Cross-confirm: when an external source bullet aligns with an aggregated
+# signal, boost the signal's confidence and tag it with the source. The
+# function mutates `signals` in place. NEVER raises.
+# ────────────────────────────────────────────────────────────────────────────
+_CROSS_CONFIRM_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "UNDER_TREND_DETECTED":      ("under", "marcadores bajos", "pocos goles", "few goals", "low-scoring"),
+    "CORNER_VOLUME_DETECTED":    ("córner", "corner", "cornerkick"),
+    "EDITORIAL_INJURY_NOTE":     ("baja", "lesion", "injur", "out", "doubtful"),
+    "EDITORIAL_MOTIVATION_NOTE": ("necesit", "motivac", "needs to win", "must-win"),
+    "STRONG_H2H_PATTERN":        ("h2h", "histor", "head-to-head"),
+    "PITCHER_DUEL_SIGNAL":       ("pitcher", "duelo de", "era"),
+    "BULLPEN_FATIGUE_SIGNAL":    ("bullpen", "tired", "fatig"),
+    "PACE_OVER_SIGNAL":          ("pace", "ritmo alto"),
+}
+
+
+def _cross_confirm_signals(signals: list[dict], external_evidence: list[dict]) -> None:
+    if not signals or not external_evidence:
+        return
+    try:
+        bullets_by_source: list[tuple[str, str]] = []
+        for ev in external_evidence:
+            if ev.get("status") != "ok":
+                continue
+            src_name = ev.get("source") or ""
+            for b in (ev.get("extracted_data") or []):
+                bullets_by_source.append((src_name, str(b).lower()))
+        if not bullets_by_source:
+            return
+        for sig in signals:
+            code = sig.get("code")
+            kws = _CROSS_CONFIRM_KEYWORDS.get(code)
+            if not kws:
+                continue
+            confirming_sources = {
+                src for src, text in bullets_by_source
+                if any(kw in text for kw in kws)
+            }
+            if confirming_sources:
+                sig["confidence"] = min(100, int(sig.get("confidence") or 60) + 10)
+                sig["source"] = ", ".join(sorted(confirming_sources))
+                sig["explanation"] = (
+                    (sig.get("explanation") or "").rstrip(".")
+                    + f". Confirmado por: {sig['source']}."
+                )
+    except Exception:
+        # NEVER let cross-confirm break the pipeline.
+        return
+
+
+
+
 
 
 
@@ -1415,6 +1468,47 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         except Exception as exc:
             log.warning("editorial_context Stage 1.6 failed: %s", exc)
             pipeline_meta["editorial_context_error"] = str(exc)[:200]
+
+    # ── Stage 1.7.b ── External Source Evidence Layer ─────────────────
+    # Collect bullets/snippets from FotMob, SofaScore, Flashscore (via
+    # BrightData when available) + FBref, Basketball-Reference, NBA Stats
+    # (free). Sport-aware; sources whose APPLICABLE_SPORTS doesn't include
+    # the current sport are skipped. Fail-soft.
+    try:
+        from .external_sources import collect_external_evidence
+        evidence_input = [
+            {
+                "match_id":     m.get("match_id"),
+                "home_team":    m.get("home_team") or {},
+                "away_team":    m.get("away_team") or {},
+                "home":         (m.get("home_team") or {}).get("name") if isinstance(m.get("home_team"), dict) else None,
+                "away":         (m.get("away_team") or {}).get("name") if isinstance(m.get("away_team"), dict) else None,
+                "league":       m.get("league"),
+                "kickoff_iso":  m.get("kickoff_iso"),
+            }
+            for m in to_analyze[:8]
+        ]
+        evidence_by_id = await asyncio.wait_for(
+            collect_external_evidence(evidence_input, sport, db=db, timeout_sec=45.0),
+            timeout=50.0,
+        )
+        attached_ev = 0
+        for m in to_analyze:
+            mid = str(m.get("match_id"))
+            if mid in evidence_by_id:
+                m["external_source_evidence"] = evidence_by_id[mid]
+                if evidence_by_id[mid]:
+                    attached_ev += 1
+        pipeline_meta["external_source_evidence_attached"] = attached_ev
+        pipeline_meta["external_source_evidence_evaluated"] = len(evidence_input)
+        log.info("Analyst[%s]: external_source_evidence attached to %d/%d matches",
+                 sport, attached_ev, len(evidence_input))
+    except asyncio.TimeoutError:
+        log.warning("external_source_evidence Stage 1.7.b timeout — skipping")
+        pipeline_meta["external_source_evidence_error"] = "timeout"
+    except Exception as exc:
+        log.warning("external_source_evidence Stage 1.7.b failed: %s", exc)
+        pipeline_meta["external_source_evidence_error"] = str(exc)[:200]
 
     # ── Optional Stage 1.7 ── MLB Stats API hydration (baseball only)
     # Attaches `mlb_context` + `mlb_matchup` to each baseball match payload so
@@ -1969,6 +2063,22 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
                     **{k: v for k, v in entry.items()},
                 }
                 signals = aggregate_signals_for_payload(merged_payload, sport)
+                # Propagate external_source_evidence into the entry from the
+                # source match payload (so the UI can render it without
+                # cross-referencing matches_payload).
+                ext_ev = src.get("external_source_evidence") or []
+                if ext_ev:
+                    entry["external_source_evidence"] = ext_ev
+                    # Cross-confirm: when an editorial signal matches a
+                    # bullet from an external source, boost its confidence
+                    # +10 and tag it with `source` so the UI can render
+                    # "confirmado por scores24/fotmob".
+                    _cross_confirm_signals(signals, ext_ev)
+                    # Mark which sources ended up tagged as used.
+                    used_codes = {s.get("code") for s in signals if s.get("source")}
+                    for ev in ext_ev:
+                        if ev.get("status") == "ok" and (used_codes or ev.get("extracted_data")):
+                            ev["used_in_analysis"] = True
                 entry["editorial_context_signals"] = signals
                 if signals and mid is not None:
                     all_signals_by_match[str(mid)] = signals
@@ -1979,6 +2089,18 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         }
     except Exception as exc:
         log.warning("signal_aggregator Phase 13 failed: %s", exc)
+
+    # ── Phase 13.5 — possible_alternative_markets ───────────────────────
+    # Sport-aware suggestions for every discarded entry so the user can
+    # review manually. Fail-soft; never raises.
+    try:
+        from .possible_alternative_markets import attach_alternatives_to_summary
+        annotated = attach_alternatives_to_summary(summary, sport)
+        parsed.setdefault("_pipeline", {})["possible_alternative_markets"] = {
+            "entries_annotated": annotated,
+        }
+    except Exception as exc:
+        log.warning("possible_alternative_markets Phase 13.5 failed: %s", exc)
 
     parsed["_generated_at"] = datetime.now(timezone.utc).isoformat()
     parsed["_session_id"] = session_id

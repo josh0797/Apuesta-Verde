@@ -17,6 +17,7 @@ import { PicksFilterBar } from '@/components/PicksFilterBar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDateTime, tierClass } from '@/lib/format';
 import { EditorialSignalsPanel, EditorialSignalsSummary } from '@/components/EditorialSignalsPanel';
+import { ExternalSourceEvidencePanel, PossibleAlternativeMarkets } from '@/components/ExternalSourceEvidencePanel';
 
 function GroupSection({ title, count, tier, children, defaultOpen = true, testId, sectionRef, icon: Icon }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -93,7 +94,14 @@ function DiscardedRow({ item, testId, type }) {
   const structuredTraps = mb.trap_signals_structured || [];
   const frag = mb.fragility || {};
   const editorialSignals = item.editorial_context_signals || [];
-  const hasDetails = structuredTraps.length > 0 || frag.score != null || editorialSignals.length > 0;
+  const externalEvidence = item.external_source_evidence || [];
+  const possibleAlts = item.possible_alternative_markets || [];
+  const reviewNote = item.user_review_note || '';
+  const hasDetails = structuredTraps.length > 0
+    || frag.score != null
+    || editorialSignals.length > 0
+    || externalEvidence.some((e) => e.status === 'ok')
+    || possibleAlts.length > 0;
   const trapCount = structuredTraps.length;
   const sigCount = editorialSignals.length;
   const humanReason = useMemo(() => {
@@ -140,6 +148,20 @@ function DiscardedRow({ item, testId, type }) {
       </div>
       {open && hasDetails && (
         <div className="border-t border-border/60 px-3 py-2.5 space-y-2 bg-background/30">
+          {possibleAlts.length > 0 && (
+            <PossibleAlternativeMarkets
+              markets={possibleAlts}
+              note={reviewNote}
+              testId={`${testId}-alts`}
+            />
+          )}
+          {externalEvidence.length > 0 && (
+            <ExternalSourceEvidencePanel
+              evidence={externalEvidence}
+              defaultOpen={false}
+              testId={`${testId}-ext-sources`}
+            />
+          )}
           {editorialSignals.length > 0 && (
             <EditorialSignalsPanel
               signals={editorialSignals}
