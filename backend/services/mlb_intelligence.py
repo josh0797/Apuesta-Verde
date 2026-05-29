@@ -49,31 +49,152 @@ MLB_FORBIDDEN_MARKETS = {
 MLB_FORBIDDEN_SELECTION_TOKENS = {"empate", "draw", "x"}
 
 
-# ── Pitcher quality scoring ──────────────────────────────────────────────────
+# ── Pitcher quality scoring (xERA / FIP-aware with regression detection) ─────
 def _pitcher_quality_score(p: Optional[dict]) -> Optional[float]:
-    """0.0–1.0 score from ERA/WHIP/K-BB. None when stats missing."""
-    if not p:
+    """0.0–1.0 score using ADVANCED metrics (xERA → FIP → xFIP → ERA) plus
+    Statcast quality (Hard Hit %, Barrel %).
+
+    Crucial fix (Cubs vs Pirates regression):
+    When xERA diverges from ERA by ≥ 1.0 we tag the pitcher as
+    PITCHER_OVERPERFORMING (ERA much lower than xERA → likely regression,
+    PENALIZE) or PITCHER_UNDERVALUED (ERA much higher than xERA → real
+    skill, BONUS). The tag is written back onto the input dict so the
+    post-processor can read it via `p["_regression_signal"]`.
+    """
+    if not p or not isinstance(p, dict):
         return None
-    era = p.get("era")
-    whip = p.get("whip")
+    era      = p.get("era")
+    xera     = p.get("xera")
+    fip      = p.get("fip")
+    xfip     = p.get("xfip")
+    whip     = p.get("whip")
     k_per_bb = p.get("k_per_bb")
-    if era is None and whip is None:
+    if k_per_bb is None:
+        # Derive from k9/bb9 if available (added by Savant).
+        k9, bb9 = p.get("k9"), p.get("bb9")
+        if isinstance(k9, (int, float)) and isinstance(bb9, (int, float)) and bb9 > 0:
+            k_per_bb = k9 / bb9
+    hard_hit_pct = p.get("hard_hit_pct") or p.get("hard_hit")
+    barrel_pct   = p.get("barrel_pct")   or p.get("barrel")
+
+    # Need at least one base metric.
+    if all(v is None for v in (era, xera, fip, xfip, whip, k_per_bb, hard_hit_pct, barrel_pct)):
         return None
+
     score = 0.0
-    components = 0
-    if era is not None:
-        # ERA: 2.50 → 1.0, 4.50 → 0.5, 6.00 → ~0.15
-        s = max(0.0, min(1.0, 1.0 - (era - 2.5) / 4.0))
-        score += s; components += 1
+    components = 0.0
+
+    # Primary ERA-style metric — prefer xERA → fip → xfip → ERA. The
+    # winner gets weight 1.5 (because advanced metrics are more
+    # predictive); fall-backs share weight 1.0.
+    primary = next((m for m in (xera, fip, xfip, era) if m is not None), None)
+    if primary is not None:
+        s = max(0.0, min(1.0, 1.0 - (primary - 2.5) / 4.0))
+        # Higher weight when the source was xERA or FIP (Statcast-grade).
+        w = 1.5 if (xera is not None or fip is not None) else 1.0
+        score += s * w
+        components += w
+
     if whip is not None:
-        # WHIP: 1.00 → 1.0, 1.30 → 0.55, 1.60 → 0.10
         s = max(0.0, min(1.0, 1.0 - (whip - 1.0) / 0.7))
-        score += s; components += 1
+        score += s; components += 1.0
+
     if k_per_bb is not None and k_per_bb > 0:
-        # K/BB: 4.5 → 1.0, 2.5 → 0.55, 1.0 → 0.10
         s = max(0.0, min(1.0, (k_per_bb - 1.0) / 4.0))
-        score += s; components += 1
-    return round(score / components, 3) if components else None
+        score += s; components += 1.0
+
+    if hard_hit_pct is not None:
+        # 25% → 1.0, 50% → 0.0 (higher = worse).
+        s = max(0.0, min(1.0, 1.0 - (float(hard_hit_pct) - 25.0) / 25.0))
+        score += s; components += 1.0
+
+    if barrel_pct is not None:
+        # 4% → 1.0, 14% → 0.0.
+        s = max(0.0, min(1.0, 1.0 - (float(barrel_pct) - 4.0) / 10.0))
+        score += s; components += 1.0
+
+    if components == 0:
+        return None
+    base = score / components
+
+    # ── Regression detection (xERA vs ERA divergence) ───────────────────
+    regression_signal: Optional[str] = None
+    if era is not None and xera is not None:
+        delta = float(xera) - float(era)
+        if delta >= 1.0:
+            regression_signal = "PITCHER_OVERPERFORMING"
+            base = max(0.0, base - 0.15)
+        elif delta <= -1.0:
+            regression_signal = "PITCHER_UNDERVALUED"
+            base = min(1.0, base + 0.10)
+
+    if regression_signal:
+        p["_regression_signal"] = regression_signal
+
+    return round(base, 3)
+
+
+# ── UNDER safety rules ───────────────────────────────────────────────────────
+# Hard rules to prevent the engine from recommending Under against an
+# overperforming ace (Cubs vs Pirates failure).
+UNDER_SAFETY_RULES = {
+    "min_starts_both":              3,    # both pitchers must have ≥3 starts
+    "block_if_overperforming_ace":  True, # block when any pitcher is overperforming AND has ERA < 3.00
+    "min_pitcher_score_for_under":  0.60, # both pitchers ≥ 0.60 to recommend Under
+    "park_factor_strict_threshold": 1.10, # if park_factor > 1.10, require stricter scores
+    "min_pitcher_score_high_park":  0.70,
+    "under_buffer_normal":          0.8,  # expected_runs must be < line - buffer
+    "under_buffer_offensive_park":  1.2,  # tighter buffer when park_factor > 1.05
+}
+
+
+def under_pick_passes_safety_rules(
+    home_pitcher: dict,
+    away_pitcher: dict,
+    *,
+    expected_runs: Optional[float] = None,
+    book_line: Optional[float] = None,
+    park_factor: float = 1.0,
+) -> tuple[bool, list[str]]:
+    """Return (passes, failure_reasons). When `passes=False` the caller
+    MUST NOT recommend the Under regardless of what the LLM/Poisson model
+    suggests.
+    """
+    reasons: list[str] = []
+
+    starts_h = int(home_pitcher.get("games_pitched") or home_pitcher.get("games_started") or 0)
+    starts_a = int(away_pitcher.get("games_pitched") or away_pitcher.get("games_started") or 0)
+    if starts_h < UNDER_SAFETY_RULES["min_starts_both"] \
+       or starts_a < UNDER_SAFETY_RULES["min_starts_both"]:
+        reasons.append("INSUFFICIENT_STARTS")
+
+    # Overperforming ace block
+    if UNDER_SAFETY_RULES["block_if_overperforming_ace"]:
+        for pi in (home_pitcher, away_pitcher):
+            sig = pi.get("_regression_signal")
+            era = pi.get("era")
+            if sig == "PITCHER_OVERPERFORMING" and era is not None and float(era) < 3.00:
+                reasons.append("OVERPERFORMING_ACE_BLOCK")
+                break
+
+    # Both pitcher quality scores
+    h_score = _pitcher_quality_score(home_pitcher) or 0.0
+    a_score = _pitcher_quality_score(away_pitcher) or 0.0
+    threshold = UNDER_SAFETY_RULES["min_pitcher_score_for_under"]
+    if park_factor > UNDER_SAFETY_RULES["park_factor_strict_threshold"]:
+        threshold = UNDER_SAFETY_RULES["min_pitcher_score_high_park"]
+    if h_score < threshold or a_score < threshold:
+        reasons.append("PITCHER_QUALITY_TOO_LOW")
+
+    # Buffer check
+    if expected_runs is not None and book_line is not None:
+        buffer = UNDER_SAFETY_RULES["under_buffer_normal"]
+        if park_factor > 1.05:
+            buffer = UNDER_SAFETY_RULES["under_buffer_offensive_park"]
+        if expected_runs >= (book_line - buffer):
+            reasons.append("INSUFFICIENT_BUFFER")
+
+    return (len(reasons) == 0, reasons)
 
 
 def _offense_quality_score(b: Optional[dict]) -> Optional[float]:

@@ -365,6 +365,29 @@ def parlay_builder(
         return {"parlay": [], "validator": correlation_validator([]),
                 "combined_score": 0, "size": 0,
                 "rejected_count": 0}
+
+    # Hard time-filter — never include a pick whose match has already
+    # been played / finished / kicked off. This is the recurring bug
+    # the user reported.
+    try:
+        from .time_filter import is_match_upcoming, is_match_finished
+        time_filtered: list[dict] = []
+        time_blocked = 0
+        for p in picks:
+            ref = {
+                "kickoff_iso": p.get("kickoff_iso") or p.get("gameDate"),
+                "status":      p.get("status") or p.get("abstractGameState") or "",
+            }
+            if is_match_finished(ref) or not is_match_upcoming(ref, buffer_minutes=15):
+                time_blocked += 1
+                continue
+            time_filtered.append(p)
+        picks = time_filtered
+    except Exception:
+        # Fail-soft: if the helper isn't available, fall back to the
+        # original list (the caller has its own validation upstream).
+        time_blocked = 0
+
     candidates = [p for p in picks
                   if int((p.get("recommendation") or {}).get("score")
                          or p.get("score") or 0) >= min_score]
@@ -372,7 +395,8 @@ def parlay_builder(
     if not candidates:
         return {"parlay": [], "validator": correlation_validator([]),
                 "combined_score": 0, "size": 0,
-                "rejected_count": rejected_count}
+                "rejected_count": rejected_count,
+                "time_blocked": time_blocked}
 
     # Sort by individual score desc
     candidates.sort(
@@ -408,6 +432,7 @@ def parlay_builder(
                     "combined_score": int(combined),
                     "size":           size,
                     "rejected_count": rejected_count,
+                    "time_blocked":   time_blocked,
                 }
     return best
 

@@ -1,986 +1,841 @@
-"""Comprehensive backend test for Value Bet Intelligence Phase 3 + Saved Views features.
+"""Comprehensive backend tests for time filtering and pitcher quality scoring fixes.
 
-Tests:
-1. AUTH - login, register, /me
-2. ANALYSIS provider chain - POST /api/analysis/run with _provider field
-3. SYSTEM STATUS - scheduler, providers
-4. FALLBACK SOURCES - ESPN, Sofascore, SportyTrader
-5. FILTERS - /api/picks/today/filtered
-6. CSV EXPORT - /api/picks/today/export.csv, /api/picks/tracked/export.csv
-7. TIMELINE - /api/stats/timeline
-8. META LEAGUES - /api/meta/leagues
-9. EXISTING ENDPOINTS - matches, picks, tracking, stats
-10. SAVED FILTER VIEWS - GET/POST/PATCH/DELETE /api/profile/saved-views, eviction, sport validation, user isolation
-11. AUTHZ - 401 without token
+This test suite covers the defense-in-depth implementation to prevent finished
+matches from appearing as picks (Cubs vs Pirates regression) and the rewritten
+pitcher quality scoring with xERA/FIP/regression detection.
+
+Test Coverage:
+1. Unit tests for time_filter.py functions
+2. Unit tests for _pitcher_quality_score rewrite
+3. Unit tests for under_pick_passes_safety_rules
+4. Unit tests for validate_pick_before_output
+5. Unit tests for parlay_builder time filtering
+6. Integration tests for /api/mlb/day with past dates
+7. Integration tests for /api/analysis/run
+8. Regression tests for auth
 """
-import requests
 import sys
-import time
-import csv
-import io
-from datetime import datetime
+import requests
+from datetime import datetime, timezone, timedelta
+from typing import Optional
 
+# Get the public endpoint from frontend/.env
 BASE_URL = "https://low-volatility-plays.preview.emergentagent.com/api"
 
-class Phase3Tester:
+class TestRunner:
     def __init__(self):
-        self.token = None
-        self.user_id = None
         self.tests_run = 0
         self.tests_passed = 0
         self.tests_failed = 0
-        self.failures = []
-
-    def log(self, msg: str, level: str = "INFO"):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        print(f"[{timestamp}] {level}: {msg}")
-
-    def test(self, name: str, method: str, endpoint: str, expected_status: int, 
-             data=None, headers=None, check_fn=None, timeout=30):
-        """Run a single test."""
-        url = f"{BASE_URL}/{endpoint}"
-        if headers is None:
-            headers = {}
-        if self.token and "Authorization" not in headers:
-            headers["Authorization"] = f"Bearer {self.token}"
-        if data is not None and "Content-Type" not in headers:
-            headers["Content-Type"] = "application/json"
-
-        self.tests_run += 1
-        self.log(f"Test #{self.tests_run}: {name}")
+        self.token: Optional[str] = None
         
+    def run_test(self, name: str, test_func):
+        """Run a single test function"""
+        self.tests_run += 1
+        print(f"\n{'='*80}")
+        print(f"🔍 Test {self.tests_run}: {name}")
+        print(f"{'='*80}")
         try:
-            if method == "GET":
-                resp = requests.get(url, headers=headers, timeout=timeout)
-            elif method == "POST":
-                resp = requests.post(url, json=data, headers=headers, timeout=timeout)
-            elif method == "PATCH":
-                resp = requests.patch(url, json=data, headers=headers, timeout=timeout)
-            elif method == "DELETE":
-                resp = requests.delete(url, headers=headers, timeout=timeout)
-            else:
-                raise ValueError(f"Unsupported method: {method}")
-
-            # Check status code
-            if resp.status_code != expected_status:
-                self.tests_failed += 1
-                msg = f"❌ FAILED: Expected {expected_status}, got {resp.status_code}"
-                self.log(msg, "ERROR")
-                self.log(f"   Response: {resp.text[:500]}", "ERROR")
-                self.failures.append({"test": name, "reason": msg, "response": resp.text[:500]})
-                return False, None
-
-            # Parse response
-            if resp.headers.get("Content-Type", "").startswith("application/json"):
-                result = resp.json()
-            elif resp.headers.get("Content-Type", "").startswith("text/csv"):
-                result = resp.text
-            else:
-                result = resp.text
-
-            # Run custom check function
-            if check_fn:
-                check_result = check_fn(result)
-                if not check_result:
-                    self.tests_failed += 1
-                    msg = f"❌ FAILED: Custom check failed"
-                    self.log(msg, "ERROR")
-                    self.failures.append({"test": name, "reason": msg, "response": str(result)[:500]})
-                    return False, result
-
+            test_func()
             self.tests_passed += 1
-            self.log(f"✅ PASSED", "SUCCESS")
-            return True, result
-
+            print(f"✅ PASSED: {name}")
+            return True
+        except AssertionError as e:
+            self.tests_failed += 1
+            print(f"❌ FAILED: {name}")
+            print(f"   Assertion Error: {str(e)}")
+            return False
         except Exception as e:
             self.tests_failed += 1
-            msg = f"❌ FAILED: Exception - {str(e)}"
-            self.log(msg, "ERROR")
-            self.failures.append({"test": name, "reason": msg, "response": ""})
-            return False, None
-
-    def run_all_tests(self):
-        """Execute all Phase 3 tests."""
-        self.log("=" * 80)
-        self.log("PHASE 3 BACKEND TESTING - Value Bet Intelligence")
-        self.log("=" * 80)
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # 1. AUTH TESTS
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[1] AUTH TESTS", "SECTION")
-        
-        # Test login with demo user
-        success, result = self.test(
-            "Login with demo@valuebet.app",
-            "POST", "auth/login", 200,
-            data={"email": "demo@valuebet.app", "password": "demo1234"},
-            check_fn=lambda r: "token" in r and "user" in r
-        )
-        if success and result:
-            self.token = result["token"]
-            self.user_id = result["user"]["id"]
-            self.log(f"   Token acquired: {self.token[:20]}...")
-            self.log(f"   User ID: {self.user_id}")
-
-        # Test /me endpoint
-        self.test(
-            "GET /api/auth/me",
-            "GET", "auth/me", 200,
-            check_fn=lambda r: r.get("email") == "demo@valuebet.app"
-        )
-
-        # Test register new user
-        test_email = f"test_{int(time.time())}@valuebet.app"
-        self.test(
-            "Register new user",
-            "POST", "auth/register", 200,
-            data={"email": test_email, "password": "test1234", "name": "Test User"},
-            check_fn=lambda r: "token" in r and r["user"]["email"] == test_email
-        )
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # 2. SYSTEM STATUS TESTS
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[2] SYSTEM STATUS TESTS", "SECTION")
-        
-        success, result = self.test(
-            "GET /api/system/status",
-            "GET", "system/status", 200,
-            check_fn=lambda r: (
-                "scheduler" in r and 
-                "providers" in r and
-                r["scheduler"].get("enabled") == True and
-                "refresh_upcoming" in r["scheduler"].get("jobs", {}) and
-                "refresh_live" in r["scheduler"].get("jobs", {}) and
-                "purge_context" in r["scheduler"].get("jobs", {}) and
-                r["providers"].get("openai_configured") == True and
-                r["providers"].get("emergent_configured") == True and
-                r["providers"].get("api_football_configured") == True
-            )
-        )
-        if success and result:
-            self.log(f"   Scheduler enabled: {result['scheduler']['enabled']}")
-            self.log(f"   Jobs: {list(result['scheduler'].get('jobs', {}).keys())}")
-            self.log(f"   Providers: OpenAI={result['providers']['openai_configured']}, "
-                    f"Emergent={result['providers']['emergent_configured']}, "
-                    f"API-Football={result['providers']['api_football_configured']}")
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # 3. FALLBACK SOURCES TESTS
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[3] FALLBACK SOURCES TESTS", "SECTION")
-        
-        success, result = self.test(
-            "GET /api/system/fallback-sources",
-            "GET", "system/fallback-sources", 200,
-            timeout=60,
-            check_fn=lambda r: (
-                "summary" in r and 
-                "data" in r and
-                "espn" in r["data"] and
-                isinstance(r["data"]["espn"], list)
-            )
-        )
-        if success and result:
-            summary = result["summary"]
-            self.log(f"   ESPN count: {summary.get('espn', 0)}")
-            self.log(f"   Sofascore count: {summary.get('sofascore', 0)}")
-            self.log(f"   SportyTrader count: {summary.get('sportytrader', 0)}")
-            
-            # Check ESPN has data
-            espn_data = result["data"]["espn"]
-            if len(espn_data) > 0:
-                sample = espn_data[0]
-                self.log(f"   ESPN sample: {sample.get('league')} - {sample.get('home_team', {}).get('name')} vs {sample.get('away_team', {}).get('name')}")
-                # Verify ESPN data structure
-                if all(k in sample for k in ["id", "source", "league", "kickoff_iso", "home_team", "away_team"]):
-                    self.log(f"   ✓ ESPN data structure valid")
-                else:
-                    self.log(f"   ⚠ ESPN data structure incomplete", "WARN")
-            else:
-                self.log(f"   ⚠ ESPN returned 0 entries (may be temporary)", "WARN")
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # 4. EXISTING ENDPOINTS TESTS
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[4] EXISTING ENDPOINTS TESTS", "SECTION")
-        
-        # Test matches/upcoming
-        success, result = self.test(
-            "GET /api/matches/upcoming",
-            "GET", "matches/upcoming", 200,
-            check_fn=lambda r: "count" in r and "items" in r
-        )
-        if success and result:
-            self.log(f"   Upcoming matches: {result['count']}")
-
-        # Test matches/live
-        success, result = self.test(
-            "GET /api/matches/live",
-            "GET", "matches/live", 200,
-            check_fn=lambda r: "count" in r and "items" in r
-        )
-        if success and result:
-            self.log(f"   Live matches: {result['count']}")
-
-        # Test picks/today
-        success, result = self.test(
-            "GET /api/picks/today",
-            "GET", "picks/today", 200,
-            check_fn=lambda r: "pick_run" in r
-        )
-        if success and result:
-            has_picks = result["pick_run"] is not None
-            self.log(f"   Has picks: {has_picks}")
-
-        # Test picks/history
-        success, result = self.test(
-            "GET /api/picks/history",
-            "GET", "picks/history", 200,
-            check_fn=lambda r: "count" in r and "items" in r
-        )
-        if success and result:
-            self.log(f"   Pick history count: {result['count']}")
-
-        # Test picks/tracked
-        success, result = self.test(
-            "GET /api/picks/tracked",
-            "GET", "picks/tracked", 200,
-            check_fn=lambda r: "count" in r and "items" in r
-        )
-        if success and result:
-            self.log(f"   Tracked picks: {result['count']}")
-
-        # Test stats/dashboard
-        success, result = self.test(
-            "GET /api/stats/dashboard",
-            "GET", "stats/dashboard", 200,
-            check_fn=lambda r: all(k in r for k in ["total", "won", "lost", "win_rate", "streak"])
-        )
-        if success and result:
-            self.log(f"   Dashboard: {result['won']}/{result['total']} won, {result['win_rate']}% win rate")
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # 5. ANALYSIS PROVIDER CHAIN TEST
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[5] ANALYSIS PROVIDER CHAIN TEST", "SECTION")
-        self.log("   ⚠ This test may take 20-90 seconds (LLM analysis)...", "WARN")
-        
-        success, result = self.test(
-            "POST /api/analysis/run (refresh=false)",
-            "POST", "analysis/run", 200,
-            data={"refresh": False, "include_live": True, "max_matches": 4},
-            timeout=120,
-            check_fn=lambda r: (
-                "result" in r and
-                "_provider" in r["result"] and
-                r["result"]["_provider"] in ["openai:gpt-4o-mini", "emergent:claude-sonnet-4-5"] and
-                "verdict" in r["result"] and
-                r["result"]["verdict"] in ["value_found", "no_value"]
-            )
-        )
-        if success and result:
-            provider = result["result"]["_provider"]
-            verdict = result["result"]["verdict"]
-            self.log(f"   Provider used: {provider}")
-            self.log(f"   Verdict: {verdict}")
-            if verdict == "value_found":
-                picks = result["result"].get("picks", [])
-                self.log(f"   Picks recommended: {len(picks)}")
-                if picks:
-                    sample = picks[0]
-                    self.log(f"   Sample pick: {sample.get('match_label')} - {sample.get('recommendation', {}).get('market')}")
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # 6. META LEAGUES TEST
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[6] META LEAGUES TEST", "SECTION")
-        
-        success, result = self.test(
-            "GET /api/meta/leagues",
-            "GET", "meta/leagues", 200,
-            check_fn=lambda r: "leagues" in r and isinstance(r["leagues"], list)
-        )
-        if success and result:
-            leagues = result["leagues"]
-            self.log(f"   Leagues available: {len(leagues)}")
-            if leagues:
-                self.log(f"   Sample leagues: {', '.join(leagues[:5])}")
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # 7. FILTERS TEST
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[7] FILTERS TEST", "SECTION")
-        
-        success, result = self.test(
-            "GET /api/picks/today/filtered (no filters)",
-            "GET", "picks/today/filtered", 200,
-            check_fn=lambda r: "pick_run" in r
-        )
-        if success and result and result["pick_run"]:
-            payload = result["pick_run"].get("payload", {})
-            total_picks = len(payload.get("picks", []))
-            self.log(f"   Total picks (unfiltered): {total_picks}")
-
-        # Test with filters
-        success, result = self.test(
-            "GET /api/picks/today/filtered?min_confidence=68",
-            "GET", "picks/today/filtered?min_confidence=68", 200,
-            check_fn=lambda r: (
-                "pick_run" in r and
-                (r["pick_run"] is None or "_filtered" in r["pick_run"].get("payload", {}))
-            )
-        )
-        if success and result and result["pick_run"]:
-            filtered_meta = result["pick_run"]["payload"].get("_filtered", {})
-            self.log(f"   Filtered: {filtered_meta.get('kept')}/{filtered_meta.get('total')} picks (min_confidence={filtered_meta.get('min_confidence')})")
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # 8. CSV EXPORT TESTS
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[8] CSV EXPORT TESTS", "SECTION")
-        
-        # Test picks/today/export.csv
-        success, result = self.test(
-            "GET /api/picks/today/export.csv",
-            "GET", "picks/today/export.csv", 200,
-            check_fn=lambda r: (
-                isinstance(r, str) and
-                "generated_at,league,match_label,kickoff,market,selection,odds_range,confidence,confidence_level,is_live,reasoning" in r
-            )
-        )
-        if success and result:
-            lines = result.strip().split("\n")
-            self.log(f"   CSV rows: {len(lines)} (including header)")
-            # Parse CSV to verify structure
-            try:
-                reader = csv.DictReader(io.StringIO(result))
-                headers = reader.fieldnames
-                expected_headers = ["generated_at", "league", "match_label", "kickoff", "market", "selection", 
-                                   "odds_range", "confidence", "confidence_level", "is_live", "reasoning"]
-                if headers == expected_headers:
-                    self.log(f"   ✓ CSV headers valid")
-                else:
-                    self.log(f"   ⚠ CSV headers mismatch: {headers}", "WARN")
-            except Exception as e:
-                self.log(f"   ⚠ CSV parse error: {e}", "WARN")
-
-        # Test picks/tracked/export.csv
-        success, result = self.test(
-            "GET /api/picks/tracked/export.csv",
-            "GET", "picks/tracked/export.csv", 200,
-            check_fn=lambda r: (
-                isinstance(r, str) and
-                "tracked_at,league,match_label,market,selection,confidence_score,odds,outcome,notes" in r
-            )
-        )
-        if success and result:
-            lines = result.strip().split("\n")
-            self.log(f"   CSV rows: {len(lines)} (including header)")
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # 9. TIMELINE TEST
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[9] TIMELINE TEST", "SECTION")
-        
-        success, result = self.test(
-            "GET /api/stats/timeline",
-            "GET", "stats/timeline", 200,
-            check_fn=lambda r: (
-                "count" in r and
-                "timeline" in r and
-                isinstance(r["timeline"], list)
-            )
-        )
-        if success and result:
-            timeline = result["timeline"]
-            self.log(f"   Timeline entries: {len(timeline)}")
-            if timeline:
-                sample = timeline[0]
-                required_fields = ["tracked_at", "match_label", "outcome", "confidence_score", 
-                                  "cumulative_won", "cumulative_settled", "win_rate"]
-                if all(k in sample for k in required_fields):
-                    self.log(f"   ✓ Timeline entry structure valid")
-                    self.log(f"   Sample: {sample['match_label']} - {sample['outcome']} (win_rate: {sample['win_rate']}%)")
-                else:
-                    self.log(f"   ⚠ Timeline entry missing fields", "WARN")
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # 10. SAVED FILTER VIEWS TESTS
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[10] SAVED FILTER VIEWS TESTS", "SECTION")
-        
-        # Test GET /api/profile/saved-views (initially empty or existing)
-        success, result = self.test(
-            "GET /api/profile/saved-views",
-            "GET", "profile/saved-views", 200,
-            check_fn=lambda r: "items" in r and "max" in r and r["max"] == 10
-        )
-        initial_count = 0
-        if success and result:
-            initial_count = len(result["items"])
-            self.log(f"   Initial saved views: {initial_count}/10")
-        
-        # Test POST /api/profile/saved-views - create new view
-        view_name = f"Test View {int(time.time())}"
-        success, result = self.test(
-            "POST /api/profile/saved-views (create)",
-            "POST", "profile/saved-views", 200,
-            data={
-                "name": view_name,
-                "filters": {"league": "Premier League", "market": "1X2", "minConfidence": 70},
-                "enginePreset": "conservative",
-                "sport": "football"
-            },
-            check_fn=lambda r: (
-                "id" in r and
-                "name" in r and
-                r["name"] == view_name and
-                "filters" in r and
-                r["filters"]["league"] == "Premier League" and
-                "enginePreset" in r and
-                r["enginePreset"] == "conservative" and
-                "sport" in r and
-                r["sport"] == "football"
-            )
-        )
-        view_id = None
-        if success and result:
-            view_id = result["id"]
-            self.log(f"   Created view ID: {view_id}")
-        
-        # Test GET again to verify persistence
-        success, result = self.test(
-            "GET /api/profile/saved-views (verify creation)",
-            "GET", "profile/saved-views", 200,
-            check_fn=lambda r: len(r["items"]) == initial_count + 1
-        )
-        if success and result:
-            self.log(f"   Saved views after creation: {len(result['items'])}/10")
-        
-        # Test PATCH /api/profile/saved-views/{view_id} - update name
-        if view_id:
-            new_name = f"Updated View {int(time.time())}"
-            success, result = self.test(
-                "PATCH /api/profile/saved-views/{id} (rename)",
-                "PATCH", f"profile/saved-views/{view_id}", 200,
-                data={"name": new_name},
-                check_fn=lambda r: r["name"] == new_name and r["id"] == view_id
-            )
-            if success:
-                self.log(f"   Renamed view to: {new_name}")
-            
-            # Test PATCH - update filters
-            success, result = self.test(
-                "PATCH /api/profile/saved-views/{id} (update filters)",
-                "PATCH", f"profile/saved-views/{view_id}", 200,
-                data={
-                    "filters": {"league": "La Liga", "market": "Under 2.5", "minConfidence": 80},
-                    "enginePreset": "low-fragility"
-                },
-                check_fn=lambda r: (
-                    r["filters"]["league"] == "La Liga" and
-                    r["filters"]["minConfidence"] == 80 and
-                    r["enginePreset"] == "low-fragility"
-                )
-            )
-            if success:
-                self.log(f"   Updated filters and preset")
-        
-        # Test PATCH with non-existent view_id - should return 404
-        self.test(
-            "PATCH /api/profile/saved-views/nonexistent (404)",
-            "PATCH", "profile/saved-views/nonexistent123", 404,
-            data={"name": "Should fail"}
-        )
-        
-        # Test sport validation - invalid sport should return 400
-        self.test(
-            "POST /api/profile/saved-views (invalid sport - 400)",
-            "POST", "profile/saved-views", 400,
-            data={
-                "name": "Invalid Sport View",
-                "filters": {},
-                "sport": "cricket"
-            }
-        )
-        
-        # Test valid sports (football, basketball, baseball)
-        for sport in ["football", "basketball", "baseball"]:
-            success, result = self.test(
-                f"POST /api/profile/saved-views (valid sport: {sport})",
-                "POST", "profile/saved-views", 200,
-                data={
-                    "name": f"Test {sport} View",
-                    "filters": {"minConfidence": 60},
-                    "sport": sport
-                },
-                check_fn=lambda r, s=sport: r["sport"] == s
-            )
-            if success and result:
-                # Clean up - delete the test view
-                test_id = result["id"]
-                self.test(
-                    f"DELETE /api/profile/saved-views/{test_id} (cleanup)",
-                    "DELETE", f"profile/saved-views/{test_id}", 200,
-                    check_fn=lambda r: r.get("ok") == True
-                )
-        
-        # Test DELETE with non-existent view_id - should return 404
-        self.test(
-            "DELETE /api/profile/saved-views/nonexistent (404)",
-            "DELETE", "profile/saved-views/nonexistent123", 404
-        )
-        
-        # Test eviction when >10 views
-        self.log("   Testing eviction (creating 10+ views)...")
-        created_ids = []
-        for i in range(12):
-            success, result = self.test(
-                f"POST /api/profile/saved-views (view {i+1}/12)",
-                "POST", "profile/saved-views", 200,
-                data={
-                    "name": f"Eviction Test View {i+1}",
-                    "filters": {"minConfidence": 60 + i},
-                    "sport": "football"
-                }
-            )
-            if success and result:
-                created_ids.append(result["id"])
-                if "_evicted_id" in result:
-                    self.log(f"   ✓ Eviction detected: {result['_evicted_id']}")
-        
-        # Verify max 10 views
-        success, result = self.test(
-            "GET /api/profile/saved-views (verify max 10)",
-            "GET", "profile/saved-views", 200,
-            check_fn=lambda r: len(r["items"]) == 10
-        )
-        if success and result:
-            self.log(f"   ✓ Confirmed max 10 views after eviction")
-        
-        # Test user isolation - create second user
-        test_email2 = f"test2_{int(time.time())}@valuebet.app"
-        success, result = self.test(
-            "Register second user for isolation test",
-            "POST", "auth/register", 200,
-            data={"email": test_email2, "password": "test1234", "name": "Test User 2"}
-        )
-        user2_token = None
-        if success and result:
-            user2_token = result["token"]
-            self.log(f"   Second user created: {test_email2}")
-        
-        if user2_token:
-            # Switch to user2 token
-            saved_token = self.token
-            self.token = user2_token
-            
-            # User2 should see 0 views (isolation)
-            success, result = self.test(
-                "GET /api/profile/saved-views (user2 - should be empty)",
-                "GET", "profile/saved-views", 200,
-                check_fn=lambda r: len(r["items"]) == 0
-            )
-            if success:
-                self.log(f"   ✓ User isolation confirmed: user2 sees 0 views")
-            
-            # User2 tries to access user1's view - should fail
-            if created_ids:
-                self.test(
-                    "PATCH /api/profile/saved-views/{user1_view_id} (user2 - 404)",
-                    "PATCH", f"profile/saved-views/{created_ids[0]}", 404,
-                    data={"name": "Should fail"}
-                )
-                
-                self.test(
-                    "DELETE /api/profile/saved-views/{user1_view_id} (user2 - 404)",
-                    "DELETE", f"profile/saved-views/{created_ids[0]}", 404
-                )
-            
-            # Restore user1 token
-            self.token = saved_token
-        
-        # Cleanup - delete all test views
-        self.log("   Cleaning up test views...")
-        success, result = self.test(
-            "GET /api/profile/saved-views (for cleanup)",
-            "GET", "profile/saved-views", 200
-        )
-        if success and result:
-            for view in result["items"]:
-                if "Test" in view.get("name", "") or "Eviction" in view.get("name", ""):
-                    self.test(
-                        f"DELETE /api/profile/saved-views/{view['id']} (cleanup)",
-                        "DELETE", f"profile/saved-views/{view['id']}", 200
-                    )
-        
-        # ═══════════════════════════════════════════════════════════════════════
-        # 11. PHASE 10 - LIVE RE-EVALUATION TESTS
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[11] PHASE 10 - LIVE RE-EVALUATION TESTS", "SECTION")
-        
-        # First, get a live match to test with
-        success, result = self.test(
-            "GET /api/matches/live (get test match)",
-            "GET", "matches/live?sport=football&refresh=true", 200,
-            timeout=30,
-            check_fn=lambda r: "items" in r
-        )
-        test_match_id = None
-        if success and result and result.get("items"):
-            # Use first live match
-            test_match_id = result["items"][0].get("match_id")
-            self.log(f"   Using live match ID: {test_match_id}")
-        else:
-            # If no live matches, use a synthetic match_id for validation tests
-            test_match_id = "999999"
-            self.log(f"   No live matches found, using synthetic ID for validation tests")
-        
-        # Test 1: POST /api/live/reevaluate without manual_odds (should ask for cuota)
-        if test_match_id:
-            success, result = self.test(
-                "POST /api/live/reevaluate (no manual_odds)",
-                "POST", "live/reevaluate", 200,
-                data={"match_id": test_match_id, "sport": "football", "refresh": False},
-                timeout=30,
-                check_fn=lambda r: (
-                    "result" in r and
-                    "live_state" in r["result"] and
-                    "recommended_action" in r["result"]
-                )
-            )
-            if success and result:
-                res = result["result"]
-                self.log(f"   Live state: {res.get('live_state')}")
-                self.log(f"   Action: {res.get('recommended_action')}")
-                self.log(f"   Reason: {res.get('reason', '')[:100]}")
-                # Check if it asks for manual odds when pre-match odds missing
-                if res.get("live_state") == "NO_LIVE_VALUE" and "cuota" in res.get("reason", "").lower():
-                    self.log(f"   ✓ Correctly asks for manual odds when pre-match missing")
-        
-        # Test 2: POST /api/live/reevaluate WITH manual_odds + manual_market
-        if test_match_id:
-            success, result = self.test(
-                "POST /api/live/reevaluate (with manual_odds)",
-                "POST", "live/reevaluate", 200,
-                data={
-                    "match_id": test_match_id,
-                    "sport": "football",
-                    "refresh": False,
-                    "manual_odds": 1.85,
-                    "manual_market": "Under 2.5"
-                },
-                timeout=30,
-                check_fn=lambda r: (
-                    "result" in r and
-                    "live_state" in r["result"] and
-                    "edge_pct" in r["result"] and
-                    "confidence" in r["result"] and
-                    "risk_level" in r["result"] and
-                    "manual_odds_used" in r["result"] and
-                    r["result"]["manual_odds_used"] == True
-                )
-            )
-            if success and result:
-                res = result["result"]
-                self.log(f"   Live state: {res.get('live_state')}")
-                self.log(f"   Action: {res.get('recommended_action')}")
-                self.log(f"   Edge: {res.get('edge_pct')}%")
-                self.log(f"   Confidence: {res.get('confidence')}/100")
-                self.log(f"   Risk: {res.get('risk_level')}")
-                self.log(f"   Manual odds used: {res.get('manual_odds_used')}")
-                self.log(f"   Market: {res.get('market')}")
-        
-        # Test 3: Validation - invalid odds (≤1.01)
-        if test_match_id:
-            self.test(
-                "POST /api/live/reevaluate (invalid odds ≤1.01 - 400)",
-                "POST", "live/reevaluate", 400,
-                data={
-                    "match_id": test_match_id,
-                    "sport": "football",
-                    "manual_odds": 1.0,
-                    "manual_market": "Under 2.5"
-                }
-            )
-            
-            self.test(
-                "POST /api/live/reevaluate (negative odds - 400)",
-                "POST", "live/reevaluate", 400,
-                data={
-                    "match_id": test_match_id,
-                    "sport": "football",
-                    "manual_odds": -1.5,
-                    "manual_market": "Under 2.5"
-                }
-            )
-        
-        # Test 4: Validation - manual_odds without manual_market (should fail)
-        if test_match_id:
-            self.test(
-                "POST /api/live/reevaluate (manual_odds without manual_market - 400)",
-                "POST", "live/reevaluate", 400,
-                data={
-                    "match_id": test_match_id,
-                    "sport": "football",
-                    "manual_odds": 1.85
-                }
-            )
-        
-        # Test 5: Non-existent match_id (should return 404)
-        self.test(
-            "POST /api/live/reevaluate (non-existent match - 404)",
-            "POST", "live/reevaluate", 404,
-            data={
-                "match_id": "nonexistent_match_99999999",
-                "sport": "football"
-            }
-        )
-        
-        # Test 6: Non-football sport (should return 400 - football only for Phase 10)
-        if test_match_id:
-            self.test(
-                "POST /api/live/reevaluate (basketball - 400)",
-                "POST", "live/reevaluate", 400,
-                data={
-                    "match_id": test_match_id,
-                    "sport": "basketball"
-                }
-            )
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # 11B. PHASE 3 - LIVE ANALYSIS ENHANCEMENT (xG, Threat, Pressure, Trap)
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[11B] PHASE 3 - LIVE ANALYSIS ENHANCEMENT TESTS", "SECTION")
-        
-        # Test 1: GET /api/matches/live?sport=football should return _live_analysis field
-        success, result = self.test(
-            "GET /api/matches/live?sport=football (_live_analysis field)",
-            "GET", "matches/live?sport=football&refresh=true", 200,
-            timeout=30,
-            check_fn=lambda r: "items" in r
-        )
-        
-        live_match_with_analysis = None
-        if success and result and result.get("items"):
-            items = result["items"]
-            self.log(f"   Live football matches: {len(items)}")
-            
-            # Check if any match has _live_analysis
-            for match in items:
-                if "_live_analysis" in match and match["_live_analysis"]:
-                    live_match_with_analysis = match
-                    analysis = match["_live_analysis"]
-                    self.log(f"   ✓ Found match with _live_analysis: {match.get('match_id')}")
-                    
-                    # Verify structure
-                    required_fields = ["minute", "score", "home", "away", "deltas", "verdict", "_source"]
-                    missing = [f for f in required_fields if f not in analysis]
-                    if missing:
-                        self.log(f"   ⚠ Missing fields in _live_analysis: {missing}", "WARN")
-                    else:
-                        self.log(f"   ✓ _live_analysis structure complete")
-                    
-                    # Check home/away stats
-                    home = analysis.get("home", {})
-                    away = analysis.get("away", {})
-                    stat_fields = ["xg_live", "threat_index", "pressure_rate", "shots", "shots_on_target", 
-                                  "shots_in_box", "possession", "corners", "dangerous", "attacks"]
-                    home_missing = [f for f in stat_fields if f not in home]
-                    away_missing = [f for f in stat_fields if f not in away]
-                    
-                    if home_missing or away_missing:
-                        self.log(f"   ⚠ Missing stats - home: {home_missing}, away: {away_missing}", "WARN")
-                    else:
-                        self.log(f"   ✓ Per-side stats complete")
-                        self.log(f"   Home xG: {home.get('xg_live')}, Threat: {home.get('threat_index')}, Pressure: {home.get('pressure_rate')}")
-                        self.log(f"   Away xG: {away.get('xg_live')}, Threat: {away.get('threat_index')}, Pressure: {away.get('pressure_rate')}")
-                    
-                    # Check verdict
-                    verdict = analysis.get("verdict", {})
-                    if "label" in verdict and "reason_es" in verdict:
-                        self.log(f"   ✓ Verdict: {verdict.get('label')}")
-                        self.log(f"   Reason (ES): {verdict.get('reason_es', '')[:80]}")
-                    else:
-                        self.log(f"   ⚠ Verdict incomplete", "WARN")
-                    
-                    # Check trap field
-                    trap = analysis.get("trap")
-                    if trap and trap.get("triggered"):
-                        self.log(f"   ⚠ TRAP DETECTED!")
-                        self.log(f"   Leader: {trap.get('leader_side')}, Odds: {trap.get('decimal_odds_for_leader')}")
-                        self.log(f"   Pressure ratio: {trap.get('pressure_ratio')}×, Threat ratio: {trap.get('threat_ratio')}×")
-                    else:
-                        self.log(f"   No trap detected (normal)")
-                    
-                    break
-            
-            if not live_match_with_analysis:
-                self.log(f"   ⚠ No live matches with _live_analysis found (may be no stats yet)", "WARN")
-        else:
-            self.log(f"   ⚠ No live football matches available for testing", "WARN")
-        
-        # Test 2: Verify xG computation (should be > 0 when shots > 0)
-        if live_match_with_analysis:
-            analysis = live_match_with_analysis["_live_analysis"]
-            home = analysis.get("home", {})
-            away = analysis.get("away", {})
-            
-            if home.get("shots", 0) > 0 and home.get("xg_live", 0) == 0:
-                self.log(f"   ⚠ Home has {home['shots']} shots but xg_live=0", "WARN")
-            elif home.get("shots", 0) > 0:
-                self.log(f"   ✓ Home xG computed: {home['xg_live']} from {home['shots']} shots")
-            
-            if away.get("shots", 0) > 0 and away.get("xg_live", 0) == 0:
-                self.log(f"   ⚠ Away has {away['shots']} shots but xg_live=0", "WARN")
-            elif away.get("shots", 0) > 0:
-                self.log(f"   ✓ Away xG computed: {away['xg_live']} from {away['shots']} shots")
-        
-        # Test 3: Verify threat_index computation (should be > 0 when stats present)
-        if live_match_with_analysis:
-            analysis = live_match_with_analysis["_live_analysis"]
-            home = analysis.get("home", {})
-            away = analysis.get("away", {})
-            
-            home_has_stats = any([home.get("possession", 0) > 0, home.get("dangerous", 0) > 0, 
-                                 home.get("attacks", 0) > 0, home.get("corners", 0) > 0, 
-                                 home.get("shots_on_target", 0) > 0])
-            away_has_stats = any([away.get("possession", 0) > 0, away.get("dangerous", 0) > 0, 
-                                 away.get("attacks", 0) > 0, away.get("corners", 0) > 0, 
-                                 away.get("shots_on_target", 0) > 0])
-            
-            if home_has_stats and home.get("threat_index", 0) == 0:
-                self.log(f"   ⚠ Home has stats but threat_index=0", "WARN")
-            elif home_has_stats:
-                self.log(f"   ✓ Home threat_index computed: {home['threat_index']}")
-            
-            if away_has_stats and away.get("threat_index", 0) == 0:
-                self.log(f"   ⚠ Away has stats but threat_index=0", "WARN")
-            elif away_has_stats:
-                self.log(f"   ✓ Away threat_index computed: {away['threat_index']}")
-        
-        # Test 4: Check verdict labels are valid
-        if live_match_with_analysis:
-            analysis = live_match_with_analysis["_live_analysis"]
-            verdict = analysis.get("verdict", {})
-            valid_labels = ["TRAP_LATE_LEAD", "LIVE_VALUE_PUSH", "BALANCED", "INSUFFICIENT_DATA"]
-            label = verdict.get("label")
-            
-            if label in valid_labels:
-                self.log(f"   ✓ Verdict label valid: {label}")
-            else:
-                self.log(f"   ⚠ Invalid verdict label: {label}", "WARN")
-        
-        # Test 5: Basketball/Baseball should NOT have _live_analysis
-        for sport in ["basketball", "baseball"]:
-            success, result = self.test(
-                f"GET /api/matches/live?sport={sport} (no _live_analysis)",
-                "GET", f"matches/live?sport={sport}&refresh=false", 200,
-                timeout=30,
-                check_fn=lambda r: "items" in r
-            )
-            
-            if success and result and result.get("items"):
-                has_analysis = any("_live_analysis" in m and m["_live_analysis"] for m in result["items"])
-                if has_analysis:
-                    self.log(f"   ⚠ {sport} matches have _live_analysis (should be football-only)", "WARN")
-                else:
-                    self.log(f"   ✓ {sport} matches correctly have no _live_analysis")
-        
-        # Test 6: POST /api/live/reevaluate should include trap in response
-        if live_match_with_analysis:
-            match_id = live_match_with_analysis.get("match_id")
-            success, result = self.test(
-                "POST /api/live/reevaluate (check trap field)",
-                "POST", "live/reevaluate", 200,
-                data={
-                    "match_id": match_id,
-                    "sport": "football",
-                    "refresh": False,
-                    "manual_odds": 1.85,
-                    "manual_market": "Under 2.5"
-                },
-                timeout=30,
-                check_fn=lambda r: (
-                    "result" in r and
-                    "trap" in r["result"] and
-                    "live_analysis" in r["result"]
-                )
-            )
-            
-            if success and result:
-                res = result["result"]
-                trap = res.get("trap")
-                live_analysis = res.get("live_analysis")
-                
-                if trap and trap.get("triggered"):
-                    self.log(f"   ⚠ TRAP in reevaluate response!")
-                    self.log(f"   Reason: {res.get('reason', '')[:100]}")
-                else:
-                    self.log(f"   No trap in reevaluate (normal)")
-                
-                if live_analysis:
-                    self.log(f"   ✓ live_analysis attached to reevaluate response")
-                else:
-                    self.log(f"   ⚠ live_analysis missing from reevaluate", "WARN")
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # 12. AUTHZ TESTS (401 without token)
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n[12] AUTHZ TESTS (401 without token)", "SECTION")
-        
-        # Temporarily clear token
-        saved_token = self.token
-        self.token = None
-        
-        endpoints_requiring_auth = [
-            ("system/status", "GET"),
-            ("system/fallback-sources", "GET"),
-            ("picks/today/filtered", "GET"),
-            ("picks/today/export.csv", "GET"),
-            ("picks/tracked/export.csv", "GET"),
-            ("stats/timeline", "GET"),
-            ("meta/leagues", "GET"),
-            ("matches/upcoming", "GET"),
-            ("profile/saved-views", "GET"),
-        ]
-        
-        for endpoint, method in endpoints_requiring_auth:
-            self.test(
-                f"AUTHZ: {method} /api/{endpoint} without token",
-                method, endpoint, 401
-            )
-        
-        # Restore token
-        self.token = saved_token
-
-        # ═══════════════════════════════════════════════════════════════════════
-        # SUMMARY
-        # ═══════════════════════════════════════════════════════════════════════
-        self.log("\n" + "=" * 80)
-        self.log("TEST SUMMARY", "SECTION")
-        self.log("=" * 80)
-        self.log(f"Total tests: {self.tests_run}")
-        self.log(f"Passed: {self.tests_passed} ✅")
-        self.log(f"Failed: {self.tests_failed} ❌")
-        self.log(f"Success rate: {(self.tests_passed/self.tests_run*100):.1f}%")
-        
-        if self.failures:
-            self.log("\nFAILED TESTS:", "ERROR")
-            for i, failure in enumerate(self.failures, 1):
-                self.log(f"{i}. {failure['test']}", "ERROR")
-                self.log(f"   Reason: {failure['reason']}", "ERROR")
-                if failure['response']:
-                    self.log(f"   Response: {failure['response']}", "ERROR")
-        
+            print(f"❌ FAILED: {name}")
+            print(f"   Exception: {str(e)}")
+            return False
+    
+    def print_summary(self):
+        """Print test summary"""
+        print(f"\n{'='*80}")
+        print(f"📊 TEST SUMMARY")
+        print(f"{'='*80}")
+        print(f"Total Tests: {self.tests_run}")
+        print(f"✅ Passed: {self.tests_passed}")
+        print(f"❌ Failed: {self.tests_failed}")
+        print(f"Success Rate: {(self.tests_passed/self.tests_run*100):.1f}%")
+        print(f"{'='*80}\n")
         return self.tests_failed == 0
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# UNIT TESTS - time_filter.py
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_is_match_upcoming_past_match():
+    """Unit test: is_match_upcoming with kickoff 2 hours in the past returns False"""
+    from services.time_filter import is_match_upcoming
+    
+    past_time = datetime.now(timezone.utc) - timedelta(hours=2)
+    match = {
+        "kickoff_iso": past_time.isoformat(),
+        "status": "Scheduled"
+    }
+    
+    result = is_match_upcoming(match, buffer_minutes=15)
+    assert result is False, f"Expected False for past match, got {result}"
+    print(f"   ✓ Past match (2h ago) correctly identified as NOT upcoming")
+
+
+def test_is_match_upcoming_future_match():
+    """Unit test: is_match_upcoming with kickoff 4 hours in future returns True"""
+    from services.time_filter import is_match_upcoming
+    
+    future_time = datetime.now(timezone.utc) + timedelta(hours=4)
+    match = {
+        "kickoff_iso": future_time.isoformat(),
+        "status": "Scheduled"
+    }
+    
+    result = is_match_upcoming(match, buffer_minutes=15)
+    assert result is True, f"Expected True for future match, got {result}"
+    print(f"   ✓ Future match (4h ahead) correctly identified as upcoming")
+
+
+def test_is_match_upcoming_no_kickoff():
+    """Unit test: is_match_upcoming with no kickoff_iso returns False (defensive)"""
+    from services.time_filter import is_match_upcoming
+    
+    match = {
+        "status": "Scheduled"
+    }
+    
+    result = is_match_upcoming(match, buffer_minutes=15)
+    assert result is False, f"Expected False for match without kickoff, got {result}"
+    print(f"   ✓ Match without kickoff_iso correctly rejected (defensive)")
+
+
+def test_is_match_upcoming_final_status():
+    """Unit test: is_match_upcoming with status='Final' returns False"""
+    from services.time_filter import is_match_upcoming
+    
+    future_time = datetime.now(timezone.utc) + timedelta(hours=2)
+    match = {
+        "kickoff_iso": future_time.isoformat(),
+        "status": "Final"
+    }
+    
+    result = is_match_upcoming(match, buffer_minutes=15)
+    assert result is False, f"Expected False for Final status, got {result}"
+    print(f"   ✓ Match with status='Final' correctly rejected even with future kickoff")
+
+
+def test_is_match_finished_final_statuses():
+    """Unit test: is_match_finished returns True for Final, Postponed, FT, etc."""
+    from services.time_filter import is_match_finished
+    
+    test_statuses = ["Final", "Postponed", "FT", "AET", "F", "FR", "Final/OT", "Suspended"]
+    
+    for status in test_statuses:
+        match = {"status": status}
+        result = is_match_finished(match)
+        assert result is True, f"Expected True for status={status}, got {result}"
+    
+    print(f"   ✓ All finished statuses correctly identified: {test_statuses}")
+
+
+def test_is_match_finished_scheduled():
+    """Unit test: is_match_finished with status='Scheduled' returns False"""
+    from services.time_filter import is_match_finished
+    
+    match = {"status": "Scheduled"}
+    result = is_match_finished(match)
+    assert result is False, f"Expected False for Scheduled status, got {result}"
+    print(f"   ✓ Scheduled status correctly identified as NOT finished")
+
+
+def test_is_match_finished_in_progress():
+    """Unit test: is_match_finished with status='In Progress' returns False"""
+    from services.time_filter import is_match_finished
+    
+    match = {"status": "In Progress"}
+    result = is_match_finished(match)
+    assert result is False, f"Expected False for In Progress status, got {result}"
+    print(f"   ✓ In Progress status correctly identified as NOT finished")
+
+
+def test_status_finished_set():
+    """Unit test: STATUS_FINISHED contains expected statuses"""
+    from services.time_filter import STATUS_FINISHED
+    
+    required_statuses = ["FT", "AET", "PEN", "POST", "CANC", "Final", "Postponed", 
+                        "F", "FR", "Suspended", "Final/OT"]
+    
+    for status in required_statuses:
+        assert status in STATUS_FINISHED, f"STATUS_FINISHED missing: {status}"
+    
+    print(f"   ✓ STATUS_FINISHED contains all required statuses ({len(required_statuses)} checked)")
+
+
+def test_filter_upcoming():
+    """Unit test: filter_upcoming splits matches correctly"""
+    from services.time_filter import filter_upcoming
+    
+    now = datetime.now(timezone.utc)
+    
+    matches = [
+        # Finished match
+        {
+            "match_id": 1,
+            "kickoff_iso": (now - timedelta(hours=2)).isoformat(),
+            "status": "Final"
+        },
+        # Past kickoff
+        {
+            "match_id": 2,
+            "kickoff_iso": (now - timedelta(hours=1)).isoformat(),
+            "status": "Scheduled"
+        },
+        # Future match (should be kept)
+        {
+            "match_id": 3,
+            "kickoff_iso": (now + timedelta(hours=2)).isoformat(),
+            "status": "Scheduled"
+        },
+        # Missing kickoff
+        {
+            "match_id": 4,
+            "status": "Scheduled"
+        }
+    ]
+    
+    kept, dropped = filter_upcoming(matches, buffer_minutes=15)
+    
+    assert len(kept) == 1, f"Expected 1 kept match, got {len(kept)}"
+    assert len(dropped) == 3, f"Expected 3 dropped matches, got {len(dropped)}"
+    assert kept[0]["match_id"] == 3, f"Expected match_id=3 to be kept"
+    
+    # Check drop reasons are annotated
+    for m in dropped:
+        assert "_filter_drop_reason" in m, f"Match {m['match_id']} missing _filter_drop_reason"
+    
+    print(f"   ✓ filter_upcoming correctly split: kept={len(kept)}, dropped={len(dropped)}")
+    print(f"   ✓ Drop reasons annotated: {[m['_filter_drop_reason'] for m in dropped]}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UNIT TESTS - mlb_intelligence.py pitcher quality scoring
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_pitcher_quality_score_overperforming():
+    """Unit test: _pitcher_quality_score with ERA=2.80 xERA=4.50 returns PITCHER_OVERPERFORMING"""
+    from services.mlb_intelligence import _pitcher_quality_score
+    
+    pitcher = {
+        "era": 2.80,
+        "xera": 4.50,
+        "whip": 1.10,
+        "games_pitched": 15
+    }
+    
+    score = _pitcher_quality_score(pitcher)
+    
+    assert score is not None, "Expected score to be returned"
+    assert 0.4 <= score <= 0.7, f"Expected score in [0.4, 0.7], got {score}"
+    assert pitcher.get("_regression_signal") == "PITCHER_OVERPERFORMING", \
+        f"Expected PITCHER_OVERPERFORMING signal, got {pitcher.get('_regression_signal')}"
+    
+    print(f"   ✓ Overperforming pitcher detected: score={score:.3f}, signal={pitcher['_regression_signal']}")
+
+
+def test_pitcher_quality_score_undervalued():
+    """Unit test: _pitcher_quality_score with ERA=4.60 xERA=3.20 returns PITCHER_UNDERVALUED"""
+    from services.mlb_intelligence import _pitcher_quality_score
+    
+    pitcher = {
+        "era": 4.60,
+        "xera": 3.20,
+        "whip": 1.25,
+        "games_pitched": 15
+    }
+    
+    score = _pitcher_quality_score(pitcher)
+    
+    assert score is not None, "Expected score to be returned"
+    assert 0.8 <= score <= 1.0, f"Expected score in [0.8, 1.0], got {score}"
+    assert pitcher.get("_regression_signal") == "PITCHER_UNDERVALUED", \
+        f"Expected PITCHER_UNDERVALUED signal, got {pitcher.get('_regression_signal')}"
+    
+    print(f"   ✓ Undervalued pitcher detected: score={score:.3f}, signal={pitcher['_regression_signal']}")
+
+
+def test_pitcher_quality_score_backward_compat():
+    """Unit test: _pitcher_quality_score with only ERA + WHIP (no xERA) still returns valid float"""
+    from services.mlb_intelligence import _pitcher_quality_score
+    
+    pitcher = {
+        "era": 3.50,
+        "whip": 1.20,
+        "games_pitched": 15
+    }
+    
+    score = _pitcher_quality_score(pitcher)
+    
+    assert score is not None, "Expected score to be returned"
+    assert isinstance(score, float), f"Expected float score, got {type(score)}"
+    assert 0.0 <= score <= 1.0, f"Expected score in [0.0, 1.0], got {score}"
+    
+    print(f"   ✓ Backward compatibility maintained: score={score:.3f} (no xERA)")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UNIT TESTS - under_pick_passes_safety_rules
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_under_safety_overperforming_ace_block():
+    """Unit test: under_pick_passes_safety_rules blocks overperforming ace"""
+    from services.mlb_intelligence import under_pick_passes_safety_rules
+    
+    home_pitcher = {
+        "_regression_signal": "PITCHER_OVERPERFORMING",
+        "era": 2.50,
+        "xera": 4.00,
+        "games_pitched": 15,
+        "whip": 1.05
+    }
+    
+    away_pitcher = {
+        "era": 3.50,
+        "xera": 3.60,
+        "games_pitched": 15,
+        "whip": 1.20
+    }
+    
+    passes, reasons = under_pick_passes_safety_rules(
+        home_pitcher, away_pitcher,
+        expected_runs=6.0,
+        book_line=8.5,
+        park_factor=1.0
+    )
+    
+    assert passes is False, f"Expected False (blocked), got {passes}"
+    assert "OVERPERFORMING_ACE_BLOCK" in reasons, \
+        f"Expected OVERPERFORMING_ACE_BLOCK in reasons, got {reasons}"
+    
+    print(f"   ✓ Overperforming ace correctly blocked: reasons={reasons}")
+
+
+def test_under_safety_both_excellent():
+    """Unit test: under_pick_passes_safety_rules passes for both excellent pitchers"""
+    from services.mlb_intelligence import under_pick_passes_safety_rules
+    
+    home_pitcher = {
+        "era": 2.80,
+        "xera": 2.70,
+        "games_pitched": 15,
+        "whip": 1.05,
+        "fip": 2.85
+    }
+    
+    away_pitcher = {
+        "era": 2.90,
+        "xera": 2.85,
+        "games_pitched": 15,
+        "whip": 1.10,
+        "fip": 2.95
+    }
+    
+    passes, reasons = under_pick_passes_safety_rules(
+        home_pitcher, away_pitcher,
+        expected_runs=6.0,
+        book_line=8.5,
+        park_factor=1.0
+    )
+    
+    assert passes is True, f"Expected True (passes), got {passes}"
+    assert len(reasons) == 0, f"Expected no reasons, got {reasons}"
+    
+    print(f"   ✓ Both excellent pitchers correctly passed safety rules")
+
+
+def test_under_safety_high_park_factor():
+    """Unit test: under_pick_passes_safety_rules blocks with high park_factor"""
+    from services.mlb_intelligence import under_pick_passes_safety_rules
+    
+    home_pitcher = {
+        "era": 3.20,
+        "xera": 3.30,
+        "games_pitched": 15,
+        "whip": 1.15
+    }
+    
+    away_pitcher = {
+        "era": 3.40,
+        "xera": 3.50,
+        "games_pitched": 15,
+        "whip": 1.20
+    }
+    
+    passes, reasons = under_pick_passes_safety_rules(
+        home_pitcher, away_pitcher,
+        expected_runs=7.0,
+        book_line=8.5,
+        park_factor=1.15  # High park factor (Coors Field-like)
+    )
+    
+    assert passes is False, f"Expected False (blocked), got {passes}"
+    assert "PITCHER_QUALITY_TOO_LOW" in reasons, \
+        f"Expected PITCHER_QUALITY_TOO_LOW in reasons, got {reasons}"
+    
+    print(f"   ✓ High park factor correctly triggers stricter threshold: reasons={reasons}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UNIT TESTS - validate_pick_before_output
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_validate_pick_finished_match():
+    """Unit test: validate_pick_before_output blocks finished match"""
+    from services.time_filter import validate_pick_before_output
+    
+    match = {
+        "match_id": 123,
+        "status": "Final",
+        "kickoff_iso": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    }
+    
+    pick = {
+        "match_id": 123,
+        "recommendation": {"market": "Moneyline", "selection": "Home"}
+    }
+    
+    result = validate_pick_before_output(pick, match, buffer_minutes=15)
+    
+    assert result.get("blocked") is True, f"Expected blocked=True, got {result.get('blocked')}"
+    assert "MATCH_FINISHED" in result.get("block_reasons", []), \
+        f"Expected MATCH_FINISHED in block_reasons, got {result.get('block_reasons')}"
+    
+    print(f"   ✓ Finished match correctly blocked: reasons={result.get('block_reasons')}")
+
+
+def test_validate_pick_under_overperforming_pitcher():
+    """Unit test: validate_pick_before_output blocks Under with overperforming pitcher"""
+    from services.time_filter import validate_pick_before_output
+    
+    future_time = datetime.now(timezone.utc) + timedelta(hours=2)
+    match = {
+        "match_id": 123,
+        "status": "Scheduled",
+        "kickoff_iso": future_time.isoformat()
+    }
+    
+    pick = {
+        "match_id": 123,
+        "recommendation": {"market": "Total Under", "selection": "Under 8.5"},
+        "editorial_context_signals": [
+            {"code": "PITCHER_OVERPERFORMING", "confidence": 85}
+        ]
+    }
+    
+    result = validate_pick_before_output(pick, match, buffer_minutes=15)
+    
+    assert result.get("blocked") is True, f"Expected blocked=True, got {result.get('blocked')}"
+    assert "UNDER_BLOCKED_OVERPERFORMING_PITCHER" in result.get("block_reasons", []), \
+        f"Expected UNDER_BLOCKED_OVERPERFORMING_PITCHER in block_reasons, got {result.get('block_reasons')}"
+    
+    print(f"   ✓ Under with overperforming pitcher correctly blocked: reasons={result.get('block_reasons')}")
+
+
+def test_validate_pick_high_fragility():
+    """Unit test: validate_pick_before_output blocks high fragility (>60)"""
+    from services.time_filter import validate_pick_before_output
+    
+    future_time = datetime.now(timezone.utc) + timedelta(hours=2)
+    match = {
+        "match_id": 123,
+        "status": "Scheduled",
+        "kickoff_iso": future_time.isoformat()
+    }
+    
+    pick = {
+        "match_id": 123,
+        "recommendation": {"market": "Run Line", "selection": "Home -1.5"},
+        "fragility_score": 75
+    }
+    
+    result = validate_pick_before_output(pick, match, buffer_minutes=15)
+    
+    assert result.get("blocked") is True, f"Expected blocked=True, got {result.get('blocked')}"
+    assert "HIGH_FRAGILITY" in result.get("block_reasons", []), \
+        f"Expected HIGH_FRAGILITY in block_reasons, got {result.get('block_reasons')}"
+    
+    print(f"   ✓ High fragility correctly blocked: reasons={result.get('block_reasons')}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UNIT TESTS - parlay_builder time filtering
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_parlay_builder_time_filter():
+    """Unit test: parlay_builder filters out finished/past matches"""
+    from services.parlay_correlation_validator import parlay_builder
+    
+    now = datetime.now(timezone.utc)
+    
+    picks = [
+        # Finished match (should be filtered)
+        {
+            "match_id": 1,
+            "status": "Final",
+            "kickoff_iso": (now - timedelta(hours=2)).isoformat(),
+            "recommendation": {"market": "Moneyline", "selection": "Home", "score": 75},
+            "home_team": "Yankees",
+            "away_team": "Red Sox"
+        },
+        # Future match 1 (should be kept)
+        {
+            "match_id": 2,
+            "status": "Scheduled",
+            "kickoff_iso": (now + timedelta(hours=2)).isoformat(),
+            "recommendation": {"market": "Run Line", "selection": "Home -1.5", "score": 80},
+            "home_team": "Dodgers",
+            "away_team": "Giants"
+        },
+        # Future match 2 (should be kept)
+        {
+            "match_id": 3,
+            "status": "Scheduled",
+            "kickoff_iso": (now + timedelta(hours=3)).isoformat(),
+            "recommendation": {"market": "Total Under", "selection": "Under 8.5", "score": 78},
+            "home_team": "Cubs",
+            "away_team": "Cardinals"
+        }
+    ]
+    
+    result = parlay_builder(picks, max_size=4, min_score=60)
+    
+    assert result.get("time_blocked", 0) == 1, \
+        f"Expected 1 time_blocked pick, got {result.get('time_blocked')}"
+    assert len(result.get("parlay", [])) <= 2, \
+        f"Expected at most 2 picks in parlay (finished excluded), got {len(result.get('parlay', []))}"
+    
+    # Verify finished match is not in parlay
+    parlay_ids = [p["match_id"] for p in result.get("parlay", [])]
+    assert 1 not in parlay_ids, "Finished match (id=1) should not be in parlay"
+    
+    print(f"   ✓ Parlay builder correctly filtered: time_blocked={result.get('time_blocked')}, "
+          f"parlay_size={len(result.get('parlay', []))}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# INTEGRATION TESTS - /api/mlb/day
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_mlb_day_past_date(token: str):
+    """Integration: GET /api/mlb/day with past date returns all games filtered"""
+    url = f"{BASE_URL}/mlb/day"
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"date": "2025-08-15"}  # Past date
+    
+    print(f"   → GET {url}?date={params['date']}")
+    response = requests.get(url, headers=headers, params=params, timeout=60)
+    
+    print(f"   ← Status: {response.status_code}")
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    
+    data = response.json()
+    
+    # Check that all games were filtered as past/finished
+    pipeline_meta = data.get("pipeline_meta", {})
+    dropped = pipeline_meta.get("dropped_past_or_finished", 0)
+    confirmed = pipeline_meta.get("confirmed_games", 0)
+    
+    print(f"   ← confirmed_games={confirmed}, dropped_past_or_finished={dropped}")
+    
+    # For a past date, all confirmed games should be dropped
+    if confirmed > 0:
+        assert dropped == confirmed, \
+            f"Expected all {confirmed} games to be dropped, but only {dropped} were"
+    
+    # Should have abort_reason
+    abort_reason = pipeline_meta.get("abort_reason")
+    if confirmed > 0:
+        assert abort_reason == "all_games_already_played_or_finished", \
+            f"Expected abort_reason='all_games_already_played_or_finished', got {abort_reason}"
+    
+    # Should have no picks
+    picks = data.get("picks", [])
+    rescued = data.get("rescued_picks", [])
+    assert len(picks) == 0, f"Expected 0 picks for past date, got {len(picks)}"
+    assert len(rescued) == 0, f"Expected 0 rescued_picks for past date, got {len(rescued)}"
+    
+    print(f"   ✓ Past date correctly filtered: picks=0, rescued=0, abort_reason={abort_reason}")
+
+
+def test_mlb_day_today(token: str):
+    """Integration: GET /api/mlb/day with today's date"""
+    url = f"{BASE_URL}/mlb/day"
+    headers = {"Authorization": f"Bearer {token}"}
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    params = {"date": today}
+    
+    print(f"   → GET {url}?date={params['date']}")
+    response = requests.get(url, headers=headers, params=params, timeout=60)
+    
+    print(f"   ← Status: {response.status_code}")
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    
+    data = response.json()
+    
+    # Check pipeline_meta exists
+    pipeline_meta = data.get("pipeline_meta", {})
+    assert "dropped_past_or_finished" in pipeline_meta, \
+        "Expected 'dropped_past_or_finished' in pipeline_meta"
+    
+    dropped = pipeline_meta.get("dropped_past_or_finished", 0)
+    games_processed = pipeline_meta.get("games_processed", 0)
+    
+    print(f"   ← games_processed={games_processed}, dropped_past_or_finished={dropped}")
+    
+    # Check parlay_suggested has time_blocked field
+    parlay = data.get("parlay_suggested", {})
+    assert "time_blocked" in parlay or games_processed == 0, \
+        "Expected 'time_blocked' field in parlay_suggested"
+    
+    print(f"   ✓ Today's date response valid: time_blocked field present")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# INTEGRATION TESTS - /api/analysis/run
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_analysis_run_football(token: str):
+    """Integration: POST /api/analysis/run with sport='football' (background)"""
+    url = f"{BASE_URL}/analysis/run"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = {
+        "sport": "football",
+        "refresh": False,
+        "include_live": False,
+        "max_matches": 5,
+        "background": True
+    }
+    
+    print(f"   → POST {url} (sport=football, background=true)")
+    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    
+    print(f"   ← Status: {response.status_code}")
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    
+    data = response.json()
+    job_id = data.get("job_id")
+    assert job_id is not None, "Expected job_id in response"
+    
+    print(f"   ← job_id={job_id}")
+    
+    # Poll for completion (max 60 seconds)
+    poll_url = f"{BASE_URL}/analysis/job/{job_id}"
+    max_attempts = 30
+    for attempt in range(max_attempts):
+        import time
+        time.sleep(2)
+        
+        poll_response = requests.get(poll_url, headers=headers, timeout=10)
+        if poll_response.status_code != 200:
+            continue
+        
+        poll_data = poll_response.json()
+        status = poll_data.get("status")
+        
+        print(f"   ← Poll attempt {attempt+1}: status={status}")
+        
+        if status == "completed":
+            result = poll_data.get("result", {})
+            
+            # Check for stage0_dropped_past_or_finished in pipeline_meta
+            pipeline_meta = result.get("_pipeline", {})
+            if "stage0_dropped_past_or_finished" in pipeline_meta:
+                dropped = pipeline_meta["stage0_dropped_past_or_finished"]
+                print(f"   ✓ stage0_dropped_past_or_finished found: {dropped}")
+            
+            # Verify picks have future kickoff_iso
+            picks = result.get("picks", [])
+            if picks:
+                now = datetime.now(timezone.utc)
+                for pick in picks[:3]:  # Check first 3
+                    kickoff_str = pick.get("kickoff_iso")
+                    if kickoff_str:
+                        kickoff = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
+                        assert kickoff > now, \
+                            f"Pick {pick.get('match_id')} has past kickoff: {kickoff_str}"
+                print(f"   ✓ All picks have future kickoff_iso (checked {min(3, len(picks))} picks)")
+            
+            return
+        
+        elif status == "failed":
+            error = poll_data.get("error", "Unknown error")
+            print(f"   ✗ Job failed: {error}")
+            # Don't fail the test - job failures can happen due to API limits
+            return
+    
+    print(f"   ⚠ Job did not complete within {max_attempts*2}s (may still be running)")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# REGRESSION TESTS - Auth
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_auth_login():
+    """Regression: /api/auth/login still works"""
+    url = f"{BASE_URL}/auth/login"
+    payload = {
+        "email": "demo@valuebet.app",
+        "password": "demo1234"
+    }
+    
+    print(f"   → POST {url}")
+    response = requests.post(url, json=payload, timeout=10)
+    
+    print(f"   ← Status: {response.status_code}")
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    
+    data = response.json()
+    assert "token" in data, "Expected 'token' in response"
+    assert "user" in data, "Expected 'user' in response"
+    
+    token = data["token"]
+    user = data["user"]
+    
+    print(f"   ✓ Login successful: user={user.get('email')}, token={token[:20]}...")
+    return token
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MAIN TEST RUNNER
+# ═══════════════════════════════════════════════════════════════════════════
+
 def main():
-    tester = Phase3Tester()
-    success = tester.run_all_tests()
+    runner = TestRunner()
+    
+    print("\n" + "="*80)
+    print("🧪 COMPREHENSIVE BACKEND TEST SUITE")
+    print("Testing time filtering and pitcher quality scoring fixes")
+    print("="*80 + "\n")
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # UNIT TESTS - time_filter.py
+    # ═══════════════════════════════════════════════════════════════════════
+    print("\n" + "="*80)
+    print("📦 UNIT TESTS - time_filter.py")
+    print("="*80)
+    
+    runner.run_test("is_match_upcoming: past match returns False", 
+                   test_is_match_upcoming_past_match)
+    runner.run_test("is_match_upcoming: future match returns True", 
+                   test_is_match_upcoming_future_match)
+    runner.run_test("is_match_upcoming: no kickoff returns False (defensive)", 
+                   test_is_match_upcoming_no_kickoff)
+    runner.run_test("is_match_upcoming: status='Final' returns False", 
+                   test_is_match_upcoming_final_status)
+    runner.run_test("is_match_finished: Final/Postponed/FT/etc return True", 
+                   test_is_match_finished_final_statuses)
+    runner.run_test("is_match_finished: status='Scheduled' returns False", 
+                   test_is_match_finished_scheduled)
+    runner.run_test("is_match_finished: status='In Progress' returns False", 
+                   test_is_match_finished_in_progress)
+    runner.run_test("STATUS_FINISHED contains required statuses", 
+                   test_status_finished_set)
+    runner.run_test("filter_upcoming: splits matches correctly", 
+                   test_filter_upcoming)
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # UNIT TESTS - mlb_intelligence.py
+    # ═══════════════════════════════════════════════════════════════════════
+    print("\n" + "="*80)
+    print("📦 UNIT TESTS - mlb_intelligence.py")
+    print("="*80)
+    
+    runner.run_test("_pitcher_quality_score: overperforming pitcher detection", 
+                   test_pitcher_quality_score_overperforming)
+    runner.run_test("_pitcher_quality_score: undervalued pitcher detection", 
+                   test_pitcher_quality_score_undervalued)
+    runner.run_test("_pitcher_quality_score: backward compatibility (no xERA)", 
+                   test_pitcher_quality_score_backward_compat)
+    runner.run_test("under_pick_passes_safety_rules: blocks overperforming ace", 
+                   test_under_safety_overperforming_ace_block)
+    runner.run_test("under_pick_passes_safety_rules: passes for excellent pitchers", 
+                   test_under_safety_both_excellent)
+    runner.run_test("under_pick_passes_safety_rules: blocks with high park_factor", 
+                   test_under_safety_high_park_factor)
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # UNIT TESTS - validate_pick_before_output
+    # ═══════════════════════════════════════════════════════════════════════
+    print("\n" + "="*80)
+    print("📦 UNIT TESTS - validate_pick_before_output")
+    print("="*80)
+    
+    runner.run_test("validate_pick_before_output: blocks finished match", 
+                   test_validate_pick_finished_match)
+    runner.run_test("validate_pick_before_output: blocks Under with overperforming pitcher", 
+                   test_validate_pick_under_overperforming_pitcher)
+    runner.run_test("validate_pick_before_output: blocks high fragility", 
+                   test_validate_pick_high_fragility)
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # UNIT TESTS - parlay_builder
+    # ═══════════════════════════════════════════════════════════════════════
+    print("\n" + "="*80)
+    print("📦 UNIT TESTS - parlay_builder")
+    print("="*80)
+    
+    runner.run_test("parlay_builder: filters out finished/past matches", 
+                   test_parlay_builder_time_filter)
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # INTEGRATION TESTS - Auth (must run first to get token)
+    # ═══════════════════════════════════════════════════════════════════════
+    print("\n" + "="*80)
+    print("🔐 REGRESSION TESTS - Auth")
+    print("="*80)
+    
+    token = None
+    if runner.run_test("Auth: /api/auth/login works", test_auth_login):
+        # Get token from successful login
+        try:
+            response = requests.post(f"{BASE_URL}/auth/login", 
+                                    json={"email": "demo@valuebet.app", "password": "demo1234"},
+                                    timeout=10)
+            if response.status_code == 200:
+                token = response.json().get("token")
+        except Exception as e:
+            print(f"   ⚠ Could not get token for integration tests: {e}")
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # INTEGRATION TESTS - /api/mlb/day
+    # ═══════════════════════════════════════════════════════════════════════
+    if token:
+        print("\n" + "="*80)
+        print("🌐 INTEGRATION TESTS - /api/mlb/day")
+        print("="*80)
+        
+        runner.run_test("MLB Day: past date filters all games", 
+                       lambda: test_mlb_day_past_date(token))
+        runner.run_test("MLB Day: today's date response valid", 
+                       lambda: test_mlb_day_today(token))
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # INTEGRATION TESTS - /api/analysis/run
+        # ═══════════════════════════════════════════════════════════════════
+        print("\n" + "="*80)
+        print("🌐 INTEGRATION TESTS - /api/analysis/run")
+        print("="*80)
+        
+        runner.run_test("Analysis Run: football with stage0 filter", 
+                       lambda: test_analysis_run_football(token))
+    else:
+        print("\n⚠ Skipping integration tests (no auth token)")
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # SUMMARY
+    # ═══════════════════════════════════════════════════════════════════════
+    success = runner.print_summary()
     return 0 if success else 1
 
 

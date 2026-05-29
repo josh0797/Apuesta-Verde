@@ -888,6 +888,42 @@ async def _run_analysis_pipeline(
         # NEVER let carry-over logic break the pipeline.
         log.warning("carryover step failed (non-fatal): %s", exc)
 
+    # ── Last-line defence — block any pick whose match is finished/past ─
+    # The user reported a recurring regression where finished games
+    # (e.g. Cubs vs Pirates already 7-2) appeared as picks. This is the
+    # FINAL gate: even if every upstream filter failed, picks that
+    # violate is_match_upcoming / is_match_finished are stripped here.
+    try:
+        from services.time_filter import filter_blocked_picks
+        matches_by_id = {str(c.get("match_id")): c for c in (candidates or [])}
+        picks_in = result.get("picks") or []
+        kept_picks, blocked_picks = filter_blocked_picks(
+            picks_in, matches_by_id, buffer_minutes=15,
+        )
+        if blocked_picks:
+            log.warning("validate_pick_before_output: blocked %d picks (%s)",
+                        len(blocked_picks),
+                        [(p.get("match_id"), p.get("block_reasons")) for p in blocked_picks[:5]])
+            result["picks"] = kept_picks
+            result.setdefault("summary", {}).setdefault("blocked_picks", [])
+            result["summary"]["blocked_picks"].extend(blocked_picks)
+            # Decrement the recommended counters so the UI reflects truth.
+            try:
+                result["summary"]["total_recommended"] = (
+                    int(result["summary"].get("total_recommended") or 0)
+                    - len(blocked_picks))
+            except Exception:
+                pass
+        # Also run the validator on rescued/watchlist for transparency.
+        for bucket_key in ("rescued_picks", "watchlist", "protected_acceptable"):
+            bucket = (result.get("summary") or {}).get(bucket_key) or []
+            kept, blocked = filter_blocked_picks(bucket, matches_by_id, buffer_minutes=15)
+            if blocked:
+                result["summary"][bucket_key] = kept
+                result["summary"].setdefault("blocked_picks", []).extend(blocked)
+    except Exception as exc:
+        log.warning("last-line validate_pick_before_output failed: %s", exc)
+
     record = {
         "id": pick_id_base,
         "user_id": user_id,

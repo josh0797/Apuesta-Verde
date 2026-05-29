@@ -1,30 +1,30 @@
 [
   {
-    "content": "G2B: Crear parlay_correlation_validator.py",
+    "content": "Crear services/time_filter.py",
     "status": "completed"
   },
   {
-    "content": "G2B: parlay_builder(picks, max_size=4)",
+    "content": "Aplicar filtro al inicio de analyst_engine.analyze_matches",
     "status": "completed"
   },
   {
-    "content": "G2B: Integrar parlay en mlb_day_orchestrator response",
+    "content": "Aplicar filtro en mlb_day_orchestrator",
     "status": "completed"
   },
   {
-    "content": "G2A: Crear baseball_savant.py",
+    "content": "Reescribir _pitcher_quality_score con xERA/FIP + UNDER_SAFETY_RULES",
     "status": "completed"
   },
   {
-    "content": "G2A: Crear mlb_team_stats.py (hand splits + bullpen_usage)",
+    "content": "Bloquear picks ya jugados en parlay_builder",
     "status": "completed"
   },
   {
-    "content": "G2A: Hook enriquecimiento paralelo en mlb_day_orchestrator (cap 8 games)",
+    "content": "validate_pick_before_output como última línea en server.py",
     "status": "completed"
   },
   {
-    "content": "Testing backend con testing_agent",
+    "content": "Testing backend + verificar fixes con testing agent",
     "status": "in_progress"
   }
 ]

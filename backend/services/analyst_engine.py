@@ -1377,15 +1377,28 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
     system_prompt = _build_system_prompt(sport)
     session_id = f"analyst-{sport}-{uuid.uuid4().hex[:12]}"
 
-    # ── Stage 1 ── pre-filter (skipped for very small batches)
-    prefilter: dict[str, dict] = {}
+    # ── Stage 0 ── HARD time filter (recurring bug — past games leaked into picks)
+    # Drop ANY match whose status is finished OR whose kickoff is in the
+    # past (with a 15-minute safety buffer). This is the user's explicit
+    # last-line guardrail per the Cubs vs Pirates regression.
+    from .time_filter import filter_upcoming
+    matches_payload, dropped_past = filter_upcoming(matches_payload, buffer_minutes=15)
     pipeline_meta: dict[str, Any] = {
+        "stage0_dropped_past_or_finished": len(dropped_past),
+        "stage0_dropped_match_ids": [m.get("match_id") for m in dropped_past[:20]],
         "stage1_model": None,
         "stage2_model": None,
         "stage1_skipped_reason": None,
         "stage1_candidates": None,
         "stage1_auto_discarded": 0,
     }
+    if not matches_payload:
+        log.warning("Analyst[%s]: ALL matches dropped by time_filter (Stage 0). dropped=%d",
+                    sport, len(dropped_past))
+        return _emit_no_value_response(matches_payload, [], sport, session_id, pipeline_meta)
+
+    # ── Stage 1 ── pre-filter (skipped for very small batches)
+    prefilter: dict[str, dict] = {}
     if len(matches_payload) >= TWO_STAGE_MIN_INPUT and OPENAI_API_KEY:
         log.info("Analyst[%s]: Stage 1 pre-filter via %s on %d matches",
                  sport, OPENAI_MODEL_MINI, len(matches_payload))

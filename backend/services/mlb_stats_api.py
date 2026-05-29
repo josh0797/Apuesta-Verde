@@ -82,7 +82,9 @@ async def get_schedule_with_probables(db, date_str: str) -> list[dict]:
             home = g.get("teams", {}).get("home", {}) or {}
             games.append({
                 "gamePk": g.get("gamePk"),
+                "gameDate": g.get("gameDate"),
                 "status": (g.get("status") or {}).get("detailedState"),
+                "abstractGameState": (g.get("status") or {}).get("abstractGameState"),
                 "venue": (g.get("venue") or {}).get("name"),
                 "away_team": (away.get("team") or {}).get("name"),
                 "away_team_id": (away.get("team") or {}).get("id"),

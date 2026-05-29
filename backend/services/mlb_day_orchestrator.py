@@ -74,6 +74,9 @@ async def _confirm_pitchers_statsapi(db, date_str: str) -> tuple[dict, str]:
                 "home_team_name":    g.get("home_team"),
                 "away_team_name":    g.get("away_team"),
                 "venue":             g.get("venue"),
+                "gameDate":          g.get("gameDate"),
+                "status":            g.get("status"),
+                "abstractGameState": g.get("abstractGameState"),
                 "_source":           "mlb_stats_api",
             }
     return out, url
@@ -158,6 +161,40 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
         # No probable pitchers from statsapi means nothing to score.
         pipeline_meta["abort_reason"] = "no_probable_pitchers"
         return _empty_payload(pipeline_meta)
+
+    # ── Stage 0 ── HARD time filter (recurring bug — past games leaked in)
+    # Filter the confirmed games to only those whose gameDate is in the
+    # future (with 15-min buffer) AND whose status is not Final/Postponed.
+    from .time_filter import is_match_upcoming, is_match_finished
+    filtered_by_pk: dict[int, dict] = {}
+    dropped_past_pks: list[int] = []
+    for pk, conf in confirmed_by_pk.items():
+        # MLB Stats API: status = detailedState ('Scheduled', 'Final',
+        # 'In Progress', 'Postponed'). abstractGameState = 'Preview' |
+        # 'Live' | 'Final'. gameDate = ISO timestamp.
+        ref = {
+            "kickoff_iso":  conf.get("gameDate"),
+            "status":       conf.get("status") or conf.get("abstractGameState") or "",
+        }
+        if is_match_finished(ref):
+            dropped_past_pks.append(pk)
+            continue
+        # Also drop anything whose abstractGameState is Live (in progress).
+        if (conf.get("abstractGameState") or "").lower() == "live":
+            dropped_past_pks.append(pk)
+            continue
+        if not is_match_upcoming(ref, buffer_minutes=15):
+            dropped_past_pks.append(pk)
+            continue
+        filtered_by_pk[pk] = conf
+    if dropped_past_pks:
+        log.warning("MLB orchestrator: dropped %d games as past/finished/live: %s",
+                    len(dropped_past_pks), dropped_past_pks[:10])
+    pipeline_meta["dropped_past_or_finished"] = len(dropped_past_pks)
+    if not filtered_by_pk:
+        pipeline_meta["abort_reason"] = "all_games_already_played_or_finished"
+        return _empty_payload(pipeline_meta)
+    confirmed_by_pk = filtered_by_pk
 
     # Per-game analysis. We limit to MAX_GAMES_PER_CALL and parallelise
     # the per-game enrichment so the 60s ingress doesn't time out.
