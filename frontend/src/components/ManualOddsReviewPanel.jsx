@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, AlertCircle, Activity, Target, Gauge } from 'lucide-react';
+import { ChevronDown, AlertCircle, Activity, Target, Gauge, Calculator } from 'lucide-react';
 
 /**
  * ManualOddsReviewPanel — renders MLB games that the v2 engine identified as
@@ -9,8 +9,8 @@ import { ChevronDown, AlertCircle, Activity, Target, Gauge } from 'lucide-react'
  * bucket (and optionally `summary.watchlist_manual_odds`) populated by the
  * MLB-V5 orchestrator. Critically they are NOT routed to "Descartados por
  * mercado frágil" anymore — instead the user gets a clear "Revisión
- * manual — falta cuota" card with suggested markets and a placeholder for
- * a future "Pegar cuota manual" interaction.
+ * manual — falta cuota" card with suggested markets and a "Pegar tu cuota
+ * manual" input that computes EV client-side.
  *
  * Constraints:
  *  - Baseball-only — caller (DashboardPage) must skip rendering for other sports.
@@ -30,16 +30,51 @@ function asNumber(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Compute client-side expected value (edge) from a pasted decimal odds.
+ *
+ * EV = (probability * (odds - 1)) - (1 - probability)
+ *
+ * Returned as percentage (positive ⇒ profitable). When the engine produced
+ * a Poisson-based probability we trust it directly; for Run Line picks the
+ * `coverProbability` from v2 is also already a probability percentage.
+ */
+function computeEdge(decimalOdds, probabilityPct) {
+  const o = parseFloat(decimalOdds);
+  const p = parseFloat(probabilityPct);
+  if (!Number.isFinite(o) || o <= 1 || !Number.isFinite(p) || p <= 0 || p >= 100) return null;
+  const prob = p / 100;
+  const ev = (prob * (o - 1)) - (1 - prob);
+  return {
+    edgePct:        ev * 100,
+    impliedProbPct: (1 / o) * 100,
+    breakEvenOdds:  prob > 0 ? 1 / prob : null,
+  };
+}
+
 function ManualReviewRow({ item, idx, testId }) {
   const [expanded, setExpanded] = useState(false);
+  const [manualOdds, setManualOdds] = useState('');
   const cls = item.classification || 'STRUCTURAL_LEAN';
   const meta = TONE_BY_CLASSIFICATION[cls] || TONE_BY_CLASSIFICATION.STRUCTURAL_LEAN;
   const v2 = item.mlb_script_v2 || {};
   const sq = item.structural_quality || {};
 
-  const marginNum = asNumber(v2.marginProjection);
-  const coverNum  = asNumber(v2.coverProbability);
-  const erNum     = asNumber(v2.expectedRuns);
+  const marginNum     = asNumber(v2.marginProjection);
+  const coverNum      = asNumber(v2.coverProbability);
+  const erNum         = asNumber(v2.expectedRuns);
+  // BUGFIX — new fields surfaced from the engine.
+  const edgeNum       = asNumber(v2.edgeVsLine);
+  const probUnderNum  = asNumber(v2.probabilityUnder);
+  const probOverNum   = asNumber(v2.probabilityOver);
+  const probModel     = v2.probabilityModel || null;
+  const probDebug     = v2.probabilityDebug || null;
+  const recommendedMarket = v2.recommendedLine || (probDebug && probDebug.recommended_market);
+
+  // Client-side EV calculation when the user pastes their bookie odds.
+  const edgeCalc = manualOdds && coverNum !== null
+    ? computeEdge(manualOdds, coverNum)
+    : null;
 
   return (
     <div
@@ -90,7 +125,7 @@ function ManualReviewRow({ item, idx, testId }) {
           ) : null}
 
           {/* v2 script metrics */}
-          {(marginNum !== null || coverNum !== null || erNum !== null || v2.recommendedLine) && (
+          {(marginNum !== null || coverNum !== null || erNum !== null || v2.recommendedLine || edgeNum !== null) && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
               {marginNum !== null ? (
                 <div className="rounded-md border border-border/40 px-2 py-1.5 bg-background/40">
@@ -99,7 +134,7 @@ function ManualReviewRow({ item, idx, testId }) {
                 </div>
               ) : null}
               {coverNum !== null ? (
-                <div className="rounded-md border border-border/40 px-2 py-1.5 bg-background/40">
+                <div className="rounded-md border border-border/40 px-2 py-1.5 bg-background/40" data-testid={`manual-review-row-${idx}-cover-prob`}>
                   <div className="flex items-center gap-1 text-muted-foreground/70 text-[10px]"><Target className="h-3 w-3" /> Cover probability</div>
                   <div className="font-medium tabular-nums mt-0.5">{coverNum.toFixed(1)}%</div>
                 </div>
@@ -116,8 +151,48 @@ function ManualReviewRow({ item, idx, testId }) {
                   <div className="font-medium mt-0.5 text-emerald-200">{v2.recommendedLine}</div>
                 </div>
               ) : null}
+              {/* BUGFIX — Edge vs Line displayed when the engine produced a totals
+                  recommendation. Positive number ⇒ Over has cushion; negative ⇒ Under. */}
+              {edgeNum !== null ? (
+                <div
+                  className={`rounded-md border px-2 py-1.5 ${edgeNum >= 0 ? 'border-emerald-500/20 bg-emerald-500/[0.04]' : 'border-cyan-500/20 bg-cyan-500/[0.04]'}`}
+                  data-testid={`manual-review-row-${idx}-edge-vs-line`}
+                >
+                  <div className="flex items-center gap-1 text-muted-foreground/70 text-[10px]">Edge vs línea</div>
+                  <div className={`font-medium tabular-nums mt-0.5 ${edgeNum >= 0 ? 'text-emerald-200' : 'text-cyan-200'}`}>
+                    {edgeNum >= 0 ? '+' : ''}{edgeNum.toFixed(2)} carreras
+                  </div>
+                </div>
+              ) : null}
+              {probUnderNum !== null && probOverNum !== null ? (
+                <div className="rounded-md border border-border/40 px-2 py-1.5 bg-background/40" data-testid={`manual-review-row-${idx}-under-over-probs`}>
+                  <div className="flex items-center gap-1 text-muted-foreground/70 text-[10px]">Probabilidades</div>
+                  <div className="font-medium tabular-nums mt-0.5 text-[10.5px]">
+                    U {probUnderNum.toFixed(0)}% · O {probOverNum.toFixed(0)}%
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
+
+          {/* BUGFIX — Probability model provenance / debug. Visible in expanded body
+              so the user can audit how `coverProbability` was derived. */}
+          {probModel ? (
+            <details className="rounded-md border border-border/40 bg-background/30 px-2.5 py-1.5 text-[10.5px]" data-testid={`manual-review-row-${idx}-prob-debug`}>
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground/80 flex items-center gap-1.5">
+                <Calculator className="h-3 w-3" />
+                Modelo probabilístico: <span className="font-medium text-foreground/80">{probModel}</span>
+              </summary>
+              <ul className="mt-2 space-y-0.5 text-muted-foreground/85 font-mono leading-relaxed">
+                <li>Projected runs · {erNum !== null ? erNum.toFixed(1) : '—'}</li>
+                <li>Recommended market · {recommendedMarket || '—'}</li>
+                <li>P(Under {(recommendedMarket||'').toString().match(/\d+(\.\d+)?/)?.[0] || '?'}) · {probUnderNum !== null ? `${probUnderNum.toFixed(1)}%` : '—'}</li>
+                <li>P(Over  {(recommendedMarket||'').toString().match(/\d+(\.\d+)?/)?.[0] || '?'}) · {probOverNum  !== null ? `${probOverNum.toFixed(1)}%`  : '—'}</li>
+                <li>Edge vs line · {edgeNum !== null ? `${edgeNum >= 0 ? '+' : ''}${edgeNum.toFixed(2)} carreras` : '—'}</li>
+                <li>Cover probability (mercado recomendado) · {coverNum !== null ? `${coverNum.toFixed(1)}%` : '—'}</li>
+              </ul>
+            </details>
+          ) : null}
 
           {/* Suggested markets */}
           {(item.suggested_markets || []).length ? (
@@ -139,19 +214,50 @@ function ManualReviewRow({ item, idx, testId }) {
             </div>
           ) : null}
 
-          {/* Manual odds paste affordance (placeholder — no edge calc yet) */}
-          <div className="flex items-center justify-between rounded-md border border-dashed border-border/60 bg-background/30 px-3 py-2">
-            <div className="text-[11px] text-muted-foreground">
-              Pega tu cuota para calcular edge (próximo release).
+          {/* Manual odds paste — client-side EV calculator (BUGFIX P2 activation).
+              The recommended `coverProbability` is honoured (Poisson for totals,
+              dominance for Run Line) and we compute EV = prob*(odds-1) - (1-prob). */}
+          <div className="rounded-md border border-border/60 bg-background/30 px-3 py-2 space-y-2" data-testid={`manual-review-row-${idx}-odds-calc`}>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <label className="text-[11px] text-muted-foreground flex items-center gap-1.5" htmlFor={`odds-input-${idx}`}>
+                <Calculator className="h-3 w-3" />
+                Pega tu cuota decimal para {recommendedMarket || 'este mercado'}:
+              </label>
+              <input
+                id={`odds-input-${idx}`}
+                type="number"
+                step="0.01"
+                min="1.01"
+                placeholder="1.90"
+                value={manualOdds}
+                onChange={(e) => setManualOdds(e.target.value)}
+                className="w-24 text-[12px] tabular-nums bg-background border border-border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
+                data-testid={`manual-review-row-${idx}-odds-input`}
+              />
             </div>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="1.90"
-              className="w-20 text-[11px] tabular-nums bg-background border border-border rounded px-2 py-1 disabled:opacity-50"
-              disabled
-              data-testid={`manual-review-row-${idx}-odds-input`}
-            />
+            {edgeCalc ? (
+              <div
+                className={`rounded border px-2 py-1.5 text-[11px] grid grid-cols-3 gap-2 tabular-nums ${edgeCalc.edgePct >= 0 ? 'border-emerald-500/30 bg-emerald-500/[0.06]' : 'border-rose-500/30 bg-rose-500/[0.05]'}`}
+                data-testid={`manual-review-row-${idx}-edge-result`}
+              >
+                <div>
+                  <div className="text-muted-foreground/70 text-[10px]">EV</div>
+                  <div className={`font-semibold ${edgeCalc.edgePct >= 0 ? 'text-emerald-200' : 'text-rose-300'}`}>
+                    {edgeCalc.edgePct >= 0 ? '+' : ''}{edgeCalc.edgePct.toFixed(2)}%
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground/70 text-[10px]">Implied</div>
+                  <div className="text-foreground/80">{edgeCalc.impliedProbPct.toFixed(1)}%</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground/70 text-[10px]">Modelo</div>
+                  <div className="text-foreground/80">{coverNum?.toFixed(1)}%</div>
+                </div>
+              </div>
+            ) : manualOdds ? (
+              <div className="text-[10px] text-rose-300/80">Cuota debe ser &gt; 1.01.</div>
+            ) : null}
           </div>
 
           {/* Structural quality reasons */}

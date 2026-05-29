@@ -1092,6 +1092,12 @@ async def _run_analysis_pipeline(
                 "confidence":       int((p.get("recommendation") or {}).get("score") or 0),
                 "classification":   p.get("classification"),
             }
+            # BUGFIX — Always surface the v2 script payload (incl. Poisson totals
+            # probability, edgeVsLine, probabilityDebug) so high_confidence /
+            # medium_confidence rows ALSO display the correct cover probability,
+            # not just the manual-review bucket.
+            if p.get("_mlb_script_v2"):
+                row["mlb_script_v2"] = p["_mlb_script_v2"]
             if with_reason:
                 row["reason"] = (
                     p.get("manual_review_reason")
@@ -1104,9 +1110,6 @@ async def _run_analysis_pipeline(
                     row["requires_manual_odds"] = True
                 if p.get("_structural_quality"):
                     row["structural_quality"] = p["_structural_quality"]
-                # MLB-V2 v2 snapshot for UI rendering of the manual-review card.
-                if p.get("_mlb_script_v2"):
-                    row["mlb_script_v2"] = p["_mlb_script_v2"]
             return row
 
         result = {

@@ -32,6 +32,7 @@ All functions are **pure** (dict in → dict out), exactly like v1.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Optional
 
 # Re-use base building blocks. The orchestrator already calls them; v2 only
@@ -330,6 +331,85 @@ _DEFAULT_OVER_LINES  = (6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5)
 _DEFAULT_UNDER_LINES = (7.5, 8.0, 8.5, 9.0, 9.5)
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# BUGFIX: Poisson-based totals probability model.
+#
+# Previously the v2 payload surfaced `coverProbability` from
+# `runLineDominance` even when the recommended market was a totals (Over/
+# Under) line. That produced UI rows like "UNDER 9.5 · cover 33%" — which
+# is the favourite's probability of covering -1.5, NOT the probability the
+# total runs land under 9.5. With expected_runs = 6.7 and line = 9.5, the
+# true probability the Under hits is ~87%.
+#
+# We use a Poisson model on expected total runs (λ = expected_runs) and
+# compute, for an Under X.5 line, P(total <= floor(X.5)) = poisson_cdf(
+# floor(X.5), λ). For integer lines (rare in MLB), we treat the push
+# probability as 50/50 between Under and Over for display purposes.
+# ────────────────────────────────────────────────────────────────────────────
+def _poisson_cdf(k: int, lam: float) -> float:
+    """Cumulative P(X ≤ k) for X ~ Poisson(lam). Numerically stable for
+    lam ≤ ~50 which is far above any realistic MLB total."""
+    if lam <= 0:
+        return 1.0 if k >= 0 else 0.0
+    if k < 0:
+        return 0.0
+    term = math.exp(-lam)
+    total = term                      # i = 0
+    for i in range(1, int(k) + 1):
+        term *= lam / i
+        total += term
+    return max(0.0, min(1.0, total))
+
+
+def totals_probability(
+    expected_runs: float,
+    line: float,
+    *,
+    model: str = "Poisson",
+) -> dict:
+    """Return ``{prob_under, prob_over, model}`` for an MLB totals line.
+
+    Half-line example (most common, line=8.5):
+        Under 8.5 → P(total ≤ 8)  = poisson_cdf(8, λ)
+        Over  8.5 → P(total ≥ 9)  = 1 - poisson_cdf(8, λ)
+
+    Integer-line example (rare, line=8.0):
+        We compute P(push) = poisson_pmf(8, λ), then assign half of it to
+        each side so the displayed Cover Probability never includes the
+        push leg (the user is told elsewhere when push risk is non-trivial).
+    """
+    try:
+        lam = float(expected_runs)
+    except (TypeError, ValueError):
+        lam = 0.0
+    try:
+        ln = float(line)
+    except (TypeError, ValueError):
+        ln = 0.0
+
+    lam = max(0.05, min(25.0, lam))
+    is_half = abs(ln - round(ln)) > 1e-9
+    if is_half:
+        k = int(math.floor(ln))
+        p_under = _poisson_cdf(k, lam)
+    else:
+        # Integer line: split the push 50/50.
+        n = int(round(ln))
+        # Poisson pmf at n
+        log_term = -lam + n * math.log(lam) - sum(math.log(i) for i in range(1, n + 1)) if n > 0 else -lam
+        p_eq = math.exp(log_term)
+        p_under = _poisson_cdf(n - 1, lam) + p_eq * 0.5
+    p_under = max(0.0, min(1.0, p_under))
+    p_over  = max(0.0, min(1.0, 1.0 - p_under))
+    return {
+        "prob_under": round(p_under, 4),
+        "prob_over":  round(p_over, 4),
+        "model":      model,
+        "lambda":     round(lam, 3),
+        "line":       ln,
+    }
+
+
 def smart_total_line_selector(
     expected_runs: float,
     ctx: Optional[dict] = None,
@@ -394,12 +474,17 @@ def smart_total_line_selector(
     candidates: list[dict] = []
     for ln in ladder:
         s, f = _score_line(ln, side)
+        probs = totals_probability(er, ln)
         candidates.append({
             "line":              ln,
             "side":              side,
             "safety":            round(s, 1),
             "fragility":         round(f, 1),
             "diff":              round(er - ln if side == "OVER" else ln - er, 2),
+            # BUGFIX — Poisson totals model.
+            "prob_under":        probs["prob_under"],
+            "prob_over":         probs["prob_over"],
+            "prob_model":        probs["model"],
         })
     # Sort by safety desc to pick safeLine; sort by line desc to pick aggressive.
     by_safety = sorted(candidates, key=lambda c: c["safety"], reverse=True)
@@ -440,6 +525,12 @@ def smart_total_line_selector(
             "fragilityScore":   100.0,
             "reason":           "Sin líneas viables en el rango.",
             "signalTag":        None,
+            # BUGFIX — totals probability fields (None when no candidate).
+            "coverProbability":   None,
+            "edgeVsLine":         None,
+            "probabilityUnder":   None,
+            "probabilityOver":    None,
+            "probabilityModel":   None,
         }
 
     reason_parts = [
@@ -450,6 +541,12 @@ def smart_total_line_selector(
     if best and safe and best["line"] != safe["line"]:
         reason_parts.append(f"agresiva={side} {aggressive['line'] if aggressive else best['line']}")
         reason_parts.append(f"protegida={side} {safe['line']}")
+
+    # BUGFIX — surface the Poisson probability for the RECOMMENDED side.
+    rec_prob_under = recommended.get("prob_under") or 0.0
+    rec_prob_over  = recommended.get("prob_over")  or 0.0
+    cover_probability = (rec_prob_over if side == "OVER" else rec_prob_under) * 100.0
+    edge_vs_line = round(er - recommended["line"], 2)   # positive ⇒ Over has value
 
     return {
         "expectedRuns":     round(er, 1),
@@ -463,6 +560,13 @@ def smart_total_line_selector(
         "reason":           " · ".join(reason_parts),
         "signalTag":        "SMART_OVER_LINE_SELECTED" if abs(recommended["diff"]) >= 0.8 else None,
         "ladder":           candidates,
+        # BUGFIX — Poisson-derived totals probabilities (used by the UI
+        # whenever the final pickType is a totals market).
+        "coverProbability":  round(cover_probability, 1),
+        "edgeVsLine":        edge_vs_line,
+        "probabilityUnder":  round(rec_prob_under * 100.0, 1),
+        "probabilityOver":   round(rec_prob_over  * 100.0, 1),
+        "probabilityModel":  "Poisson",
     }
 
 
@@ -1008,6 +1112,69 @@ def build_v2_payload(
         pick_type_ctx["market"] = f"Total Runs {ov_side.title()}"
     pick_type = classify_pick_type(pick_type_ctx)
 
+    # ────────────────────────────────────────────────────────────────────
+    # BUGFIX — resolve `coverProbability` to MATCH the recommended market.
+    # Previously the v2 payload always exposed the Run Line cover
+    # probability, even when the recommended market was an Over/Under
+    # totals line. Now totals markets use the Poisson totals probability;
+    # Run Line markets keep the runLineDominance cover probability.
+    # ────────────────────────────────────────────────────────────────────
+    pt_code = (pick_type.get("type") or "").upper()
+    totals_pick = pt_code in {"SMART_LOW_OVER", "PITCHER_UNDER", "TEAM_TOTAL_EDGE", "F5_EDGE"} \
+                  or (line_sel.get("recommendedLine") and rldom.get("recommend") is False)
+
+    if totals_pick and line_sel.get("coverProbability") is not None:
+        resolved_cover_prob   = line_sel.get("coverProbability")
+        resolved_probability_model = line_sel.get("probabilityModel") or "Poisson"
+        resolved_edge_vs_line = line_sel.get("edgeVsLine")
+        resolved_prob_under   = line_sel.get("probabilityUnder")
+        resolved_prob_over    = line_sel.get("probabilityOver")
+        resolved_market_for_ui = line_sel.get("recommendedLine")
+    elif rldom.get("recommend"):
+        resolved_cover_prob   = rldom.get("coverProbability")
+        resolved_probability_model = "RunLineDominance"
+        resolved_edge_vs_line = rldom.get("marginProjection")
+        resolved_prob_under   = None
+        resolved_prob_over    = None
+        resolved_market_for_ui = rldom.get("market")
+    else:
+        # No clear recommendation yet — surface totals probability if
+        # smart selector ran, otherwise leave Run Line cover as fallback.
+        if line_sel.get("coverProbability") is not None:
+            resolved_cover_prob   = line_sel.get("coverProbability")
+            resolved_probability_model = line_sel.get("probabilityModel") or "Poisson"
+            resolved_edge_vs_line = line_sel.get("edgeVsLine")
+            resolved_prob_under   = line_sel.get("probabilityUnder")
+            resolved_prob_over    = line_sel.get("probabilityOver")
+            resolved_market_for_ui = line_sel.get("recommendedLine")
+        else:
+            resolved_cover_prob   = rldom.get("coverProbability")
+            resolved_probability_model = "RunLineDominance"
+            resolved_edge_vs_line = rldom.get("marginProjection")
+            resolved_prob_under   = None
+            resolved_prob_over    = None
+            resolved_market_for_ui = rldom.get("market")
+
+    # Debug provenance — visible in backend logs AND surfaced to the UI
+    # via `probabilityDebug` so the user can audit each recommendation.
+    debug_provenance = {
+        "projected_runs":         expected_runs,
+        "recommended_market":     resolved_market_for_ui,
+        "probability_model":      resolved_probability_model,
+        "prob_under":             resolved_prob_under,
+        "prob_over":              resolved_prob_over,
+        "edge_vs_line":           resolved_edge_vs_line,
+        "cover_probability":      resolved_cover_prob,
+        "pick_type":              pt_code or None,
+    }
+    log.info(
+        "MLB v2 prob_debug: market=%s expRuns=%s probUnder=%s probOver=%s edge=%s cover=%s model=%s",
+        resolved_market_for_ui, expected_runs,
+        resolved_prob_under, resolved_prob_over,
+        resolved_edge_vs_line, resolved_cover_prob,
+        resolved_probability_model,
+    )
+
     return {
         "pitcherCentered":      pcen,
         "runLineDominance":     rldom,
@@ -1018,7 +1185,9 @@ def build_v2_payload(
         "pickType":             pick_type.get("type"),
         "pickTypeReason":       pick_type.get("reason"),
         "marginProjection":     rldom.get("marginProjection"),
-        "coverProbability":     rldom.get("coverProbability"),
+        # BUGFIX — top-level `coverProbability` now matches the recommended
+        # market (totals → Poisson P(side), Run Line → dominance cover).
+        "coverProbability":     resolved_cover_prob,
         "runLineScore":         rldom.get("runLineScore"),
         "fragilityScore":       rldom.get("fragilityScore"),
         "expectedRuns":         expected_runs,
@@ -1027,6 +1196,13 @@ def build_v2_payload(
         "aggressiveLine":       line_sel.get("aggressiveLine"),
         "recommendedLine":      line_sel.get("recommendedLine"),
         "lineSafetyScore":      line_sel.get("lineSafetyScore"),
+        # BUGFIX — new fields surfaced for UI / audit.
+        "edgeVsLine":           resolved_edge_vs_line,
+        "probabilityModel":     resolved_probability_model,
+        "probabilityUnder":     resolved_prob_under,
+        "probabilityOver":      resolved_prob_over,
+        "probabilityDebug":     debug_provenance,
+        "runLineCoverProbability": rldom.get("coverProbability"),   # legacy reference
         "reasons":              rldom.get("reasons") or [],
         "risks":                rldom.get("risks") or [],
     }
@@ -1088,6 +1264,7 @@ __all__ = [
     "favorite_margin_profile",
     "run_line_dominance_model",
     "smart_total_line_selector",
+    "totals_probability",
     "pitcher_centered_evaluation",
     "same_game_correlation_rule",
     "classify_pick_type",

@@ -88,6 +88,11 @@ export function MLBScriptPanel({ scriptV2, parlay, testId }) {
     sameGameCorrelationReason,
     reasons = [],
     risks = [],
+    // BUGFIX — new fields surfaced from the engine.
+    edgeVsLine,
+    probabilityModel,
+    probabilityUnder,
+    probabilityOver,
   } = scriptV2;
 
   const hasAnything = Boolean(
@@ -109,6 +114,9 @@ export function MLBScriptPanel({ scriptV2, parlay, testId }) {
   const erNum      = asNumber(expectedRuns);
   const fragNum    = asNumber(fragilityScore);
   const lineSafeNum= asNumber(lineSafetyScore);
+  const edgeNum    = asNumber(edgeVsLine);
+  const probUnderNum = asNumber(probabilityUnder);
+  const probOverNum  = asNumber(probabilityOver);
 
   return (
     <div
@@ -253,6 +261,23 @@ export function MLBScriptPanel({ scriptV2, parlay, testId }) {
                     value={`${lineSafeNum.toFixed(0)}/100`}
                     tone={lineSafeNum >= 65 ? 'emerald' : (lineSafeNum >= 45 ? 'amber' : 'slate')}
                     testId={`${testId || 'mlb-script'}-metric-line-safety`}
+                  />
+                ) : null}
+                {/* BUGFIX — Edge vs line + Poisson under/over probabilities */}
+                {edgeNum !== null ? (
+                  <MetricRow
+                    label="Edge vs línea"
+                    value={`${edgeNum >= 0 ? '+' : ''}${edgeNum.toFixed(2)} carr.`}
+                    tone={Math.abs(edgeNum) >= 1.5 ? 'emerald' : (Math.abs(edgeNum) >= 0.7 ? 'amber' : 'slate')}
+                    testId={`${testId || 'mlb-script'}-metric-edge-vs-line`}
+                  />
+                ) : null}
+                {(probUnderNum !== null && probOverNum !== null) ? (
+                  <MetricRow
+                    label="P(U/O)"
+                    value={`${probUnderNum.toFixed(0)}% · ${probOverNum.toFixed(0)}%`}
+                    hint={probabilityModel || ''}
+                    testId={`${testId || 'mlb-script'}-metric-under-over-probs`}
                   />
                 ) : null}
               </div>

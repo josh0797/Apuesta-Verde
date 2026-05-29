@@ -1,22 +1,22 @@
 [
   {
-    "content": "Phase MLB-V5.1 — Add mlb_structural_data_quality() + new buckets + new decision logic",
+    "content": "Backend: Add Poisson totals_probability() + enrich smart_total_line_selector",
     "status": "completed"
   },
   {
-    "content": "Phase MLB-V5.2 — Add 5 new editorial signals",
+    "content": "Backend: build_v2_payload resolves coverProbability per pickType + edgeVsLine + debug log",
     "status": "completed"
   },
   {
-    "content": "Phase MLB-V5.3 — Route /api/analysis/run baseball through analyze_mlb_day (bypass LLM)",
+    "content": "Frontend ManualOddsReviewPanel: display Edge vs Línea + Poisson debug + ENABLED manual odds input (client-side EV)",
     "status": "completed"
   },
   {
-    "content": "Phase MLB-V5.4 — Frontend ManualOddsReviewPanel + DiscardedSection title update",
+    "content": "Frontend MLBScriptPanel: surface edgeVsLine + Poisson probability fields",
     "status": "completed"
   },
   {
-    "content": "Phase MLB-V5.5 — Backend testing via testing_agent_v3",
+    "content": "Unit tests for 4 case studies + regression check Run Line picks",
     "status": "completed"
   }
 ]
