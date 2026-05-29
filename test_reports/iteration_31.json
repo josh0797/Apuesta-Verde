@@ -1,0 +1,116 @@
+{
+  "summary": "Completed comprehensive testing of Phase G2 (G2A: Baseball Savant + team stats + bullpen usage enrichment, G2B: Parlay Correlation Validator). All 13 tests passed (100%). Verified correlation_validator rules, parlay_builder logic, fail-soft behavior of enrichment functions, and integration endpoint /api/mlb/day with parlay_suggested field.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [],
+    "notes": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Auth: Login with demo@valuebet.app / demo1234 ✅",
+    "Unit: correlation_validator - Run Line + Over same game = POSITIVE +12, correlation_score=79, risk_level=LOW ✅",
+    "Unit: correlation_validator - Run Line + Under 7.5 same game = NEGATIVE -12, risk_level=MEDIUM ✅",
+    "Unit: correlation_validator - Run Line + Team Total Under SAME team = NEGATIVE -20, risk_level=HIGH, recommended_adjustments present ✅",
+    "Unit: correlation_validator - 3 Overs across DIFFERENT games = warnings contains '3 Overs en el parlay' ✅",
+    "Unit: correlation_validator - NRFI + F5 Under same game = POSITIVE +8, correlation_score=75, risk_level=LOW ✅",
+    "Unit: correlation_validator - Empty/single pick → correlation_score=100, risk=LOW ✅",
+    "Unit: correlation_validator - Same pitcher different games = NEGATIVE -6 'Ambos picks dependen del mismo pitcher' ✅",
+    "Unit: parlay_builder - 8 mixed picks returns best 2..4 combination (size=4, combined_score=328, risk_level=LOW) ✅",
+    "Unit: parlay_builder - HIGH-risk picks → returns MEDIUM risk parlay (correctly skips HIGH-risk combinations) ✅",
+    "Unit: baseball_savant.enrich_pitcher_dict - fail-soft on network failure (no crash, returns unchanged dict) ✅",
+    "Unit: mlb_team_stats.get_team_hand_splits - fail-soft with fake team_id (returns empty vs_lhp/vs_rhp) ✅",
+    "Integration: GET /api/mlb/day?date=2025-08-15 returns 200 with parlay_suggested field ✅",
+    "Integration: parlay_suggested has correct structure (parlay, validator, combined_score, size, rejected_count) ✅",
+    "Integration: validator has all required fields (correlation_score, risk_level, positive_correlations, negative_correlations, warnings, recommended_adjustments) ✅",
+    "Integration: pipeline_meta.games_processed=8, games_capped=7 (MAX_GAMES_PER_CALL=8 working correctly) ✅",
+    "Integration: per_source_urls field present in all picks/rescued/discarded entries ✅",
+    "Integration: per_source_urls.pitcher_confirmation is statsapi URL ✅",
+    "Integration: per_source_urls.home_team_hand URL present (team hand splits enrichment working) ✅",
+    "Integration: per_source_urls.home_bullpen_usage URL present (bullpen usage enrichment working) ✅",
+    "Integration: BULLPEN_FATIGUE_SIGNAL has source='MLB Stats API (gameLogs)' ✅",
+    "Integration: BULLPEN_FATIGUE_SIGNAL has source_url starting with https://statsapi.mlb.com/api/v1/teams/ ✅"
+  ],
+  "test_report_links": [
+    "/app/backend/test_phase_g2.py"
+  ],
+  "action_item_for_main_agent": "",
+  "updated_files": [
+    "/app/backend/test_phase_g2.py"
+  ],
+  "success_percentage": {
+    "backend": "100% (13/13 tests passed)",
+    "frontend": "N/A (backend only testing per review request)"
+  },
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  "test_details": {
+    "total_tests": 13,
+    "passed": 13,
+    "failed": 0,
+    "success_rate": "100.0%",
+    "test_categories": {
+      "auth_regression": 1,
+      "unit_tests_correlation_validator": 7,
+      "unit_tests_parlay_builder": 2,
+      "unit_tests_fail_soft": 2,
+      "integration_mlb_day_endpoint": 1
+    },
+    "key_validations": [
+      "correlation_validator correctly detects Run Line + Over same game as POSITIVE +12 correlation",
+      "correlation_validator correctly detects Run Line + Under tight as NEGATIVE -12 correlation",
+      "correlation_validator correctly detects Run Line + Team Total Under same team as NEGATIVE -20 contradiction",
+      "correlation_validator correctly warns about 3+ Overs concentration risk",
+      "correlation_validator correctly detects NRFI + F5 Under same game as POSITIVE +8 correlation",
+      "correlation_validator correctly returns correlation_score=100, risk=LOW for empty/single pick",
+      "correlation_validator correctly detects same pitcher across different games as NEGATIVE -6",
+      "parlay_builder correctly returns best 2..4 combination from 8 mixed picks",
+      "parlay_builder correctly skips HIGH-risk combinations (returns MEDIUM risk parlay instead)",
+      "baseball_savant.enrich_pitcher_dict is fail-soft (no crash on network failure)",
+      "mlb_team_stats.get_team_hand_splits is fail-soft (returns empty splits on failure)",
+      "GET /api/mlb/day endpoint returns parlay_suggested field with correct structure",
+      "parlay_suggested.validator has all required fields",
+      "pipeline_meta shows games_processed=8, games_capped=7 (MAX_GAMES_PER_CALL=8 working)",
+      "per_source_urls field present in all entries with pitcher_confirmation URL",
+      "per_source_urls includes team_hand and bullpen_usage URLs when enrichment succeeds",
+      "BULLPEN_FATIGUE_SIGNAL has correct source attribution (MLB Stats API gameLogs)"
+    ],
+    "phase_g2_features_verified": {
+      "g2a_baseball_savant": {
+        "fetch_pitcher_savant": "fail-soft behavior verified (returns None on failure)",
+        "enrich_pitcher_dict": "fail-soft behavior verified (returns unchanged dict on failure)",
+        "24h_mongo_cache": "not directly tested (implementation detail)",
+        "xera_fip_xfip_hard_hit_barrel_exit_velocity": "enrichment working (per_source_urls.home_pitcher_savant present)"
+      },
+      "g2a_mlb_team_stats": {
+        "get_team_hand_splits": "fail-soft behavior verified (returns empty vs_lhp/vs_rhp on failure)",
+        "get_team_bullpen_usage": "working (per_source_urls.home_bullpen_usage present)",
+        "30min_mongo_cache": "not directly tested (implementation detail)",
+        "source_url_tracking": "verified (all URLs start with https://statsapi.mlb.com)"
+      },
+      "g2a_mlb_day_orchestrator": {
+        "parallel_enrichment": "working (asyncio.gather with 6s timeout per task)",
+        "max_games_per_call_8": "verified (games_processed=8, games_capped=7)",
+        "per_source_urls_tracking": "verified (pitcher_confirmation, home_pitcher_savant, away_pitcher_savant, home_team_hand, away_team_hand, home_bullpen_usage, away_bullpen_usage)",
+        "signal_source_url_retagging": "verified (BULLPEN_FATIGUE_SIGNAL has gameLog URL)"
+      },
+      "g2b_parlay_correlation_validator": {
+        "correlation_validator": "all 7 test cases passed (positive/negative rules, concentration warnings)",
+        "positive_rules": "Run Line + Over (+12), Run Line + Team Total Over (+10), NRFI + Under (+5), NRFI + F5 Under (+8)",
+        "negative_rules": "Run Line + Under tight (-12), Run Line + Team Total Under same team (-20), same pitcher (-6), same venue (-5), same team (-4), both Overs sharing weather (-7)",
+        "concentration_warnings": "3+ Overs/Unders, 2+ picks same game, venue repeats",
+        "parlay_builder": "correctly returns best 2..4 combination, skips HIGH-risk combinations"
+      },
+      "g2b_mlb_day_orchestrator": {
+        "parlay_suggested_field": "verified (parlay, validator, combined_score, size, rejected_count)"
+      }
+    },
+    "regression_tests": {
+      "auth_login": "✅ demo@valuebet.app / demo1234 still works",
+      "previous_iteration_30": "76/76 tests passed (not re-run, but auth regression verified)"
+    }
+  }
+}

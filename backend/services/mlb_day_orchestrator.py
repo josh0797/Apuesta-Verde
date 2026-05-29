@@ -50,7 +50,7 @@ ROTOWIRE_DAILY    = "https://www.rotowire.com/baseball/daily-lineups.php"
 # ────────────────────────────────────────────────────────────────────────────
 async def _confirm_pitchers_statsapi(db, date_str: str) -> tuple[dict, str]:
     """Use MLB Stats API schedule with probablePitcher hydration.
-    Returns ({gamePk: {home_pitcher, away_pitcher}}, source_url) or ({}, '').
+    Returns ({gamePk: {home_pitcher, away_pitcher, ...meta...}}, source_url) or ({}, '').
     """
     try:
         from .mlb_stats_api import get_schedule_with_probables
@@ -69,6 +69,11 @@ async def _confirm_pitchers_statsapi(db, date_str: str) -> tuple[dict, str]:
                 "home_pitcher_name": g.get("home_probable_name"),
                 "away_pitcher_id":   g.get("away_probable_id"),
                 "away_pitcher_name": g.get("away_probable_name"),
+                "home_team_id":      g.get("home_team_id"),
+                "away_team_id":      g.get("away_team_id"),
+                "home_team_name":    g.get("home_team"),
+                "away_team_name":    g.get("away_team"),
+                "venue":             g.get("venue"),
                 "_source":           "mlb_stats_api",
             }
     return out, url
@@ -154,13 +159,87 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
         pipeline_meta["abort_reason"] = "no_probable_pitchers"
         return _empty_payload(pipeline_meta)
 
-    # Per-game analysis
-    for game_pk, conf in confirmed_by_pk.items():
+    # Per-game analysis. We limit to MAX_GAMES_PER_CALL and parallelise
+    # the per-game enrichment so the 60s ingress doesn't time out.
+    MAX_GAMES_PER_CALL = 8
+    game_pks = list(confirmed_by_pk.keys())[:MAX_GAMES_PER_CALL]
+    pipeline_meta["games_processed"] = len(game_pks)
+    pipeline_meta["games_capped"] = max(0, len(confirmed_by_pk) - len(game_pks))
+
+    async def _process_one_game(game_pk: int):
+        conf = confirmed_by_pk[game_pk]
         try:
-            h_stats = await _enrich_pitcher(db, conf.get("home_pitcher_id"))
-            a_stats = await _enrich_pitcher(db, conf.get("away_pitcher_id"))
+            h_stats, a_stats = await asyncio.gather(
+                _enrich_pitcher(db, conf.get("home_pitcher_id")),
+                _enrich_pitcher(db, conf.get("away_pitcher_id")),
+            )
         except Exception:
             h_stats, a_stats = {}, {}
+
+        # Savant + team stats + bullpen usage in parallel (each fail-soft).
+        savant_h_task = None
+        savant_a_task = None
+        try:
+            from .baseball_savant import enrich_pitcher_dict
+            if h_stats and conf.get("home_pitcher_id"):
+                savant_h_task = enrich_pitcher_dict(
+                    {**h_stats, "pitcher_id": conf["home_pitcher_id"]}, db=db
+                )
+            if a_stats and conf.get("away_pitcher_id"):
+                savant_a_task = enrich_pitcher_dict(
+                    {**a_stats, "pitcher_id": conf["away_pitcher_id"]}, db=db
+                )
+        except Exception as exc:
+            log.debug("savant tasks init failed: %s", exc)
+
+        h_team_task = a_team_task = h_bp_task = a_bp_task = None
+        try:
+            from .mlb_team_stats import get_team_hand_splits, get_team_bullpen_usage
+            if conf.get("home_team_id"):
+                h_team_task = get_team_hand_splits(db, conf["home_team_id"])
+                h_bp_task   = get_team_bullpen_usage(db, conf["home_team_id"])
+            if conf.get("away_team_id"):
+                a_team_task = get_team_hand_splits(db, conf["away_team_id"])
+                a_bp_task   = get_team_bullpen_usage(db, conf["away_team_id"])
+        except Exception as exc:
+            log.debug("team_stats tasks init failed: %s", exc)
+
+        async def _await_or_none(coro):
+            if coro is None:
+                return None
+            try:
+                return await asyncio.wait_for(coro, timeout=6.0)
+            except Exception:
+                return None
+
+        h_stats_e, a_stats_e, h_team_stats, a_team_stats, h_bullpen_usage, a_bullpen_usage = await asyncio.gather(
+            _await_or_none(savant_h_task),
+            _await_or_none(savant_a_task),
+            _await_or_none(h_team_task),
+            _await_or_none(a_team_task),
+            _await_or_none(h_bp_task),
+            _await_or_none(a_bp_task),
+        )
+        if h_stats_e: h_stats = h_stats_e
+        if a_stats_e: a_stats = a_stats_e
+        h_team_stats     = h_team_stats     or {}
+        a_team_stats     = a_team_stats     or {}
+        h_bullpen_usage  = h_bullpen_usage  or {}
+        a_bullpen_usage  = a_bullpen_usage  or {}
+
+        return (game_pk, conf, h_stats, a_stats,
+                h_team_stats, a_team_stats,
+                h_bullpen_usage, a_bullpen_usage)
+
+    enrichment_results = await asyncio.gather(*(_process_one_game(gp) for gp in game_pks),
+                                              return_exceptions=True)
+
+    for res in enrichment_results:
+        if isinstance(res, Exception) or res is None:
+            continue
+        (game_pk, conf, h_stats, a_stats,
+         h_team_stats, a_team_stats,
+         h_bullpen_usage, a_bullpen_usage) = res
 
         # Skip games with too little pitcher data — per the user's rule
         # "NO analizar pitchers no confirmados / menos de 3 aperturas".
@@ -188,11 +267,20 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
         h_q   = pitcher_quality_score(home_p)
         a_q   = pitcher_quality_score(away_p)
         edge  = starting_pitcher_edge(home_p, away_p)
-        bull  = bullpen_fatigue_score(conf.get("bullpen_usage") or {})
+        # Use the worst (most fatigued) of the two bullpens for the
+        # day's reading. Track per-side fatigue tags separately for
+        # RUN_LINE_TRAP detection (it must look at the FAVORITE'S bullpen).
+        favorite_is_home = h_q.get("score", 50) >= a_q.get("score", 50)
+        favorite_bullpen = h_bullpen_usage if favorite_is_home else a_bullpen_usage
+        worst_bullpen = h_bullpen_usage if (
+            float(h_bullpen_usage.get("bullpen_era_7d") or 0)
+            > float(a_bullpen_usage.get("bullpen_era_7d") or 0)
+        ) else a_bullpen_usage
+        bull  = bullpen_fatigue_score(worst_bullpen)
         park  = park_factor_analyzer(conf.get("venue"), conf.get("weather"))
-        off_h = offense_vs_pitcher_type(conf.get("home_team_stats") or {},
+        off_h = offense_vs_pitcher_type(h_team_stats,
                                         away_p.get("throws_hand", "R"))
-        off_a = offense_vs_pitcher_type(conf.get("away_team_stats") or {},
+        off_a = offense_vs_pitcher_type(a_team_stats,
                                         home_p.get("throws_hand", "R"))
         scoring_ctx = {
             "home_pitcher_quality": h_q,
@@ -204,11 +292,21 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
             "park":                 park,
             "home_pitcher_stats":   home_p,
             "away_pitcher_stats":   away_p,
-            "home_team":            conf.get("home_team_stats") or {},
-            "away_team":            conf.get("away_team_stats") or {},
-            "favorite_bullpen_era_7d": (bull or {}).get("era_7d", 0),
-            "favorite_bullpen_ip_48h": ((conf.get("bullpen_usage") or {}).get("innings_last_48h") or 0),
+            "home_team":            h_team_stats,
+            "away_team":            a_team_stats,
+            "favorite_bullpen_era_7d": float(favorite_bullpen.get("bullpen_era_7d") or 0),
+            "favorite_bullpen_ip_48h": float(favorite_bullpen.get("innings_last_48h") or 0),
             "favorite_one_run_win_pct": (conf.get("one_run_win_pct") or 0),
+            "_team_stats_source_urls": {
+                "home_hand_splits":   h_team_stats.get("_source_url"),
+                "away_hand_splits":   a_team_stats.get("_source_url"),
+                "home_bullpen_usage": h_bullpen_usage.get("_source_url"),
+                "away_bullpen_usage": a_bullpen_usage.get("_source_url"),
+            },
+            "_savant_urls": {
+                "home_pitcher": home_p.get("_savant_url"),
+                "away_pitcher": away_p.get("_savant_url"),
+            },
         }
         run_line   = run_line_predictor(scoring_ctx)
         over_under = over_under_predictor(scoring_ctx, conf.get("book_total"))
@@ -258,13 +356,48 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
             "rescued_candidates": rescue.get("candidates") or [],
         }
         signals = emit_signals(scoring_ctx, parts, source_url=statsapi_url)
+        # Attach the per-source URLs that contributed to this game so the
+        # UI can show "Pitcher confirmado por: <statsapi> · Stats Savant:
+        # <savant_url> · Bullpen: <statsapi_gamelog>".
+        per_source_urls = {
+            "pitcher_confirmation": statsapi_url,
+            "home_pitcher_savant":  home_p.get("_savant_url"),
+            "away_pitcher_savant":  away_p.get("_savant_url"),
+            "home_team_hand":       h_team_stats.get("_source_url"),
+            "away_team_hand":       a_team_stats.get("_source_url"),
+            "home_bullpen_usage":   h_bullpen_usage.get("_source_url"),
+            "away_bullpen_usage":   a_bullpen_usage.get("_source_url"),
+        }
+        # Enrich each signal so the UI can map signal_type → contributing
+        # source url. Savant-based regression tags (PITCHER_OVERPERFORMING/
+        # UNDERVALUED) get the Savant URL; everything else keeps statsapi.
+        for s in signals:
+            code = s.get("code")
+            if code in ("PITCHER_OVERPERFORMING", "PITCHER_UNDERVALUED"):
+                s["source_url"] = (per_source_urls["home_pitcher_savant"]
+                                    or per_source_urls["away_pitcher_savant"]
+                                    or statsapi_url)
+                s["source"] = "Baseball Savant"
+            elif code == "BULLPEN_FATIGUE_SIGNAL":
+                s["source_url"] = (per_source_urls["home_bullpen_usage"]
+                                    or per_source_urls["away_bullpen_usage"]
+                                    or statsapi_url)
+                s["source"] = "MLB Stats API (gameLogs)"
         signals_by_pk[game_pk] = signals
 
         pick_payload = {
             "game_pk":        game_pk,
+            "home_team":      conf.get("home_team_name"),
+            "away_team":      conf.get("away_team_name"),
+            "match_label":    f"{conf.get('away_team_name','?')} @ {conf.get('home_team_name','?')}",
+            "venue":          conf.get("venue"),
             "home_pitcher":   conf.get("home_pitcher_name"),
             "away_pitcher":   conf.get("away_pitcher_name"),
+            "pitcher_home_id": conf.get("home_pitcher_id"),
+            "pitcher_away_id": conf.get("away_pitcher_id"),
+            "weather_tags":   park.get("tags") or [],
             "pitcher_confirmation_source_url": statsapi_url,
+            "per_source_urls": per_source_urls,
             "scores": {
                 "pitcher_edge":   edge.get("score", 0),
                 "run_line":       run_line.get("score", 0),
@@ -296,12 +429,43 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
     pipeline_meta["discarded_total"] = len(discarded)
     pipeline_meta["finished_at"]     = datetime.now(timezone.utc).isoformat()
 
+    # ── Parlay builder + correlation validator ──────────────────────────
+    # Combine picks + rescued (max_size=4 per user spec) and run the
+    # correlation validator. The result is attached as `parlay_suggested`.
+    try:
+        from .parlay_correlation_validator import parlay_builder
+        # Each pick payload needs `home_team`, `away_team`, `venue`,
+        # weather tags for the validator. Inject them from the
+        # confirmation block.
+        for bucket in (picks, rescued):
+            for p in bucket:
+                conf = confirmed_by_pk.get(p["game_pk"]) or {}
+                p.setdefault("home_team", (conf.get("home_team_stats") or {}).get("team_name", ""))
+                p.setdefault("away_team", (conf.get("away_team_stats") or {}).get("team_name", ""))
+                p.setdefault("venue", conf.get("venue") or "")
+                p.setdefault("weather_tags",
+                             (p.get("all_components") or {}).get("park", {}).get("tags") or [])
+                p.setdefault("pitcher_home_id", conf.get("home_pitcher_id"))
+                p.setdefault("pitcher_away_id", conf.get("away_pitcher_id"))
+        parlay = parlay_builder(picks + rescued, max_size=4, min_score=60)
+        pipeline_meta["parlay_built"] = bool(parlay.get("parlay"))
+    except Exception as exc:
+        log.warning("parlay_builder failed: %s", exc)
+        parlay = {"parlay": [], "validator": {"correlation_score": 100,
+                                                "risk_level": "LOW",
+                                                "positive_correlations": [],
+                                                "negative_correlations": [],
+                                                "warnings": [],
+                                                "recommended_adjustments": []},
+                  "combined_score": 0, "size": 0, "rejected_count": 0}
+
     return {
         "picks":            picks,
         "rescued_picks":    rescued,
         "discarded_picks":  discarded,
         "fragility_scores": {str(k): v for k, v in frag_by_pk.items()},
         "editorial_context_signals_by_game": {str(k): v for k, v in signals_by_pk.items()},
+        "parlay_suggested": parlay,
         "pipeline_meta":    pipeline_meta,
     }
 
@@ -313,6 +477,13 @@ def _empty_payload(pipeline_meta: dict) -> dict:
         "discarded_picks":  [],
         "fragility_scores": {},
         "editorial_context_signals_by_game": {},
+        "parlay_suggested": {"parlay": [], "validator": {"correlation_score": 100,
+                                                          "risk_level": "LOW",
+                                                          "positive_correlations": [],
+                                                          "negative_correlations": [],
+                                                          "warnings": [],
+                                                          "recommended_adjustments": []},
+                              "combined_score": 0, "size": 0, "rejected_count": 0},
         "pipeline_meta":    pipeline_meta,
     }
 

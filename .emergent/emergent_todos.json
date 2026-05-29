@@ -1,26 +1,30 @@
 [
   {
-    "content": "Crear mlb_pregame_analytics.py con 9 funciones",
+    "content": "G2B: Crear parlay_correlation_validator.py",
     "status": "completed"
   },
   {
-    "content": "Pitcher confirmation con MLB Stats API + URL literal de confirmación",
+    "content": "G2B: parlay_builder(picks, max_size=4)",
     "status": "completed"
   },
   {
-    "content": "Generar editorial_context_signals MLB-específicos con source_url + integrar en signal_catalog",
+    "content": "G2B: Integrar parlay en mlb_day_orchestrator response",
     "status": "completed"
   },
   {
-    "content": "Alternative Market Rescue Layer MLB",
+    "content": "G2A: Crear baseball_savant.py",
     "status": "completed"
   },
   {
-    "content": "analyze_mlb_day(date) función pública + hook en analyst_engine",
+    "content": "G2A: Crear mlb_team_stats.py (hand splits + bullpen_usage)",
     "status": "completed"
   },
   {
-    "content": "Testing + screenshot",
+    "content": "G2A: Hook enriquecimiento paralelo en mlb_day_orchestrator (cap 8 games)",
+    "status": "completed"
+  },
+  {
+    "content": "Testing backend con testing_agent",
     "status": "in_progress"
   }
 ]
