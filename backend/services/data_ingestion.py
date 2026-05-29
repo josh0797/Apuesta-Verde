@@ -1032,3 +1032,135 @@ async def ingest_nba_direct_fallback(
         len(persisted), len(events), date_str,
     )
     return persisted
+
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# SofaScore Basketball direct fallback (tertiary)
+# ────────────────────────────────────────────────────────────────────────────
+# When **both** api_sports AND ESPN NBA return 0 basketball games, fall
+# back to SofaScore's public scheduled-events endpoint. Unlike ESPN it
+# covers NBA + EuroLeague + LNB + national-team games, so we restrict
+# what we persist to leagues whose name contains "NBA" — keeping the
+# downstream LLM/odds pipeline focused on the markets the user actually
+# trades.
+
+def normalize_sofascore_basketball_game(raw_event: dict) -> Optional[dict]:
+    """Convert one ``sofascore.fetch_matchups()`` entry to the internal
+    ``db.matches`` shape (basketball)."""
+    if not isinstance(raw_event, dict):
+        return None
+    home = raw_event.get("home_team")
+    away = raw_event.get("away_team")
+    league = raw_event.get("league") or ""
+    sofa_id = raw_event.get("sofascore_id")
+    if not (home and away and sofa_id):
+        return None
+    # Only persist NBA-style leagues to avoid bloating the analyst with
+    # exotic basketball tournaments the platform doesn't model.
+    if "nba" not in league.lower():
+        return None
+
+    kickoff_ts = raw_event.get("kickoff_ts")
+    kickoff_iso = None
+    if kickoff_ts:
+        try:
+            kickoff_iso = datetime.fromtimestamp(int(kickoff_ts), tz=timezone.utc).isoformat()
+        except Exception:
+            kickoff_iso = None
+
+    status = (raw_event.get("status") or "").lower()
+    is_live = status in ("inprogress", "live")
+    is_finished = status in ("finished", "ended")
+
+    doc: dict[str, Any] = {
+        "match_id":          f"sofascore-{sofa_id}",
+        "sport":             "basketball",
+        "source":            "sofascore_basketball",
+        "league":            {"id": 0, "name": league or "NBA"},
+        "league_id":         0,
+        "season":            None,
+        "kickoff_iso":       kickoff_iso,
+        "kickoff_ts":        int(kickoff_ts) if kickoff_ts else None,
+        "gameDate":          kickoff_iso,
+        "status":            status or "Scheduled",
+        "abstractGameState": "in" if is_live else ("post" if is_finished else "pre"),
+        "is_live":           is_live,
+        "venue":             None,
+        "home_team": {
+            "id":      None,
+            "name":    home,
+            "context": {"fetched_at": None, "form_last_5": "", "position": None},
+        },
+        "away_team": {
+            "id":      None,
+            "name":    away,
+            "context": {"fetched_at": None, "form_last_5": "", "position": None},
+        },
+        "odds_snapshots": [],
+        "live_stats":     None,
+        "h2h_recent":     [],
+        "data_complete":  False,
+        "fallback_used":  True,
+        "updated_at":     nz.now_iso(),
+        "_sofascore_id":  sofa_id,
+    }
+    prov.attach_to_match(
+        doc,
+        primary_source="sofascore_basketball",
+        odds_available=False,
+        stats_available=False,
+        h2h_available=False,
+        lineups_available=False,
+        context_available=False,
+        live_available=is_live,
+    )
+    if is_finished and not is_live:
+        return None
+    return doc
+
+
+async def ingest_basketball_sofascore_fallback(
+    db,
+    date_str: str,
+) -> list[dict]:
+    """Direct ingest from SofaScore's public schedule endpoint when BOTH
+    api_sports and ESPN NBA returned 0 basketball games for ``date_str``.
+
+    Returns the list of persisted match docs (empty on any failure).
+    """
+    if not date_str:
+        return []
+
+    try:
+        from .external_sources import sofascore_basketball as _sofa  # type: ignore
+        bundle = await _sofa.fetch_matchups(date_str)
+    except Exception as exc:
+        log.warning("SofaScore basketball fallback fetch crashed: %s", exc)
+        return []
+
+    matchups = bundle.get("matchups") or {}
+    log.info("SofaScore basketball fallback: %d raw matchups for %s",
+             len(matchups), date_str)
+
+    persisted: list[dict] = []
+    for _key, ev in matchups.items():
+        doc = normalize_sofascore_basketball_game(ev)
+        if not doc:
+            continue
+        try:
+            await db.matches.update_one(
+                {"match_id": doc["match_id"]},
+                {"$set": doc},
+                upsert=True,
+            )
+            persisted.append(doc)
+        except Exception as exc:
+            log.warning("SofaScore basketball fallback upsert failed for %s: %s",
+                        doc.get("match_id"), exc)
+
+    log.info(
+        "SofaScore basketball fallback persisted %d/%d games to db.matches (date=%s)",
+        len(persisted), len(matchups), date_str,
+    )
+    return persisted

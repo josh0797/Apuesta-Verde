@@ -744,7 +744,75 @@ async def _run_analysis_pipeline(
                 len(nba_games), len(upcoming),
             )
         else:
-            pipeline_meta["source_used"]  = "none"
+            # ── F2b — SofaScore basketball fallback (tertiary) ──────────
+            # When BOTH api_sports and ESPN NBA returned 0 games, try
+            # SofaScore's public schedule endpoint (NBA-only filter).
+            log.warning(
+                "BASKETBALL: ESPN NBA fallback also empty for %s — trying SofaScore",
+                pipeline_meta["date_str"],
+            )
+            try:
+                sofa_games = await ingestion.ingest_basketball_sofascore_fallback(
+                    db, pipeline_meta["date_str"],
+                )
+            except Exception as exc:
+                log.warning("SofaScore basketball fallback crashed: %s", exc)
+                sofa_games = []
+            pipeline_meta["sofascore_basketball_games_found"] = len(sofa_games)
+            if sofa_games:
+                pipeline_meta["source_used"]     = "sofascore_basketball_fallback"
+                pipeline_meta["fallback_used"]   = True
+                pipeline_meta["fallback_reason"] = "api_sports_and_espn_zero_games"
+                query_upcoming = {**_sport_filter(sport), "is_live": False}
+                upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
+                now_ts = datetime.now(timezone.utc).timestamp()
+                upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
+                log.info(
+                    "SofaScore basketball fallback succeeded: %d games persisted, %d kept after time filter",
+                    len(sofa_games), len(upcoming),
+                )
+            else:
+                pipeline_meta["source_used"]  = "none"
+
+    # ── F2c — Basketball cross-source evidence (telemetry) ──────────────
+    # Always run the basketball multi-source rescue for the day so the
+    # frontend's SourcesConsultedPanel can show which scrapers were
+    # queried (sofascore, flashscore) AND attach `_external_evidence`
+    # per match — even when ESPN NBA was the primary ingestion source.
+    if sport == "basketball" and upcoming:
+        try:
+            from services.external_sources import basketball_rescue as _bk_rescue
+            bk_payload = await _bk_rescue.rescue_basketball_day(
+                pipeline_meta["date_str"],
+            )
+        except Exception as exc:
+            log.warning("Basketball cross-source rescue failed: %s", exc)
+            bk_payload = {"matchups": {}, "sources_consulted": [], "source_priority": []}
+        try:
+            corroborated = _bk_rescue.attach_evidence(upcoming, bk_payload)
+        except Exception as exc:
+            log.warning("Basketball attach_evidence failed: %s", exc)
+            corroborated = 0
+        # Dedupe sources for pipeline_meta.
+        all_sources_seen = bk_payload.get("sources_consulted") or []
+        seen_keys = set()
+        uniq_sources = []
+        for s in all_sources_seen:
+            k = (s.get("source"), s.get("url"))
+            if k in seen_keys:
+                continue
+            seen_keys.add(k)
+            uniq_sources.append(s)
+        # Merge into pipeline_meta.external_sources_consulted (may
+        # already contain MLB-rescue entries from another invocation).
+        existing = pipeline_meta.get("external_sources_consulted") or []
+        pipeline_meta["external_sources_consulted"] = existing + uniq_sources
+        pipeline_meta["basketball_external_corroborated"] = corroborated
+        log.info(
+            "Basketball rescue: %d/%d games corroborated via external sources (%s)",
+            corroborated, len(upcoming),
+            ", ".join({s.get("source", "?") for s in uniq_sources}),
+        )
 
     # ── F1.6 — MLB lineup rescue layer ─────────────────────────────────
     # For baseball matches whose ingest didn't bring a probable pitcher,

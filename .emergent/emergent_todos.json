@@ -1,22 +1,18 @@
 [
   {
-    "content": "Under Profile: mlb_starter_lineup_under_profile + 6 signals + hook orquestador",
+    "content": "Create basketball_rescue.py orchestrator wiring sofascore + flashscore",
     "status": "completed"
   },
   {
-    "content": "Scrapers Fase 3: rotogrinders_mlb + fantasyalarm_mlb",
+    "content": "Add ingest_basketball_sofascore_fallback to data_ingestion.py (tertiary ingestion)",
     "status": "completed"
   },
   {
-    "content": "Scrapers Fase 3: sofascore_basketball + flashscore_basketball",
+    "content": "Wire basketball_rescue + sofascore fallback into server.py pipeline_meta",
     "status": "completed"
   },
   {
-    "content": "Wire de scrapers en mlb_lineup_rescue (6 fuentes)",
-    "status": "completed"
-  },
-  {
-    "content": "Tests funcionales + testing agent (66/66 PASS)",
-    "status": "completed"
+    "content": "Test integration via testing_agent_v3 (backend)",
+    "status": "in_progress"
   }
 ]
