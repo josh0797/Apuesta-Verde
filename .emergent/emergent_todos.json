@@ -12,11 +12,11 @@
     "status": "completed"
   },
   {
-    "content": "Wire de scrapers en mlb_lineup_rescue (6 fuentes ahora)",
+    "content": "Wire de scrapers en mlb_lineup_rescue (6 fuentes)",
     "status": "completed"
   },
   {
-    "content": "Tests funcionales + testing agent",
-    "status": "in_progress"
+    "content": "Tests funcionales + testing agent (66/66 PASS)",
+    "status": "completed"
   }
 ]
