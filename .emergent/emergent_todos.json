@@ -1,30 +1,34 @@
 [
   {
-    "content": "Crear services/time_filter.py",
+    "content": "GAP #0: Normalizar gameDate -> kickoff_iso antes de time_filter en mlb_day_orchestrator",
     "status": "completed"
   },
   {
-    "content": "Aplicar filtro al inicio de analyst_engine.analyze_matches",
+    "content": "GAP #1: Requerir AMBOS pitchers confirmados (cambiar OR -> AND) en _confirm_pitchers_statsapi",
     "status": "completed"
   },
   {
-    "content": "Aplicar filtro en mlb_day_orchestrator",
+    "content": "GAP #2: Implementar fallback a mlb.com cuando StatsAPI no trae pitchers",
     "status": "completed"
   },
   {
-    "content": "Reescribir _pitcher_quality_score con xERA/FIP + UNDER_SAFETY_RULES",
+    "content": "GAP #3: Crear get_team_il_players() en mlb_stats_api.py",
     "status": "completed"
   },
   {
-    "content": "Bloquear picks ya jugados en parlay_builder",
+    "content": "GAP #4: Integrar IL check en orchestrator (asyncio.gather + scoring_ctx)",
     "status": "completed"
   },
   {
-    "content": "validate_pick_before_output como última línea en server.py",
+    "content": "GAP #5: Penalizar fragility por IL count >=3 / >=5 en mlb_fragility_score",
     "status": "completed"
   },
   {
-    "content": "Testing backend + verificar fixes con testing agent",
+    "content": "GAP #6: Agregar PITCHER_NOT_CONFIRMED, MLB_COM_FALLBACK_USED, IL_DEPTH_RISK al signal_catalog y emitirlos",
+    "status": "completed"
+  },
+  {
+    "content": "GAP #7/8: Testing agent valida el pipeline MLB completo",
     "status": "in_progress"
   }
 ]

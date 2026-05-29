@@ -325,6 +325,16 @@ def mlb_fragility_score(ctx: dict) -> dict:
     if (ctx.get("home_pitcher_quality") or {}).get("score", 50) < 35 \
        or (ctx.get("away_pitcher_quality") or {}).get("score", 50) < 35:
         score += 8
+    # GAP #5 — penalización por jugadores en Injured List.
+    il_h = int(ctx.get("home_il_count") or 0)
+    il_a = int(ctx.get("away_il_count") or 0)
+    il_tags: list[str] = []
+    if il_h >= 3 or il_a >= 3:
+        score += 10
+        il_tags.append("IL_DEPTH_RISK_3PLUS")
+    if il_h >= 5 or il_a >= 5:
+        score += 8
+        il_tags.append("IL_DEPTH_RISK_5PLUS")
     score = max(0, min(100, score))
 
     if score <= 20:   label = "MUY_PROTEGIDO"
@@ -333,6 +343,8 @@ def mlb_fragility_score(ctx: dict) -> dict:
     else:             label = "FRAGIL"
 
     return {"score": score, "label": label,
+            "tags": il_tags,
+            "il_home": il_h, "il_away": il_a,
             "explanation": f"fragility={score}/100 ({label})"}
 
 
@@ -556,6 +568,16 @@ def emit_signals(ctx: dict, parts: dict, *, source_url: Optional[str] = None) ->
         raw_tags.append("LOW_FRAGILITY_MARKET")
     if parts.get("rescued_candidates"):
         raw_tags.append("RESCUED_MARKET")
+    # GAP #6 — IL depth risk surfaced from the fragility block.
+    for t in (frag.get("tags") or []):
+        if t in ("IL_DEPTH_RISK_3PLUS", "IL_DEPTH_RISK_5PLUS"):
+            raw_tags.append("IL_DEPTH_RISK")
+            break
+
+    tag_to_code["STRONG_PITCHER_EDGE"]   = "STRONG_PITCHER_EDGE"
+    tag_to_code["LOW_FRAGILITY_MARKET"]  = "LOW_FRAGILITY_MARKET"
+    tag_to_code["RESCUED_MARKET"]        = "RESCUED_MARKET"
+    tag_to_code["IL_DEPTH_RISK"]         = "IL_DEPTH_RISK"
 
     for t in raw_tags:
         code = tag_to_code.get(t, t)

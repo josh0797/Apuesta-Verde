@@ -234,6 +234,57 @@ async def get_team_batting_form(db, team_id: int, season: int = DEFAULT_SEASON) 
     return payload
 
 
+# ── Injured List (basic IL check) ────────────────────────────────────────────
+async def get_team_il_players(db, team_id: int) -> list[dict]:
+    """Return the list of players currently on a team's Injured List.
+
+    Uses the public endpoint:
+        /teams/{teamId}/roster?rosterType=injuries
+
+    Returns a list of dicts like:
+        [{ "name": str, "position": str, "status": str, "expected_return": str | None }]
+
+    Never raises. On any failure (no team_id, HTTP error, parse error)
+    returns ``[]`` so callers can safely treat IL data as optional.
+    """
+    if not team_id:
+        return []
+
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    key = f"il:{team_id}:{today_iso}"
+    cached = await _cache_get(db, key)
+    if cached is not None:
+        return cached.get("players", [])
+
+    url = f"{BASE}/teams/{team_id}/roster"
+    params = {"rosterType": "injuries"}
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            r = await client.get(url, params=params)
+            r.raise_for_status()
+            data = r.json()
+    except Exception as exc:
+        log.debug("IL fetch failed for team %s: %s", team_id, exc)
+        return []
+
+    players: list[dict] = []
+    for p in (data.get("roster") or []):
+        person   = p.get("person") or {}
+        position = p.get("position") or {}
+        status   = p.get("status") or {}
+        players.append({
+            "name":            person.get("fullName"),
+            "position":        position.get("abbreviation"),
+            "status":          status.get("description"),
+            "expected_return": None,
+            "_source_url":     f"{url}?rosterType=injuries&teamId={team_id}",
+        })
+
+    await _cache_put(db, key, {"players": players, "_source_url": url}, ttl_seconds=3600)
+    return players
+
+
 # ── Bullpen usage estimate (best-effort) ─────────────────────────────────────
 async def get_bullpen_recent_usage(db, team_id: int, days: int = 3) -> Optional[dict]:
     """Estimate bullpen workload over the last `days`. Heuristic — uses team

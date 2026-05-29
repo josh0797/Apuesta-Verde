@@ -492,6 +492,40 @@ SIGNAL_CATALOG: dict[str, dict[str, Any]] = {
         "default_impact": "Evita pickear a ese equipo a ganar; refuerza el lado contrario.",
         "applicable_sports": ALL_SPORTS,
     },
+
+    # ════════════════════════════════════════════════════════════════════
+    # ─── MLB PRE-GAME GATING (baseball-only) ────────────────────────────
+    # ════════════════════════════════════════════════════════════════════
+    "PITCHER_NOT_CONFIRMED": {
+        "label":       "Pitcher no confirmado",
+        "label_en":    "Probable pitcher not confirmed",
+        "severity":    "critical",
+        "category":    "risk",
+        "signal_type": "negative",
+        "explanation": "El modelo MLB requiere ambos pitchers confirmados antes de analizar.",
+        "default_impact": "Bloquea el análisis pregame del partido.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
+    "MLB_COM_FALLBACK_USED": {
+        "label":       "Fallback mlb.com utilizado",
+        "label_en":    "mlb.com fallback used",
+        "severity":    "medium",
+        "category":    "statistical",
+        "signal_type": "neutral",
+        "explanation": "StatsAPI no devolvió pitchers suficientes; se usó mlb.com como fuente secundaria.",
+        "default_impact": "Permite continuar el análisis con fuente alternativa; verifica el pitcher en el enlace.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
+    "IL_DEPTH_RISK": {
+        "label":       "Riesgo por jugadores en IL",
+        "label_en":    "Injured List depth risk",
+        "severity":    "medium",
+        "category":    "risk",
+        "signal_type": "negative",
+        "explanation": "El equipo tiene 3+ jugadores en Injured List, lo que aumenta la incertidumbre del lineup.",
+        "default_impact": "Aumenta la fragilidad del pick; considera mercados protegidos o evita.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
 }
 
 

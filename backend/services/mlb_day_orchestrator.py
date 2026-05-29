@@ -46,6 +46,36 @@ ROTOWIRE_DAILY    = "https://www.rotowire.com/baseball/daily-lineups.php"
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# Time-field normalization (GAP #0)
+# ────────────────────────────────────────────────────────────────────────────
+def normalize_mlb_time_fields(game: dict) -> dict:
+    """Guarantee that an MLB game dict carries BOTH `gameDate` and
+    `kickoff_iso` pointing to the same ISO timestamp.
+
+    time_filter.py only reads `kickoff_iso`, but the MLB Stats API
+    returns the timestamp in `gameDate`. Without this helper, finished
+    matches can sneak through because the filter sees an empty
+    `kickoff_iso` and falls back to a defensive drop — or worse, doesn't
+    even know the kickoff has passed.
+
+    Safe to call on any dict: if neither field exists, the dict is
+    returned untouched and a warning is logged.
+    """
+    if not isinstance(game, dict):
+        return game
+    game_date = game.get("gameDate") or game.get("kickoff_iso")
+    if game_date:
+        game["gameDate"]    = game_date
+        game["kickoff_iso"] = game_date
+    else:
+        log.warning(
+            "MLB: juego %s sin gameDate/kickoff_iso; no se puede filtrar por tiempo",
+            game.get("gamePk") or game.get("game_pk") or "?",
+        )
+    return game
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # Pitcher confirmation
 # ────────────────────────────────────────────────────────────────────────────
 async def _confirm_pitchers_statsapi(db, date_str: str) -> tuple[dict, str]:
@@ -63,22 +93,31 @@ async def _confirm_pitchers_statsapi(db, date_str: str) -> tuple[dict, str]:
     for g in games:
         if not g.get("gamePk"):
             continue
-        if g.get("home_probable_id") or g.get("away_probable_id"):
-            out[int(g["gamePk"])] = {
-                "home_pitcher_id":   g.get("home_probable_id"),
-                "home_pitcher_name": g.get("home_probable_name"),
-                "away_pitcher_id":   g.get("away_probable_id"),
-                "away_pitcher_name": g.get("away_probable_name"),
-                "home_team_id":      g.get("home_team_id"),
-                "away_team_id":      g.get("away_team_id"),
-                "home_team_name":    g.get("home_team"),
-                "away_team_name":    g.get("away_team"),
-                "venue":             g.get("venue"),
-                "gameDate":          g.get("gameDate"),
-                "status":            g.get("status"),
-                "abstractGameState": g.get("abstractGameState"),
-                "_source":           "mlb_stats_api",
-            }
+        home_pid = g.get("home_probable_id")
+        away_pid = g.get("away_probable_id")
+        # GAP #1: ambos pitchers DEBEN estar confirmados — no analizamos
+        # juegos con un solo probable.
+        if not home_pid or not away_pid:
+            log.info(
+                "MLB: juego %s descartado — pitcher sin confirmar (home=%s away=%s)",
+                g.get("gamePk"), home_pid, away_pid,
+            )
+            continue
+        out[int(g["gamePk"])] = {
+            "home_pitcher_id":   home_pid,
+            "home_pitcher_name": g.get("home_probable_name"),
+            "away_pitcher_id":   away_pid,
+            "away_pitcher_name": g.get("away_probable_name"),
+            "home_team_id":      g.get("home_team_id"),
+            "away_team_id":      g.get("away_team_id"),
+            "home_team_name":    g.get("home_team"),
+            "away_team_name":    g.get("away_team"),
+            "venue":             g.get("venue"),
+            "gameDate":          g.get("gameDate"),
+            "status":            g.get("status"),
+            "abstractGameState": g.get("abstractGameState"),
+            "_source":           "mlb_stats_api",
+        }
     return out, url
 
 
@@ -155,16 +194,77 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
         "confirmed_games":    len(confirmed_by_pk),
         "statsapi_url":       statsapi_url,
         "started_at":         start.isoformat(),
+        "fallback_mlb_com_used":  False,
+        "fallback_mlb_com_url":   None,
     }
 
+    # GAP #2 ─ Si StatsAPI no trajo pitchers para HOY, antes de abortar,
+    # intentamos fallback contra mlb.com/probable-pitchers.
     if not confirmed_by_pk:
-        # No probable pitchers from statsapi means nothing to score.
-        pipeline_meta["abort_reason"] = "no_probable_pitchers"
+        log.warning("MLB StatsAPI vacío — intentando fallback mlb.com")
+        try:
+            from .mlb_stats_api import get_schedule_with_probables
+            all_games = await get_schedule_with_probables(db, date_str)
+        except Exception as exc:
+            log.debug("schedule fetch for fallback failed: %s", exc)
+            all_games = []
+
+        expected_pairs = [
+            (g["home_team"], g["away_team"])
+            for g in all_games
+            if g.get("home_team") and g.get("away_team")
+        ]
+
+        if expected_pairs:
+            fallback_by_key, fallback_url = await _confirm_pitchers_mlb_com(
+                date_str, expected_pairs,
+            )
+            if fallback_by_key:
+                statsapi_url = fallback_url
+                pipeline_meta["fallback_mlb_com_used"] = True
+                pipeline_meta["fallback_mlb_com_url"]  = fallback_url
+                for g in all_games:
+                    if not (g.get("home_team") and g.get("away_team") and g.get("gamePk")):
+                        continue
+                    key = f"{g['home_team'].lower()}|{g['away_team'].lower()}"
+                    fb = fallback_by_key.get(key)
+                    if fb:
+                        confirmed_by_pk[int(g["gamePk"])] = {
+                            **g,
+                            "home_pitcher_name": fb.get("home_pitcher_name"),
+                            "away_pitcher_name": fb.get("away_pitcher_name"),
+                            # IDs no vienen del scrape — quedan en None y
+                            # luego el enrichment de pitcher hará lo que pueda.
+                            "home_pitcher_id":   None,
+                            "away_pitcher_id":   None,
+                            "home_team_name":    g.get("home_team"),
+                            "away_team_name":    g.get("away_team"),
+                            "_source":           "mlb.com_fallback",
+                        }
+
+    if not confirmed_by_pk:
+        # GAP #2 ─ Ambas fuentes (StatsAPI + mlb.com) fallaron.
+        pipeline_meta["abort_reason"] = "no_probable_pitchers_all_sources"
+        # GAP #6 — emit PITCHER_NOT_CONFIRMED at pipeline level so the UI
+        # can render the editorial reason for the empty day.
+        try:
+            from .signal_catalog import make_signal as _mk
+            sig = _mk("PITCHER_NOT_CONFIRMED", sport="baseball")
+            if sig:
+                sig["source_url"] = statsapi_url or MLB_STATSAPI_BASE
+                sig["source"]     = "MLB Stats API + mlb.com fallback"
+                pipeline_meta["pipeline_signals"] = [sig]
+        except Exception as exc:
+            log.debug("PITCHER_NOT_CONFIRMED emission failed: %s", exc)
         return _empty_payload(pipeline_meta)
 
     # ── Stage 0 ── HARD time filter (recurring bug — past games leaked in)
-    # Filter the confirmed games to only those whose gameDate is in the
-    # future (with 15-min buffer) AND whose status is not Final/Postponed.
+    # GAP #0: primero normalizamos `gameDate` → `kickoff_iso` para todos
+    # los juegos confirmados. time_filter solo lee `kickoff_iso`, así que
+    # sin esto un juego ya jugado podría colarse al pipeline.
+    for _conf in confirmed_by_pk.values():
+        normalize_mlb_time_fields(_conf)
+
     from .time_filter import is_match_upcoming, is_match_finished
     filtered_by_pk: dict[int, dict] = {}
     dropped_past_pks: list[int] = []
@@ -173,7 +273,7 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
         # 'In Progress', 'Postponed'). abstractGameState = 'Preview' |
         # 'Live' | 'Final'. gameDate = ISO timestamp.
         ref = {
-            "kickoff_iso":  conf.get("gameDate"),
+            "kickoff_iso":  conf.get("kickoff_iso") or conf.get("gameDate"),
             "status":       conf.get("status") or conf.get("abstractGameState") or "",
         }
         if is_match_finished(ref):
@@ -230,14 +330,18 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
             log.debug("savant tasks init failed: %s", exc)
 
         h_team_task = a_team_task = h_bp_task = a_bp_task = None
+        h_il_task = a_il_task = None
         try:
             from .mlb_team_stats import get_team_hand_splits, get_team_bullpen_usage
+            from .mlb_stats_api import get_team_il_players
             if conf.get("home_team_id"):
                 h_team_task = get_team_hand_splits(db, conf["home_team_id"])
                 h_bp_task   = get_team_bullpen_usage(db, conf["home_team_id"])
+                h_il_task   = get_team_il_players(db, conf["home_team_id"])
             if conf.get("away_team_id"):
                 a_team_task = get_team_hand_splits(db, conf["away_team_id"])
                 a_bp_task   = get_team_bullpen_usage(db, conf["away_team_id"])
+                a_il_task   = get_team_il_players(db, conf["away_team_id"])
         except Exception as exc:
             log.debug("team_stats tasks init failed: %s", exc)
 
@@ -249,13 +353,20 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
             except Exception:
                 return None
 
-        h_stats_e, a_stats_e, h_team_stats, a_team_stats, h_bullpen_usage, a_bullpen_usage = await asyncio.gather(
+        (
+            h_stats_e, a_stats_e,
+            h_team_stats, a_team_stats,
+            h_bullpen_usage, a_bullpen_usage,
+            h_il, a_il,
+        ) = await asyncio.gather(
             _await_or_none(savant_h_task),
             _await_or_none(savant_a_task),
             _await_or_none(h_team_task),
             _await_or_none(a_team_task),
             _await_or_none(h_bp_task),
             _await_or_none(a_bp_task),
+            _await_or_none(h_il_task),
+            _await_or_none(a_il_task),
         )
         if h_stats_e: h_stats = h_stats_e
         if a_stats_e: a_stats = a_stats_e
@@ -263,10 +374,13 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
         a_team_stats     = a_team_stats     or {}
         h_bullpen_usage  = h_bullpen_usage  or {}
         a_bullpen_usage  = a_bullpen_usage  or {}
+        h_il             = h_il             or []
+        a_il             = a_il             or []
 
         return (game_pk, conf, h_stats, a_stats,
                 h_team_stats, a_team_stats,
-                h_bullpen_usage, a_bullpen_usage)
+                h_bullpen_usage, a_bullpen_usage,
+                h_il, a_il)
 
     enrichment_results = await asyncio.gather(*(_process_one_game(gp) for gp in game_pks),
                                               return_exceptions=True)
@@ -276,7 +390,8 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
             continue
         (game_pk, conf, h_stats, a_stats,
          h_team_stats, a_team_stats,
-         h_bullpen_usage, a_bullpen_usage) = res
+         h_bullpen_usage, a_bullpen_usage,
+         h_il, a_il) = res
 
         # Skip games with too little pitcher data — per the user's rule
         # "NO analizar pitchers no confirmados / menos de 3 aperturas".
@@ -334,6 +449,11 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
             "favorite_bullpen_era_7d": float(favorite_bullpen.get("bullpen_era_7d") or 0),
             "favorite_bullpen_ip_48h": float(favorite_bullpen.get("innings_last_48h") or 0),
             "favorite_one_run_win_pct": (conf.get("one_run_win_pct") or 0),
+            # GAP #4 — IL context (per-team Injured List counts/lists).
+            "home_il_count":   len(h_il or []),
+            "away_il_count":   len(a_il or []),
+            "home_il_players": h_il or [],
+            "away_il_players": a_il or [],
             "_team_stats_source_urls": {
                 "home_hand_splits":   h_team_stats.get("_source_url"),
                 "away_hand_splits":   a_team_stats.get("_source_url"),
@@ -420,6 +540,35 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
                                     or per_source_urls["away_bullpen_usage"]
                                     or statsapi_url)
                 s["source"] = "MLB Stats API (gameLogs)"
+            elif code == "IL_DEPTH_RISK":
+                # IL signal — the source URL is the team roster injuries
+                # endpoint from MLB Stats API (whichever team triggered it).
+                home_il_src = next(
+                    (p.get("_source_url") for p in (h_il or []) if p.get("_source_url")), None,
+                )
+                away_il_src = next(
+                    (p.get("_source_url") for p in (a_il or []) if p.get("_source_url")), None,
+                )
+                il_h_n = len(h_il or [])
+                il_a_n = len(a_il or [])
+                trigger_url = home_il_src if il_h_n >= il_a_n else away_il_src
+                s["source_url"] = trigger_url or statsapi_url
+                s["source"] = "MLB Stats API (roster/injuries)"
+                s["extra_explanation"] = f"IL — home: {il_h_n} jugadores · away: {il_a_n} jugadores."
+
+        # GAP #6 — si se usó el fallback de mlb.com, emite la señal
+        # MLB_COM_FALLBACK_USED por juego con la URL literal del scrape.
+        if pipeline_meta.get("fallback_mlb_com_used"):
+            try:
+                from .signal_catalog import make_signal as _mk
+                fb_sig = _mk("MLB_COM_FALLBACK_USED", sport="baseball")
+                if fb_sig:
+                    fb_sig["source_url"] = pipeline_meta.get("fallback_mlb_com_url") or statsapi_url
+                    fb_sig["source"]     = "mlb.com (probable-pitchers)"
+                    signals.insert(0, fb_sig)
+            except Exception as exc:
+                log.debug("MLB_COM_FALLBACK_USED signal emission failed: %s", exc)
+
         signals_by_pk[game_pk] = signals
 
         pick_payload = {
@@ -435,6 +584,12 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
             "weather_tags":   park.get("tags") or [],
             "pitcher_confirmation_source_url": statsapi_url,
             "per_source_urls": per_source_urls,
+            "injuries": {
+                "home_il_count":   len(h_il or []),
+                "away_il_count":   len(a_il or []),
+                "home_il_players": h_il or [],
+                "away_il_players": a_il or [],
+            },
             "scores": {
                 "pitcher_edge":   edge.get("score", 0),
                 "run_line":       run_line.get("score", 0),
