@@ -29,11 +29,11 @@
   - Subprocess + stealth + dispatch paralelo Scrapy/Playwright.
   - Detecta challenges anti-bot y degrada sin romper análisis.
 
-- **(🆕 NUEVO OBJETIVO)** **Bright Data Web Unlocker** como **tercer backend**:
+- **(🆕 NUEVO OBJETIVO / PENDIENTE)** **Bright Data Web Unlocker** como **tercer backend**:
   - Integrar Bright Data (API mode) para desbloquear fuentes con Cloudflare/PerimeterX.
   - Usarlo para **Sportytrader/BeSoccer/scores24** y extenderlo a **fuentes editoriales NBA/basketball**.
 
-- **(🆕 NUEVO OBJETIVO)** **Historical Detail Enrichment**:
+- **(🆕 NUEVO OBJETIVO / PENDIENTE)** **Historical Detail Enrichment**:
   - Antes de analizar/descartar **basketball/baseball**, enriquecer con histórico profundo (10–15 juegos) y generar perfiles por equipo + combinado.
   - Añadir capas de rescate específicas:
     - `basketballTotalPointsRescueLayer(match)`
@@ -41,13 +41,13 @@
   - Todo pasa por Moneyball (edge/guardrails), con traps históricas.
   - UI: sección “Historial profundo” por deporte.
 
-- **(🆕 NUEVO OBJETIVO)** **MLB Margin & Total Script Engine v2 (solo Baseball)**:
+- **(✅ COMPLETADO)** **MLB Margin & Total Script Engine v2 (solo Baseball)**:
   - Evolucionar el engine MLB para comportarse como un **sistema especializado en guion MLB**:
     - Predecir **margen de victoria** (enfasis Run Line -1.5 favoritos dominantes)
     - Seleccionar líneas **Over/Under más protegidas** (6.5/7.5/8/8.5/9 y unders equivalentes)
     - Análisis **pitcher-first** con pitchers confirmados como gate duro
     - Parlays **MLB-only** con validación de correlación positiva
-  - Restricción crítica: **NO tocar basketball/football** (backend y UI).
+  - Restricción crítica validada: **NO tocar basketball/football** (backend y UI).
 
 ---
 
@@ -183,113 +183,80 @@ Motor MLB dedicado a **edge repetible en mercados protegidos**.
 ---
 
 ## Phase MLB-V2 — MLB Margin & Total Script Engine v2
-**Estado:** ⏳ EN PROGRESO
+**Estado:** ✅ COMPLETADO (2026-05-29)
 
-### MLB-V2.0 Restricciones de diseño
-- **No reemplazar** `mlb_pregame_analytics.py`.
-- Crear capa nueva `mlb_pregame_analytics_v2.py` que **importa** el módulo base y añade lógica avanzada.
-- Activación automática **solo** si `sport=baseball`.
-- `parlay_builder()` genérico se mantiene intacto (football/basketball no se toca).
+### MLB-V2.0 Restricciones de diseño (cumplidas)
+- ✅ **No reemplazar** `mlb_pregame_analytics.py`.
+- ✅ Crear capa nueva `mlb_pregame_analytics_v2.py` que **importa** el módulo base y añade lógica avanzada.
+- ✅ Activación automática **solo** si `sport=baseball` (vía MLB orchestrator).
+- ✅ `parlay_builder()` genérico se mantiene intacto (football/basketball no se toca).
 
-### MLB-V2.1 Backend foundation (nuevo módulo v2)
-**Entregable:** `/app/backend/services/mlb_pregame_analytics_v2.py`
-- `favorite_margin_profile(recent_games)`
-  - Últimos 15: wins, wins by 2+, wins by 3+, avg run differential, marginReliability.
-- `run_line_dominance_model(ctx)`
-  - Predice `marginProjection`, `runLineScore`, `coverProbability`, `confidence`, `fragilityScore`, `reasons`, `risks`.
-  - Regla: recomendar `Run Line -1.5` si `runLineScore>=72`, `projectedMargin>=1.8`, winsBy2Rate>=50, lossesBy2Rate>=45, bullpen ok, lineup fuerte.
-  - Agrega tag/signal `RUN_LINE_MARGIN_EDGE`.
-- `smart_total_line_selector(expected_runs, ctx, market_lines)`
-  - Escoge `bestLine`, `safeLine`, `aggressiveLine`, `recommendedLine` con `lineSafetyScore` y `fragilityScore`.
-  - Agrega signal `SMART_OVER_LINE_SELECTED`.
-- `pitcher_centered_evaluation(ctx)`
-  - Gate duro: **no recomendar sin ambos pitchers confirmados**.
-  - Emite señales:
-    - `STRONG_STARTING_PITCHER_EDGE` (ya existe)
-    - `PITCHER_MISMATCH_DETECTED`
-    - `LINEUP_VS_PITCHER_EDGE`
-- `same_game_correlation_rule(pair_ctx)`
-  - Regla positiva Run Line favorito -1.5 + Over (mismo juego) bajo condiciones (expectedRuns alto, projectedTeamRuns>=4.5, margin>=2.0, bullpen rival vulnerable).
-  - Emite `SAME_GAME_CORRELATED_PAIR` cuando aplique.
-- `classify_pick_type(pick_ctx)`
-  - `DOMINANT_FAVORITE_RUN_LINE`, `SMART_LOW_OVER`, `PITCHER_UNDER`, `F5_EDGE`, `TEAM_TOTAL_EDGE`, `SAME_GAME_CORRELATED_PAIR`.
-- `mlb_parlay_builder(candidates, max_size=4)`
-  - **MLB-only** (no mezclar deportes) y mercados permitidos:
-    - Run Line ±1.5, Total Runs O/U, Team Totals O/U, F5 ML, F5 Totals, NRFI/YRFI.
-  - Ranking:
-    - `finalParlayScore = avgPickScore*0.45 + avgFragilityInverse*0.20 + correlationScore*0.20 + pitcherConfidence*0.15`
-  - Reglas: max 4 picks, preferir 2–4, evitar datos incompletos y sin pitchers confirmados, bloquear parlay si correlation_score<60.
+### MLB-V2.1 Backend foundation (nuevo módulo v2) — ✅
+**Entregables**
+- `/app/backend/services/mlb_pregame_analytics_v2.py`
+  - `favorite_margin_profile(recent_games)`
+  - `run_line_dominance_model(ctx)`
+  - `smart_total_line_selector(expected_runs, ctx, market_lines)`
+  - `pitcher_centered_evaluation(ctx)` (gate pitchers confirmados)
+  - `same_game_correlation_rule(pair_ctx)`
+  - `classify_pick_type(pick_ctx)`
+  - `mlb_parlay_builder(candidates, max_size=4, min_correlation=60)`
+  - `build_v2_payload(...)` + `emit_v2_signals(...)`
 
-### MLB-V2.2 Signal catalog + orchestrator wiring
+### MLB-V2.2 Signal catalog + orchestrator wiring — ✅
 **Back-end**
 - `services/signal_catalog.py`:
-  - Añadir códigos: `RUN_LINE_MARGIN_EDGE`, `SMART_OVER_LINE_SELECTED`, `PITCHER_MISMATCH_DETECTED`, `LINEUP_VS_PITCHER_EDGE`, `SAME_GAME_CORRELATED_PAIR`.
-  - Mantener `applicable_sports={'baseball'}`.
+  - Añadidos y validados (sport-aware):
+    - `RUN_LINE_MARGIN_EDGE`
+    - `SMART_OVER_LINE_SELECTED`
+    - `STRONG_STARTING_PITCHER_EDGE`
+    - `PITCHER_MISMATCH_DETECTED`
+    - `LINEUP_VS_PITCHER_EDGE`
+    - `SAME_GAME_CORRELATED_PAIR`
 
 **Orchestrator** (`services/mlb_day_orchestrator.py`)
-- Importar v2:
-  - `from .mlb_pregame_analytics_v2 import ...`
-- Por juego:
-  - Ejecutar `run_line_dominance_model()` y `smart_total_line_selector()` (usando `expected_runs` del predictor base).
-  - Agregar bloque `_mlb_script_v2` al `pick_payload` (también en `rescued` si aplica):
-    - `marginProjection`, `coverProbability`, `projectedMargin`, `expectedRuns`, `bestLine`, `lineSafetyScore`, `sameGameCorrelation`, `pickType`, `reasons`, `risks`.
-  - No alterar lógica para football/basketball.
+- Inyección por pick:
+  - `_mlb_script_v2` (payload completo para UI)
+  - `margin_v2` (storage hook mínimo para P2 feedback loop)
 - Parlay:
-  - Reemplazar (solo en MLB orchestrator) el call a `parlay_builder()` por `mlb_parlay_builder()`.
-  - Mantener el validador genérico para el resto del sistema.
+  - Reemplazo en MLB orchestrator: `parlay_builder()` → `_v2_mlb_parlay_builder()`.
+  - `parlay_suggested.parlayType='MLB_ONLY'`.
 
-**Storage hook (P1 mínimo, feedback loop P2)**
-- Persistir campos mínimos en el doc de pick (o en el match asociado) sin recalibración automática:
-  - `market`, `lineSelected`, `expectedRuns`, `projectedMargin`, `marginProjection`, `coverProbability`, `pickType`, `result` placeholder.
-
-### MLB-V2.3 Frontend — MLBScriptPanel (solo baseball)
-- Crear `/app/frontend/src/components/MLBScriptPanel.jsx`
-  - Colapsable.
-  - Renderiza:
-    - Pitcher matchup
-    - `Projected margin`, `Cover probability`
-    - `Expected runs`, `Best total line`, `lineSafetyScore`
-    - `sameGameCorrelation` (nota de correlación)
-    - `whyThisParlayWorks`, `whyThisParlayCanFail` (cuando existan en payload)
-    - `tipo de pick`.
+### MLB-V2.3 Frontend — MLBScriptPanel (solo baseball) — ✅
+- `/app/frontend/src/components/MLBScriptPanel.jsx` (colapsable, baseball-only)
 - `MatchCard.jsx`:
-  - Montar `MLBScriptPanel` **solo** si `sport === 'baseball'`.
-  - No modificar UI base de basketball/football.
+  - Renderiza el panel únicamente cuando `sport === 'baseball'`.
+  - No altera la UI base de basketball/football.
 
-### MLB-V2.4 Testing (backend)
-- Unit tests (ctx sintéticos) para:
-  - `favorite_margin_profile`, `run_line_dominance_model`, `smart_total_line_selector`, `mlb_parlay_builder`.
-- E2E:
-  - `GET /api/mlb/day?date=YYYY-MM-DD` (regresión + campos nuevos presentes).
-  - `POST /api/analysis/run` sport=baseball (no timeouts, no crash; parlay MLB-only).
-- Guardarraíles:
-  - Confirmar que football/basketball **no** incluyen `_mlb_script_v2` ni cambian su parlay.
+### MLB-V2.4 Testing (backend) — ✅
+- Reporte: `/app/test_reports/mlb_v2_backend_test.json`
+- Resultado: **12/12 PASS (100%)**
+- Incluye:
+  - unit tests de todas las funciones v2
+  - sport-aware signals (no leak a football/basketball)
+  - integración `GET /api/mlb/day` con `parlayType='MLB_ONLY'`
+  - regresión basketball/football: sin `_mlb_script_v2` ni cambios de parlay
 
 ---
 
 ## 3) Next Actions
 
-### A) MLB Margin & Total Script Engine v2 (P0) — inmediato
-1. Crear `mlb_pregame_analytics_v2.py`.
-2. Añadir señales nuevas al `signal_catalog.py`.
-3. Wire en `mlb_day_orchestrator.py`:
-   - adjuntar `_mlb_script_v2` por pick
-   - usar `mlb_parlay_builder()` para parlay_suggested.
-4. Crear `MLBScriptPanel.jsx` y montarlo en `MatchCard.jsx` (baseball-only).
-5. Añadir storage hook mínimo (sin recalibración automática).
-
-### B) Bright Data Unlocker (P1)
+### A) Bright Data Unlocker (P1) — siguiente prioridad
 1. Añadir `.env` keys y `brightdata_fetcher.py`.
 2. Activar unlocker para Sportytrader/BeSoccer/scores24.
 3. Añadir 2–3 fuentes NBA/basketball al registry con `requires_unlocker=True`.
 
-### C) Basketball Historical Detail (P1)
+### B) Basketball Historical Detail (P1)
 1. Implementar profile + integración pipeline.
 2. Añadir rescue layer totales/team totals.
 3. UI “Historial profundo”.
 
-### D) Baseball Historical Detail (P1)
+### C) Baseball Historical Detail (P1)
 1. Implementar profile + rescue + UI.
+
+### D) Feedback Loop MLB (P2)
+1. Guardar resultados reales por pick (margin, totalRuns, runLineCovered, overHit).
+2. Recalibración cada 50 picks (weights projectedMargin/pitcherEdge/bullpen/lineSafety/correlation).
 
 ---
 
@@ -304,9 +271,12 @@ Motor MLB dedicado a **edge repetible en mercados protegidos**.
   - Ningún match basketball/baseball prioritario se descarta sin histórico profundo.
   - Se detectan oportunidades en **totales/team totals/F5/run line** con razonamiento humano.
   - Moneyball guardrail siempre manda: sin edge → no recomendación.
-- MLB-V2:
-  - Picks MLB incluyen `Projected Margin`, `Cover Probability`, `Best Total Line`, `lineSafetyScore`, `pickType`.
-  - Parlays MLB-only de 2–4 picks con correlación ≥60.
+
+- **MLB-V2 (✅ cumplido y validado)**
+  - Picks MLB incluyen: `Projected Margin`, `Cover Probability`, `Best/Recommended Total Line`, `lineSafetyScore`, `pickType`, `sameGameCorrelation`.
+  - Parlays MLB-only de 2–4 picks con correlación ≥60 (cuando existan suficientes picks elegibles).
   - Run Line -1.5 solo cuando hay dominancia real (no “favoritos por 1 carrera”).
-  - **Cero regresiones**: endpoints existentes responden, `_market_edge` intacto, `asyncio.wait_for(timeout=3.0)` intacto, narrativa ES intacta.
-  - Regla crítica cumplida: **no tocar basketball/football**.
+  - **Cero regresiones**:
+    - Football/basketball sin `_mlb_script_v2`.
+    - Parlay genérico intacto fuera de MLB.
+  - Testing: **12/12 PASS** en `/app/test_reports/mlb_v2_backend_test.json`.
