@@ -90,6 +90,41 @@
 
 ---
 
+## Phase G1 — MLB Pre-game Analytics Engine
+**Estado:** ✅ COMPLETADO (2026-05-29)
+
+### G1.1 Filosofía
+Motor MLB dedicado a **edge repetible en mercados protegidos** (NRFI, F5, Team Totals, Run Line +1.5, Under con soporte estadístico). NO persigue cuotas altas — busca dominancia real (pitchers, bullpen, ofensa, parque, fragilidad).
+
+### G1.2 Módulos creados
+- `services/mlb_pregame_analytics.py` — 9 funciones puras:
+  - `starting_pitcher_edge()`, `pitcher_quality_score()` con detección PITCHER_OVERPERFORMING/UNDERVALUED (xERA divergence ≥1.20)
+  - `bullpen_fatigue_score()` con guardrails 8+/10+ IP en 48h
+  - `offense_vs_pitcher_type()` (LHP/RHP)
+  - `park_factor_analyzer()` (Coors/Oracle/etc.) + Weather Impact Score
+  - `mlb_fragility_score()` 0-100 con labels MUY_PROTEGIDO/PROTEGIDO/RIESGO_MEDIO/FRAGIL
+  - `run_line_predictor()` + RUN_LINE_TRAP guardrail (bullpen_era_7d>4.75 ∨ ip_48h>8 ∨ 1run_win%>40%)
+  - `over_under_predictor()` con `expected_runs` model
+  - `nrfi_yrfi_analyzer()` con 1st-inning specific stats + top-3 lineup
+  - `mlb_alternative_rescue()`
+  - `emit_signals()` con `source_url` literal de confirmación
+- `services/mlb_day_orchestrator.py` — `analyze_mlb_day(date_str, db)`. Confirma pitchers via `statsapi.mlb.com/api/v1/schedule?hydrate=probablePitcher` (URL literal incluida en `pitcher_confirmation_source_url` y en cada signal).
+- `signal_catalog.py` — 8 nuevos códigos BASEBALL_ONLY: PITCHER_OVERPERFORMING, PITCHER_UNDERVALUED, RUN_LINE_TRAP, STRONG_PITCHER_EDGE, PARK_OVER_SIGNAL, PARK_UNDER_SIGNAL, NRFI_SIGNAL, YRFI_SIGNAL + RESCUED_MARKET (ALL_SPORTS).
+- `server.py` — Nuevo endpoint `GET /api/mlb/day?date=YYYY-MM-DD`.
+
+### G1.3 Testing
+- **Iteration 30: 76/76 tests passed (100%)** incluyendo todas las unit tests de scoring + integración endpoint + sport-aware regression (PITCHER_OVERPERFORMING → None para football/basketball).
+- 15 partidos MLB confirmados en 2025-08-15; cada uno con `pitcher_confirmation_source_url` literal.
+
+### G1.4 Diferido a G2
+- `parlay_builder()` (top 3-4 picks combinados)
+- `feedback_loop()` con recalibración cada 50 juegos
+- `historical_matchup_memory` colección Mongo
+- Enriquecimiento avanzado: Baseball Savant (xERA / FIP / Hard Hit % / Barrel %) + bullpen detallado + weather feed
+- UI MLB dashboard dedicado (signals + source_url ya se ven en Phase E1 panel)
+
+---
+
 ## Phase E1 — Editorial Context Signals Transparency
 **Estado:** ✅ COMPLETADO (2026-05-28)
 
