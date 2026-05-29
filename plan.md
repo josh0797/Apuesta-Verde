@@ -90,6 +90,33 @@
 
 ---
 
+## Phase G3 — Critical Bug Fixes (Defense-in-Depth Time Filter + Pitcher Quality Rewrite)
+**Estado:** ✅ COMPLETADO (2026-05-29)
+
+### G3.1 Bug #1 — Partidos jugados como picks (RECURRENTE)
+- **Causa raíz**: No había filtro de tiempo antes de mandar al LLM. El normalizer aceptaba todo y el scheduler permitía cuentas ya jugadas.
+- **Fix defense-in-depth (5 capas)**:
+  1. `services/time_filter.py` — utilidades canónicas: `is_match_upcoming`, `is_match_finished`, `filter_upcoming`, `validate_pick_before_output`, `filter_blocked_picks`, `STATUS_FINISHED`.
+  2. `analyst_engine.analyze_matches` — Stage 0 filter al INICIO (todos los deportes).
+  3. `mlb_day_orchestrator` — Stage 0 después de confirmar pitchers. abort_reason='all_games_already_played_or_finished' si no queda nada.
+  4. `parlay_correlation_validator.parlay_builder` — drop picks con status Final / past kickoff antes de construir parlay. `time_blocked` field expuesto.
+  5. `server._run_analysis_pipeline` — última línea: `filter_blocked_picks` sobre picks/rescued/watchlist/protected_acceptable. Los bloqueados van a `summary.blocked_picks[]` y `total_recommended` se decrementa.
+
+### G3.2 Bug #2 — Under recomendado incorrecto (Cubs-Pirates 7-2 con Under 4.5)
+- **Causa raíz**: `_pitcher_quality_score` solo usaba ERA/WHIP/K-BB, no xERA/FIP. Poisson proyectaba Unders con métricas incompletas.
+- **Fix**:
+  - Reescritura completa de `_pitcher_quality_score` (mlb_intelligence): prioridad xERA → FIP → xFIP → ERA, con weight extra para xERA/FIP. Incorpora Hard Hit % y Barrel %.
+  - Detección de regresión: ERA vs xERA divergence ≥1.0 → tag `_regression_signal = PITCHER_OVERPERFORMING` (penalty -0.15) o `PITCHER_UNDERVALUED` (bonus +0.10).
+  - `UNDER_SAFETY_RULES` + `under_pick_passes_safety_rules()`: bloquea Under cuando hay overperforming ace (era<3.00), pitcher quality<0.60 (o 0.70 si park_factor>1.10), insufficient buffer, insuficientes aperturas (<3).
+- `validate_pick_before_output` bloquea Under cuando aparece `PITCHER_OVERPERFORMING` en signals.
+
+### Testing — Iteration 32
+- **22/23 tests passed (95.7%)** — solo un test-expectation issue (no bug productivo).
+- Verificado E2E: `/api/mlb/day?date=2025-08-15` (pasado) ahora devuelve 0 picks con `dropped_past_or_finished=15` y `abort_reason='all_games_already_played_or_finished'`. Antes habría devuelto picks de partidos finalizados.
+- 0 regresiones. Carryover + Editorial + Phase E1/G1/G2 siguen funcionando.
+
+---
+
 ## Phase G2 — Baseball Savant + Parlay Correlation Validator
 **Estado:** ✅ COMPLETADO (2026-05-29)
 
