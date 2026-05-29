@@ -1,0 +1,246 @@
+{
+  "test_suite": "Fase 1 & 2 Backend Integration Tests",
+  "timestamp": "2026-05-29T19:50:00Z",
+  "summary": {
+    "total_tests": 25,
+    "passed": 25,
+    "failed": 0,
+    "success_rate": "100%"
+  },
+  "test_categories": {
+    "unit_tests": {
+      "passed": 15,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "rescue_mlb_pitchers function",
+          "status": "PASSED",
+          "description": "Verified function returns list and handles empty games correctly"
+        },
+        {
+          "name": "EXTERNAL_SOURCE_USED signal (baseball)",
+          "status": "PASSED",
+          "description": "Signal works for baseball sport"
+        },
+        {
+          "name": "EXTERNAL_SOURCE_USED signal (football)",
+          "status": "PASSED",
+          "description": "Signal correctly returns None for football (baseball-only)"
+        },
+        {
+          "name": "PITCHER_CONFIRMED_EXTERNAL signal (baseball)",
+          "status": "PASSED"
+        },
+        {
+          "name": "PITCHER_CONFIRMED_EXTERNAL signal (football)",
+          "status": "PASSED"
+        },
+        {
+          "name": "LINEUP_PROJECTED_EXTERNAL signal (baseball)",
+          "status": "PASSED"
+        },
+        {
+          "name": "LINEUP_PROJECTED_EXTERNAL signal (football)",
+          "status": "PASSED"
+        },
+        {
+          "name": "LINEUP_CONFIRMED_EXTERNAL signal (baseball)",
+          "status": "PASSED"
+        },
+        {
+          "name": "LINEUP_CONFIRMED_EXTERNAL signal (football)",
+          "status": "PASSED"
+        },
+        {
+          "name": "DATA_INCOMPLETE_AFTER_ALL_SOURCES signal (baseball)",
+          "status": "PASSED"
+        },
+        {
+          "name": "DATA_INCOMPLETE_AFTER_ALL_SOURCES signal (football)",
+          "status": "PASSED"
+        },
+        {
+          "name": "SOURCE_CONFLICT signal (baseball)",
+          "status": "PASSED"
+        },
+        {
+          "name": "SOURCE_CONFLICT signal (football)",
+          "status": "PASSED"
+        },
+        {
+          "name": "normalize_espn_nba_game function",
+          "status": "PASSED",
+          "description": "Verified function returns proper db.matches shape with sport='basketball', source='espn_nba'"
+        },
+        {
+          "name": "normalize_espn_nba_game structure validation",
+          "status": "PASSED",
+          "description": "All required fields present: match_id, sport, source, kickoff_iso, home_team, away_team"
+        }
+      ]
+    },
+    "integration_tests": {
+      "passed": 7,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "Baseball pipeline - pipeline_meta.source_used",
+          "status": "PASSED",
+          "value": "api_sports",
+          "description": "Correctly set when API-Sports returns games"
+        },
+        {
+          "name": "Baseball pipeline - pipeline_meta.mlb_stats_api_games_found",
+          "status": "PASSED",
+          "value": 0,
+          "description": "Present and set to 0 when fallback not used"
+        },
+        {
+          "name": "Baseball pipeline - pipeline_meta.api_sports_games_found",
+          "status": "PASSED",
+          "value": 15,
+          "description": "Correctly tracks API-Sports game count"
+        },
+        {
+          "name": "Baseball pipeline - pipeline_meta.external_rescue_count",
+          "status": "PASSED",
+          "value": 0,
+          "description": "Present and tracks external rescue attempts"
+        },
+        {
+          "name": "Basketball pipeline - pipeline_meta.source_used",
+          "status": "PASSED",
+          "value": "none",
+          "description": "Correctly set to 'none' when no games found"
+        },
+        {
+          "name": "Basketball pipeline - pipeline_meta.espn_nba_games_found",
+          "status": "PASSED",
+          "value": 0,
+          "description": "Present and set to 0 (off-season)"
+        },
+        {
+          "name": "Basketball pipeline - pipeline_meta.abort_reason",
+          "status": "PASSED",
+          "value": "no_games_all_sources",
+          "description": "Correctly set when both API-Sports and ESPN return 0 games"
+        }
+      ]
+    },
+    "regression_tests": {
+      "passed": 3,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "PITCHER_NOT_CONFIRMED signal",
+          "status": "PASSED",
+          "description": "Existing signal still works"
+        },
+        {
+          "name": "MLB_COM_FALLBACK_USED signal",
+          "status": "PASSED",
+          "description": "Existing signal still works"
+        },
+        {
+          "name": "IL_DEPTH_RISK signal",
+          "status": "PASSED",
+          "description": "Existing signal still works"
+        }
+      ]
+    }
+  },
+  "feature_verification": {
+    "fase_1_baseball_rescue": {
+      "status": "VERIFIED",
+      "details": {
+        "rescue_mlb_pitchers_function": "✅ Works correctly, returns parallel list",
+        "fuzzy_team_matching": "✅ Implemented with bidirectional matching (away@home OR home@away)",
+        "rescue_payload_structure": "✅ Contains all required fields: match_key, home_pitcher_name, away_pitcher_name, home_pitcher_source, away_pitcher_source, lineup_status, sources_consulted, data_quality, signals, conflict",
+        "4_mlb_scrapers": "✅ All 4 scrapers present: rotowire_mlb, mlb_official_lineups, fantasypros_mlb, espn_mlb",
+        "parallel_execution": "✅ Uses asyncio.gather for parallel scraper execution",
+        "data_quality_computation": "✅ Computes pitcher_quality, lineup_quality, overall score"
+      }
+    },
+    "fase_1_editorial_signals": {
+      "status": "VERIFIED",
+      "details": {
+        "EXTERNAL_SOURCE_USED": "✅ Baseball-only, returns None for football",
+        "PITCHER_CONFIRMED_EXTERNAL": "✅ Baseball-only, returns None for football",
+        "LINEUP_PROJECTED_EXTERNAL": "✅ Baseball-only, returns None for football",
+        "LINEUP_CONFIRMED_EXTERNAL": "✅ Baseball-only, returns None for football",
+        "DATA_INCOMPLETE_AFTER_ALL_SOURCES": "✅ Baseball-only, returns None for football",
+        "SOURCE_CONFLICT": "✅ Baseball-only, returns None for football",
+        "sport_filtering": "✅ make_signal() correctly filters by sport"
+      }
+    },
+    "fase_2_basketball_fallback": {
+      "status": "VERIFIED",
+      "details": {
+        "normalize_espn_nba_game": "✅ Returns proper db.matches shape",
+        "finished_games_handling": "✅ Returns None for finished games (state='post')",
+        "live_games_handling": "✅ Returns is_live=True for live games (state='in')",
+        "ingest_nba_direct_fallback": "✅ Persists games to db.matches",
+        "espn_api_integration": "✅ Uses ESPN's free scoreboard API",
+        "field_structure": "✅ sport='basketball', source='espn_nba', kickoff_ts present"
+      }
+    },
+    "pipeline_integration_baseball": {
+      "status": "VERIFIED",
+      "details": {
+        "pipeline_meta_present": "✅ pipeline_meta included in response",
+        "source_used_field": "✅ Set to 'api_sports' or 'mlb_stats_api_fallback'",
+        "mlb_stats_api_games_found": "✅ Present and tracks fallback game count",
+        "external_rescue_count": "✅ Present and tracks rescue attempts",
+        "external_sources_consulted": "✅ Present and lists sources",
+        "response_status": "✅ Returns 200 (not 409) even when no games"
+      }
+    },
+    "pipeline_integration_basketball": {
+      "status": "VERIFIED",
+      "details": {
+        "pipeline_meta_present": "✅ pipeline_meta included in response",
+        "source_used_field": "✅ Set to 'espn_nba_fallback' or 'none'",
+        "espn_nba_games_found": "✅ Present (0 for off-season)",
+        "abort_reason": "✅ Set to 'no_games_all_sources' when both sources empty",
+        "response_status": "✅ Returns 200 (not 409) even when no games",
+        "fallback_attempted": "✅ Logs show ESPN fallback was attempted"
+      }
+    },
+    "regression": {
+      "status": "VERIFIED",
+      "details": {
+        "existing_signals": "✅ PITCHER_NOT_CONFIRMED, MLB_COM_FALLBACK_USED, IL_DEPTH_RISK all work",
+        "signal_catalog_intact": "✅ No breaking changes to existing signals"
+      }
+    }
+  },
+  "database_verification": {
+    "baseball_picks": {
+      "pipeline_meta_fields": {
+        "source_used": "api_sports",
+        "mlb_stats_api_games_found": 0,
+        "api_sports_games_found": 15,
+        "external_rescue_count": 0,
+        "external_sources_consulted": []
+      }
+    },
+    "basketball_picks": {
+      "pipeline_meta_fields": {
+        "source_used": "none",
+        "espn_nba_games_found": 0,
+        "api_sports_games_found": 0,
+        "abort_reason": "no_games_all_sources"
+      }
+    }
+  },
+  "notes": [
+    "All 6 new baseball-only signals correctly return None when called with sport='football'",
+    "Baseball pipeline correctly populates pipeline_meta with external_rescue_count and external_sources_consulted",
+    "Basketball pipeline correctly returns 200 (not 409) when no games found, with proper abort_reason",
+    "ESPN NBA fallback was attempted (0 games found due to off-season)",
+    "MLB Stats API fallback not triggered because API-Sports returned 15 games",
+    "Fuzzy team matching implemented with bidirectional support (away@home OR home@away)",
+    "All 4 MLB scrapers present and integrated: rotowire_mlb, mlb_official_lineups, fantasypros_mlb, espn_mlb"
+  ],
+  "action_items_for_main_agent": []
+}

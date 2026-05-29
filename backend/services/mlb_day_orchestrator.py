@@ -95,6 +95,7 @@ async def _confirm_pitchers_statsapi(db, date_str: str) -> tuple[dict, str]:
         return {}, ""
     url = f"{MLB_STATSAPI_BASE}/schedule?date={date_str}&sportId=1&hydrate=probablePitcher,linescore,team,venue"
     out: dict[int, dict] = {}
+    incomplete: list[dict] = []   # games dropped from `out` for missing pitchers
     for g in games:
         if not g.get("gamePk"):
             continue
@@ -104,9 +105,12 @@ async def _confirm_pitchers_statsapi(db, date_str: str) -> tuple[dict, str]:
         # juegos con un solo probable.
         if not home_pid or not away_pid:
             log.info(
-                "MLB: juego %s descartado — pitcher sin confirmar (home=%s away=%s)",
+                "MLB: juego %s sin pitcher confirmado en StatsAPI (home=%s away=%s) — candidato a rescue",
                 g.get("gamePk"), home_pid, away_pid,
             )
+            # Stash the raw schedule entry so the rescue layer can try
+            # external scrapers before we discard the game.
+            incomplete.append(g)
             continue
         out[int(g["gamePk"])] = {
             "home_pitcher_id":   home_pid,
@@ -123,6 +127,52 @@ async def _confirm_pitchers_statsapi(db, date_str: str) -> tuple[dict, str]:
             "abstractGameState": g.get("abstractGameState"),
             "_source":           "mlb_stats_api",
         }
+    # GAP #FASE1 — external-source rescue for games StatsAPI couldn't
+    # confirm. We do this here (inside _confirm_pitchers_statsapi) so
+    # callers see a uniform `out` dict with the rescued games already
+    # merged in. Each rescued entry carries an `_external_rescue` block
+    # that the orchestrator will surface as editorial_context_signals.
+    if incomplete:
+        try:
+            from .external_sources import mlb_lineup_rescue as _rescue
+            rescued = await _rescue.rescue_mlb_pitchers(date_str, incomplete)
+        except Exception as exc:
+            log.debug("MLB external rescue failed: %s", exc)
+            rescued = []
+        for raw_g, r in zip(incomplete, rescued or []):
+            # Only count as confirmed if BOTH pitchers are now known
+            # (even if just by name — IDs may be missing on external).
+            if r.get("home_pitcher_name") and r.get("away_pitcher_name"):
+                out[int(raw_g["gamePk"])] = {
+                    "home_pitcher_id":   raw_g.get("home_probable_id"),
+                    "home_pitcher_name": r["home_pitcher_name"],
+                    "away_pitcher_id":   raw_g.get("away_probable_id"),
+                    "away_pitcher_name": r["away_pitcher_name"],
+                    "home_team_id":      raw_g.get("home_team_id"),
+                    "away_team_id":      raw_g.get("away_team_id"),
+                    "home_team_name":    raw_g.get("home_team"),
+                    "away_team_name":    raw_g.get("away_team"),
+                    "venue":             raw_g.get("venue"),
+                    "gameDate":          raw_g.get("gameDate"),
+                    "status":            raw_g.get("status"),
+                    "abstractGameState": raw_g.get("abstractGameState"),
+                    "_source":           r.get("home_pitcher_source") or "external_rescue",
+                    "_external_rescue":  r,   # carries sources_consulted + signals
+                }
+                log.info(
+                    "MLB: juego %s rescatado vía %s (home=%s · away=%s)",
+                    raw_g.get("gamePk"),
+                    r.get("home_pitcher_source") or r.get("away_pitcher_source"),
+                    r["home_pitcher_name"], r["away_pitcher_name"],
+                )
+            else:
+                # Keep the rescue payload on the dropped game so the UI
+                # can still render "Fuentes consultadas" for the discard.
+                log.info(
+                    "MLB: juego %s permanece descartado tras consultar fuentes externas (%s)",
+                    raw_g.get("gamePk"),
+                    ", ".join(s.get("source", "?") for s in (r.get("sources_consulted") or [])[:4]),
+                )
     return out, url
 
 
@@ -667,6 +717,12 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             except Exception as exc:
                 log.debug("MLB_COM_FALLBACK_USED signal emission failed: %s", exc)
 
+        # GAP #FASE1 — propagate external rescue signals + sources_consulted
+        # so the UI can show "Fuentes consultadas" with success/failed marks.
+        ext_rescue = conf.get("_external_rescue") or {}
+        if ext_rescue.get("signals"):
+            signals.extend(ext_rescue["signals"])
+
         signals_by_pk[game_pk] = signals
 
         pick_payload = {
@@ -700,6 +756,17 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             "editorial_context_signals": signals,
             "all_components": parts,
             "rescued_candidates": rescue.get("candidates") or [],
+            # GAP #FASE1 — expose the multi-source ingestion telemetry so
+            # the UI can render a "Fuentes consultadas" panel.
+            "external_sources": {
+                "sources_consulted": (ext_rescue.get("sources_consulted") or []),
+                "data_quality":      (ext_rescue.get("data_quality") or {}),
+                "lineup_status":     ext_rescue.get("lineup_status"),
+                "home_pitcher_source": ext_rescue.get("home_pitcher_source"),
+                "away_pitcher_source": ext_rescue.get("away_pitcher_source"),
+                "conflict":          bool(ext_rescue.get("conflict")),
+                "rescued":           bool(ext_rescue),
+            },
         }
 
         if chosen_market and best_score >= 72:

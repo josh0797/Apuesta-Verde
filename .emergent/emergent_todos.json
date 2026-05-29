@@ -1,22 +1,22 @@
 [
   {
-    "content": "Crear normalize_mlb_stats_game + ingest_mlb_direct_fallback en data_ingestion",
+    "content": "F1.1-F1.8: Multi-source MLB rescue COMPLETO",
     "status": "completed"
   },
   {
-    "content": "Hook del fallback en _run_analysis_pipeline (sport=baseball) + pipeline_meta",
+    "content": "F2.1: normalize_espn_nba_game + ingest_nba_direct_fallback",
     "status": "completed"
   },
   {
-    "content": "Nuevos abort_reasons: no_games_all_sources, games_found_but_missing_pitchers",
+    "content": "F2.3: Hook basketball fallback en _run_analysis_pipeline",
     "status": "completed"
   },
   {
-    "content": "UI: banner de fallback + nuevos campos en PipelineDebugPanel",
+    "content": "F2.4: UI banner basketball fallback + i18n",
     "status": "completed"
   },
   {
-    "content": "Tests funcionales (unit + integration + HTTP end-to-end real)",
-    "status": "completed"
+    "content": "Tests funcionales + testing agent",
+    "status": "in_progress"
   }
 ]

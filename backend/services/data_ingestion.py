@@ -863,3 +863,172 @@ async def ingest_mlb_direct_fallback(
         len(persisted), len(raw_games), date_str,
     )
     return persisted
+
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# ESPN NBA Scoreboard direct fallback (basketball)
+# ────────────────────────────────────────────────────────────────────────────
+# The user's API-Sports plan doesn't include basketball, so when the
+# basketball ingest returns 0 we fall back to ESPN's public JSON API.
+# It exposes today's NBA scoreboard + team meta + scheduled tip times
+# without any API key. We normalise to the standard `db.matches` shape
+# so the rest of the pipeline doesn't need a basketball-specific branch.
+
+ESPN_NBA_SCOREBOARD_URL = (
+    "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
+)
+
+
+def normalize_espn_nba_game(raw_event: dict) -> Optional[dict]:
+    """Convert one ESPN scoreboard `events[]` entry to the internal
+    `db.matches` shape (basketball)."""
+    if not isinstance(raw_event, dict):
+        return None
+    event_id = raw_event.get("id")
+    if not event_id:
+        return None
+
+    competition = (raw_event.get("competitions") or [{}])[0]
+    competitors = competition.get("competitors") or []
+    if len(competitors) < 2:
+        return None
+    home = next((c for c in competitors if c.get("homeAway") == "home"), None)
+    away = next((c for c in competitors if c.get("homeAway") == "away"), None)
+    if not (home and away):
+        return None
+
+    home_team_obj = home.get("team") or {}
+    away_team_obj = away.get("team") or {}
+    if not home_team_obj.get("displayName") or not away_team_obj.get("displayName"):
+        return None
+
+    status_obj   = (competition.get("status") or {}).get("type") or {}
+    state        = (status_obj.get("state") or "").lower()    # 'pre'|'in'|'post'
+    detailed     = status_obj.get("description") or status_obj.get("shortDetail") or "Scheduled"
+    is_live      = (state == "in")
+    is_finished  = (state == "post")
+    game_date    = raw_event.get("date") or competition.get("date") or ""
+
+    kickoff_ts: Optional[int] = None
+    try:
+        ts = datetime.fromisoformat((game_date or "").replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        kickoff_ts = int(ts.timestamp())
+    except Exception:
+        kickoff_ts = None
+
+    league_obj = (raw_event.get("league") or {})
+    league_name = league_obj.get("name") or "NBA"
+    season_year = (raw_event.get("season") or {}).get("year") or (
+        ts.year if kickoff_ts else None
+    )
+
+    doc: dict[str, Any] = {
+        "match_id":          str(event_id),
+        "sport":             "basketball",
+        "source":            "espn_nba",
+        "league":            {"id": league_obj.get("id") or 0, "name": league_name},
+        "league_id":         league_obj.get("id") or 0,
+        "season":            season_year,
+        "kickoff_iso":       game_date,
+        "kickoff_ts":        kickoff_ts,
+        "gameDate":          game_date,
+        "status":            detailed,
+        "abstractGameState": state,
+        "is_live":           is_live,
+        "venue":             ((competition.get("venue") or {}).get("fullName")),
+        "home_team": {
+            "id":      home_team_obj.get("id"),
+            "name":    home_team_obj.get("displayName"),
+            "abbreviation": home_team_obj.get("abbreviation"),
+            "context": {"fetched_at": None, "form_last_5": "", "position": None},
+        },
+        "away_team": {
+            "id":      away_team_obj.get("id"),
+            "name":    away_team_obj.get("displayName"),
+            "abbreviation": away_team_obj.get("abbreviation"),
+            "context": {"fetched_at": None, "form_last_5": "", "position": None},
+        },
+        "odds_snapshots": [],
+        "live_stats":     None,
+        "h2h_recent":     [],
+        "data_complete":  False,
+        "fallback_used":  True,
+        "updated_at":     nz.now_iso(),
+        "_espn_odds":     competition.get("odds") or [],
+        "_espn_event_id": event_id,
+    }
+    prov.attach_to_match(
+        doc,
+        primary_source="espn_nba",
+        odds_available=bool(competition.get("odds")),
+        stats_available=False,
+        h2h_available=False,
+        lineups_available=False,
+        context_available=False,
+        live_available=is_live,
+    )
+    if is_finished and not is_live:
+        return None
+    return doc
+
+
+async def ingest_nba_direct_fallback(
+    db,
+    date_str: str,
+    *,
+    client: Optional[httpx.AsyncClient] = None,
+) -> list[dict]:
+    """Direct ingest from ESPN's free NBA scoreboard API when API-Sports
+    returns 0 basketball games for the requested date.
+
+    `date_str` may be either YYYY-MM-DD or YYYYMMDD. Returns the list of
+    normalised+persisted match docs (empty on any failure).
+    """
+    if not date_str:
+        return []
+    compact = date_str.replace("-", "")
+
+    own_client = False
+    if client is None:
+        client = httpx.AsyncClient(timeout=15.0)
+        own_client = True
+
+    try:
+        try:
+            r = await client.get(ESPN_NBA_SCOREBOARD_URL, params={"dates": compact})
+            r.raise_for_status()
+            data = r.json()
+        except Exception as exc:
+            log.warning("ESPN NBA fallback fetch failed for %s: %s", date_str, exc)
+            return []
+    finally:
+        if own_client:
+            await client.aclose()
+
+    events = data.get("events") or []
+    log.info("ESPN NBA fallback: %d raw events for %s", len(events), date_str)
+
+    persisted: list[dict] = []
+    for ev in events:
+        doc = normalize_espn_nba_game(ev)
+        if not doc:
+            continue
+        try:
+            await db.matches.update_one(
+                {"match_id": doc["match_id"]},
+                {"$set": doc},
+                upsert=True,
+            )
+            persisted.append(doc)
+        except Exception as exc:
+            log.warning("ESPN NBA fallback upsert failed for %s: %s",
+                        doc.get("match_id"), exc)
+
+    log.info(
+        "ESPN NBA fallback persisted %d/%d games to db.matches (date=%s)",
+        len(persisted), len(events), date_str,
+    )
+    return persisted

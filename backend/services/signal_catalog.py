@@ -526,6 +526,70 @@ SIGNAL_CATALOG: dict[str, dict[str, Any]] = {
         "default_impact": "Aumenta la fragilidad del pick; considera mercados protegidos o evita.",
         "applicable_sports": BASEBALL_ONLY,
     },
+
+    # ════════════════════════════════════════════════════════════════════
+    # ─── MULTI-SOURCE DATA INGESTION (baseball-only for now) ────────────
+    # ════════════════════════════════════════════════════════════════════
+    "EXTERNAL_SOURCE_USED": {
+        "label":       "Fuentes externas consultadas",
+        "label_en":    "External sources consulted",
+        "severity":    "low",
+        "category":    "data_source",
+        "signal_type": "neutral",
+        "explanation": "Se consultaron fuentes externas (RotoWire, MLB.com, FantasyPros, ESPN) para enriquecer pitchers o lineups.",
+        "default_impact": "Aumenta la transparencia y permite recuperar análisis que se habrían descartado por datos incompletos.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
+    "PITCHER_CONFIRMED_EXTERNAL": {
+        "label":       "Pitcher confirmado por fuente externa",
+        "label_en":    "Pitcher confirmed via external source",
+        "severity":    "medium",
+        "category":    "data_source",
+        "signal_type": "positive",
+        "explanation": "El pitcher no aparecía en MLB Stats API pero se confirmó vía RotoWire / MLB.com / FantasyPros / ESPN.",
+        "default_impact": "Habilita el análisis pregame que de otro modo se habría descartado.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
+    "LINEUP_PROJECTED_EXTERNAL": {
+        "label":       "Lineup proyectado (fuente externa)",
+        "label_en":    "Projected lineup (external)",
+        "severity":    "low",
+        "category":    "data_source",
+        "signal_type": "neutral",
+        "explanation": "El lineup viene de una fuente externa como proyección, aún no confirmado por el equipo.",
+        "default_impact": "Útil como contexto; espera confirmación antes de mercados sensibles al bateador.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
+    "LINEUP_CONFIRMED_EXTERNAL": {
+        "label":       "Lineup confirmado por fuente externa",
+        "label_en":    "Lineup confirmed (external)",
+        "severity":    "medium",
+        "category":    "data_source",
+        "signal_type": "positive",
+        "explanation": "El lineup fue confirmado por la fuente externa (RotoWire / MLB.com).",
+        "default_impact": "Aumenta la confiabilidad de los mercados de bateadores y team totals.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
+    "DATA_INCOMPLETE_AFTER_ALL_SOURCES": {
+        "label":       "Datos incompletos tras todas las fuentes",
+        "label_en":    "Data incomplete after all sources",
+        "severity":    "critical",
+        "category":    "data_source",
+        "signal_type": "negative",
+        "explanation": "Se consultaron todas las fuentes disponibles (MLB Stats API, RotoWire, MLB.com, FantasyPros, ESPN) y aun así falta información crítica.",
+        "default_impact": "El partido se descarta del análisis hasta que más datos estén disponibles.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
+    "SOURCE_CONFLICT": {
+        "label":       "Conflicto entre fuentes",
+        "label_en":    "Source conflict",
+        "severity":    "medium",
+        "category":    "data_source",
+        "signal_type": "negative",
+        "explanation": "Dos o más fuentes externas reportan datos contradictorios (p. ej. pitchers distintos para el mismo equipo).",
+        "default_impact": "Revisa manualmente antes de pickear; suele indicar una scratch o cambio tardío.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
 }
 
 

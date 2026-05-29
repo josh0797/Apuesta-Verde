@@ -18,6 +18,7 @@ import { EditorialContextPanel } from './EditorialContextPanel';
 import { HistoricalProfilePanel } from './HistoricalProfilePanel';
 import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
+import { SourcesConsultedPanel } from './SourcesConsultedPanel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -215,6 +216,15 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
         <ExternalSourceEvidencePanel
           evidence={m.external_source_evidence}
           testId={`pick-ext-sources-${m.match_id}`}
+        />
+      )}
+
+      {/* Multi-source data ingestion — MLB lineup rescue layer */}
+      {m.external_sources && (
+        <SourcesConsultedPanel
+          external={m.external_sources}
+          testId={`pick-sources-consulted-${m.match_id}`}
+          lang={lang}
         />
       )}
 

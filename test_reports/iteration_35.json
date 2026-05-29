@@ -1,0 +1,56 @@
+{
+  "test_suite": "Fase 1 & 2 Backend Tests",
+  "timestamp": "2026-05-29T19:45:43.732352+00:00",
+  "summary": {
+    "total": 20,
+    "passed": 20,
+    "failed": 0,
+    "success_rate": "100.0%"
+  },
+  "results": [
+    {
+      "test": "Login with demo credentials",
+      "status": "PASSED",
+      "http_status": 200,
+      "elapsed_time": 0.54,
+      "endpoint": "api/auth/login"
+    },
+    {
+      "test": "rescue_mlb_pitchers unit test",
+      "status": "PASSED",
+      "result": "Returned list with 0 items"
+    },
+    {
+      "test": "Signal catalog - 6 new baseball signals",
+      "status": "PASSED",
+      "passed": 12,
+      "failed": 0,
+      "total": 12
+    },
+    {
+      "test": "normalize_espn_nba_game unit test",
+      "status": "PASSED",
+      "result": "Valid structure with all required fields"
+    },
+    {
+      "test": "Baseball pipeline (refresh=false)",
+      "status": "PASSED",
+      "http_status": 200,
+      "elapsed_time": 0.17,
+      "endpoint": "api/analysis/run"
+    },
+    {
+      "test": "Basketball pipeline (refresh=false)",
+      "status": "PASSED",
+      "http_status": 200,
+      "elapsed_time": 0.17,
+      "endpoint": "api/analysis/run"
+    },
+    {
+      "test": "Regression - existing signals",
+      "status": "PASSED",
+      "passed": 3,
+      "failed": 0
+    }
+  ]
+}

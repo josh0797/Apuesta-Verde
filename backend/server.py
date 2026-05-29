@@ -675,11 +675,16 @@ async def _run_analysis_pipeline(
     # free MLB Stats API directly so the user always gets MLB coverage
     # even when the API-Sports plan doesn't include baseball. Track both
     # sources' counts in pipeline_meta so the UI can explain what happened.
-    pipeline_meta["api_sports_games_found"] = len(upcoming) if sport == "baseball" else None
+    pipeline_meta["api_sports_games_found"] = (
+        len(upcoming) if sport in ("baseball", "basketball") else None
+    )
     pipeline_meta["mlb_stats_api_games_found"] = 0
+    pipeline_meta["espn_nba_games_found"] = 0
     pipeline_meta["fallback_used"] = False
     pipeline_meta["fallback_reason"] = None
     pipeline_meta["primary_source"] = "api_sports"
+    pipeline_meta["external_rescue_count"] = 0
+    pipeline_meta["external_sources_consulted"] = []
     if sport == "baseball" and not upcoming and not live_only:
         log.warning(
             "BASEBALL: api_sports returned 0 games for %s — trying MLB Stats API fallback",
@@ -709,6 +714,99 @@ async def _run_analysis_pipeline(
             )
         else:
             pipeline_meta["source_used"]  = "none"
+
+    # ── F2 — ESPN NBA fallback (basketball) ─────────────────────────────
+    # Mirror of the MLB pattern: when api_sports returns 0 basketball
+    # games, hit ESPN's free scoreboard JSON to bootstrap the day.
+    if sport == "basketball" and not upcoming and not live_only:
+        log.warning(
+            "BASKETBALL: api_sports returned 0 games for %s — trying ESPN NBA fallback",
+            pipeline_meta["date_str"],
+        )
+        try:
+            nba_games = await ingestion.ingest_nba_direct_fallback(
+                db, pipeline_meta["date_str"],
+            )
+        except Exception as exc:
+            log.warning("ESPN NBA fallback crashed: %s", exc)
+            nba_games = []
+        pipeline_meta["espn_nba_games_found"] = len(nba_games)
+        if nba_games:
+            pipeline_meta["source_used"]     = "espn_nba_fallback"
+            pipeline_meta["fallback_used"]   = True
+            pipeline_meta["fallback_reason"] = "api_sports_zero_games"
+            query_upcoming = {**_sport_filter(sport), "is_live": False}
+            upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
+            now_ts = datetime.now(timezone.utc).timestamp()
+            upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
+            log.info(
+                "ESPN NBA fallback succeeded: %d games persisted, %d kept after time filter",
+                len(nba_games), len(upcoming),
+            )
+        else:
+            pipeline_meta["source_used"]  = "none"
+
+    # ── F1.6 — MLB lineup rescue layer ─────────────────────────────────
+    # For baseball matches whose ingest didn't bring a probable pitcher,
+    # consult external sources (RotoWire, MLB.com, FantasyPros, ESPN) to
+    # try to recover the pitcher name BEFORE the LLM analyst sees them.
+    # This is what flips "Datos incompletos sobre el pitcher de
+    # Philadelphia" into a usable pick (or, at worst, into the more
+    # honest "DATA_INCOMPLETE_AFTER_ALL_SOURCES" discard).
+    if sport == "baseball" and upcoming:
+        missing_pitcher = [
+            m for m in upcoming
+            if not ((m.get("home_probable") or {}).get("id") or m.get("home_probable_id"))
+            or not ((m.get("away_probable") or {}).get("id") or m.get("away_probable_id"))
+            or not ((m.get("home_probable") or {}).get("name") or m.get("home_probable_name"))
+            or not ((m.get("away_probable") or {}).get("name") or m.get("away_probable_name"))
+        ]
+        if missing_pitcher:
+            try:
+                from services.external_sources import mlb_lineup_rescue as _rescue
+                rescues = await _rescue.rescue_mlb_pitchers(
+                    pipeline_meta["date_str"], missing_pitcher,
+                )
+            except Exception as exc:
+                log.warning("baseball external rescue failed: %s", exc)
+                rescues = []
+
+            recovered = 0
+            all_sources_seen: list[dict] = []
+            for game, r in zip(missing_pitcher, rescues or []):
+                all_sources_seen.extend(r.get("sources_consulted") or [])
+                # Hydrate the game in-place so the analyst sees the names.
+                if r.get("home_pitcher_name") and not (
+                    (game.get("home_probable") or {}).get("name") or game.get("home_probable_name")
+                ):
+                    game["home_probable_name"] = r["home_pitcher_name"]
+                    game.setdefault("home_probable", {})["name"] = r["home_pitcher_name"]
+                if r.get("away_pitcher_name") and not (
+                    (game.get("away_probable") or {}).get("name") or game.get("away_probable_name")
+                ):
+                    game["away_probable_name"] = r["away_pitcher_name"]
+                    game.setdefault("away_probable", {})["name"] = r["away_pitcher_name"]
+                # Stash the rescue telemetry on the match for downstream
+                # (analyst_engine + frontend can read it).
+                game["_external_rescue"] = r
+                if r.get("home_pitcher_name") and r.get("away_pitcher_name"):
+                    recovered += 1
+            # De-duplicate sources_consulted by (source, url) for pipeline_meta.
+            seen_keys = set()
+            uniq_sources = []
+            for s in all_sources_seen:
+                k = (s.get("source"), s.get("url"))
+                if k in seen_keys:
+                    continue
+                seen_keys.add(k)
+                uniq_sources.append(s)
+            pipeline_meta["external_rescue_count"] = recovered
+            pipeline_meta["external_sources_consulted"] = uniq_sources
+            log.info(
+                "MLB rescue: %d/%d games recovered via external sources (%s)",
+                recovered, len(missing_pitcher),
+                ", ".join({s.get("source", "?") for s in uniq_sources}),
+            )
 
     # Big-Five filter (football only) — surfaces only Premier/LaLiga/Serie A/Bundesliga/Ligue 1.
     if big_five_only and sport == "football":
@@ -837,6 +935,9 @@ async def _run_analysis_pipeline(
             # still have zero candidates, both sources failed.
             pipeline_meta["abort_reason"] = "no_games_all_sources"
             pipeline_meta["source_used"]  = "none"
+        elif sport == "basketball":
+            pipeline_meta["abort_reason"] = "no_games_all_sources"
+            pipeline_meta["source_used"]  = "none"
         else:
             pipeline_meta["abort_reason"] = (
                 "no_priority_fixtures" if (priority_fixtures is not None and len(priority_fixtures) == 0)
@@ -852,11 +953,11 @@ async def _run_analysis_pipeline(
             pipeline_meta.get("mlb_stats_api_games_found"),
             pipeline_meta.get("fallback_used"),
         )
-        # For baseball we return a friendly empty payload (with
+        # For baseball & basketball we return a friendly empty payload (with
         # pipeline_meta) instead of raising 409 so the UI can render the
         # Pipeline Debug panel + humanized abort copy. Other sports keep
         # the legacy 409 contract so existing callers don't break.
-        if sport == "baseball":
+        if sport in ("baseball", "basketball"):
             empty_result = {
                 "picks":   [],
                 "summary": {"no_value_found": True, "blocked_picks": []},

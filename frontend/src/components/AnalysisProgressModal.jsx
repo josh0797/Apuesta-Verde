@@ -281,14 +281,37 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
           >
             <div className="font-semibold text-cyan-200 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" />
-              {lang === 'es'
-                ? 'Se usó MLB Stats API como respaldo'
-                : 'MLB Stats API fallback was used'}
+              {pipelineMeta?.sport === 'basketball'
+                ? (lang === 'es' ? 'Se usó ESPN como respaldo' : 'ESPN fallback was used')
+                : (lang === 'es' ? 'Se usó MLB Stats API como respaldo' : 'MLB Stats API fallback was used')}
             </div>
             <div className="text-cyan-200/80 leading-relaxed">
+              {pipelineMeta?.sport === 'basketball'
+                ? (lang === 'es'
+                    ? `API-Sports no encontró juegos (${pipelineMeta.api_sports_games_found ?? 0}). ESPN NBA devolvió ${pipelineMeta.espn_nba_games_found ?? 0} juegos.`
+                    : `API-Sports returned ${pipelineMeta.api_sports_games_found ?? 0} games. ESPN NBA returned ${pipelineMeta.espn_nba_games_found ?? 0}.`)
+                : (lang === 'es'
+                    ? `API-Sports no encontró juegos (${pipelineMeta.api_sports_games_found ?? 0}). MLB Stats API devolvió ${pipelineMeta.mlb_stats_api_games_found ?? 0} juegos.`
+                    : `API-Sports returned ${pipelineMeta.api_sports_games_found ?? 0} games. MLB Stats API returned ${pipelineMeta.mlb_stats_api_games_found ?? 0}.`)}
+            </div>
+          </div>
+        )}
+
+        {isDone && pipelineMeta?.external_rescue_count > 0 && (
+          <div
+            className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs space-y-0.5"
+            data-testid="progress-modal-rescue-banner"
+          >
+            <div className="font-semibold text-emerald-200 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
               {lang === 'es'
-                ? `API-Sports no encontró juegos (${pipelineMeta.api_sports_games_found ?? 0}). MLB Stats API devolvió ${pipelineMeta.mlb_stats_api_games_found ?? 0} juegos.`
-                : `API-Sports returned ${pipelineMeta.api_sports_games_found ?? 0} games. MLB Stats API returned ${pipelineMeta.mlb_stats_api_games_found ?? 0}.`}
+                ? `${pipelineMeta.external_rescue_count} partido(s) rescatado(s) con fuentes externas`
+                : `${pipelineMeta.external_rescue_count} match(es) rescued via external sources`}
+            </div>
+            <div className="text-emerald-200/80 leading-relaxed">
+              {lang === 'es'
+                ? 'Pitchers o lineups que faltaban en API-Sports se recuperaron vía RotoWire, MLB.com, FantasyPros o ESPN.'
+                : 'Missing pitchers or lineups were recovered via RotoWire, MLB.com, FantasyPros or ESPN.'}
             </div>
           </div>
         )}
@@ -378,6 +401,8 @@ function PipelineDebugPanel({ meta, lang }) {
     isMLB && meta.fallback_used && { k: lang === 'es' ? 'Fallback usado' : 'Fallback used', v: meta.fallback_reason || 'yes' },
     isMLB && meta.api_sports_games_found != null && { k: lang === 'es' ? 'Juegos API-Sports' : 'API-Sports games', v: meta.api_sports_games_found },
     isMLB && (meta.mlb_stats_api_games_found ?? 0) > 0 && { k: lang === 'es' ? 'Juegos MLB Stats API' : 'MLB Stats API games', v: meta.mlb_stats_api_games_found },
+    !isMLB && meta?.sport === 'basketball' && (meta.espn_nba_games_found ?? 0) > 0 && { k: lang === 'es' ? 'Juegos ESPN NBA' : 'ESPN NBA games', v: meta.espn_nba_games_found },
+    (meta.external_rescue_count ?? 0) > 0 && { k: lang === 'es' ? 'Rescatados externos' : 'External rescues', v: meta.external_rescue_count },
     isMLB && { k: lang === 'es' ? 'Juegos en schedule'  : 'Schedule games', v: meta.schedule_games_found },
     isMLB && { k: lang === 'es' ? 'Pitchers confirmados': 'Confirmed pitchers', v: meta.confirmed_games },
     isMLB && (meta.games_missing_pitchers ?? 0) > 0 && { k: lang === 'es' ? 'Juegos sin pitcher' : 'Games missing pitcher', v: meta.games_missing_pitchers },

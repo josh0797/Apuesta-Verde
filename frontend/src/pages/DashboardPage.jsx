@@ -18,6 +18,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { formatDateTime, tierClass } from '@/lib/format';
 import { EditorialSignalsPanel, EditorialSignalsSummary } from '@/components/EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel, PossibleAlternativeMarkets } from '@/components/ExternalSourceEvidencePanel';
+import { SourcesConsultedPanel } from '@/components/SourcesConsultedPanel';
 
 function GroupSection({ title, count, tier, children, defaultOpen = true, testId, sectionRef, icon: Icon }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -89,6 +90,7 @@ function FragilityChip({ score, label }) {
 }
 
 function DiscardedRow({ item, testId, type }) {
+  const { lang } = useI18n();
   const [open, setOpen] = useState(false);
   const mb = item._moneyball || {};
   const structuredTraps = mb.trap_signals_structured || [];
@@ -160,6 +162,14 @@ function DiscardedRow({ item, testId, type }) {
               evidence={externalEvidence}
               defaultOpen={false}
               testId={`${testId}-ext-sources`}
+            />
+          )}
+          {item.external_sources && (
+            <SourcesConsultedPanel
+              external={item.external_sources}
+              defaultOpen={false}
+              testId={`${testId}-sources-consulted`}
+              lang={lang}
             />
           )}
           {editorialSignals.length > 0 && (
