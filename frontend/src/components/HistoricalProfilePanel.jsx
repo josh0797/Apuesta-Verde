@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Activity, ChevronDown, TrendingUp, TrendingDown, Minus, Calendar, Wind } from 'lucide-react';
+import { Activity, ChevronDown, TrendingUp, TrendingDown, Minus, Calendar, Wind, HeartPulse } from 'lucide-react';
 
 /**
  * HistoricalProfilePanel — Renders the "Historial profundo" block for
@@ -155,6 +155,13 @@ export function HistoricalProfilePanel({ profile, sport = 'basketball', testId =
           {/* Baseball-only: pitching block */}
           {isBaseball && (pitching.homeStarter || pitching.awayStarter || pitching.homeBullpen) && (
             <PitchingBlock pitching={pitching} testId={`${testId}-pitching`} />
+          )}
+
+          {/* Baseball-only: Injured List block (GAP #4 — IL transparency) */}
+          {isBaseball && profile.injuries && (
+            (profile.injuries.home_il_count > 0 || profile.injuries.away_il_count > 0) && (
+              <InjuriesBlock injuries={profile.injuries} testId={`${testId}-injuries`} />
+            )
           )}
 
           {/* Trend phrases */}
@@ -325,6 +332,113 @@ function PitchingBlock({ pitching, testId }) {
         <BullpenLabel side="local" data={hb} />
         <BullpenLabel side="visitante" data={ab} />
       </div>
+    </div>
+  );
+}
+
+function InjuriesBlock({ injuries, testId }) {
+  const homePlayers = Array.isArray(injuries.home_il_players) ? injuries.home_il_players : [];
+  const awayPlayers = Array.isArray(injuries.away_il_players) ? injuries.away_il_players : [];
+  const homeCount = Number(injuries.home_il_count || homePlayers.length || 0);
+  const awayCount = Number(injuries.away_il_count || awayPlayers.length || 0);
+  const totalCount = homeCount + awayCount;
+
+  // Severity tone — 3+ on either side raises the panel to amber; 5+ to rose
+  const maxSide = Math.max(homeCount, awayCount);
+  const tone = maxSide >= 5
+    ? { border: 'border-rose-500/40',   bg: 'bg-rose-500/10',   text: 'text-rose-200',   iconColor: 'text-rose-300',   chipBg: 'bg-rose-500/15' }
+    : maxSide >= 3
+    ? { border: 'border-amber-500/40',  bg: 'bg-amber-500/10',  text: 'text-amber-200',  iconColor: 'text-amber-300',  chipBg: 'bg-amber-500/15' }
+    : { border: 'border-slate-500/30',  bg: 'bg-slate-500/5',   text: 'text-slate-200',  iconColor: 'text-slate-300',  chipBg: 'bg-slate-500/10' };
+
+  return (
+    <div
+      className={`rounded-md ${tone.bg} border ${tone.border} p-2 space-y-2`}
+      data-testid={testId}
+    >
+      <div className={`flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide font-semibold ${tone.text}`}>
+        <span className="flex items-center gap-1.5">
+          <HeartPulse className={`w-3.5 h-3.5 ${tone.iconColor}`} />
+          Lesionados (IL)
+        </span>
+        <span className={`text-[10px] normal-case px-1.5 py-0.5 rounded-md ${tone.chipBg} ${tone.text}`}>
+          {totalCount} {totalCount === 1 ? 'jugador' : 'jugadores'}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <InjurySide label="Local"      players={homePlayers} count={homeCount} testId={`${testId}-home`} tone={tone} />
+        <InjurySide label="Visitante"  players={awayPlayers} count={awayCount} testId={`${testId}-away`} tone={tone} />
+      </div>
+
+      {maxSide >= 3 && (
+        <div className={`text-[10px] italic ${tone.text}`}>
+          {maxSide >= 5
+            ? 'Equipo muy diezmado: fragilidad elevada (+18). Evita líneas ajustadas o mercados de victorias claras.'
+            : 'Equipo con bajas significativas: fragilidad elevada (+10).'}
+        </div>
+      )}
+
+      <div className="text-[10px] text-slate-500 italic">
+        Fuente: {injuries._source || 'MLB Stats API (roster/injuries)'}
+      </div>
+    </div>
+  );
+}
+
+function InjurySide({ label, players, count, testId, tone }) {
+  if (!count || players.length === 0) {
+    return (
+      <div className="rounded-md bg-black/20 p-2 text-[11px]" data-testid={testId}>
+        <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">
+          {label}
+        </div>
+        <div className="text-slate-500 italic">Sin lesionados reportados</div>
+      </div>
+    );
+  }
+  // Show up to 6 players, then "+N más"
+  const visible = players.slice(0, 6);
+  const remaining = players.length - visible.length;
+  return (
+    <div className="rounded-md bg-black/20 p-2 text-[11px]" data-testid={testId}>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+          {label}
+        </span>
+        <span className={`text-[10px] font-medium ${tone.text}`}>
+          {count} {count === 1 ? 'jugador' : 'jugadores'}
+        </span>
+      </div>
+      <ul className="space-y-1">
+        {visible.map((p, i) => (
+          <li
+            key={`${p.name || i}-${i}`}
+            className="flex items-start gap-1.5 leading-tight"
+            data-testid={`${testId}-player-${i}`}
+          >
+            <span className="text-slate-500 mt-[2px]">•</span>
+            <span className="flex-1 min-w-0">
+              <span className="text-slate-100 font-medium truncate inline-block max-w-full align-middle">
+                {p.name || 'Jugador sin nombre'}
+              </span>
+              {p.position && (
+                <span className="text-slate-500 ml-1.5">({p.position})</span>
+              )}
+              {p.status && (
+                <span className="block text-[10px] text-slate-400 truncate">
+                  {p.status}
+                </span>
+              )}
+            </span>
+          </li>
+        ))}
+        {remaining > 0 && (
+          <li className="text-[10px] text-slate-500 italic pl-3" data-testid={`${testId}-more`}>
+            +{remaining} más
+          </li>
+        )}
+      </ul>
     </div>
   );
 }

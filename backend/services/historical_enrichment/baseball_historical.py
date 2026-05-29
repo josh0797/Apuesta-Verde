@@ -110,6 +110,13 @@ def empty_baseball_profile(reason: str = "not_available") -> dict:
             "fragilityScore":     100,
             "trendSummary":       [],
         },
+        "injuries":        {
+            "home_il_count":   0,
+            "away_il_count":   0,
+            "home_il_players": [],
+            "away_il_players": [],
+            "_source":         "MLB Stats API (roster/injuries)",
+        },
         "_reason":         reason,
         "_engine_version": ENGINE_VERSION,
     }
@@ -774,6 +781,13 @@ async def enrich_baseball_historical_profile(
                 away_bp_task = asyncio.create_task(
                     _mlb.get_bullpen_recent_usage(db, int(away_id), days=3)
                 )
+                # GAP #4 — Injured List (per-team), fail-soft.
+                home_il_task = asyncio.create_task(
+                    _mlb.get_team_il_players(db, int(home_id))
+                )
+                away_il_task = asyncio.create_task(
+                    _mlb.get_team_il_players(db, int(away_id))
+                )
                 # Pitcher stats (if probable IDs on match)
                 h_pid = (match.get("home_probable") or {}).get("id") or match.get("home_probable_id")
                 a_pid = (match.get("away_probable") or {}).get("id") or match.get("away_probable_id")
@@ -801,18 +815,22 @@ async def enrich_baseball_historical_profile(
                 away_bp_task   = asyncio.sleep(0, result=None)
                 home_pitcher_task = asyncio.sleep(0, result=None)
                 away_pitcher_task = asyncio.sleep(0, result=None)
+                home_il_task   = asyncio.sleep(0, result=[])
+                away_il_task   = asyncio.sleep(0, result=[])
                 h2h_task       = asyncio.create_task(
                     _aps.head_to_head("baseball", client, int(home_id), int(away_id), limit=5, db=db)
                 )
 
             try:
                 (home_games, away_games, home_form, away_form,
-                 home_bp, away_bp, home_pitcher, away_pitcher, h2h_games) = await asyncio.wait_for(
+                 home_bp, away_bp, home_pitcher, away_pitcher,
+                 home_il, away_il, h2h_games) = await asyncio.wait_for(
                     asyncio.gather(
                         home_games_task, away_games_task,
                         home_form_task, away_form_task,
                         home_bp_task, away_bp_task,
                         home_pitcher_task, away_pitcher_task,
+                        home_il_task, away_il_task,
                         h2h_task,
                         return_exceptions=False,
                     ),
@@ -841,6 +859,14 @@ async def enrich_baseball_historical_profile(
         h2h_team_views_pairs=h2h_view,
         league_name=league_name,
     )
+    # GAP #4 — attach Injured List per team so the UI can render names.
+    profile["injuries"] = {
+        "home_il_count":   len(home_il or []),
+        "away_il_count":   len(away_il or []),
+        "home_il_players": list(home_il or []),
+        "away_il_players": list(away_il or []),
+        "_source":         "MLB Stats API (roster/injuries)",
+    }
     return profile
 
 
