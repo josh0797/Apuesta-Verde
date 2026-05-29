@@ -163,10 +163,21 @@ def run_line_dominance_model(ctx: dict) -> dict:
         favorite_margin_profile:        dict (output of favorite_margin_profile)
         underdog_margin_profile:        dict (output of favorite_margin_profile)
         lineup_status:                  "confirmed" | "projected" | "missing"
+        _weights:                       optional dict from mlb_feedback_loop.get_active_weights()
 
     Returns the structured Run Line dominance payload described in the user's
     spec (market, marginProjection, runLineScore, coverProbability, …).
     """
+    # MLB-V4 — Feedback Loop: when the orchestrator pre-resolved the active
+    # weights (auto-recalibrated every 50 settled picks), honour them.
+    # Otherwise use module defaults — identical to v2.1 behaviour.
+    w = ctx.get("_weights") or {}
+    w_pitcher_edge   = float(w.get("pitcher_edge",       0.30))
+    w_bullpen        = float(w.get("bullpen",            0.18))
+    w_fav_offense    = float(w.get("fav_offense",        0.14))
+    w_wins_by_2      = float(w.get("fav_wins_by_2_rate", 0.18))
+    w_und_losses_by_2= float(w.get("und_losses_by_2",    0.12))
+    w_margin_rel     = float(w.get("margin_reliability", 0.08))
     fav_side = (ctx.get("favorite_side") or "home").lower()
     fav_team = ctx.get("favorite_team") or "Favorito"
     edge_score = (ctx.get("pitcher_edge") or {}).get("score", 50)
@@ -207,12 +218,12 @@ def run_line_dominance_model(ctx: dict) -> dict:
 
     # ── Run Line score 0-100 ─────────────────────────────────────────────
     score = (
-        edge_score * 0.30
-        + bull * 0.18
-        + fav_offense * 0.14
-        + fav_wins_by_2_rate * 0.18
-        + und_losses_by_2_rate * 0.12
-        + (margin_reliability) * 0.08
+        edge_score        * w_pitcher_edge
+        + bull            * w_bullpen
+        + fav_offense     * w_fav_offense
+        + fav_wins_by_2_rate * w_wins_by_2
+        + und_losses_by_2_rate * w_und_losses_by_2
+        + margin_reliability   * w_margin_rel
     )
     # Park bonus: hitter-friendly parks slightly help RL -1.5 if fav is the
     # better hitting team; pitcher parks slightly hurt it.
@@ -750,8 +761,12 @@ def mlb_parlay_builder(
     *,
     max_size: int = 4,
     min_correlation: int = 60,
+    weights: Optional[dict] = None,
 ) -> dict:
     """Build an MLB-only parlay (2–max_size legs) from the candidate picks.
+
+    `weights` (optional) honours the auto-recalibrated values from
+    `mlb_feedback_loop.get_active_weights()`.
 
     Returns::
         {
@@ -872,10 +887,10 @@ def mlb_parlay_builder(
     avg_pc    = sum(_pick_pitcher_confidence(p) for p in legs) / len(legs)
 
     final_score = round(
-        avg_score * 0.45
-        + (100 - avg_frag) * 0.20
-        + correlation_score * 0.20
-        + avg_pc * 0.15,
+        avg_score    * float((weights or {}).get("parlay_avg_score",    0.45))
+        + (100 - avg_frag) * float((weights or {}).get("parlay_frag_inv",    0.20))
+        + correlation_score * float((weights or {}).get("parlay_correlation", 0.20))
+        + avg_pc          * float((weights or {}).get("parlay_pitcher_conf", 0.15)),
         1,
     )
 
@@ -945,12 +960,17 @@ def build_v2_payload(
     run_line_v1: Optional[dict] = None,
     over_under_v1: Optional[dict] = None,
     book_total: Optional[float] = None,
+    weights: Optional[dict] = None,
 ) -> dict:
     """Combine v2 functions into a single per-game payload.
 
     The orchestrator already computed run_line_v1 and over_under_v1 (from the
     base module); we use them as inputs so we don't recompute the same blocks.
+    `weights` (optional) — auto-recalibrated weights from the feedback loop.
     """
+    # Inject weights into scoring_ctx so the dominance model reads them.
+    if weights:
+        scoring_ctx = {**scoring_ctx, "_weights": weights}
     if expected_runs is None and over_under_v1:
         expected_runs = over_under_v1.get("expected_runs")
 

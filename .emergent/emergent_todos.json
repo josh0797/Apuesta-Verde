@@ -1,22 +1,30 @@
 [
   {
-    "content": "Phase MLB-V2.1 — Create mlb_pregame_analytics_v2.py with 7 v2 functions",
+    "content": "Phase MLB-V3.1 — baseball_historical.py: fetch_team_last_games (MLB Stats API primary + API-Sports fallback) + compute_baseball_profile()",
     "status": "completed"
   },
   {
-    "content": "Phase MLB-V2.2 — Add new signal codes to signal_catalog.py",
+    "content": "Phase MLB-V3.2 — baseball_runs_rescue.py: baseballRunsRescueLayer() with trap signals (Total Runs O/U, Team Totals, F5, Run Line +1.5)",
     "status": "completed"
   },
   {
-    "content": "Phase MLB-V2.2 — Wire v2 into mlb_day_orchestrator.py (script payload + parlay swap)",
+    "content": "Phase MLB-V3.3 — Wire enrichment into mlb_day_orchestrator.py (parallel + fail-soft) + attach baseballHistoricalProfile to pick",
     "status": "completed"
   },
   {
-    "content": "Phase MLB-V2.3 — Create MLBScriptPanel.jsx and mount in MatchCard.jsx (baseball-only)",
+    "content": "Phase MLB-V4.1 — mlb_feedback_loop.py: record_outcome, recompute_weights, persistent mlb_engine_weights collection",
     "status": "completed"
   },
   {
-    "content": "Phase MLB-V2.4 — Backend testing via testing_agent_v3",
+    "content": "Phase MLB-V4.2 — Endpoint POST /api/mlb/picks/{pick_id}/settle + extend pick_tracking + new mlb_pick_feedback collection",
     "status": "completed"
+  },
+  {
+    "content": "Phase MLB-V4.3 — v2 module reads weights from mlb_engine_weights (fall back to defaults)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase MLB-V3/V4 — Testing via testing_agent_v3",
+    "status": "in_progress"
   }
 ]

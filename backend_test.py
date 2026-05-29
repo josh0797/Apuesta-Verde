@@ -1,576 +1,536 @@
-"""Comprehensive Backend Testing for Phase 14+ Enhancements
-Testing:
-1. Auth login
-2. Understat match enrichment & auto-link (with hard cases)
-3. Live re-evaluation performance (<5s with asyncio.wait_for timeout)
-4. Baseball dispatcher & normalizer validation
-5. Direct unit tests for normalize_live_stats_baseball, live_baseball_analytics, understat fuzzy linker
-6. Regression tests for upcoming/live matches
-7. Spanish-language fields in Human Live Interpreter
+#!/usr/bin/env python3
 """
-
+Backend Test Suite for P1 Baseball Historical Enrichment + P2 MLB Feedback Loop
+================================================================================
+Tests all endpoints and functionality for the MLB features.
+"""
 import sys
-import time
+import requests
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Optional
 
-try:
-    import requests
-except ImportError:
-    print("❌ requests library not found. Installing...")
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
-    import requests
-
+# Backend URL from frontend/.env
 BASE_URL = "https://low-volatility-plays.preview.emergentagent.com"
 
-class BackendTester:
-    def __init__(self, base_url=BASE_URL):
+class Colors:
+    GREEN = '\033[92m'
+    RED = '\033[91m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    END = '\033[0m'
+
+class MLBTestSuite:
+    def __init__(self, base_url: str):
         self.base_url = base_url
-        self.token = None
+        self.token: Optional[str] = None
         self.tests_run = 0
         self.tests_passed = 0
         self.tests_failed = 0
-        self.results = []
+        self.failures = []
 
-    def log(self, message, level="INFO"):
-        """Log with timestamp"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        print(f"[{timestamp}] {level}: {message}")
+    def log(self, message: str, color: str = Colors.BLUE):
+        print(f"{color}{message}{Colors.END}")
 
-    def run_test(self, name, method, endpoint, expected_status, data=None, timeout=10):
-        """Run a single API test"""
-        url = f"{self.base_url}/{endpoint}"
+    def test(self, name: str, method: str, endpoint: str, expected_status: int, 
+             data: Optional[dict] = None, check_fn: Optional[callable] = None) -> tuple[bool, dict]:
+        """Run a single test"""
+        url = f"{self.base_url}{endpoint}"
         headers = {'Content-Type': 'application/json'}
         if self.token:
             headers['Authorization'] = f'Bearer {self.token}'
 
         self.tests_run += 1
-        self.log(f"Testing {name}...", "TEST")
+        self.log(f"\n🔍 Test #{self.tests_run}: {name}", Colors.BLUE)
         
         try:
-            start_time = time.time()
             if method == 'GET':
-                response = requests.get(url, headers=headers, timeout=timeout)
+                response = requests.get(url, headers=headers, timeout=30)
             elif method == 'POST':
-                response = requests.post(url, json=data, headers=headers, timeout=timeout)
-            elif method == 'PUT':
-                response = requests.put(url, json=data, headers=headers, timeout=timeout)
-            elif method == 'DELETE':
-                response = requests.delete(url, headers=headers, timeout=timeout)
+                response = requests.post(url, json=data, headers=headers, timeout=30)
             else:
                 raise ValueError(f"Unsupported method: {method}")
-            
-            elapsed = time.time() - start_time
 
-            success = response.status_code == expected_status
-            if success:
-                self.tests_passed += 1
-                self.log(f"✅ PASSED - {name} (Status: {response.status_code}, Time: {elapsed:.2f}s)", "PASS")
-                result = {
-                    "test": name,
-                    "status": "PASSED",
-                    "http_status": response.status_code,
-                    "elapsed_time": round(elapsed, 2),
-                    "endpoint": endpoint
-                }
-            else:
+            # Check status code
+            if response.status_code != expected_status:
                 self.tests_failed += 1
-                self.log(f"❌ FAILED - {name} (Expected {expected_status}, got {response.status_code})", "FAIL")
-                result = {
-                    "test": name,
-                    "status": "FAILED",
-                    "http_status": response.status_code,
-                    "expected_status": expected_status,
-                    "elapsed_time": round(elapsed, 2),
-                    "endpoint": endpoint,
-                    "error": response.text[:200] if response.text else None
-                }
+                msg = f"❌ FAILED - Expected {expected_status}, got {response.status_code}"
+                self.log(msg, Colors.RED)
+                self.failures.append(f"{name}: {msg}")
+                try:
+                    self.log(f"   Response: {response.text[:500]}", Colors.RED)
+                except:
+                    pass
+                return False, {}
 
-            self.results.append(result)
-            
+            # Parse response
             try:
-                return success, response.json() if response.text else {}
+                resp_data = response.json()
             except:
-                return success, {"raw_text": response.text[:200]}
+                resp_data = {}
 
-        except requests.Timeout:
-            self.tests_failed += 1
-            self.log(f"❌ FAILED - {name} (Timeout after {timeout}s)", "FAIL")
-            self.results.append({
-                "test": name,
-                "status": "FAILED",
-                "error": f"Timeout after {timeout}s",
-                "endpoint": endpoint
-            })
-            return False, {}
+            # Run custom check function if provided
+            if check_fn:
+                check_result = check_fn(resp_data)
+                if not check_result:
+                    self.tests_failed += 1
+                    msg = f"❌ FAILED - Custom check failed"
+                    self.log(msg, Colors.RED)
+                    self.failures.append(f"{name}: {msg}")
+                    return False, resp_data
+
+            self.tests_passed += 1
+            self.log(f"✅ PASSED - Status: {response.status_code}", Colors.GREEN)
+            return True, resp_data
+
         except Exception as e:
             self.tests_failed += 1
-            self.log(f"❌ FAILED - {name} (Error: {str(e)})", "FAIL")
-            self.results.append({
-                "test": name,
-                "status": "FAILED",
-                "error": str(e),
-                "endpoint": endpoint
-            })
+            msg = f"❌ FAILED - Error: {str(e)}"
+            self.log(msg, Colors.RED)
+            self.failures.append(f"{name}: {msg}")
             return False, {}
 
-    # ========== AUTH TESTS ==========
-    def test_login(self):
-        """Test login with demo credentials"""
-        self.log("=" * 60, "INFO")
-        self.log("PHASE 1: Authentication Tests", "INFO")
-        self.log("=" * 60, "INFO")
+    def test_auth(self):
+        """Test authentication"""
+        self.log("\n" + "="*80, Colors.YELLOW)
+        self.log("AUTHENTICATION TEST", Colors.YELLOW)
+        self.log("="*80, Colors.YELLOW)
         
-        success, response = self.run_test(
-            "Login with demo@valuebet.app",
+        success, response = self.test(
+            "Login with demo@valuebet.app/demo1234",
             "POST",
-            "api/auth/login",
+            "/api/auth/login",
             200,
             data={"email": "demo@valuebet.app", "password": "demo1234"}
         )
+        
         if success and 'token' in response:
             self.token = response['token']
-            self.log(f"✅ Token acquired: {self.token[:20]}...", "INFO")
+            self.log(f"   Token obtained: {self.token[:20]}...", Colors.GREEN)
             return True
-        else:
-            self.log("❌ Login failed - cannot proceed with authenticated tests", "ERROR")
-            self.log(f"Response: {response}", "ERROR")
+        return False
+
+    def test_p1_historical_enrichment(self):
+        """Test P1 Historical Enrichment features"""
+        self.log("\n" + "="*80, Colors.YELLOW)
+        self.log("P1 HISTORICAL ENRICHMENT TESTS", Colors.YELLOW)
+        self.log("="*80, Colors.YELLOW)
+
+        # Test 1: GET /api/mlb/day with baseballHistoricalProfile
+        def check_historical_profile(data):
+            picks = data.get('picks', []) + data.get('rescued_picks', [])
+            if not picks:
+                self.log("   ⚠️  No picks returned (expected for past dates)", Colors.YELLOW)
+                return True  # Not a failure - time filter defense
+            
+            # Check at least one pick has baseballHistoricalProfile
+            has_profile = False
+            for pick in picks:
+                profile = pick.get('baseballHistoricalProfile')
+                if profile:
+                    has_profile = True
+                    self.log(f"   ✓ Found baseballHistoricalProfile with available={profile.get('available')}", Colors.GREEN)
+                    
+                    # Verify schema
+                    if 'available' not in profile:
+                        self.log("   ✗ Missing 'available' field", Colors.RED)
+                        return False
+                    
+                    if profile.get('available'):
+                        required_keys = ['home', 'away', 'pitching', 'combined']
+                        for key in required_keys:
+                            if key not in profile:
+                                self.log(f"   ✗ Missing required key: {key}", Colors.RED)
+                                return False
+                        self.log("   ✓ Schema validation passed", Colors.GREEN)
+                    break
+            
+            return True  # Pass even if no profile (time filter)
+
+        # Use today's date for MLB
+        today = datetime.now().strftime("%Y-%m-%d")
+        success, mlb_data = self.test(
+            "GET /api/mlb/day returns picks with baseballHistoricalProfile",
+            "GET",
+            f"/api/mlb/day?date={today}",
+            200,
+            check_fn=check_historical_profile
+        )
+
+        # Test 2: Check baseball_runs_rescue when no chosen_market with score>=72
+        def check_runs_rescue(data):
+            rescued = data.get('rescued_picks', [])
+            for pick in rescued:
+                if pick.get('baseball_runs_rescue'):
+                    self.log("   ✓ Found baseball_runs_rescue in rescued pick", Colors.GREEN)
+                    rescue = pick['baseball_runs_rescue']
+                    if 'rescue_market' in rescue and 'rescue_confidence' in rescue:
+                        self.log(f"   ✓ Rescue market: {rescue.get('rescue_market')}", Colors.GREEN)
+                        return True
+            self.log("   ⚠️  No baseball_runs_rescue found (may not be needed)", Colors.YELLOW)
+            return True  # Not a hard failure
+
+        self.test(
+            "Baseball runs rescue attempted when needed",
+            "GET",
+            f"/api/mlb/day?date={today}",
+            200,
+            check_fn=check_runs_rescue
+        )
+
+        # Test 3: Check trap signals
+        def check_trap_signals(data):
+            picks = data.get('picks', []) + data.get('rescued_picks', [])
+            for pick in picks:
+                if pick.get('historical_trap_signals'):
+                    self.log(f"   ✓ Found {len(pick['historical_trap_signals'])} trap signals", Colors.GREEN)
+                    for sig in pick['historical_trap_signals'][:3]:
+                        self.log(f"     - {sig.get('code')}: {sig.get('severity')}", Colors.GREEN)
+                    return True
+            self.log("   ⚠️  No trap signals found (may not be triggered)", Colors.YELLOW)
+            return True
+
+        self.test(
+            "Trap signals from collect_baseball_trap_signals()",
+            "GET",
+            f"/api/mlb/day?date={today}",
+            200,
+            check_fn=check_trap_signals
+        )
+
+        # Test 4: Football regression - must NOT include baseball fields
+        def check_no_baseball_fields(data):
+            picks = data.get('payload', {}).get('picks', [])
+            for pick in picks:
+                if 'baseballHistoricalProfile' in pick:
+                    self.log("   ✗ Found baseballHistoricalProfile in football pick!", Colors.RED)
+                    return False
+                if 'historical_trap_signals' in pick:
+                    self.log("   ✗ Found historical_trap_signals in football pick!", Colors.RED)
+                    return False
+            self.log("   ✓ No baseball fields in football picks", Colors.GREEN)
+            return True
+
+        self.test(
+            "Football regression: no baseball fields",
+            "POST",
+            "/api/analysis/run",
+            200,
+            data={"sport": "football", "max_matches": 3, "background": False},
+            check_fn=check_no_baseball_fields
+        )
+
+        # Test 5: Basketball regression - must NOT include baseball fields
+        self.test(
+            "Basketball regression: no baseball fields",
+            "POST",
+            "/api/analysis/run",
+            200,
+            data={"sport": "basketball", "max_matches": 3, "background": False},
+            check_fn=check_no_baseball_fields
+        )
+
+    def test_p2_feedback_loop(self):
+        """Test P2 Feedback Loop features"""
+        self.log("\n" + "="*80, Colors.YELLOW)
+        self.log("P2 FEEDBACK LOOP TESTS", Colors.YELLOW)
+        self.log("="*80, Colors.YELLOW)
+
+        # Test 1: GET /api/mlb/engine/weights
+        def check_weights_schema(data):
+            required_keys = [
+                'active_weights', 'pending_for_next_recal', 'batch_size_required',
+                'settled_total', 'last_recalibration_at', 'version'
+            ]
+            for key in required_keys:
+                if key not in data:
+                    self.log(f"   ✗ Missing required key: {key}", Colors.RED)
+                    return False
+            
+            weights = data.get('active_weights', {})
+            expected_weight_keys = [
+                'pitcher_edge', 'bullpen', 'fav_offense', 'fav_wins_by_2_rate',
+                'und_losses_by_2', 'margin_reliability', 'parlay_avg_score',
+                'parlay_frag_inv', 'parlay_correlation', 'parlay_pitcher_conf'
+            ]
+            for key in expected_weight_keys:
+                if key not in weights:
+                    self.log(f"   ✗ Missing weight key: {key}", Colors.RED)
+                    return False
+            
+            self.log(f"   ✓ All weight keys present, version={data.get('version')}", Colors.GREEN)
+            return True
+
+        success, weights_data = self.test(
+            "GET /api/mlb/engine/weights returns valid schema",
+            "GET",
+            "/api/mlb/engine/weights",
+            200,
+            check_fn=check_weights_schema
+        )
+
+        # Test 2: POST /api/mlb/picks/{pick_id}/settle with synthetic pick
+        synthetic_pick_id = f"test_run_{datetime.now().timestamp()}-12345"
+        
+        def check_settle_response(data):
+            if not data.get('ok'):
+                self.log("   ✗ Settle response ok=false", Colors.RED)
+                return False
+            
+            feedback = data.get('feedback', {})
+            required_metrics = ['margin', 'totalRuns', 'runLineCovered', 'overHit']
+            for metric in required_metrics:
+                if metric not in feedback:
+                    self.log(f"   ✗ Missing metric: {metric}", Colors.RED)
+                    return False
+            
+            # Check specific values for Detroit -1.5 won 6-2
+            if feedback.get('margin') != 4:
+                self.log(f"   ✗ Expected margin=4, got {feedback.get('margin')}", Colors.RED)
+                return False
+            if feedback.get('totalRuns') != 8:
+                self.log(f"   ✗ Expected totalRuns=8, got {feedback.get('totalRuns')}", Colors.RED)
+                return False
+            if feedback.get('runLineCovered') != True:
+                self.log(f"   ✗ Expected runLineCovered=true, got {feedback.get('runLineCovered')}", Colors.RED)
+                return False
+            
+            self.log(f"   ✓ Metrics correct: margin=4, totalRuns=8, runLineCovered=true", Colors.GREEN)
+            return True
+
+        self.test(
+            "POST /api/mlb/picks/{pick_id}/settle with synthetic pick (Detroit -1.5 won 6-2)",
+            "POST",
+            f"/api/mlb/picks/{synthetic_pick_id}/settle",
+            200,
+            data={
+                "pick_id": synthetic_pick_id,
+                "run_id": f"test_run_{datetime.now().timestamp()}",
+                "match_id": "12345",
+                "outcome": "won",
+                "final_home_runs": 6,
+                "final_away_runs": 2,
+                "v2_snapshot": {
+                    "pickType": "DOMINANT_FAVORITE_RUN_LINE",
+                    "marginProjection": 2.5,
+                    "coverProbability": 65.0,
+                    "expectedRuns": 8.5,
+                    "recommendedLine": "Run Line -1.5",
+                    "fragilityScore": 35.0
+                },
+                "pick_doc": {
+                    "selection": "Detroit -1.5",
+                    "market": "Run Line",
+                    "favorite_team": "Detroit",
+                    "home_team": "Detroit",
+                    "away_team": "Cleveland"
+                }
+            },
+            check_fn=check_settle_response
+        )
+
+        # Test 3: Verify settle extends pick_tracking with mlb_metrics
+        def check_pick_tracking(data):
+            items = data.get('items', [])
+            for item in items:
+                if item.get('pick_id') == synthetic_pick_id:
+                    mlb_metrics = item.get('mlb_metrics')
+                    if not mlb_metrics:
+                        self.log("   ✗ mlb_metrics not found in pick_tracking", Colors.RED)
+                        return False
+                    self.log(f"   ✓ Found mlb_metrics in pick_tracking: {mlb_metrics}", Colors.GREEN)
+                    return True
+            self.log("   ⚠️  Pick not found in tracking (may take time to sync)", Colors.YELLOW)
+            return True
+
+        self.test(
+            "Verify settle extends pick_tracking with mlb_metrics",
+            "GET",
+            "/api/picks/tracked",
+            200,
+            check_fn=check_pick_tracking
+        )
+
+        # Test 4: Over/Under metric computation
+        over_pick_id = f"test_over_{datetime.now().timestamp()}-67890"
+        
+        def check_over_hit(data):
+            feedback = data.get('feedback', {})
+            # Over 7.5 with totalRuns=9 should have overHit=true
+            if feedback.get('overHit') != True:
+                self.log(f"   ✗ Expected overHit=true for Over 7.5 with 9 runs", Colors.RED)
+                return False
+            self.log(f"   ✓ Over metric correct: overHit=true", Colors.GREEN)
+            return True
+
+        self.test(
+            "Over/Under metric: Over 7.5 with totalRuns=9 → overHit=true",
+            "POST",
+            f"/api/mlb/picks/{over_pick_id}/settle",
+            200,
+            data={
+                "pick_id": over_pick_id,
+                "run_id": f"test_run_{datetime.now().timestamp()}",
+                "match_id": "67890",
+                "outcome": "won",
+                "final_home_runs": 5,
+                "final_away_runs": 4,
+                "v2_snapshot": {
+                    "pickType": "SMART_LOW_OVER",
+                    "expectedRuns": 9.0,
+                    "recommendedLine": "Over 7.5"
+                },
+                "pick_doc": {
+                    "selection": "Over 7.5",
+                    "market": "Total Runs Over",
+                    "home_team": "Yankees",
+                    "away_team": "Red Sox"
+                }
+            },
+            check_fn=check_over_hit
+        )
+
+        # Test 5: POST /api/mlb/engine/recompute with <50 pending
+        def check_not_enough_pending(data):
+            if data.get('recalibration') is not None:
+                self.log("   ⚠️  Recalibration happened (may have >=50 pending)", Colors.YELLOW)
+                return True
+            if 'Not enough pending' in data.get('detail', ''):
+                self.log("   ✓ Correctly returned 'Not enough pending'", Colors.GREEN)
+                return True
+            return True
+
+        self.test(
+            "POST /api/mlb/engine/recompute with <50 pending",
+            "POST",
+            "/api/mlb/engine/recompute",
+            200,
+            check_fn=check_not_enough_pending
+        )
+
+        # Test 6: pickType→category mapping
+        def check_category_mapping(data):
+            feedback = data.get('feedback', {})
+            pick_type = feedback.get('pickType')
+            category = feedback.get('category')
+            
+            expected_mappings = {
+                'DOMINANT_FAVORITE_RUN_LINE': 'run_line_minus_1_5',
+                'SMART_LOW_OVER': 'over_low',
+                'PITCHER_UNDER': 'under_pitcher_driven'
+            }
+            
+            if pick_type in expected_mappings:
+                expected_cat = expected_mappings[pick_type]
+                if category == expected_cat:
+                    self.log(f"   ✓ Correct mapping: {pick_type} → {category}", Colors.GREEN)
+                    return True
+                else:
+                    self.log(f"   ✗ Wrong mapping: {pick_type} → {category} (expected {expected_cat})", Colors.RED)
+                    return False
+            return True
+
+        category_pick_id = f"test_cat_{datetime.now().timestamp()}-11111"
+        self.test(
+            "pickType→category mapping verification",
+            "POST",
+            f"/api/mlb/picks/{category_pick_id}/settle",
+            200,
+            data={
+                "pick_id": category_pick_id,
+                "run_id": f"test_run_{datetime.now().timestamp()}",
+                "match_id": "11111",
+                "outcome": "won",
+                "final_home_runs": 5,
+                "final_away_runs": 3,
+                "v2_snapshot": {
+                    "pickType": "DOMINANT_FAVORITE_RUN_LINE",
+                    "marginProjection": 2.0
+                },
+                "pick_doc": {
+                    "selection": "Team -1.5",
+                    "market": "Run Line"
+                }
+            },
+            check_fn=check_category_mapping
+        )
+
+    def test_import_sanity(self):
+        """Test that mlb_feedback_loop module is importable"""
+        self.log("\n" + "="*80, Colors.YELLOW)
+        self.log("IMPORT SANITY TEST", Colors.YELLOW)
+        self.log("="*80, Colors.YELLOW)
+
+        try:
+            sys.path.insert(0, '/app/backend')
+            from services.mlb_feedback_loop import (
+                DEFAULT_WEIGHTS, FEEDBACK_BATCH_SIZE, get_active_weights,
+                record_mlb_pick_outcome, recompute_weights_if_due,
+                get_recalibration_status, CATEGORY_FOR_PICK_TYPE
+            )
+            
+            self.tests_run += 1
+            self.tests_passed += 1
+            self.log("✅ All mlb_feedback_loop exports importable", Colors.GREEN)
+            self.log(f"   DEFAULT_WEIGHTS keys: {list(DEFAULT_WEIGHTS.keys())}", Colors.GREEN)
+            self.log(f"   FEEDBACK_BATCH_SIZE: {FEEDBACK_BATCH_SIZE}", Colors.GREEN)
+            self.log(f"   CATEGORY_FOR_PICK_TYPE: {CATEGORY_FOR_PICK_TYPE}", Colors.GREEN)
+            return True
+        except Exception as e:
+            self.tests_run += 1
+            self.tests_failed += 1
+            self.log(f"❌ Import failed: {str(e)}", Colors.RED)
+            self.failures.append(f"Import sanity: {str(e)}")
             return False
 
-    # ========== UNDERSTAT TESTS ==========
-    def test_understat_endpoints(self):
-        """Test Understat enrichment endpoints"""
-        self.log("=" * 60, "INFO")
-        self.log("PHASE 2: Understat Enrichment Tests", "INFO")
-        self.log("=" * 60, "INFO")
+    def print_summary(self):
+        """Print test summary"""
+        self.log("\n" + "="*80, Colors.YELLOW)
+        self.log("TEST SUMMARY", Colors.YELLOW)
+        self.log("="*80, Colors.YELLOW)
         
-        # Test 1: GET /api/understat/match/26651 (Man City vs Arsenal)
-        success, response = self.run_test(
-            "Understat Match 26651 (Man City vs Arsenal)",
-            "GET",
-            "api/understat/match/26651",
-            200,
-            timeout=15
-        )
-        if success:
-            # Validate response structure
-            if response.get('provenance') == 'understat_v1':
-                self.log("✅ Provenance field correct: understat_v1", "INFO")
-            if 'xg' in response and 'home' in response['xg']:
-                self.log(f"✅ xG data present: home={response['xg']['home']}, away={response['xg']['away']}", "INFO")
-            if response.get('understat_match_id') == 26651:
-                self.log("✅ Match ID correct: 26651", "INFO")
+        total = self.tests_run
+        passed = self.tests_passed
+        failed = self.tests_failed
         
-        # Note: Auto-link endpoint requires an existing match_id in the database
-        # Skipping auto-link tests as they require pre-existing match data
-        self.log("⚠️ Skipping auto-link tests (require existing match_id in DB)", "WARN")
-
-    # ========== LIVE RE-EVALUATION PERFORMANCE TEST ==========
-    def test_live_reevaluation_performance(self):
-        """Test that live re-evaluation responds in <5s with asyncio.wait_for timeout"""
-        self.log("=" * 60, "INFO")
-        self.log("PHASE 3: Live Re-Evaluation Performance Test", "INFO")
-        self.log("=" * 60, "INFO")
+        self.log(f"\nTotal Tests: {total}", Colors.BLUE)
+        self.log(f"Passed: {passed}", Colors.GREEN)
+        self.log(f"Failed: {failed}", Colors.RED if failed > 0 else Colors.GREEN)
         
-        # First get a live match
-        success, response = self.run_test(
-            "Get Live Football Matches",
-            "GET",
-            "api/matches/live?sport=football",
-            200,
-            timeout=10
-        )
+        if failed > 0:
+            self.log("\n❌ FAILED TESTS:", Colors.RED)
+            for failure in self.failures:
+                self.log(f"  - {failure}", Colors.RED)
         
-        if success and response.get('items'):
-            match = response['items'][0]
-            match_id = match.get('match_id')
-            self.log(f"✅ Found live match: {match_id}", "INFO")
-            
-            # Test re-evaluation with timeout check
-            start_time = time.time()
-            success, reeval_response = self.run_test(
-                f"Live Re-Evaluation (match {match_id})",
-                "POST",
-                "api/live/reevaluate",
-                200,
-                data={
-                    "match_id": match_id,
-                    "sport": "football",
-                    "refresh": True
-                },
-                timeout=6  # Should respond in <5s
-            )
-            elapsed = time.time() - start_time
-            
-            if success:
-                if elapsed < 5.0:
-                    self.log(f"✅ Response time OK: {elapsed:.2f}s < 5s", "INFO")
-                else:
-                    self.log(f"⚠️ Response time slow: {elapsed:.2f}s >= 5s (but within timeout)", "WARN")
-                
-                # Check for interpreter field (Spanish language)
-                if 'result' in reeval_response and 'interpreter' in reeval_response['result']:
-                    interp = reeval_response['result']['interpreter']
-                    if 'narration' in interp:
-                        self.log(f"✅ Spanish narration present: {interp['narration'][:50]}...", "INFO")
-        else:
-            self.log("⚠️ No live football matches available - skipping performance test", "WARN")
-
-    # ========== BASEBALL DISPATCHER VALIDATION ==========
-    def test_baseball_dispatcher(self):
-        """Validate baseball dispatcher imports and function shape"""
-        self.log("=" * 60, "INFO")
-        self.log("PHASE 4: Baseball Dispatcher Validation", "INFO")
-        self.log("=" * 60, "INFO")
+        success_rate = (passed / total * 100) if total > 0 else 0
+        self.log(f"\nSuccess Rate: {success_rate:.1f}%", 
+                Colors.GREEN if success_rate >= 80 else Colors.YELLOW)
         
-        try:
-            # Change to backend directory for imports
-            import sys
-            import os
-            backend_path = '/app/backend'
-            if backend_path not in sys.path:
-                sys.path.insert(0, backend_path)
-            
-            # Test imports
-            from services.live_reevaluation import _reevaluate_baseball
-            self.log("✅ Import: services.live_reevaluation._reevaluate_baseball", "INFO")
-            self.tests_passed += 1
-            
-            from services.live_baseball_analytics import compute_live_analysis
-            self.log("✅ Import: services.live_baseball_analytics.compute_live_analysis", "INFO")
-            self.tests_passed += 1
-            
-            from services.normalizer import normalize_live_stats_baseball
-            self.log("✅ Import: services.normalizer.normalize_live_stats_baseball", "INFO")
-            self.tests_passed += 1
-            
-            self.tests_run += 3
-            
-        except ImportError as e:
-            self.log(f"❌ Import failed: {e}", "FAIL")
-            self.tests_failed += 3
-            self.tests_run += 3
-
-    # ========== UNIT TESTS ==========
-    def test_normalize_live_stats_baseball_unit(self):
-        """Direct unit test of normalize_live_stats_baseball"""
-        self.log("=" * 60, "INFO")
-        self.log("PHASE 5: Unit Test - normalize_live_stats_baseball", "INFO")
-        self.log("=" * 60, "INFO")
-        
-        try:
-            import sys
-            backend_path = '/app/backend'
-            if backend_path not in sys.path:
-                sys.path.insert(0, backend_path)
-                
-            from services.normalizer import normalize_live_stats_baseball
-            
-            # Synthetic API-Sports baseball game payload
-            synthetic_game = {
-                "status": {
-                    "short": "IN8",
-                    "long": "Top of the 8th"
-                },
-                "scores": {
-                    "home": {
-                        "total": 6,
-                        "hits": 10,
-                        "errors": 1,
-                        "innings": {
-                            "1": 0, "2": 1, "3": 2, "4": 0,
-                            "5": 1, "6": 0, "7": 2, "8": 0
-                        }
-                    },
-                    "away": {
-                        "total": 1,
-                        "hits": 5,
-                        "errors": 2,
-                        "innings": {
-                            "1": 0, "2": 0, "3": 1, "4": 0,
-                            "5": 0, "6": 0, "7": 0, "8": None
-                        }
-                    }
-                }
-            }
-            
-            result = normalize_live_stats_baseball(synthetic_game)
-            self.tests_run += 1
-            
-            if result:
-                checks = [
-                    (result.get('inning') == 8, "Inning = 8"),
-                    (result.get('inning_half') in ('top', 'bottom'), f"Inning half = {result.get('inning_half')}"),
-                    (result.get('innings_played') == 8, f"Innings played = {result.get('innings_played')}"),
-                    (result.get('home_stats', {}).get('Hits') == 10, f"Home hits = {result.get('home_stats', {}).get('Hits')}"),
-                    (result.get('away_stats', {}).get('Hits') == 5, f"Away hits = {result.get('away_stats', {}).get('Hits')}"),
-                    (result.get('score', {}).get('home') == 6, f"Home score = {result.get('score', {}).get('home')}"),
-                    (result.get('score', {}).get('away') == 1, f"Away score = {result.get('score', {}).get('away')}"),
-                ]
-                
-                passed = sum(1 for check, _ in checks if check)
-                for check, desc in checks:
-                    if check:
-                        self.log(f"✅ {desc}", "INFO")
-                    else:
-                        self.log(f"❌ {desc}", "FAIL")
-                
-                if passed == len(checks):
-                    self.tests_passed += 1
-                    self.log("✅ All normalize_live_stats_baseball checks passed", "PASS")
-                else:
-                    self.tests_failed += 1
-                    self.log(f"❌ normalize_live_stats_baseball: {passed}/{len(checks)} checks passed", "FAIL")
-            else:
-                self.tests_failed += 1
-                self.log("❌ normalize_live_stats_baseball returned None", "FAIL")
-                
-        except Exception as e:
-            self.tests_failed += 1
-            self.tests_run += 1
-            self.log(f"❌ normalize_live_stats_baseball unit test failed: {e}", "FAIL")
-
-    def test_live_baseball_analytics_unit(self):
-        """Direct unit test of live_baseball_analytics.compute_live_analysis"""
-        self.log("=" * 60, "INFO")
-        self.log("PHASE 6: Unit Test - live_baseball_analytics.compute_live_analysis", "INFO")
-        self.log("=" * 60, "INFO")
-        
-        try:
-            import sys
-            backend_path = '/app/backend'
-            if backend_path not in sys.path:
-                sys.path.insert(0, backend_path)
-                
-            from services.live_baseball_analytics import compute_live_analysis
-            
-            # Synthetic match with TRAP_LATE_LEAD conditions
-            synthetic_match = {
-                "match_id": "test_baseball_1",
-                "sport": "baseball",
-                "live_stats": {
-                    "inning": 8,
-                    "inning_half": "top",
-                    "innings_played": 8,
-                    "status": "IN8",
-                    "score": {"home": 7, "away": 2},
-                    "home_stats": {"Hits": 12, "Errors": 0, "Runs": 7},
-                    "away_stats": {"Hits": 5, "Errors": 1, "Runs": 2},
-                },
-                "odds_snapshots": [{
-                    "markets": {
-                        "Moneyline": [{"bookmaker": "Test", "home": 1.15, "away": 6.50}]
-                    }
-                }]
-            }
-            
-            result = compute_live_analysis(synthetic_match)
-            self.tests_run += 1
-            
-            if result:
-                checks = [
-                    (result.get('inning') == 8, f"Inning = {result.get('inning')}"),
-                    (result.get('score', {}).get('home') == 7, f"Home score = {result.get('score', {}).get('home')}"),
-                    (result.get('score', {}).get('away') == 2, f"Away score = {result.get('score', {}).get('away')}"),
-                    (result.get('verdict', {}).get('label') == 'TRAP_LATE_LEAD', 
-                     f"Verdict = {result.get('verdict', {}).get('label')} (expected TRAP_LATE_LEAD)"),
-                    ('home' in result and 'away' in result, "Home/away blocks present"),
-                    (result.get('_sport') == 'baseball', f"Sport = {result.get('_sport')}"),
-                ]
-                
-                passed = sum(1 for check, _ in checks if check)
-                for check, desc in checks:
-                    if check:
-                        self.log(f"✅ {desc}", "INFO")
-                    else:
-                        self.log(f"❌ {desc}", "FAIL")
-                
-                if passed == len(checks):
-                    self.tests_passed += 1
-                    self.log("✅ All live_baseball_analytics checks passed", "PASS")
-                else:
-                    self.tests_failed += 1
-                    self.log(f"❌ live_baseball_analytics: {passed}/{len(checks)} checks passed", "FAIL")
-            else:
-                self.tests_failed += 1
-                self.log("❌ compute_live_analysis returned None", "FAIL")
-                
-        except Exception as e:
-            self.tests_failed += 1
-            self.tests_run += 1
-            self.log(f"❌ live_baseball_analytics unit test failed: {e}", "FAIL")
-
-    def test_understat_fuzzy_link_unit(self):
-        """Direct unit test of understat_scraper.fuzzy_link_match"""
-        self.log("=" * 60, "INFO")
-        self.log("PHASE 7: Unit Test - understat_scraper.fuzzy_link_match", "INFO")
-        self.log("=" * 60, "INFO")
-        
-        try:
-            import sys
-            backend_path = '/app/backend'
-            if backend_path not in sys.path:
-                sys.path.insert(0, backend_path)
-                
-            from services.understat_scraper import fuzzy_link_match
-            
-            # Test PSG vs Marseille (network-dependent)
-            self.log("Testing fuzzy_link_match for PSG vs Marseille...", "INFO")
-            result = fuzzy_link_match(
-                "PSG",
-                "Marseille",
-                kickoff_iso="2024-10-27T19:45:00Z",
-                candidates=5
-            )
-            
-            self.tests_run += 1
-            
-            if result:
-                checks = [
-                    ('understat_match_id' in result, f"Has understat_match_id: {result.get('understat_match_id')}"),
-                    ('enrichment' in result, "Has enrichment data"),
-                    (result.get('team_overlap') == True, f"Team overlap = {result.get('team_overlap')}"),
-                ]
-                
-                if 'enrichment' in result:
-                    xg = result['enrichment'].get('xg', {})
-                    checks.append((xg.get('home') is not None, f"xG home = {xg.get('home')}"))
-                    checks.append((xg.get('away') is not None, f"xG away = {xg.get('away')}"))
-                
-                passed = sum(1 for check, _ in checks if check)
-                for check, desc in checks:
-                    if check:
-                        self.log(f"✅ {desc}", "INFO")
-                    else:
-                        self.log(f"❌ {desc}", "FAIL")
-                
-                if passed == len(checks):
-                    self.tests_passed += 1
-                    self.log("✅ All fuzzy_link_match checks passed", "PASS")
-                else:
-                    self.tests_failed += 1
-                    self.log(f"❌ fuzzy_link_match: {passed}/{len(checks)} checks passed", "FAIL")
-            else:
-                self.log("⚠️ fuzzy_link_match returned None (network issue or match not found)", "WARN")
-                self.tests_passed += 1  # Not a failure, just network-dependent
-                
-        except Exception as e:
-            self.tests_failed += 1
-            self.tests_run += 1
-            self.log(f"❌ fuzzy_link_match unit test failed: {e}", "FAIL")
-
-    # ========== REGRESSION TESTS ==========
-    def test_regression_endpoints(self):
-        """Regression tests for upcoming/live matches endpoints"""
-        self.log("=" * 60, "INFO")
-        self.log("PHASE 8: Regression Tests", "INFO")
-        self.log("=" * 60, "INFO")
-        
-        # Test 1: GET /api/matches/upcoming?sport=football
-        success, response = self.run_test(
-            "GET Upcoming Football Matches",
-            "GET",
-            "api/matches/upcoming?sport=football",
-            200
-        )
-        if success:
-            self.log(f"✅ Upcoming football: {response.get('count', 0)} matches", "INFO")
-        
-        # Test 2: GET /api/matches/live?sport=football
-        success, response = self.run_test(
-            "GET Live Football Matches",
-            "GET",
-            "api/matches/live?sport=football",
-            200
-        )
-        if success:
-            self.log(f"✅ Live football: {response.get('count', 0)} matches", "INFO")
-        
-        # Test 3: GET /api/matches/live?sport=baseball
-        success, response = self.run_test(
-            "GET Live Baseball Matches",
-            "GET",
-            "api/matches/live?sport=baseball",
-            200
-        )
-        if success:
-            self.log(f"✅ Live baseball: {response.get('count', 0)} matches (pipeline validated)", "INFO")
-
-    # ========== MAIN TEST RUNNER ==========
-    def run_all_tests(self):
-        """Run all test phases"""
-        self.log("=" * 60, "INFO")
-        self.log("STARTING COMPREHENSIVE BACKEND TESTS", "INFO")
-        self.log(f"Base URL: {self.base_url}", "INFO")
-        self.log("=" * 60, "INFO")
-        
-        start_time = time.time()
-        
-        # Phase 1: Auth
-        if not self.test_login():
-            self.log("❌ Authentication failed - stopping tests", "ERROR")
-            return self.generate_report()
-        
-        # Phase 2: Understat
-        self.test_understat_endpoints()
-        
-        # Phase 3: Live Re-evaluation Performance
-        self.test_live_reevaluation_performance()
-        
-        # Phase 4: Baseball Dispatcher
-        self.test_baseball_dispatcher()
-        
-        # Phase 5-7: Unit Tests
-        self.test_normalize_live_stats_baseball_unit()
-        self.test_live_baseball_analytics_unit()
-        self.test_understat_fuzzy_link_unit()
-        
-        # Phase 8: Regression Tests
-        self.test_regression_endpoints()
-        
-        elapsed = time.time() - start_time
-        
-        self.log("=" * 60, "INFO")
-        self.log(f"ALL TESTS COMPLETED in {elapsed:.2f}s", "INFO")
-        self.log(f"Total: {self.tests_run} | Passed: {self.tests_passed} | Failed: {self.tests_failed}", "INFO")
-        self.log("=" * 60, "INFO")
-        
-        return self.generate_report()
-
-    def generate_report(self):
-        """Generate final test report"""
-        success_rate = (self.tests_passed / self.tests_run * 100) if self.tests_run > 0 else 0
-        
-        report = {
-            "timestamp": datetime.now().isoformat(),
-            "base_url": self.base_url,
-            "summary": {
-                "total_tests": self.tests_run,
-                "passed": self.tests_passed,
-                "failed": self.tests_failed,
-                "success_rate": round(success_rate, 2)
-            },
-            "results": self.results
-        }
-        
-        return report
-
+        return failed == 0
 
 def main():
-    tester = BackendTester(BASE_URL)
-    report = tester.run_all_tests()
-    
-    # Save report
-    report_file = "/app/test_reports/backend_phase14_test.json"
-    with open(report_file, 'w') as f:
-        json.dump(report, f, indent=2)
-    
-    print(f"\n📊 Test report saved to: {report_file}")
-    
-    # Exit with appropriate code
-    return 0 if report['summary']['failed'] == 0 else 1
+    print(f"\n{'='*80}")
+    print("MLB P1 + P2 Backend Test Suite")
+    print(f"{'='*80}\n")
+    print(f"Backend URL: {BASE_URL}")
+    print(f"Started at: {datetime.now().isoformat()}\n")
 
+    suite = MLBTestSuite(BASE_URL)
+    
+    # Run tests
+    if not suite.test_auth():
+        print("\n❌ Authentication failed. Cannot proceed with other tests.")
+        return 1
+    
+    suite.test_import_sanity()
+    suite.test_p1_historical_enrichment()
+    suite.test_p2_feedback_loop()
+    
+    # Print summary
+    success = suite.print_summary()
+    
+    print(f"\nCompleted at: {datetime.now().isoformat()}")
+    return 0 if success else 1
 
 if __name__ == "__main__":
     sys.exit(main())

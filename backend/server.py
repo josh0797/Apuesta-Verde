@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -1537,6 +1538,82 @@ async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
 async def list_tracked(user: dict = Depends(get_current_user), limit: int = 200):
     docs = await db.pick_tracking.find({"user_id": user["id"]}).sort("tracked_at", -1).limit(limit).to_list(length=limit)
     return {"count": len(docs), "items": _clean_list(docs)}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# MLB Feedback Loop endpoints (P2) — settle MLB picks + auto-recalibration.
+# ════════════════════════════════════════════════════════════════════════════
+class MLBSettleIn(BaseModel):
+    pick_id:     str                    # e.g. "<run_id>-<match_id>"
+    run_id:      str
+    match_id:    str
+    outcome:     str = Field(pattern="^(won|lost|push|pending)$")
+    final_home_runs: Optional[int] = None
+    final_away_runs: Optional[int] = None
+    v2_snapshot: Optional[dict] = None  # what /api/mlb/day returned for this pick
+    pick_doc:    Optional[dict] = None  # selection/market/teams for metric computation
+
+
+@api.post("/mlb/picks/{pick_id}/settle")
+async def settle_mlb_pick(pick_id: str, payload: MLBSettleIn,
+                          user: dict = Depends(get_current_user)):
+    """Settle an MLB pick. Writes margin/totalRuns/runLineCovered/overHit to
+    `pick_tracking` AND a full v2 snapshot to `mlb_pick_feedback`. Triggers
+    automatic recalibration of the engine weights every FEEDBACK_BATCH_SIZE
+    settled picks (default 50).
+    """
+    if pick_id != payload.pick_id:
+        return JSONResponse(status_code=400,
+                            content={"detail": "pick_id path mismatch"})
+    try:
+        from services.mlb_feedback_loop import record_mlb_pick_outcome
+        result = await record_mlb_pick_outcome(
+            db,
+            pick_id=payload.pick_id,
+            run_id=payload.run_id,
+            match_id=str(payload.match_id),
+            user_id=user["id"],
+            outcome=payload.outcome,
+            final_home_runs=payload.final_home_runs,
+            final_away_runs=payload.final_away_runs,
+            v2_snapshot=payload.v2_snapshot,
+            pick_doc=payload.pick_doc,
+        )
+        return {"ok": True, **result}
+    except Exception as exc:
+        log.exception("mlb settle failed: %s", exc)
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": str(exc)})
+
+
+@api.get("/mlb/engine/weights")
+async def mlb_engine_weights(user: dict = Depends(get_current_user)):
+    """Returns the currently active v2 engine weights + recalibration status."""
+    try:
+        from services.mlb_feedback_loop import get_recalibration_status
+        return await get_recalibration_status(db)
+    except Exception as exc:
+        log.exception("mlb engine weights failed: %s", exc)
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": str(exc)})
+
+
+@api.post("/mlb/engine/recompute")
+async def mlb_engine_recompute(user: dict = Depends(get_current_user)):
+    """Force a recalibration cycle (still respects the batch_size_required
+    threshold — returns null when not enough feedback rows are pending)."""
+    try:
+        from services.mlb_feedback_loop import recompute_weights_if_due
+        result = await recompute_weights_if_due(db)
+        if result is None:
+            return {"ok": True, "recalibration": None,
+                    "detail": "Not enough pending feedback rows yet."}
+        return {"ok": True, "recalibration": result}
+    except Exception as exc:
+        log.exception("mlb engine recompute failed: %s", exc)
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": str(exc)})
+
 
 
 @api.get("/stats/dashboard")

@@ -267,6 +267,16 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
 
     confirmed_by_pk, statsapi_url = await _confirm_pitchers_statsapi(db, date_str)
 
+    # MLB-V4 — load the active (auto-recalibrated) engine weights once
+    # per day so every game uses the same calibration snapshot.
+    active_weights: dict = {}
+    try:
+        from .mlb_feedback_loop import get_active_weights as _get_w
+        active_weights = await _get_w(db)
+    except Exception as exc:
+        log.debug("get_active_weights failed (using defaults): %s", exc)
+        active_weights = {}
+
     picks: list[dict]       = []
     rescued: list[dict]     = []
     discarded: list[dict]   = []
@@ -498,6 +508,35 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as exc:
             log.debug("team_stats tasks init failed: %s", exc)
 
+        # MLB-V3 — Historical Detail Enrichment (last 15 games + bullpen +
+        # H2H + pitcher last5). Primary source: MLB Stats API; falls back
+        # to API-Sports for non-MLB leagues. Fail-soft.
+        hist_task = None
+        try:
+            from .historical_enrichment.baseball_historical import (
+                enrich_baseball_historical_profile,
+            )
+            # Build a minimal match dict matching the enrichment contract.
+            hist_match = {
+                "match_id":   conf.get("game_pk"),
+                "home_team":  {"id": conf.get("home_team_id"),
+                                "name": conf.get("home_team_name")},
+                "away_team":  {"id": conf.get("away_team_id"),
+                                "name": conf.get("away_team_name")},
+                "league":     {"id": 1, "name": "MLB"},
+                "home_probable": {"id": conf.get("home_pitcher_id"),
+                                   "name": conf.get("home_pitcher_name")},
+                "away_probable": {"id": conf.get("away_pitcher_id"),
+                                   "name": conf.get("away_pitcher_name")},
+                "home_probable_name": conf.get("home_pitcher_name"),
+                "away_probable_name": conf.get("away_pitcher_name"),
+            }
+            hist_task = enrich_baseball_historical_profile(
+                hist_match, db=db, lookback=15, timeout_sec=18.0,
+            )
+        except Exception as exc:
+            log.debug("baseball historical task init failed: %s", exc)
+
         async def _await_or_none(coro):
             if coro is None:
                 return None
@@ -506,11 +545,21 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             except Exception:
                 return None
 
+        async def _await_hist(coro):
+            """Longer timeout — historical fetch does ≥6 API hops."""
+            if coro is None:
+                return None
+            try:
+                return await asyncio.wait_for(coro, timeout=18.0)
+            except Exception:
+                return None
+
         (
             h_stats_e, a_stats_e,
             h_team_stats, a_team_stats,
             h_bullpen_usage, a_bullpen_usage,
             h_il, a_il,
+            baseball_hist_profile,
         ) = await asyncio.gather(
             _await_or_none(savant_h_task),
             _await_or_none(savant_a_task),
@@ -520,6 +569,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             _await_or_none(a_bp_task),
             _await_or_none(h_il_task),
             _await_or_none(a_il_task),
+            _await_hist(hist_task),
         )
         if h_stats_e: h_stats = h_stats_e
         if a_stats_e: a_stats = a_stats_e
@@ -529,11 +579,12 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         a_bullpen_usage  = a_bullpen_usage  or {}
         h_il             = h_il             or []
         a_il             = a_il             or []
+        baseball_hist_profile = baseball_hist_profile or {"available": False, "_reason": "not_available"}
 
         return (game_pk, conf, h_stats, a_stats,
                 h_team_stats, a_team_stats,
                 h_bullpen_usage, a_bullpen_usage,
-                h_il, a_il)
+                h_il, a_il, baseball_hist_profile)
 
     enrichment_results = await asyncio.gather(*(_process_one_game(gp) for gp in game_pks),
                                               return_exceptions=True)
@@ -544,7 +595,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         (game_pk, conf, h_stats, a_stats,
          h_team_stats, a_team_stats,
          h_bullpen_usage, a_bullpen_usage,
-         h_il, a_il) = res
+         h_il, a_il, baseball_hist_profile) = res
 
         # Skip games with too little pitcher data — per the user's rule
         # "NO analizar pitchers no confirmados / menos de 3 aperturas".
@@ -652,6 +703,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 run_line_v1=run_line,
                 over_under_v1=over_under,
                 book_total=conf.get("book_total"),
+                weights=active_weights or None,
             )
         except Exception as exc:
             log.warning("v2 build_v2_payload failed for game %s: %s", conf.get("game_pk"), exc)
@@ -862,6 +914,11 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             # Consumed by the frontend MLBScriptPanel (sport === "baseball").
             "_mlb_script_v2":  v2_payload or {},
             "sport":           "baseball",
+            # MLB-V3 — Historical Detail Enrichment (last 15 games). Rendered
+            # by the existing HistoricalProfilePanel in MatchCard.jsx when
+            # `available=true`. Fail-soft: stays as {available:false} when
+            # the fetch failed.
+            "baseballHistoricalProfile": baseball_hist_profile,
         }
 
         # Storage hook (P1 minimal — feedback loop full recalibration → P2).
@@ -880,11 +937,69 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 "result_placeholder": None,   # populated by feedback loop in P2
             }
 
+        # MLB-V3 — Trap signals from the historical profile (cold offense,
+        # prior-series inflation, weather/park blind spots, bullpen fatigue,
+        # F5 mismatch, extra-innings fatigue, pitcher-name inflation).
+        # All sport-aware via the signal catalog; fail-soft if missing data.
+        try:
+            from .historical_enrichment.baseball_trap_signals import (
+                collect_baseball_trap_signals, compute_extra_fragility,
+            )
+            hist_match = {
+                **pick_payload,
+                "baseballHistoricalProfile": baseball_hist_profile,
+            }
+            traps = collect_baseball_trap_signals(
+                hist_match,
+                bookmaker_total_line=conf.get("book_total"),
+            )
+            if traps:
+                signals.extend(traps)
+                # Surface in pick_payload + bump fragility from history.
+                extra_frag = compute_extra_fragility(traps)
+                if extra_frag and isinstance(pick_payload.get("fragility"), dict):
+                    pick_payload["fragility"]["score"] = max(
+                        0, min(100, pick_payload["fragility"].get("score", 0) + extra_frag)
+                    )
+                    pick_payload["fragility"].setdefault("tags", []).append(
+                        f"HIST_TRAPS_{len(traps)}"
+                    )
+                pick_payload["historical_trap_signals"] = traps
+        except Exception as exc:
+            log.debug("baseball trap signals failed: %s", exc)
+
+        # MLB-V3 — Baseball Runs Rescue Layer: when no direct chosen_market,
+        # try to find value in Total Runs O/U, Team Totals, F5, Run Line +1.5
+        # using the historical profile. Mirror of basketball's rescue layer.
+        baseball_runs_rescue: Optional[dict] = None
+        if (not chosen_market) and (baseball_hist_profile or {}).get("available"):
+            try:
+                from .baseball_runs_rescue import find_baseball_runs_value
+                hist_match_for_rescue = {
+                    **pick_payload,
+                    "baseballHistoricalProfile": baseball_hist_profile,
+                    "_market_edge": {"book_total": conf.get("book_total")},
+                }
+                baseball_runs_rescue = find_baseball_runs_value(
+                    hist_match_for_rescue,
+                    why_direct_failed="Edge insuficiente en mercado directo.",
+                )
+                if baseball_runs_rescue:
+                    pick_payload["baseball_runs_rescue"] = baseball_runs_rescue
+                    # Emit RESCUED_MARKET signal already covered by emit_signals
+                    # so we don't duplicate here.
+            except Exception as exc:
+                log.debug("baseball_runs_rescue failed: %s", exc)
+
         if chosen_market and best_score >= 72:
             pick_payload["recommendation"] = chosen_market
             picks.append(pick_payload)
         elif rescue.get("candidates"):
             pick_payload["recommendation"] = rescue["candidates"][0]
+            rescued.append(pick_payload)
+        elif baseball_runs_rescue:
+            # MLB-V3 — historical rescue layer produced a candidate.
+            pick_payload["recommendation"] = baseball_runs_rescue
             rescued.append(pick_payload)
         else:
             pick_payload["discard_reason"] = (
@@ -939,9 +1054,11 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 p.setdefault("pitcher_home_id", conf.get("home_pitcher_id"))
                 p.setdefault("pitcher_away_id", conf.get("away_pitcher_id"))
                 p.setdefault("sport", "baseball")
-        parlay = _v2_mlb_parlay_builder(picks + rescued, max_size=4, min_correlation=60)
+        parlay = _v2_mlb_parlay_builder(picks + rescued, max_size=4, min_correlation=60,
+                                         weights=active_weights or None)
         pipeline_meta["parlay_built"] = bool(parlay.get("picks"))
         pipeline_meta["parlay_type"]  = parlay.get("parlayType")
+        pipeline_meta["mlb_engine_weights_version"] = int(active_weights.get("_version") or 1)
     except Exception as exc:
         log.warning("mlb_parlay_builder failed: %s", exc)
         parlay = {"parlayType": "MLB_ONLY", "picks": [], "size": 0,
