@@ -1053,27 +1053,120 @@ async def _run_analysis_pipeline(
         raise HTTPException(status_code=409, detail=detail)
 
     await _emit("analyzing", 65, f"LLM analyzing {len(candidates)} {sport} matches…")
-    llm_payload = [nz.summarize_match_for_llm(_clean(c)) for c in candidates]
-    try:
-        result = await asyncio.wait_for(
-            analyst_engine.analyze_matches(llm_payload, sport=sport, db=db),
-            timeout=240.0,  # 4 min hard cap — evita jobs zombies indefinidos
+    # ── MLB-V5 — Baseball goes through the specialised v2 engine instead of
+    # the generic football-centric LLM. The LLM was bucketing MLB games into
+    # `discarded_market` with "motivación normal" / "cuotas no disponibles"
+    # even when the v2 structural analysis had a clear lean.
+    if sport == "baseball":
+        try:
+            from services.mlb_day_orchestrator import analyze_mlb_day
+            mlb_result = await asyncio.wait_for(
+                analyze_mlb_day(pipeline_meta["date_str"], db=db),
+                timeout=180.0,
+            )
+        except asyncio.TimeoutError:
+            log.error("MLB orchestrator timed out after 180s")
+            raise HTTPException(status_code=504,
+                detail="El análisis MLB tardó demasiado (>3 min).")
+        except Exception as exc:
+            log.exception("MLB orchestrator failed")
+            raise HTTPException(status_code=502,
+                detail=f"mlb engine error: {exc}")
+
+        # Translate MLB engine output → analyst-engine summary shape, keeping
+        # the new MLB-V5 buckets at the top level so the frontend can render
+        # a dedicated "Revisión manual — falta cuota" section.
+        mlb_picks    = mlb_result.get("picks") or []
+        mlb_rescued  = mlb_result.get("rescued_picks") or []
+        mlb_struct   = mlb_result.get("structural_lean_requires_odds") or []
+        mlb_watch    = mlb_result.get("watchlist_manual_odds") or []
+        mlb_disc     = mlb_result.get("discarded_after_full_analysis") or []
+
+        def _to_summary_row(p: dict, *, with_reason: bool = False) -> dict:
+            row = {
+                "match_id":         p.get("game_pk") or p.get("match_id"),
+                "match_label":      p.get("match_label") or
+                                    f"{p.get('away_team') or ''} @ {p.get('home_team') or ''}".strip(" @"),
+                "market":           (p.get("recommendation") or {}).get("market") or
+                                    (p.get("recommendation") or {}).get("selection") or "",
+                "confidence":       int((p.get("recommendation") or {}).get("score") or 0),
+                "classification":   p.get("classification"),
+            }
+            if with_reason:
+                row["reason"] = (
+                    p.get("manual_review_reason")
+                    or p.get("discard_reason")
+                    or ""
+                )
+                if p.get("suggested_markets"):
+                    row["suggested_markets"] = p["suggested_markets"]
+                if p.get("requires_manual_odds"):
+                    row["requires_manual_odds"] = True
+                if p.get("_structural_quality"):
+                    row["structural_quality"] = p["_structural_quality"]
+                # MLB-V2 v2 snapshot for UI rendering of the manual-review card.
+                if p.get("_mlb_script_v2"):
+                    row["mlb_script_v2"] = p["_mlb_script_v2"]
+            return row
+
+        result = {
+            "verdict":   ("value_found" if mlb_picks or mlb_rescued or mlb_struct else "no_value"),
+            "picks":     mlb_picks,
+            "summary": {
+                "high_confidence":   [_to_summary_row(p) for p in mlb_picks],
+                "medium_confidence": [_to_summary_row(p) for p in mlb_rescued],
+                # No "discarded_motivation" for MLB — motivation is neutral.
+                "discarded_motivation":          [],
+                # Only games discarded after FULL structural analysis.
+                "discarded_market":              [_to_summary_row(p, with_reason=True) for p in mlb_disc],
+                "incomplete_data":               [],
+                # MLB-V5 new buckets exposed in summary so the UI can render them.
+                "structural_lean_requires_odds": [_to_summary_row(p, with_reason=True) for p in mlb_struct],
+                "watchlist_manual_odds":         [_to_summary_row(p, with_reason=True) for p in mlb_watch],
+                "discarded_after_full_analysis": [_to_summary_row(p, with_reason=True) for p in mlb_disc],
+                "total_analyzed":    (
+                    len(mlb_picks) + len(mlb_rescued) + len(mlb_struct)
+                    + len(mlb_watch) + len(mlb_disc)
+                ),
+                "total_recommended": len(mlb_picks) + len(mlb_rescued),
+                "total_discarded":   len(mlb_disc),
+                "total_manual_review": len(mlb_struct) + len(mlb_watch),
+            },
+            # Expose v2 engine artefacts at the top level so the frontend
+            # MLBScriptPanel + parlay views can read them without dependency
+            # on the analyst LLM payload.
+            "parlay_suggested": mlb_result.get("parlay_suggested"),
+            "fragility_scores": mlb_result.get("fragility_scores") or {},
+            "editorial_context_signals_by_game": mlb_result.get("editorial_context_signals_by_game") or {},
+            "pipeline_meta":    {**pipeline_meta, **(mlb_result.get("pipeline_meta") or {})},
+            "engine":           "mlb_pregame_analytics_v2",
+        }
+        log.info(
+            "MLB-V5 baseball pipeline result: picks=%d rescued=%d structural=%d watchlist=%d discarded=%d",
+            len(mlb_picks), len(mlb_rescued), len(mlb_struct), len(mlb_watch), len(mlb_disc),
         )
-    except asyncio.TimeoutError:
-        log.error(
-            "LLM analysis timed out after 240s for %d %s candidates",
-            len(candidates), sport,
-        )
-        raise HTTPException(
-            status_code=504,
-            detail=(
-                "El análisis tardó demasiado (>4 min). "
-                "Intenta reducir el número de partidos o reintenta."
-            ),
-        )
-    except Exception as exc:
-        log.exception("LLM analysis failed")
-        raise HTTPException(status_code=502, detail=f"analyst engine error: {exc}")
+    else:
+        llm_payload = [nz.summarize_match_for_llm(_clean(c)) for c in candidates]
+        try:
+            result = await asyncio.wait_for(
+                analyst_engine.analyze_matches(llm_payload, sport=sport, db=db),
+                timeout=240.0,  # 4 min hard cap — evita jobs zombies indefinidos
+            )
+        except asyncio.TimeoutError:
+            log.error(
+                "LLM analysis timed out after 240s for %d %s candidates",
+                len(candidates), sport,
+            )
+            raise HTTPException(
+                status_code=504,
+                detail=(
+                    "El análisis tardó demasiado (>4 min). "
+                    "Intenta reducir el número de partidos o reintenta."
+                ),
+            )
+        except Exception as exc:
+            log.exception("LLM analysis failed")
+            raise HTTPException(status_code=502, detail=f"analyst engine error: {exc}")
 
     await _emit("analyzing", 90, "Persisting picks…")
     pick_id_base = uuid.uuid4().hex[:10]

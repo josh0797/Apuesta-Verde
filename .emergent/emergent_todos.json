@@ -1,30 +1,22 @@
 [
   {
-    "content": "Phase MLB-V3.1 — baseball_historical.py: fetch_team_last_games (MLB Stats API primary + API-Sports fallback) + compute_baseball_profile()",
+    "content": "Phase MLB-V5.1 — Add mlb_structural_data_quality() + new buckets + new decision logic",
     "status": "completed"
   },
   {
-    "content": "Phase MLB-V3.2 — baseball_runs_rescue.py: baseballRunsRescueLayer() with trap signals (Total Runs O/U, Team Totals, F5, Run Line +1.5)",
+    "content": "Phase MLB-V5.2 — Add 5 new editorial signals",
     "status": "completed"
   },
   {
-    "content": "Phase MLB-V3.3 — Wire enrichment into mlb_day_orchestrator.py (parallel + fail-soft) + attach baseballHistoricalProfile to pick",
+    "content": "Phase MLB-V5.3 — Route /api/analysis/run baseball through analyze_mlb_day (bypass LLM)",
     "status": "completed"
   },
   {
-    "content": "Phase MLB-V4.1 — mlb_feedback_loop.py: record_outcome, recompute_weights, persistent mlb_engine_weights collection",
+    "content": "Phase MLB-V5.4 — Frontend ManualOddsReviewPanel + DiscardedSection title update",
     "status": "completed"
   },
   {
-    "content": "Phase MLB-V4.2 — Endpoint POST /api/mlb/picks/{pick_id}/settle + extend pick_tracking + new mlb_pick_feedback collection",
-    "status": "completed"
-  },
-  {
-    "content": "Phase MLB-V4.3 — v2 module reads weights from mlb_engine_weights (fall back to defaults)",
-    "status": "completed"
-  },
-  {
-    "content": "Phase MLB-V3/V4 — Testing via testing_agent_v3",
-    "status": "completed"
+    "content": "Phase MLB-V5.5 — Backend testing via testing_agent_v3",
+    "status": "in_progress"
   }
 ]

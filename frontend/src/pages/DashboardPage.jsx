@@ -19,6 +19,7 @@ import { formatDateTime, tierClass } from '@/lib/format';
 import { EditorialSignalsPanel, EditorialSignalsSummary } from '@/components/EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel, PossibleAlternativeMarkets } from '@/components/ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from '@/components/SourcesConsultedPanel';
+import { ManualOddsReviewPanel } from '@/components/ManualOddsReviewPanel';
 
 function GroupSection({ title, count, tier, children, defaultOpen = true, testId, sectionRef, icon: Icon }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -541,8 +542,8 @@ export default function DashboardPage() {
       : fieldFiltered;
   }, [allPicks, filters]);
 
-  const { high, medium, discMot, discMkt, incomplete, skippedLowRel, rescued, watchlist, protectedAcceptable, carryover } = useMemo(() => {
-    if (!data) return { high: [], medium: [], discMot: [], discMkt: [], incomplete: [], skippedLowRel: [], rescued: [], watchlist: [], protectedAcceptable: [], carryover: [] };
+  const { high, medium, discMot, discMkt, incomplete, skippedLowRel, rescued, watchlist, protectedAcceptable, carryover, structuralLean, watchlistManualOdds } = useMemo(() => {
+    if (!data) return { high: [], medium: [], discMot: [], discMkt: [], incomplete: [], skippedLowRel: [], rescued: [], watchlist: [], protectedAcceptable: [], carryover: [], structuralLean: [], watchlistManualOdds: [] };
     return {
       high: filteredPicks.filter((p) => (p.recommendation?.confidence_score || 0) >= 70).sort((a, b) => (b.recommendation?.confidence_score || 0) - (a.recommendation?.confidence_score || 0)),
       medium: filteredPicks.filter((p) => { const c = p.recommendation?.confidence_score || 0; return c >= 60 && c < 70; }).sort((a, b) => (b.recommendation?.confidence_score || 0) - (a.recommendation?.confidence_score || 0)),
@@ -554,8 +555,20 @@ export default function DashboardPage() {
       watchlist: data.summary?.watchlist || [],
       protectedAcceptable: data.summary?.protected_acceptable || [],
       carryover: data.summary?.carryover_picks || [],
+      // MLB-V5 new buckets — baseball-only manual review bucket.
+      structuralLean:      data.summary?.structural_lean_requires_odds || [],
+      watchlistManualOdds: data.summary?.watchlist_manual_odds || [],
     };
   }, [data, filteredPicks]);
+
+  // MLB-V5 — When sport is baseball, the v2 engine routes "missing-odds"
+  // games to `structural_lean_requires_odds`. The legacy `discarded_market`
+  // bucket must NOT be confused with these — for baseball it should be
+  // empty unless the engine truly discarded games after full analysis.
+  const isBaseball = sport === 'baseball';
+  const manualReviewItems = isBaseball
+    ? [...structuralLean, ...watchlistManualOdds]
+    : [];
 
   const scrollTo = (key) => {
     const el = refs[key]?.current;
@@ -701,6 +714,18 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* MLB-V5 — Manual review section (baseball only). Renders games that
+          the v2 engine identified as having a structural lean but for which
+          automatic odds are missing. NOT routed to "Descartados por mercado
+          frágil" anymore. */}
+      {!loading && data && isBaseball && manualReviewItems.length > 0 && (
+        <ManualOddsReviewPanel
+          items={manualReviewItems}
+          lang={lang}
+          testId="mlb-manual-odds-review-section"
+        />
+      )}
+
       {/* NEW — Rescued picks (mercados protegidos + córners rescatados) */}
       {!loading && data && rescued.length > 0 && (
         <div className="space-y-3" data-testid="rescued-section">
@@ -809,7 +834,15 @@ export default function DashboardPage() {
             </GroupSection>
           )}
           {discMkt.length > 0 && (
-            <GroupSection title={t.dashboard.groupDiscMarket} count={discMkt.length} tier="Below" defaultOpen={true} testId="group-discarded-market" sectionRef={refs.discMkt} icon={Shield}>
+            <GroupSection
+              title={
+                isBaseball
+                  ? (lang === 'en'
+                      ? 'Discarded after full MLB analysis'
+                      : 'Descartados tras análisis MLB completo')
+                  : t.dashboard.groupDiscMarket
+              }
+              count={discMkt.length} tier="Below" defaultOpen={true} testId="group-discarded-market" sectionRef={refs.discMkt} icon={Shield}>
               <div className="grid gap-2">{discMkt.map((d, i) => <DiscardedRow key={i} item={d} testId="discarded-market-row" type="market" />)}</div>
             </GroupSection>
           )}

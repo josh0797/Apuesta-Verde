@@ -1094,5 +1094,68 @@ __all__ = [
     "mlb_parlay_builder",
     "build_v2_payload",
     "emit_v2_signals",
+    "mlb_structural_data_quality",
     "MLB_ALLOWED_MARKETS",
 ]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 10. STRUCTURAL DATA QUALITY (MLB-V5)
+# ════════════════════════════════════════════════════════════════════════════
+def mlb_structural_data_quality(scoring_ctx: dict, v2_payload: Optional[dict] = None) -> dict:
+    """Score the structural completeness of an MLB game's data.
+
+    The orchestrator uses this score to decide whether a game with **missing
+    odds** can still be routed to ``structural_lean_requires_odds`` (manual
+    review) instead of being silently discarded.
+
+    Buckets
+    -------
+        ≥ 70 → COMPLETE         (full analysis allowed; picks/rescue path)
+        50–69 → STRUCTURAL_OK   (manual-review path eligible)
+        < 50 → INSUFFICIENT     (discard after full analysis)
+    """
+    reasons: list[str] = []
+    score = 0
+    v2_payload = v2_payload or {}
+
+    pcen = v2_payload.get("pitcherCentered") or {}
+    both_confirmed = bool(pcen.get("bothConfirmed"))
+    if both_confirmed or (scoring_ctx.get("home_pitcher_stats") and scoring_ctx.get("away_pitcher_stats")):
+        score += 35
+        reasons.append("Ambos abridores confirmados (+35).")
+    home_q = (scoring_ctx.get("home_pitcher_quality") or {}).get("score", 0)
+    away_q = (scoring_ctx.get("away_pitcher_quality") or {}).get("score", 0)
+    if home_q >= 30 and away_q >= 30:
+        score += 15
+        reasons.append("Pitcher stats suficientes (xERA/FIP/WHIP) (+15).")
+
+    bull = (scoring_ctx.get("bullpen") or {}).get("score", 0)
+    if bull >= 30:
+        score += 15
+        reasons.append("Bullpen data disponible (+15).")
+
+    off_h = (scoring_ctx.get("offense_home") or {}).get("score", 0)
+    off_a = (scoring_ctx.get("offense_away") or {}).get("score", 0)
+    if off_h >= 30 and off_a >= 30:
+        score += 15
+        reasons.append("Splits ofensivos disponibles (+15).")
+
+    park = scoring_ctx.get("park") or {}
+    if park.get("park_runs_mult") not in (None, 1.0) or park.get("weather_score") not in (None, 50):
+        score += 10
+        reasons.append("Park factor + clima disponibles (+10).")
+
+    # Historical detail enrichment availability bumps score too.
+    if (scoring_ctx.get("baseball_historical_profile") or {}).get("available"):
+        score += 10
+        reasons.append("Perfil histórico últimos-15 disponible (+10).")
+
+    score = max(0, min(100, score))
+    if score >= 70:
+        level = "COMPLETE"
+    elif score >= 50:
+        level = "STRUCTURAL_OK"
+    else:
+        level = "INSUFFICIENT"
+    return {"score": score, "level": level, "reasons": reasons}

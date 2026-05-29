@@ -1,0 +1,131 @@
+{
+  "summary": "MLB-V5 Engine Integration Testing Complete - Core functionality verified, background jobs need investigation",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [
+      {
+        "endpoint": "/api/analysis/run (background=true)",
+        "issue": "Background jobs for football and baseball taking longer than expected to complete",
+        "symptoms": "Jobs remain in 'None' status for extended periods (>60s for football, >180s for baseball)",
+        "workaround": "Use background=false for immediate results or increase polling timeout",
+        "fix_priority": "MEDIUM"
+      }
+    ],
+    "minor_issues": [
+      {
+        "endpoint": "/api/mlb/engine/weights",
+        "issue": "Response structure has 'active_weights' wrapper instead of direct weight fields",
+        "impact": "Test expected direct fields like 'pitcher_edge', but they're nested under 'active_weights'",
+        "fix_priority": "LOW"
+      },
+      {
+        "endpoint": "/api/mlb/picks/{id}/settle",
+        "issue": "Returns 422 instead of 404 for non-existent pick ID",
+        "impact": "Minor - endpoint still functional, just different error code",
+        "fix_priority": "LOW"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "✅ Auth POST /api/auth/login with demo@valuebet.app/demo1234 works",
+    "✅ Basketball regression: POST /api/analysis/run sport=basketball does NOT include MLB-V5 keys",
+    "✅ Basketball regression: result.engine != 'mlb_pregame_analytics_v2'",
+    "✅ MLB main path: result.engine == 'mlb_pregame_analytics_v2' (verified via synchronous call)",
+    "✅ MLB main path: result.summary contains structural_lean_requires_odds, watchlist_manual_odds, discarded_after_full_analysis, total_manual_review",
+    "✅ MLB main path: result.summary.discarded_motivation == [] (motivation neutral for MLB)",
+    "✅ Signal catalog: make_signal('ODDS_MISSING_STRUCTURAL_ANALYSIS_ONLY', sport='baseball') returns valid signal",
+    "✅ Signal catalog: make_signal('STRUCTURAL_LEAN_DETECTED', sport='baseball') returns valid signal",
+    "✅ Signal catalog: make_signal('MANUAL_ODDS_REQUIRED', sport='baseball') returns valid signal",
+    "✅ Signal catalog: make_signal('MOTIVATION_NEUTRAL_MLB', sport='baseball') returns valid signal",
+    "✅ Signal catalog: make_signal('DISCARDED_ONLY_AFTER_FULL_ANALYSIS', sport='baseball') returns valid signal",
+    "✅ Signal catalog: All 5 new signals return None for sport='football' (BASEBALL_ONLY filter working)",
+    "✅ Signal catalog: All 5 new signals return None for sport='basketball' (BASEBALL_ONLY filter working)",
+    "✅ Import sanity: services.mlb_pregame_analytics_v2.mlb_structural_data_quality is importable",
+    "✅ Import sanity: mlb_structural_data_quality with complete context returns score >= 80 with level COMPLETE",
+    "✅ Import sanity: mlb_structural_data_quality with empty context returns score < 50 with level INSUFFICIENT",
+    "✅ GET /api/mlb/day?date=YYYY-MM-DD returns new top-level buckets (structural_lean_requires_odds, watchlist_manual_odds, discarded_after_full_analysis)",
+    "✅ GET /api/mlb/engine/weights returns valid schema (200 status)",
+    "✅ All new buckets are present and are lists (even when empty)"
+  ],
+  "test_report_links": [
+    "/app/backend/mlb_v5_test.py"
+  ],
+  "success_percentage": {
+    "backend": "86% (44/51 tests passed)",
+    "frontend": "N/A (frontend testing skipped per request)",
+    "signal_catalog": "100% (15/15 tests passed)",
+    "import_sanity": "100% (8/8 tests passed)",
+    "api_endpoints": "80% (8/10 tests passed)"
+  },
+  "action_item_for_main_agent": {
+    "priority_1": "Investigate why background jobs (football, baseball) are not completing within expected timeframes. Jobs are created successfully but status remains 'None' for extended periods.",
+    "priority_2": "Verify football regression test by checking a completed football job result to ensure MLB-V5 keys are NOT present in summary.",
+    "priority_3": "Update test expectations for /api/mlb/engine/weights to access weights via 'active_weights' key.",
+    "optional": "Consider standardizing error codes (404 vs 422) for non-existent resources across all endpoints."
+  },
+  "updated_files": [
+    "/app/backend/mlb_v5_test.py"
+  ],
+  "should_call_test_agent_after_fix": "false",
+  "should_main_agent_test_itself": "true",
+  "detailed_findings": {
+    "mlb_v5_core_functionality": {
+      "status": "WORKING",
+      "evidence": [
+        "Engine correctly returns 'mlb_pregame_analytics_v2' for baseball sport",
+        "All 3 new buckets (structural_lean_requires_odds, watchlist_manual_odds, discarded_after_full_analysis) are present in summary",
+        "discarded_motivation is empty array for baseball (motivation neutral)",
+        "total_manual_review field is present in summary"
+      ]
+    },
+    "signal_catalog_baseball_only_filter": {
+      "status": "WORKING",
+      "evidence": [
+        "All 5 new signals (ODDS_MISSING_STRUCTURAL_ANALYSIS_ONLY, STRUCTURAL_LEAN_DETECTED, MANUAL_ODDS_REQUIRED, MOTIVATION_NEUTRAL_MLB, DISCARDED_ONLY_AFTER_FULL_ANALYSIS) return valid dicts for sport='baseball'",
+        "All 5 new signals return None for sport='football' and sport='basketball'",
+        "BASEBALL_ONLY filter is correctly enforced"
+      ]
+    },
+    "mlb_structural_data_quality_function": {
+      "status": "WORKING",
+      "evidence": [
+        "Function is importable from services.mlb_pregame_analytics_v2",
+        "Returns dict with 'score', 'level', 'reasons' fields",
+        "Complete context (pitchers confirmed, quality scores 70/65, bullpen 65, offense 60/55, park factor 1.05, historical profile available) returns score=100 with level='COMPLETE'",
+        "Empty context returns score=0 with level='INSUFFICIENT'",
+        "Scoring logic correctly differentiates between COMPLETE (>=70), STRUCTURAL_OK (50-69), and INSUFFICIENT (<50)"
+      ]
+    },
+    "basketball_regression": {
+      "status": "PASSED",
+      "evidence": [
+        "Basketball analysis returns 200 status",
+        "result.summary does NOT contain structural_lean_requires_odds, watchlist_manual_odds, or discarded_after_full_analysis",
+        "result.engine != 'mlb_pregame_analytics_v2'",
+        "No crashes or errors"
+      ]
+    },
+    "api_mlb_day_endpoint": {
+      "status": "WORKING",
+      "evidence": [
+        "GET /api/mlb/day returns 200 status",
+        "Response contains all 3 new buckets as top-level keys",
+        "All buckets are lists (even when empty)",
+        "Endpoint structure matches MLB-V5 specification"
+      ]
+    }
+  },
+  "notes": [
+    "Testing was performed on backend only as requested (frontend testing skipped)",
+    "Background job polling may need longer timeouts or investigation into job queue processing",
+    "All core MLB-V5 functionality is working correctly based on synchronous API calls",
+    "Signal catalog BASEBALL_ONLY filter is working perfectly - no cross-sport leakage",
+    "mlb_structural_data_quality function is correctly scoring data completeness",
+    "The MLB-V5 engine successfully bypasses the LLM and uses analyze_mlb_day directly for baseball sport"
+  ]
+}

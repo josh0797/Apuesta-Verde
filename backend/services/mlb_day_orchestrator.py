@@ -45,6 +45,7 @@ from .mlb_pregame_analytics_v2 import (
     build_v2_payload as _v2_build_payload,
     emit_v2_signals as _v2_emit_signals,
     mlb_parlay_builder as _v2_mlb_parlay_builder,
+    mlb_structural_data_quality as _v2_structural_quality,
 )
 
 log = logging.getLogger("mlb_day_orchestrator")
@@ -280,6 +281,12 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
     picks: list[dict]       = []
     rescued: list[dict]     = []
     discarded: list[dict]   = []
+    # MLB-V5 — new buckets so the UI can distinguish "missing odds" from
+    # "no edge after full analysis". See `mlb_pregame_analytics_v2.
+    # mlb_structural_data_quality()` for the qualification logic.
+    structural_lean_requires_odds: list[dict] = []
+    watchlist_manual_odds:         list[dict] = []
+    discarded_after_full_analysis: list[dict] = []
     frag_by_pk: dict[int, dict] = {}
     signals_by_pk: dict[int, list[dict]] = {}
     pipeline_meta: dict = {
@@ -991,21 +998,120 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             except Exception as exc:
                 log.debug("baseball_runs_rescue failed: %s", exc)
 
-        if chosen_market and best_score >= 72:
-            pick_payload["recommendation"] = chosen_market
+        # MLB-V5 — Structural quality + odds-missing detection. This is what
+        # routes a game to `structural_lean_requires_odds` instead of the
+        # historic "discarded by motivation/odds" bucket.
+        structural_quality = _v2_structural_quality(scoring_ctx, v2_payload or {})
+        pick_payload["_structural_quality"] = structural_quality
+
+        odds_missing = not bool(
+            conf.get("book_total")
+            or conf.get("odds")
+            or conf.get("odds_snapshots")
+            or (chosen_market and (chosen_market.get("odds") or chosen_market.get("book_total")))
+        )
+        pick_payload["_odds_missing"] = bool(odds_missing)
+
+        # Has any structural lean from the v2 + base outputs?
+        v2_rl  = (v2_payload or {}).get("runLineDominance")  or {}
+        v2_st  = (v2_payload or {}).get("smartTotalLine")    or {}
+        v2_pc  = (v2_payload or {}).get("pitcherCentered")   or {}
+        up_s   = (under_profile or {}).get("underProfileScore") or 0
+        nrfi_s = (nrfi or {}).get("nrfi_score") or 0
+        yrfi_s = (nrfi or {}).get("yrfi_score") or 0
+
+        has_structural_lean = any([
+            (v2_rl.get("runLineScore") or 0)        >= 60,
+            (v2_st.get("lineSafetyScore") or 0)     >= 60,
+            (v2_pc.get("homeQualityScore") or 0)    >= 60,
+            (v2_pc.get("awayQualityScore") or 0)    >= 60,
+            float(up_s)   >= 60,
+            float(nrfi_s) >= 60,
+            float(yrfi_s) >= 60,
+            bool(rescue.get("candidates")),
+            bool(baseball_runs_rescue),
+        ])
+        pick_payload["_has_structural_lean"] = bool(has_structural_lean)
+
+        # MLB-V5 — Emit structural / manual-review signals so the UI can
+        # show why a game wasn't discarded outright.
+        try:
+            from .signal_catalog import make_signal
+            mlb_extra_signals: list[dict] = []
+            if odds_missing and structural_quality["score"] >= 50 and has_structural_lean:
+                for code in ("ODDS_MISSING_STRUCTURAL_ANALYSIS_ONLY",
+                              "STRUCTURAL_LEAN_DETECTED",
+                              "MANUAL_ODDS_REQUIRED"):
+                    s = make_signal(code, sport="baseball")
+                    if s:
+                        s["source_url"] = statsapi_url
+                        s["source"]     = "MLB Stats API + v2 analytics"
+                        mlb_extra_signals.append(s)
+            # Always neutralise "motivation normal" — never a discard reason for MLB.
+            mn = make_signal("MOTIVATION_NEUTRAL_MLB", sport="baseball")
+            if mn:
+                mlb_extra_signals.append(mn)
+            signals.extend(mlb_extra_signals)
+        except Exception as exc:
+            log.debug("MLB-V5 extra signal emission failed: %s", exc)
+
+        # ── MLB-V5 — New 6-bucket decision ───────────────────────────────
+        if chosen_market and best_score >= 72 and not odds_missing:
+            pick_payload["recommendation"]   = chosen_market
+            pick_payload["classification"]   = "RECOMMENDED"
             picks.append(pick_payload)
+
         elif rescue.get("candidates"):
-            pick_payload["recommendation"] = rescue["candidates"][0]
+            pick_payload["recommendation"]   = rescue["candidates"][0]
+            pick_payload["classification"]   = "RESCUED_ALTERNATIVE_MARKET"
             rescued.append(pick_payload)
+
         elif baseball_runs_rescue:
-            # MLB-V3 — historical rescue layer produced a candidate.
-            pick_payload["recommendation"] = baseball_runs_rescue
+            pick_payload["recommendation"]   = baseball_runs_rescue
+            pick_payload["classification"]   = "RESCUED_HISTORICAL"
             rescued.append(pick_payload)
-        else:
-            pick_payload["discard_reason"] = (
-                "Edge insuficiente en mercado directo y sin alternativa válida."
+
+        elif odds_missing and structural_quality["score"] >= 50 and has_structural_lean:
+            # Manual review — engine has structural reading but no automatic odds.
+            pick_payload["classification"]         = "STRUCTURAL_LEAN"
+            pick_payload["requires_manual_odds"]   = True
+            pick_payload["manual_review_reason"]   = (
+                "Sin cuota automática. El análisis estructural MLB detectó "
+                "mercados posibles."
             )
-            discarded.append(pick_payload)
+            pick_payload["suggested_markets"] = [
+                "Run Line +1.5", "Run Line -1.5",
+                "F5 Moneyline", "F5 Total Runs",
+                "Total Runs Under/Over",
+                "Team Total Runs",
+                "NRFI/YRFI",
+            ]
+            structural_lean_requires_odds.append(pick_payload)
+
+        elif structural_quality["score"] >= 50 and has_structural_lean:
+            # Odds present but no clean direct/rescue edge — partial reading.
+            pick_payload["classification"]         = "WATCHLIST_MANUAL_REVIEW"
+            pick_payload["manual_review_reason"]   = (
+                "Lectura estructural parcial; revisar cuota manual antes "
+                "de invertir."
+            )
+            watchlist_manual_odds.append(pick_payload)
+
+        else:
+            # Only true discard: full analysis completed and no usable signal.
+            try:
+                from .signal_catalog import make_signal as _mk_sig
+                ds = _mk_sig("DISCARDED_ONLY_AFTER_FULL_ANALYSIS", sport="baseball")
+                if ds:
+                    signals.append(ds)
+            except Exception:
+                pass
+            pick_payload["classification"]  = "DISCARDED_AFTER_FULL_ANALYSIS"
+            pick_payload["discard_reason"]  = (
+                "Descartado solo después de completar análisis MLB estructural."
+            )
+            discarded_after_full_analysis.append(pick_payload)
+            discarded.append(pick_payload)   # legacy bucket — keep populated for backward-compat
 
     pipeline_meta["picks_total"]     = len(picks)
     pipeline_meta["rescued_total"]   = len(rescued)
@@ -1072,7 +1178,13 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
     return {
         "picks":            picks,
         "rescued_picks":    rescued,
-        "discarded_picks":  discarded,
+        # MLB-V5 — new buckets so the UI can show "Revisión manual — falta
+        # cuota" instead of dumping these games into "Descartados por mercado
+        # frágil" with the misleading "motivación normal" copy.
+        "structural_lean_requires_odds": structural_lean_requires_odds,
+        "watchlist_manual_odds":         watchlist_manual_odds,
+        "discarded_after_full_analysis": discarded_after_full_analysis,
+        "discarded_picks":  discarded,    # legacy alias kept for backward-compat
         "fragility_scores": {str(k): v for k, v in frag_by_pk.items()},
         "editorial_context_signals_by_game": {str(k): v for k, v in signals_by_pk.items()},
         "parlay_suggested": parlay,
@@ -1084,6 +1196,9 @@ def _empty_payload(pipeline_meta: dict) -> dict:
     return {
         "picks":            [],
         "rescued_picks":    [],
+        "structural_lean_requires_odds": [],
+        "watchlist_manual_odds":         [],
+        "discarded_after_full_analysis": [],
         "discarded_picks":  [],
         "fragility_scores": {},
         "editorial_context_signals_by_game": {},
