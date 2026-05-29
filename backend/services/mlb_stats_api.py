@@ -8,12 +8,18 @@ Design:
   • Best-effort: every call returns None on failure rather than raising.
   • Mongo-cached: payloads cache for 6h (pitcher) / 30m (probables, batting form).
   • Strict sport scope: this client is ONLY used when `sport == "baseball"`.
+  • DATE BASIS — MLB organises its schedule by US Eastern Time. "Today's
+    games" in UTC can already be tomorrow on the East Coast (or vice-versa
+    at the wrap-around). We pin every "today" reference to
+    `America/New_York` so the engine never asks StatsAPI for the wrong day.
 """
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -21,12 +27,25 @@ log = logging.getLogger("mlb_stats_api")
 
 BASE = "https://statsapi.mlb.com/api/v1"
 TIMEOUT = httpx.Timeout(10.0, read=15.0)
-DEFAULT_SEASON = datetime.now(timezone.utc).year
+
+# MLB's official day-roll happens at midnight Eastern. Anchoring on
+# America/New_York avoids the off-by-one regression where the server's
+# UTC clock has already rolled to "tomorrow" but MLB is still on
+# "today" (or vice-versa).
+EASTERN = ZoneInfo("America/New_York")
+DEFAULT_SEASON = datetime.now(EASTERN).year
 
 # Cache TTLs (seconds)
 TTL_SCHEDULE = 30 * 60
 TTL_PITCHER_SEASON = 6 * 3600
 TTL_TEAM_FORM = 30 * 60
+
+# Tracks the *last* schedule cache result so the orchestrator can report
+# it in pipeline_meta without having to thread a parameter through every
+# caller. Values: "hit_valid" | "hit_invalid_refetched" | "miss" | "error".
+LAST_SCHEDULE_CACHE_STATUS: ContextVar[str] = ContextVar(
+    "mlb_schedule_cache_status", default="unknown",
+)
 
 
 # ── Cache helpers ────────────────────────────────────────────────────────────
@@ -54,11 +73,60 @@ async def _cache_put(db, key: str, payload: dict, ttl_seconds: int) -> None:
 # ── Schedule + probable pitchers ─────────────────────────────────────────────
 async def get_schedule_with_probables(db, date_str: str) -> list[dict]:
     """Returns list of {gamePk, away, home, away_probable, home_probable, status, venue}
-    for the given YYYY-MM-DD (UTC date)."""
+    for the given YYYY-MM-DD (Eastern-time date).
+
+    Cache validation
+    ----------------
+    Even though the cache key includes the date, a stale or malformed
+    cache entry could surface games from a different date. We re-validate
+    every cached payload by checking that each game's `gameDate` matches
+    the requested `date_str` (in Eastern time). If the cache is invalid,
+    we refetch from the network and set `LAST_SCHEDULE_CACHE_STATUS`
+    accordingly so the orchestrator can surface it in `pipeline_meta`.
+    """
     key = f"schedule:{date_str}"
     cached = await _cache_get(db, key)
     if cached is not None:
-        return cached.get("games", [])
+        games = cached.get("games", []) or []
+        # MLB Stats API returns `gameDate` as a UTC ISO timestamp, but the
+        # schedule API groups games by Eastern day. Validate by converting
+        # each game's UTC timestamp to Eastern and comparing to date_str.
+        def _matches_eastern_date(g: dict) -> bool:
+            gd = g.get("gameDate") or ""
+            if not gd:
+                return False
+            try:
+                # MLB always returns Zulu time → convert via fromisoformat
+                ts = datetime.fromisoformat(gd.replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                return ts.astimezone(EASTERN).strftime("%Y-%m-%d") == date_str
+            except Exception:
+                return False
+
+        valid = [g for g in games if _matches_eastern_date(g)]
+        if valid and len(valid) == len(games):
+            log.info(
+                "MLB schedule cache hit válido para %s: %d juegos",
+                date_str, len(valid),
+            )
+            LAST_SCHEDULE_CACHE_STATUS.set("hit_valid")
+            return valid
+        if valid:
+            # Partial validity — refetch so we don't leak stale entries.
+            log.warning(
+                "MLB schedule cache parcialmente inválido para %s "
+                "(%d/%d juegos en la fecha correcta); refetching",
+                date_str, len(valid), len(games),
+            )
+        else:
+            log.warning(
+                "MLB schedule cache inválido para %s: ningún juego pertenece a esa fecha; refetching",
+                date_str,
+            )
+        LAST_SCHEDULE_CACHE_STATUS.set("hit_invalid_refetched")
+    else:
+        LAST_SCHEDULE_CACHE_STATUS.set("miss")
 
     url = f"{BASE}/schedule"
     params = {
@@ -74,6 +142,7 @@ async def get_schedule_with_probables(db, date_str: str) -> list[dict]:
             data = r.json()
     except Exception as exc:
         log.warning("MLB schedule fetch failed for %s: %s", date_str, exc)
+        LAST_SCHEDULE_CACHE_STATUS.set("error")
         return []
 
     for date_obj in data.get("dates", []):
@@ -250,7 +319,7 @@ async def get_team_il_players(db, team_id: int) -> list[dict]:
     if not team_id:
         return []
 
-    today_iso = datetime.now(timezone.utc).date().isoformat()
+    today_iso = datetime.now(EASTERN).date().isoformat()
     key = f"il:{team_id}:{today_iso}"
     cached = await _cache_get(db, key)
     if cached is not None:
@@ -292,7 +361,7 @@ async def get_bullpen_recent_usage(db, team_id: int, days: int = 3) -> Optional[
     None if data not available."""
     if not team_id:
         return None
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(EASTERN).date()
     start = (today - timedelta(days=days)).isoformat()
     end = today.isoformat()
     key = f"bullpen:{team_id}:{start}:{end}"
@@ -355,7 +424,7 @@ async def hydrate_mlb_match_context(db, match_doc: dict) -> dict:
     home_name = (match_doc.get("home_team") or {}).get("name") or ""
     away_name = (match_doc.get("away_team") or {}).get("name") or ""
     kickoff_iso = match_doc.get("kickoff_iso") or ""
-    date_str = (kickoff_iso[:10]) or datetime.now(timezone.utc).date().isoformat()
+    date_str = (kickoff_iso[:10]) or datetime.now(EASTERN).date().isoformat()
 
     schedule = await get_schedule_with_probables(db, date_str)
     if not schedule:

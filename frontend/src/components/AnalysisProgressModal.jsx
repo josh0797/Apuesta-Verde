@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { Loader2, CheckCircle2, AlertCircle, Sparkles, X } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, Sparkles, X, Bug, ChevronDown } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useI18n, sportTerms } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
@@ -162,6 +162,13 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
   const isFailed = stage === 'failed' || !!error;
   const canDismiss = isDone || isFailed;
 
+  // Surface the engine's pipeline_meta when the job finishes so the user
+  // sees why no picks materialised instead of staring at "Completed 100%".
+  const pipelineMeta = job?.result?.result?.pipeline_meta || job?.result?.pipeline_meta || null;
+  const finalPicks   = Number(pipelineMeta?.final_picks_count ?? 0);
+  const finalRescued = Number(pipelineMeta?.final_rescued_count ?? 0);
+  const isDoneEmpty  = isDone && finalPicks === 0 && finalRescued === 0;
+
   return (
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center p-4"
@@ -267,6 +274,24 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
           </div>
         )}
 
+        {isDone && isDoneEmpty && (
+          <div
+            className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-xs space-y-1"
+            data-testid="progress-modal-empty-state"
+          >
+            <div className="font-semibold text-amber-200">
+              {lang === 'es' ? 'No hay picks recomendados hoy' : 'No recommended picks today'}
+            </div>
+            <div className="text-amber-200/80 leading-relaxed">
+              {humanizeAbortReason(pipelineMeta?.abort_reason, lang)}
+            </div>
+          </div>
+        )}
+
+        {isDone && pipelineMeta && (
+          <PipelineDebugPanel meta={pipelineMeta} lang={lang} />
+        )}
+
         {isDone && (
           <div className="flex justify-end">
             <Button
@@ -281,4 +306,111 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
       </div>
     </div>
   );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Pipeline debug helpers
+// ────────────────────────────────────────────────────────────────────────
+
+const ABORT_REASON_COPY = {
+  es: {
+    no_value_found:                      'El engine ejecutó el análisis completo, pero ningún mercado superó los filtros de valor.',
+    no_candidates_for_sport:             'No se encontraron partidos disponibles para este deporte en las próximas horas.',
+    no_priority_fixtures:                'No hay partidos Tier 1/2 prioritarios disponibles en las próximas 48h.',
+    no_probable_pitchers_all_sources:    'No se pudieron confirmar pitchers ni en StatsAPI ni en MLB.com.',
+    all_games_already_played_or_finished:'Todos los juegos ya están en curso o finalizados (filtrados por seguridad).',
+    no_games_for_date:                   'No se encontraron juegos MLB para esta fecha.',
+  },
+  en: {
+    no_value_found:                      'The engine ran end-to-end, but no market cleared the value filters.',
+    no_candidates_for_sport:             'No matches available for this sport in the upcoming window.',
+    no_priority_fixtures:                'No Tier 1/2 priority matches in the next 48h.',
+    no_probable_pitchers_all_sources:    'Could not confirm starting pitchers from StatsAPI nor MLB.com.',
+    all_games_already_played_or_finished:'All games are already live or finished (filtered for safety).',
+    no_games_for_date:                   'No MLB games scheduled for this date.',
+  },
+};
+
+function humanizeAbortReason(reason, lang) {
+  if (!reason) {
+    return lang === 'es'
+      ? 'El engine sí ejecutó el análisis, pero no encontró mercados con suficiente valor.'
+      : 'The engine completed analysis but no market had enough value.';
+  }
+  const dict = ABORT_REASON_COPY[lang] || ABORT_REASON_COPY.es;
+  return dict[reason] || (lang === 'es'
+    ? `El análisis no llegó a ejecutarse por completo. Motivo: ${reason}`
+    : `The analysis did not complete fully. Reason: ${reason}`);
+}
+
+function PipelineDebugPanel({ meta, lang }) {
+  const [open, setOpen] = useState(false);
+  const isMLB = (meta?.sport === 'baseball') || meta?.date_basis === 'America/New_York';
+
+  // Order rows so the most actionable metrics surface first.
+  const rows = [
+    { k: lang === 'es' ? 'Fecha analizada'      : 'Date analysed',  v: meta.date_str },
+    { k: lang === 'es' ? 'Zona horaria'         : 'Timezone',       v: meta.date_basis },
+    isMLB && { k: lang === 'es' ? 'Juegos en schedule'  : 'Schedule games', v: meta.schedule_games_found },
+    isMLB && { k: lang === 'es' ? 'Pitchers confirmados': 'Confirmed pitchers', v: meta.confirmed_games },
+    isMLB && { k: lang === 'es' ? 'Juegos procesados'   : 'Games processed',    v: meta.games_processed },
+    isMLB && { k: lang === 'es' ? 'Descartados (finalizados)' : 'Dropped (past/finished)', v: meta.dropped_past_or_finished },
+    isMLB && { k: lang === 'es' ? 'Descartados (sin pitcher)' : 'Dropped (missing pitcher)', v: meta.dropped_missing_pitchers },
+    isMLB && { k: lang === 'es' ? 'Descartados (datos pitcher <3 ap.)' : 'Dropped (low pitcher data)', v: meta.dropped_low_pitcher_data },
+    !isMLB && { k: lang === 'es' ? 'Partidos ingestados'    : 'Ingested matches',  v: meta.ingested_total },
+    !isMLB && { k: lang === 'es' ? 'Candidatos seleccionados': 'Candidates picked', v: meta.candidates_count },
+    { k: lang === 'es' ? 'Picks recomendados'  : 'Recommended picks', v: meta.final_picks_count ?? meta.picks_total },
+    { k: lang === 'es' ? 'Picks rescatados'    : 'Rescued picks',     v: meta.final_rescued_count ?? meta.rescued_total },
+    { k: lang === 'es' ? 'Picks descartados'   : 'Discarded picks',   v: meta.final_discarded_count ?? meta.discarded_total },
+    meta.blocked_by_time_filter ? { k: lang === 'es' ? 'Bloqueados por tiempo' : 'Time-blocked', v: meta.blocked_by_time_filter } : null,
+    { k: lang === 'es' ? 'Fuente usada'        : 'Source used', v: meta.source_used || 'api_sports' },
+    isMLB && { k: lang === 'es' ? 'Cache status' : 'Cache status', v: meta.cache_status || 'n/a' },
+    meta.abort_reason ? { k: lang === 'es' ? 'Abort reason' : 'Abort reason', v: meta.abort_reason } : null,
+  ].filter(Boolean);
+
+  return (
+    <div
+      className="rounded-md border border-border/60 bg-muted/30 text-xs"
+      data-testid="progress-modal-pipeline-debug"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 hover:bg-white/[0.02] transition-colors"
+        data-testid="progress-modal-pipeline-debug-toggle"
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-1.5 font-semibold text-muted-foreground">
+          <Bug className="w-3.5 h-3.5" />
+          {lang === 'es' ? 'Pipeline debug' : 'Pipeline debug'}
+        </span>
+        <ChevronDown
+          className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {open && (
+        <div className="px-3 pb-3 pt-1 grid grid-cols-1 gap-1" data-testid="progress-modal-pipeline-debug-body">
+          {rows.map((r, i) => (
+            <div
+              key={i}
+              className="flex items-start justify-between gap-3 leading-tight"
+              data-testid={`pipeline-debug-row-${slugify(r.k)}`}
+            >
+              <span className="text-muted-foreground">{r.k}</span>
+              <span className="font-mono-tabular text-foreground/90 break-all text-right">
+                {String(r.v ?? '—')}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function slugify(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }

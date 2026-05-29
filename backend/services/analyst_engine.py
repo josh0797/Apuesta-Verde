@@ -565,10 +565,20 @@ async def _run_prefilter(
     if not OPENAI_API_KEY:
         return {}
     system_prompt = _build_prefilter_prompt(sport)
+    # MLB schedules by Eastern; using UTC here had the analyst occasionally
+    # interpret today's late-night MLB games as "tomorrow".
+    if sport == "baseball":
+        try:
+            from zoneinfo import ZoneInfo as _ZI
+            _now_iso = datetime.now(_ZI("America/New_York")).isoformat()
+        except Exception:
+            _now_iso = datetime.now(timezone.utc).isoformat()
+    else:
+        _now_iso = datetime.now(timezone.utc).isoformat()
     user_text = (
         f"Pre-filtra los siguientes partidos de {sport.upper()}. "
         f"Devuelve JSON con todos los partidos clasificados.\n\n"
-        f"FECHA ACTUAL: {datetime.now(timezone.utc).isoformat()}\n"
+        f"FECHA ACTUAL: {_now_iso}\n"
         f"TOTAL PARTIDOS: {len(matches_payload)}\n\n"
         f"PARTIDOS:\n{json.dumps(matches_payload, ensure_ascii=False, default=str)}"
     )
@@ -1548,9 +1558,19 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
             log.warning("MLB hydration block failed: %s", exc)
 
     # ── Stage 2 ── full analysis on shortlist
+    # Eastern Time for MLB so the LLM can correctly reason about "tonight's"
+    # games (late-night MLB starts wrap into the next UTC day).
+    if sport == "baseball":
+        try:
+            from zoneinfo import ZoneInfo as _ZI
+            _now_iso = datetime.now(_ZI("America/New_York")).isoformat()
+        except Exception:
+            _now_iso = datetime.now(timezone.utc).isoformat()
+    else:
+        _now_iso = datetime.now(timezone.utc).isoformat()
     user_text = (
         f"Analiza los siguientes partidos de {sport.upper()} según las reglas. Devuelve JSON estricto.\n\n"
-        f"FECHA ACTUAL: {datetime.now(timezone.utc).isoformat()}\n"
+        f"FECHA ACTUAL: {_now_iso}\n"
         f"DEPORTE: {sport}\n"
         f"TOTAL PARTIDOS: {len(to_analyze)}\n"
         f"PRE-FILTRO APLICADO: {'sí' if prefilter else 'no'}\n\n"

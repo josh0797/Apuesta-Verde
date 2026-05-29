@@ -533,6 +533,39 @@ async def _run_analysis_pipeline(
     priority_fixtures: list[dict] = []
     priority_leagues_hit: list[str] = []
 
+    # Pipeline debug (Eastern Time for MLB; UTC for everything else).
+    # Built progressively so the final result carries actionable
+    # context (cache_status, abort_reason, drop counters) for the UI.
+    try:
+        from zoneinfo import ZoneInfo as _ZI
+        _eastern = _ZI("America/New_York")
+    except Exception:
+        _eastern = None
+    if sport == "baseball" and _eastern is not None:
+        _pmeta_date_str   = datetime.now(_eastern).strftime("%Y-%m-%d")
+        _pmeta_date_basis = "America/New_York"
+    else:
+        _pmeta_date_str   = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        _pmeta_date_basis = "UTC"
+    pipeline_meta: dict = {
+        "sport":                  sport,
+        "date_str":               _pmeta_date_str,
+        "date_basis":             _pmeta_date_basis,
+        "started_at":             started.isoformat(),
+        "ingested_total":         0,
+        "candidates_count":       0,
+        "llm_picks_count":        0,
+        "moneyball_rescued":      0,
+        "blocked_by_time_filter": 0,
+        "final_picks_count":      0,
+        "final_rescued_count":    0,
+        "final_discarded_count":  0,
+        "abort_reason":           None,
+        "ingest_error":           None,
+        "cache_status":           "n/a",
+        "source_used":            "api_sports",
+    }
+
     await _emit("ingesting", 5, f"Ingesting upcoming {sport} fixtures…")
     # ── Phase 8.1 — Priority Discovery (football only) ──────────────────────
     # Actively probe API-Sports league-by-league for the top-12 priority
@@ -736,6 +769,9 @@ async def _run_analysis_pipeline(
         candidates.extend(live)
 
     candidates = candidates[: max_matches]
+    pipeline_meta["ingested_total"]   = len(upcoming)
+    pipeline_meta["candidates_count"] = len(candidates)
+    pipeline_meta["ingest_error"]     = ingest_error
 
     if not candidates:
         # Phase 8.1 — even the "last-resort" fallback path must pass through
@@ -756,6 +792,16 @@ async def _run_analysis_pipeline(
             )
         if ingest_error:
             detail += f" — {ingest_error}"
+        pipeline_meta["abort_reason"] = (
+            "no_priority_fixtures" if (priority_fixtures is not None and len(priority_fixtures) == 0)
+            else "no_candidates_for_sport"
+        )
+        log.info(
+            "[PIPELINE_META] sport=%s date=%s basis=%s ingested=%d candidates=%d abort=%s",
+            sport, pipeline_meta["date_str"], pipeline_meta["date_basis"],
+            pipeline_meta["ingested_total"], pipeline_meta["candidates_count"],
+            pipeline_meta["abort_reason"],
+        )
         raise HTTPException(status_code=409, detail=detail)
 
     await _emit("analyzing", 65, f"LLM analyzing {len(candidates)} {sport} matches…")
@@ -907,6 +953,9 @@ async def _run_analysis_pipeline(
             result["picks"] = kept_picks
             result.setdefault("summary", {}).setdefault("blocked_picks", [])
             result["summary"]["blocked_picks"].extend(blocked_picks)
+            pipeline_meta["blocked_by_time_filter"] = (
+                int(pipeline_meta.get("blocked_by_time_filter") or 0) + len(blocked_picks)
+            )
             # Decrement the recommended counters so the UI reflects truth.
             try:
                 result["summary"]["total_recommended"] = (
@@ -923,6 +972,35 @@ async def _run_analysis_pipeline(
                 result["summary"].setdefault("blocked_picks", []).extend(blocked)
     except Exception as exc:
         log.warning("last-line validate_pick_before_output failed: %s", exc)
+
+    # ── Finalize pipeline_meta — counters + abort_reason for UI ─────────
+    try:
+        pipeline_meta["llm_picks_count"]      = len(result.get("picks") or [])
+        pipeline_meta["moneyball_rescued"]    = len((result.get("summary") or {}).get("rescued_picks") or [])
+        pipeline_meta["final_picks_count"]    = len(result.get("picks") or [])
+        pipeline_meta["final_rescued_count"]  = len((result.get("summary") or {}).get("rescued_picks") or [])
+        pipeline_meta["final_discarded_count"] = (
+            len((result.get("summary") or {}).get("discarded_motivation") or [])
+            + len((result.get("summary") or {}).get("discarded_market") or [])
+            + len((result.get("summary") or {}).get("incomplete_data") or [])
+            + len((result.get("summary") or {}).get("skipped_low_relevance") or [])
+        )
+        if pipeline_meta["final_picks_count"] == 0 and not pipeline_meta.get("abort_reason"):
+            # Engine ran end-to-end but nothing surfaced as a value bet.
+            pipeline_meta["abort_reason"] = "no_value_found"
+        pipeline_meta["finished_at"] = datetime.now(timezone.utc).isoformat()
+        result["pipeline_meta"] = pipeline_meta
+        log.info(
+            "[PIPELINE_META] sport=%s date=%s basis=%s ingested=%d candidates=%d "
+            "picks=%d rescued=%d discarded=%d blocked=%d abort=%s",
+            sport, pipeline_meta["date_str"], pipeline_meta["date_basis"],
+            pipeline_meta["ingested_total"], pipeline_meta["candidates_count"],
+            pipeline_meta["final_picks_count"], pipeline_meta["final_rescued_count"],
+            pipeline_meta["final_discarded_count"], pipeline_meta["blocked_by_time_filter"],
+            pipeline_meta.get("abort_reason") or "none",
+        )
+    except Exception as _exc:
+        log.debug("pipeline_meta finalize failed (non-fatal): %s", _exc)
 
     record = {
         "id": pick_id_base,

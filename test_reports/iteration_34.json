@@ -1,0 +1,118 @@
+{
+  "summary": "Completed end-to-end testing of MLB Engine Corrections C1 (Eastern Time), C2 (Cache Validation), and C3 (Pipeline Meta). All 45 tests passed successfully. The MLB Stats API is working correctly and returned 15 games for 2026-05-29 (Eastern today). The engine processed 8 games, found 5 rescued picks, and discarded 3. All three corrections are working as designed.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "C1: EASTERN constant defined and correct (America/New_York)",
+    "C1: DEFAULT_SEASON uses Eastern time (2026)",
+    "C1: analyze_mlb_day uses EASTERN for default date computation",
+    "C1: pipeline_meta.date_basis returns 'America/New_York'",
+    "C1: date_str matches Eastern today (2026-05-29)",
+    "C1: mlb_stats_api imports and uses EASTERN",
+    "C2: LAST_SCHEDULE_CACHE_STATUS ContextVar exists",
+    "C2: Code validates cached games by gameDate",
+    "C2: Code converts gameDate to Eastern for validation",
+    "C2: All 4 cache statuses implemented (hit_valid, hit_invalid_refetched, miss, error)",
+    "C2: get_schedule_with_probables correctly sets cache_status",
+    "C2: get_schedule_with_probables returns list",
+    "C3: analyze_mlb_day always returns pipeline_meta",
+    "C3: pipeline_meta contains all 14 required fields (date_str, date_basis, schedule_games_found, confirmed_games, games_processed, dropped_past_or_finished, dropped_missing_pitchers, dropped_low_pitcher_data, picks_total, rescued_total, discarded_total, cache_status, source_used, abort_reason)",
+    "C3: Past date (2025-08-01) returns abort_reason='no_probable_pitchers_all_sources'",
+    "C3: Real MLB data processed: 15 games found, 14 confirmed, 8 processed, 5 rescued, 3 discarded",
+    "C3d: _run_analysis_pipeline builds pipeline_meta with all required fields",
+    "C3d: pipeline_meta included in result",
+    "Regression: Backend service running (200 OK)",
+    "Regression: /api/mlb/day endpoint responds (401 - auth required)",
+    "Regression: All 3 signals emit correctly (PITCHER_NOT_CONFIRMED, IL_DEPTH_RISK, MLB_COM_FALLBACK_USED)"
+  ],
+  "test_report_links": [
+    "/app/backend/test_mlb_corrections_c1_c2_c3.py"
+  ],
+  "action_item_for_main_agent": "",
+  "updated_files": [
+    "/app/backend/test_mlb_corrections_c1_c2_c3.py"
+  ],
+  "success_percentage": {
+    "backend": "100% (45/45 tests passed)",
+    "frontend": "N/A (backend-only testing)"
+  },
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  "detailed_findings": {
+    "c1_eastern_time": {
+      "status": "PASS",
+      "tests_passed": 8,
+      "key_validations": [
+        "EASTERN constant correctly defined as America/New_York",
+        "DEFAULT_SEASON uses Eastern time (2026)",
+        "analyze_mlb_day defaults to Eastern today when date_str is empty",
+        "pipeline_meta.date_basis correctly returns 'America/New_York'",
+        "date_str matches Eastern today (2026-05-29)",
+        "mlb_stats_api imports and uses EASTERN timezone"
+      ]
+    },
+    "c2_cache_validation": {
+      "status": "PASS",
+      "tests_passed": 9,
+      "key_validations": [
+        "LAST_SCHEDULE_CACHE_STATUS ContextVar exists and is used",
+        "Code validates cached games by converting gameDate to Eastern",
+        "All 4 cache statuses are implemented: hit_valid, hit_invalid_refetched, miss, error",
+        "get_schedule_with_probables correctly sets cache_status (returned 'miss' in test)",
+        "Cache validation prevents games from wrong date being returned"
+      ]
+    },
+    "c3_pipeline_meta": {
+      "status": "PASS",
+      "tests_passed": 17,
+      "key_validations": [
+        "analyze_mlb_day always returns pipeline_meta",
+        "All 14 required fields present: date_str, date_basis, schedule_games_found, confirmed_games, games_processed, dropped_past_or_finished, dropped_missing_pitchers, dropped_low_pitcher_data, picks_total, rescued_total, discarded_total, cache_status, source_used, abort_reason",
+        "Past date (2025-08-01) correctly returns abort_reason='no_probable_pitchers_all_sources'",
+        "Real MLB data processed successfully: 15 games found, 14 confirmed, 8 processed, 5 rescued, 3 discarded",
+        "Zero picks/rescued scenario handled with abort_reason"
+      ]
+    },
+    "c3d_analysis_run_endpoint": {
+      "status": "PASS",
+      "tests_passed": 6,
+      "key_validations": [
+        "_run_analysis_pipeline builds pipeline_meta",
+        "All required fields present: date_str, date_basis, abort_reason",
+        "pipeline_meta included in result returned by POST /api/analysis/run"
+      ]
+    },
+    "regression_checks": {
+      "status": "PASS",
+      "tests_passed": 5,
+      "key_validations": [
+        "Backend service running (200 OK)",
+        "/api/mlb/day endpoint responds (401 - auth required, expected)",
+        "All 3 signals still emit correctly: PITCHER_NOT_CONFIRMED, IL_DEPTH_RISK, MLB_COM_FALLBACK_USED"
+      ]
+    }
+  },
+  "mlb_stats_api_status": {
+    "status": "WORKING",
+    "games_returned": 15,
+    "date_tested": "2026-05-29",
+    "timezone": "America/New_York",
+    "confirmed_games": 14,
+    "games_processed": 8,
+    "rescued_picks": 5,
+    "discarded_picks": 3,
+    "cache_status": "miss",
+    "source_used": "statsapi"
+  },
+  "expected_warnings": [
+    "MLB schedule fetch failed for 2025-08-01 - Expected for past date test",
+    "MLB StatsAPI vacío — intentando fallback mlb.com - Fallback mechanism working as designed"
+  ]
+}

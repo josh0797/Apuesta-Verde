@@ -1,34 +1,34 @@
 [
   {
-    "content": "GAP #0: Normalizar gameDate -> kickoff_iso antes de time_filter en mlb_day_orchestrator",
+    "content": "C1: Eastern Time en mlb_stats_api (DEFAULT_SEASON, IL/bullpen today)",
     "status": "completed"
   },
   {
-    "content": "GAP #1: Requerir AMBOS pitchers confirmados (cambiar OR -> AND) en _confirm_pitchers_statsapi",
+    "content": "C2: Cache validation en get_schedule_with_probables + ContextVar cache_status",
     "status": "completed"
   },
   {
-    "content": "GAP #2: Implementar fallback a mlb.com cuando StatsAPI no trae pitchers",
+    "content": "C1: Eastern Time en mlb_day_orchestrator (analyze_mlb_day date default)",
     "status": "completed"
   },
   {
-    "content": "GAP #3: Crear get_team_il_players() en mlb_stats_api.py",
+    "content": "C3: pipeline_meta enriquecido (cache_status, source_used, dropped_missing_pitchers, schedule_games_found, date_basis) en mlb_day_orchestrator + log final",
     "status": "completed"
   },
   {
-    "content": "GAP #4: Integrar IL check en orchestrator (asyncio.gather + scoring_ctx)",
+    "content": "C3: pipeline_meta en _run_analysis_pipeline (server.py) para que el flujo Generar picks también lo entregue",
     "status": "completed"
   },
   {
-    "content": "GAP #5: Penalizar fragility por IL count >=3 / >=5 en mlb_fragility_score",
+    "content": "C1: FECHA ACTUAL en analyst_engine.py para baseball usa Eastern",
     "status": "completed"
   },
   {
-    "content": "GAP #6: Agregar PITCHER_NOT_CONFIRMED, MLB_COM_FALLBACK_USED, IL_DEPTH_RISK al signal_catalog y emitirlos",
+    "content": "UI: Panel Pipeline debug + humanized abort_reason en AnalysisProgressModal",
     "status": "completed"
   },
   {
-    "content": "GAP #7/8: Testing agent valida el pipeline MLB completo (45/46 PASS)",
-    "status": "completed"
+    "content": "Testing agent end-to-end del flujo MLB con pipeline_meta",
+    "status": "in_progress"
   }
 ]

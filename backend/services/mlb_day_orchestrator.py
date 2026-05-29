@@ -23,6 +23,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from .mlb_pregame_analytics import (
     starting_pitcher_edge,
@@ -39,6 +40,10 @@ from .mlb_pregame_analytics import (
 )
 
 log = logging.getLogger("mlb_day_orchestrator")
+
+# MLB groups its schedule by midnight Eastern. ALL "today" defaults in
+# this engine must anchor on America/New_York, never on UTC.
+EASTERN = ZoneInfo("America/New_York")
 
 MLB_STATSAPI_BASE = "https://statsapi.mlb.com/api/v1"
 MLB_PROBABLE_PAGE = "https://www.mlb.com/probable-pitchers/{date}"   # date YYYY-MM-DD
@@ -174,14 +179,34 @@ async def _enrich_pitcher(db, pitcher_id: Optional[int]) -> dict:
 # ────────────────────────────────────────────────────────────────────────────
 # Public API
 # ────────────────────────────────────────────────────────────────────────────
-async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
+async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
     """Top-level orchestration for a full MLB day.
+
+    Date basis
+    ----------
+    MLB schedules by midnight US Eastern. If `date_str` is empty, we
+    compute "today" in America/New_York so the engine never queries the
+    wrong day (a recurring source of "no picks" regressions when the
+    server clock is UTC).
 
     Returns a dict with picks / rescued_picks / discarded_picks /
     fragility_scores / editorial_context_signals (one signal list per
-    match keyed by gamePk).
+    match keyed by gamePk). `pipeline_meta` carries the date_basis,
+    cache_status, source_used and per-stage drop counters so the UI can
+    explain why a day ended with zero picks.
     """
     start = datetime.now(timezone.utc)
+    if not date_str:
+        date_str = datetime.now(EASTERN).strftime("%Y-%m-%d")
+        log.info("MLB date selected: %s basis=America/New_York", date_str)
+
+    # Reset the cache-status ContextVar so a previous run can't leak.
+    try:
+        from .mlb_stats_api import LAST_SCHEDULE_CACHE_STATUS
+        LAST_SCHEDULE_CACHE_STATUS.set("unknown")
+    except Exception:
+        pass
+
     confirmed_by_pk, statsapi_url = await _confirm_pitchers_statsapi(db, date_str)
 
     picks: list[dict]       = []
@@ -190,13 +215,57 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
     frag_by_pk: dict[int, dict] = {}
     signals_by_pk: dict[int, list[dict]] = {}
     pipeline_meta: dict = {
-        "date":               date_str,
-        "confirmed_games":    len(confirmed_by_pk),
-        "statsapi_url":       statsapi_url,
-        "started_at":         start.isoformat(),
-        "fallback_mlb_com_used":  False,
-        "fallback_mlb_com_url":   None,
+        # Date basis
+        "date":                date_str,
+        "date_str":            date_str,
+        "date_basis":          "America/New_York",
+        # Counters (filled progressively)
+        "schedule_games_found":      0,
+        "confirmed_games":           len(confirmed_by_pk),
+        "games_processed":           0,
+        "games_capped":              0,
+        "dropped_past_or_finished":  0,
+        "dropped_missing_pitchers":  0,
+        "dropped_low_pitcher_data":  0,
+        "picks_total":               0,
+        "rescued_total":             0,
+        "discarded_total":           0,
+        # Provenance
+        "statsapi_url":              statsapi_url,
+        "fallback_mlb_com_used":     False,
+        "fallback_mlb_com_url":      None,
+        "source_used":               "statsapi" if confirmed_by_pk else "none",
+        "cache_status":              "unknown",
+        "started_at":                start.isoformat(),
+        "abort_reason":              None,
     }
+
+    # Capture the schedule_games_found count from the very first call,
+    # plus the cache_status set by mlb_stats_api during it.
+    try:
+        from .mlb_stats_api import get_schedule_with_probables, LAST_SCHEDULE_CACHE_STATUS
+        _initial_schedule = await get_schedule_with_probables(db, date_str)
+        pipeline_meta["schedule_games_found"] = len(_initial_schedule or [])
+        pipeline_meta["cache_status"] = LAST_SCHEDULE_CACHE_STATUS.get()
+    except Exception as exc:
+        log.debug("initial schedule probe failed: %s", exc)
+
+    log.info(
+        "MLB schedule games found: %d (date=%s basis=America/New_York)",
+        pipeline_meta["schedule_games_found"], date_str,
+    )
+
+    # Track how many games were dropped specifically because pitchers
+    # were missing — _confirm_pitchers_statsapi already discards them but
+    # doesn't return the count, so we recompute from the schedule.
+    try:
+        if pipeline_meta["schedule_games_found"]:
+            pipeline_meta["dropped_missing_pitchers"] = max(
+                0,
+                pipeline_meta["schedule_games_found"] - len(confirmed_by_pk),
+            )
+    except Exception:
+        pass
 
     # GAP #2 ─ Si StatsAPI no trajo pitchers para HOY, antes de abortar,
     # intentamos fallback contra mlb.com/probable-pitchers.
@@ -223,6 +292,7 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
                 statsapi_url = fallback_url
                 pipeline_meta["fallback_mlb_com_used"] = True
                 pipeline_meta["fallback_mlb_com_url"]  = fallback_url
+                pipeline_meta["source_used"]           = "mlb.com_fallback"
                 for g in all_games:
                     if not (g.get("home_team") and g.get("away_team") and g.get("gamePk")):
                         continue
@@ -245,6 +315,7 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
     if not confirmed_by_pk:
         # GAP #2 ─ Ambas fuentes (StatsAPI + mlb.com) fallaron.
         pipeline_meta["abort_reason"] = "no_probable_pitchers_all_sources"
+        pipeline_meta["source_used"]  = "none"
         # GAP #6 — emit PITCHER_NOT_CONFIRMED at pipeline level so the UI
         # can render the editorial reason for the empty day.
         try:
@@ -256,6 +327,17 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
                 pipeline_meta["pipeline_signals"] = [sig]
         except Exception as exc:
             log.debug("PITCHER_NOT_CONFIRMED emission failed: %s", exc)
+        log.info(
+            "MLB pipeline finished: picks=0 rescued=0 discarded=0 "
+            "abort=%s schedule=%d confirmed=0 processed=0 date=%s basis=%s "
+            "cache=%s source=%s",
+            pipeline_meta["abort_reason"],
+            pipeline_meta["schedule_games_found"],
+            date_str,
+            pipeline_meta["date_basis"],
+            pipeline_meta["cache_status"],
+            pipeline_meta["source_used"],
+        )
         return _empty_payload(pipeline_meta)
 
     # ── Stage 0 ── HARD time filter (recurring bug — past games leaked in)
@@ -293,6 +375,19 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
     pipeline_meta["dropped_past_or_finished"] = len(dropped_past_pks)
     if not filtered_by_pk:
         pipeline_meta["abort_reason"] = "all_games_already_played_or_finished"
+        log.info(
+            "MLB pipeline finished: picks=0 rescued=0 discarded=0 abort=%s "
+            "schedule=%d confirmed=%d dropped_past=%d date=%s basis=%s "
+            "cache=%s source=%s",
+            pipeline_meta["abort_reason"],
+            pipeline_meta["schedule_games_found"],
+            pipeline_meta["confirmed_games"],
+            pipeline_meta["dropped_past_or_finished"],
+            date_str,
+            pipeline_meta["date_basis"],
+            pipeline_meta["cache_status"],
+            pipeline_meta["source_used"],
+        )
         return _empty_payload(pipeline_meta)
     confirmed_by_pk = filtered_by_pk
 
@@ -404,6 +499,9 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
                 "missing":  ["pitcher_data"],
                 "pitcher_confirmation_source_url": statsapi_url,
             })
+            pipeline_meta["dropped_low_pitcher_data"] = (
+                int(pipeline_meta.get("dropped_low_pitcher_data") or 0) + 1
+            )
             continue
 
         # Build the scoring context.
@@ -620,6 +718,29 @@ async def analyze_mlb_day(date_str: str, *, db: Any = None) -> dict:
     pipeline_meta["rescued_total"]   = len(rescued)
     pipeline_meta["discarded_total"] = len(discarded)
     pipeline_meta["finished_at"]     = datetime.now(timezone.utc).isoformat()
+    # If we processed games but nothing surfaced as a pick or rescue,
+    # surface a human-readable abort_reason so the UI can explain it.
+    if (not picks) and (not rescued) and pipeline_meta.get("abort_reason") is None:
+        pipeline_meta["abort_reason"] = "no_value_found"
+
+    log.info(
+        "MLB pipeline finished: picks=%d rescued=%d discarded=%d abort=%s "
+        "schedule=%d confirmed=%d processed=%d dropped_past=%d "
+        "dropped_missing_pitchers=%d dropped_low_data=%d "
+        "date=%s basis=%s cache=%s source=%s",
+        len(picks), len(rescued), len(discarded),
+        pipeline_meta.get("abort_reason") or "none",
+        pipeline_meta["schedule_games_found"],
+        pipeline_meta["confirmed_games"],
+        pipeline_meta["games_processed"],
+        pipeline_meta["dropped_past_or_finished"],
+        pipeline_meta["dropped_missing_pitchers"],
+        pipeline_meta.get("dropped_low_pitcher_data", 0),
+        date_str,
+        pipeline_meta["date_basis"],
+        pipeline_meta["cache_status"],
+        pipeline_meta["source_used"],
+    )
 
     # ── Parlay builder + correlation validator ──────────────────────────
     # Combine picks + rescued (max_size=4 per user spec) and run the
