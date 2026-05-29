@@ -13,10 +13,10 @@
   },
   {
     "content": "UI: banner de fallback + nuevos campos en PipelineDebugPanel",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
-    "content": "Tests funcionales",
-    "status": "pending"
+    "content": "Tests funcionales (unit + integration + HTTP end-to-end real)",
+    "status": "completed"
   }
 ]
