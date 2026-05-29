@@ -1,22 +1,22 @@
 [
   {
-    "content": "F1.1-F1.8: Multi-source MLB rescue COMPLETO",
+    "content": "Under Profile: mlb_starter_lineup_under_profile + 6 signals + hook orquestador",
     "status": "completed"
   },
   {
-    "content": "F2.1: normalize_espn_nba_game + ingest_nba_direct_fallback",
+    "content": "Scrapers Fase 3: rotogrinders_mlb + fantasyalarm_mlb",
     "status": "completed"
   },
   {
-    "content": "F2.3: Hook basketball fallback en _run_analysis_pipeline",
+    "content": "Scrapers Fase 3: sofascore_basketball + flashscore_basketball",
     "status": "completed"
   },
   {
-    "content": "F2.4: UI banner basketball fallback + i18n",
+    "content": "Wire de scrapers en mlb_lineup_rescue (6 fuentes ahora)",
     "status": "completed"
   },
   {
-    "content": "Tests funcionales + testing agent (25/25 PASS)",
-    "status": "completed"
+    "content": "Tests funcionales + testing agent",
+    "status": "in_progress"
   }
 ]

@@ -36,6 +36,7 @@ from .mlb_pregame_analytics import (
     over_under_predictor,
     nrfi_yrfi_analyzer,
     mlb_alternative_rescue,
+    mlb_starter_lineup_under_profile,
     emit_signals,
 )
 
@@ -616,6 +617,10 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         run_line   = run_line_predictor(scoring_ctx)
         over_under = over_under_predictor(scoring_ctx, conf.get("book_total"))
         nrfi       = nrfi_yrfi_analyzer(scoring_ctx)
+        # Validated profile (Phillies–Cleveland 22-May-2026): when both
+        # starters are solid and lineups don't project explosion, the
+        # natural market is Under — not Run Line or Moneyline.
+        under_profile = mlb_starter_lineup_under_profile(scoring_ctx, conf.get("book_total"))
         rescue     = mlb_alternative_rescue(scoring_ctx, run_line, over_under, nrfi)
 
         frag = mlb_fragility_score(scoring_ctx)
@@ -627,6 +632,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             over_under.get("score", 0),
             nrfi.get("nrfi_score", 0),
             nrfi.get("yrfi_score", 0),
+            under_profile.get("underProfileScore", 0),
         )
 
         # Hard guardrails (user's "lo que NO debe hacer")
@@ -639,8 +645,21 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             over_under["verdict"] = "NO_BET"
 
         chosen_market: Optional[dict] = None
+        # User's prioritization rule (validated case): if both starters are
+        # solid + lineups quiet, the Under profile takes precedence over
+        # Run Line / Moneyline / cuotas atractivas.
+        up_class = under_profile.get("classification")
+        up_score = under_profile.get("underProfileScore", 0)
         if frag.get("score", 100) > 60:
             chosen_market = None  # fragility too high — never recommend
+        elif up_class == "VALUE_BET" and up_score >= 75:
+            chosen_market = {
+                "market":    under_profile.get("market") or "Total Runs Under",
+                "selection": under_profile.get("selection"),
+                "score":     up_score,
+                "rationale": under_profile.get("explanation", ""),
+                "alt_markets": under_profile.get("alt_markets") or [],
+            }
         elif "RUN_LINE_TRAP" not in run_line.get("tags", []) and run_line.get("score", 0) >= 72:
             chosen_market = {"market": "Run Line", "score": run_line["score"],
                              "rationale": run_line.get("explanation", "")}
@@ -648,6 +667,14 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             chosen_market = {"market": f"Total Runs {over_under['verdict'].title()}",
                              "score": over_under["score"],
                              "rationale": over_under.get("explanation", "")}
+        elif up_class == "PROTECTED_ACCEPTABLE" and up_score >= 60 and frag.get("score", 100) <= 45:
+            chosen_market = {
+                "market":    under_profile.get("market") or "Total Runs Under",
+                "selection": under_profile.get("selection"),
+                "score":     up_score,
+                "rationale": under_profile.get("explanation", ""),
+                "alt_markets": under_profile.get("alt_markets") or [],
+            }
         elif "NRFI_SIGNAL" in nrfi.get("tags", []) and frag.get("score", 100) <= 45:
             chosen_market = {"market": "NRFI", "score": nrfi.get("nrfi_score", 0),
                              "rationale": nrfi.get("explanation", "")}
@@ -657,10 +684,27 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             "home_pitcher_quality": h_q, "away_pitcher_quality": a_q,
             "pitcher_edge": edge, "bullpen": bull, "park": park,
             "run_line": run_line, "over_under": over_under, "nrfi": nrfi,
+            "under_profile": under_profile,
             "fragility": frag,
             "rescued_candidates": rescue.get("candidates") or [],
         }
         signals = emit_signals(scoring_ctx, parts, source_url=statsapi_url)
+        # Inject the Under-profile editorial signals so the UI sees the
+        # exact codes the user listed (STRONG_STARTING_PITCHER_PROFILE,
+        # UNDER_TREND_DETECTED, etc.). The codes come from the catalog so
+        # `applicable_sports` is enforced.
+        try:
+            from .signal_catalog import make_signal as _mk
+            for code in under_profile.get("signals") or []:
+                sig = _mk(code, sport="baseball")
+                if sig:
+                    sig["extra_explanation"] = (
+                        f"underProfile={under_profile.get('underProfileScore')}/100 "
+                        f"({under_profile.get('classification')})"
+                    )
+                    signals.append(sig)
+        except Exception as exc:
+            log.debug("under_profile signal emission failed: %s", exc)
         # Attach the per-source URLs that contributed to this game so the
         # UI can show "Pitcher confirmado por: <statsapi> · Stats Savant:
         # <savant_url> · Bullpen: <statsapi_gamelog>".
@@ -753,6 +797,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             },
             "fragility":      frag,
             "expected_runs":  over_under.get("expected_runs"),
+            "under_profile":  under_profile,
             "editorial_context_signals": signals,
             "all_components": parts,
             "rescued_candidates": rescue.get("candidates") or [],

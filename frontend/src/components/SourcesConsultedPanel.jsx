@@ -35,7 +35,12 @@ const SOURCE_LABELS = {
   mlb_official_lineups:     'MLB.com',
   fantasypros_mlb_lineups:  'FantasyPros',
   espn_mlb_scoreboard:      'ESPN MLB',
+  rotogrinders_mlb_lineups: 'RotoGrinders',
+  fantasyalarm_mlb_lineups: 'FantasyAlarm',
   mlb_stats_api:            'MLB Stats API',
+  sofascore_basketball:     'SofaScore',
+  flashscore_basketball:    'Flashscore',
+  espn_nba:                 'ESPN NBA',
 };
 
 const DATA_TYPE_LABELS = {

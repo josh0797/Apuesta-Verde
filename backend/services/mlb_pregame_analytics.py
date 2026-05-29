@@ -593,6 +593,228 @@ def emit_signals(ctx: dict, parts: dict, *, source_url: Optional[str] = None) ->
         bag.append(sig)
     return bag
 
+# ════════════════════════════════════════════════════════════════════════════
+# 12. STARTER + LINEUP UNDER PROFILE
+# ════════════════════════════════════════════════════════════════════════════
+# Validated against the Phillies–Cleveland 22-May-2026 (0–1 final, Under 7.5
+# was the only correct pick). Encodes the user's rule:
+#
+#   Cuando ambos abridores son sólidos y los lineups no proyectan explosión,
+#   el mercado natural es Under (Full Game / F5 / Team Total / NRFI) — NO
+#   ganador directo, NO Run Line, NO cuota atractiva.
+#
+# Reads `ctx` keys produced upstream in the MLB orchestrator:
+#   home_pitcher_quality / away_pitcher_quality  → {score 0-100, era, whip, ...}
+#   home_pitcher_stats   / away_pitcher_stats    → raw season stats
+#   offense_home / offense_away                  → {score 0-100, ...}
+#   bullpen                                      → {score, tags}
+#   park                                         → {park_runs_mult, weather_score}
+#   h2h_recent                                   → list of dicts with total runs
+#   home_il_count / away_il_count                → from get_team_il_players
+#   home_lineup_strength / away_lineup_strength  → optional 0-100 (external)
+#
+# Returns a structured payload directly usable as a pick recommendation.
+def mlb_starter_lineup_under_profile(ctx: dict, book_line: Optional[float] = None) -> dict:
+    """Detect the validated "both starters solid + lineups quiet → Under"
+    pattern and produce a structured recommendation.
+
+    Output classification:
+       VALUE_BET          score ≥ 75 + book_line in our favor
+       PROTECTED_ACCEPTABLE  score ≥ 60 (good Under but no clear value vs book)
+       WATCHLIST          score ≥ 45 (worth tracking live)
+       NO_BET             score <  45
+    """
+    h_pq = ctx.get("home_pitcher_quality") or {}
+    a_pq = ctx.get("away_pitcher_quality") or {}
+    h_stats = ctx.get("home_pitcher_stats") or {}
+    a_stats = ctx.get("away_pitcher_stats") or {}
+    h_off = ctx.get("offense_home") or {}
+    a_off = ctx.get("offense_away") or {}
+    park  = ctx.get("park") or {}
+    bullpen = ctx.get("bullpen") or {}
+    h2h   = ctx.get("h2h_recent") or []
+
+    reasons: list[str] = []
+    risks:   list[str] = []
+    signals: list[str] = []
+
+    score = 0
+    early_inning_dependency = False
+
+    # ── 1. STARTER QUALITY — the foundation of the Under profile ───────
+    h_era = float(h_stats.get("era")  or h_pq.get("era")  or 4.50)
+    a_era = float(a_stats.get("era")  or a_pq.get("era")  or 4.50)
+    h_whip = float(h_stats.get("whip") or h_pq.get("whip") or 1.30)
+    a_whip = float(a_stats.get("whip") or a_pq.get("whip") or 1.30)
+    h_q = int(h_pq.get("score") or 50)
+    a_q = int(a_pq.get("score") or 50)
+    both_solid = (h_era <= 3.50 and a_era <= 3.80 and h_whip <= 1.20 and a_whip <= 1.25)
+    both_elite = (h_era <= 2.75 and a_era <= 3.00)
+    both_above_avg = (h_q >= 60 and a_q >= 55)
+    if both_elite:
+        score += 35
+        signals.append("STRONG_STARTING_PITCHER_PROFILE")
+        reasons.append(
+            f"Abridores élite: home ERA {h_era:.2f} / WHIP {h_whip:.2f}, "
+            f"away ERA {a_era:.2f} / WHIP {a_whip:.2f}."
+        )
+    elif both_solid or both_above_avg:
+        score += 22
+        signals.append("STRONG_STARTING_PITCHER_PROFILE")
+        reasons.append(
+            f"Ambos abridores con perfil sólido (ERA {h_era:.2f}/{a_era:.2f}, "
+            f"WHIP {h_whip:.2f}/{a_whip:.2f})."
+        )
+    elif h_q < 35 or a_q < 35:
+        score -= 15
+        risks.append(
+            f"Un abridor débil (quality home={h_q}/100, away={a_q}/100) puede romper el Under."
+        )
+
+    # ── 2. LINEUP THREAT (light when external lineup data unavailable) ─
+    off_h = int(h_off.get("score") or 50)
+    off_a = int(a_off.get("score") or 50)
+    h_il  = int(ctx.get("home_il_count") or 0)
+    a_il  = int(ctx.get("away_il_count") or 0)
+    quiet_offenses = (off_h <= 50 and off_a <= 50)
+    explosive = (off_h >= 70 or off_a >= 70)
+    if quiet_offenses:
+        score += 12
+        reasons.append(
+            f"Ningún lineup proyecta amenaza explosiva (offense scores {off_h}/{off_a})."
+        )
+    elif explosive:
+        score -= 12
+        risks.append(
+            "Al menos un lineup tiene amenaza ofensiva clara — el Under es más frágil."
+        )
+    if h_il >= 3 or a_il >= 3:
+        score += 5
+        reasons.append(
+            f"Bateadores en IL ({h_il}/{a_il}) reducen la profundidad ofensiva."
+        )
+
+    # ── 3. H2H LOW TOTAL PATTERN ──────────────────────────────────────
+    if h2h:
+        totals = [
+            (g.get("home_score") or 0) + (g.get("away_score") or 0)
+            for g in h2h if isinstance(g, dict)
+        ]
+        totals = [t for t in totals if t > 0]
+        if totals:
+            under_count = sum(1 for t in totals if t <= 7)
+            ratio = under_count / len(totals)
+            avg_total = sum(totals) / len(totals)
+            if ratio >= 0.6:
+                score += 10
+                signals.append("H2H_LOW_TOTAL_PATTERN")
+                signals.append("UNDER_TREND_DETECTED")
+                reasons.append(
+                    f"H2H: {under_count}/{len(totals)} ({int(ratio*100)}%) "
+                    f"de los últimos cierres ≤ 7 carreras (promedio {avg_total:.1f})."
+                )
+            elif ratio <= 0.3:
+                score -= 8
+                risks.append(
+                    f"El H2H reciente tiende a Overs ({int((1-ratio)*100)}% sobre 7 carreras)."
+                )
+
+    # ── 4. PARK + WEATHER (penalize when they push toward Over) ───────
+    park_mult     = float(park.get("park_runs_mult") or 1.0)
+    weather_score = float(park.get("weather_score") or 50)
+    if park_mult <= 0.96:
+        score += 6
+        reasons.append(f"Parque favorece pitchers (park_mult={park_mult:.2f}).")
+    elif park_mult >= 1.10:
+        score -= 8
+        risks.append(f"Parque ofensivo (park_mult={park_mult:.2f}) — Under más caro.")
+    if weather_score <= 40:
+        score += 4
+        reasons.append("Clima neutro a favor del Under (viento contra/temperatura fresca).")
+    elif weather_score >= 70:
+        score -= 4
+        risks.append("Clima caluroso o viento a favor del Over.")
+
+    # ── 5. BULLPEN STABILITY ──────────────────────────────────────────
+    bp_score = int(bullpen.get("score") or 60)
+    bp_tags  = bullpen.get("tags") or []
+    if "BULLPEN_FATIGUE" in bp_tags or bp_score <= 35:
+        score -= 12
+        risks.append("Bullpen fatigado puede romper el Under en innings 6–9.")
+        early_inning_dependency = True
+    elif bp_score >= 65:
+        score += 5
+        reasons.append("Bullpens estables refuerzan el guion de pocas carreras.")
+
+    # ── 6. EARLY INNING DEPENDENCY tag ────────────────────────────────
+    # If the starter profile is solid but bullpen is shaky OR offenses are
+    # league-average, the Under fundamentally depends on a clean first 5.
+    if (both_solid or both_above_avg) and (
+        bp_score < 60 or off_h >= 55 or off_a >= 55
+    ):
+        early_inning_dependency = True
+
+    # ── 7. NORMALIZE + classify ───────────────────────────────────────
+    score = max(0, min(100, score + 40))   # +40 base so a typical Under sits around 60
+    fragility = int((ctx.get("fragility") or {}).get("score") or 40)
+
+    # Pick the specific Under market the engine should recommend.
+    under_markets: list[str] = []
+    if both_elite:
+        under_markets = ["Total Runs Under", "F5 Under", "NRFI"]
+    elif both_solid or both_above_avg:
+        under_markets = ["Total Runs Under", "F5 Under"]
+    else:
+        under_markets = []
+
+    if early_inning_dependency:
+        signals.append("EARLY_INNING_UNDER_DEPENDENCY")
+        risks.append(
+            "Un rally temprano cambia completamente el perfil — el Under depende "
+            "de los primeros innings."
+        )
+
+    if fragility <= 35 and score >= 60:
+        signals.append("PROTECTED_TOTAL_MARKET")
+    if score >= 55:
+        signals.append("LOW_SCORING_GAME_SCRIPT")
+
+    # Classification
+    if score >= 75 and under_markets:
+        classification = "VALUE_BET"
+    elif score >= 60 and under_markets:
+        classification = "PROTECTED_ACCEPTABLE"
+    elif score >= 45:
+        classification = "WATCHLIST"
+    else:
+        classification = "NO_BET"
+
+    # Recommended selection (use book line if provided; otherwise default 7.5)
+    line = book_line if (book_line is not None) else 7.5
+    selection = f"Under {line:.1f}" if under_markets else None
+
+    return {
+        "market":             "Total Runs Under" if under_markets else None,
+        "alt_markets":        under_markets,
+        "selection":          selection,
+        "classification":     classification,
+        "confidence":         score,
+        "underProfileScore":  score,
+        "fragilityScore":     fragility,
+        "reasons":            reasons,
+        "risks":              risks,
+        "signals":            signals,
+        "early_inning_dependency": early_inning_dependency,
+        "explanation": (
+            f"underProfile={score}/100 ({classification}); "
+            f"abridores ERA {h_era:.2f}/{a_era:.2f}, offenses {off_h}/{off_a}, "
+            f"park×{park_mult:.2f}"
+        ),
+    }
+
+
+
+
 
 __all__ = [
     "starting_pitcher_edge",
@@ -605,6 +827,7 @@ __all__ = [
     "over_under_predictor",
     "nrfi_yrfi_analyzer",
     "mlb_alternative_rescue",
+    "mlb_starter_lineup_under_profile",
     "emit_signals",
     "PARK_FACTORS",
     "LEAGUE_AVG_ERA",

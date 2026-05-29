@@ -590,6 +590,70 @@ SIGNAL_CATALOG: dict[str, dict[str, Any]] = {
         "default_impact": "Revisa manualmente antes de pickear; suele indicar una scratch o cambio tardío.",
         "applicable_sports": BASEBALL_ONLY,
     },
+
+    # ════════════════════════════════════════════════════════════════════
+    # ─── STARTER + LINEUP UNDER PROFILE (validated Phillies–Cleveland) ──
+    # ════════════════════════════════════════════════════════════════════
+    "STRONG_STARTING_PITCHER_PROFILE": {
+        "label":       "Perfil sólido de abridores",
+        "label_en":    "Strong starting pitcher profile",
+        "severity":    "high",
+        "category":    "pitching",
+        "signal_type": "positive",
+        "explanation": "Ambos abridores tienen calidad suficiente (ERA ≤ 3.50, WHIP ≤ 1.20) para limitar carreras tempranas.",
+        "default_impact": "Habilita perfil Under: Full Game Under, F5 Under, NRFI o Team Total Under.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
+    "UNDER_TREND_DETECTED": {
+        "label":       "Tendencia histórica Under",
+        "label_en":    "Historic under trend",
+        "severity":    "medium",
+        "category":    "historical",
+        "signal_type": "positive",
+        "explanation": "El H2H reciente o las medias por equipo favorecen marcadores bajos (≥60% Under en los últimos 10 enfrentamientos).",
+        "default_impact": "Refuerza Under como mercado prioritario por encima de Run Line/Moneyline.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
+    "EARLY_INNING_UNDER_DEPENDENCY": {
+        "label":       "Under depende de los primeros innings",
+        "label_en":    "Under depends on early innings",
+        "severity":    "medium",
+        "category":    "pitching",
+        "signal_type": "neutral",
+        "explanation": "El Under necesita que los primeros innings pasen sin rallies; si hay big inning, el perfil se rompe.",
+        "default_impact": "Considera live-betting Under si los 3 primeros innings cierran 0–0 / 1–0.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
+    "LOW_SCORING_GAME_SCRIPT": {
+        "label":       "Guion de pocas carreras",
+        "label_en":    "Low-scoring game script",
+        "severity":    "medium",
+        "category":    "pitching",
+        "signal_type": "positive",
+        "explanation": "Pitchers sólidos + lineups sin amenaza explosiva + park/clima neutro proyectan un partido de 4–6 carreras totales.",
+        "default_impact": "El favorito puede ganar 2–1 / 3–1 sin romper la línea de Under.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
+    "PROTECTED_TOTAL_MARKET": {
+        "label":       "Mercado de totales protegido",
+        "label_en":    "Totals market protected",
+        "severity":    "medium",
+        "category":    "risk",
+        "signal_type": "positive",
+        "explanation": "Fragility ≤ 35 y abridores con buena tendencia: la línea de totales es la apuesta más estable del partido.",
+        "default_impact": "Prefiere Total Under a Run Line cuando ambos están en valor.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
+    "H2H_LOW_TOTAL_PATTERN": {
+        "label":       "H2H favorece totales bajos",
+        "label_en":    "Head-to-head low total pattern",
+        "severity":    "low",
+        "category":    "historical",
+        "signal_type": "positive",
+        "explanation": "Los últimos enfrentamientos directos entre estos equipos cerraron bajo la línea con frecuencia (≥60%).",
+        "default_impact": "Refuerza Under como mercado natural para este enfrentamiento.",
+        "applicable_sports": BASEBALL_ONLY,
+    },
 }
 
 

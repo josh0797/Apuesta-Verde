@@ -38,14 +38,17 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from . import rotowire_mlb, mlb_official_lineups, fantasypros_mlb, espn_mlb
+from . import rotogrinders_mlb, fantasyalarm_mlb
 
 log = logging.getLogger("external_sources.mlb_lineup_rescue")
 
 ALL_SCRAPERS = (
-    ("rotowire_mlb_lineups",   rotowire_mlb,           "primary"),
-    ("mlb_official_lineups",   mlb_official_lineups,   "ground_truth"),
-    ("fantasypros_mlb_lineups", fantasypros_mlb,       "secondary"),
-    ("espn_mlb_scoreboard",    espn_mlb,               "secondary"),
+    ("rotowire_mlb_lineups",     rotowire_mlb,           "primary"),
+    ("mlb_official_lineups",     mlb_official_lineups,   "ground_truth"),
+    ("fantasypros_mlb_lineups",  fantasypros_mlb,        "secondary"),
+    ("espn_mlb_scoreboard",      espn_mlb,               "secondary"),
+    ("rotogrinders_mlb_lineups", rotogrinders_mlb,       "tertiary"),
+    ("fantasyalarm_mlb_lineups", fantasyalarm_mlb,       "tertiary"),
 )
 
 # Per-scraper hard timeout so a slow site can't stall the rescue.
@@ -177,20 +180,24 @@ async def rescue_mlb_pitchers(date_str: str, games: list[dict]) -> list[dict]:
         _safe_fetch(mlb_official_lineups.fetch_lineups(date_str), "mlb_official_lineups", "https://www.mlb.com/starting-lineups/"),
         _safe_fetch(fantasypros_mlb.fetch_lineups(date_str),  "fantasypros_mlb_lineups", fantasypros_mlb.URL),
         _safe_fetch(espn_mlb.fetch_lineups(date_str),         "espn_mlb_scoreboard",     "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"),
+        _safe_fetch(rotogrinders_mlb.fetch_lineups(date_str), "rotogrinders_mlb_lineups", rotogrinders_mlb.URL),
+        _safe_fetch(fantasyalarm_mlb.fetch_lineups(date_str), "fantasyalarm_mlb_lineups", fantasyalarm_mlb.URL),
     )
     # Merge sources_consulted lists for per-game telemetry.
     all_sources: list[dict] = []
     for b in bundles:
         all_sources.extend(b.get("sources_consulted") or [])
 
-    # Now for each requested game, look it up across all bundles. Use a
-    # priority order: mlb_official > rotowire > fantasypros > espn so the
-    # higher-confidence source wins.
+    # Now for each requested game, look it up across all bundles. Priority
+    # order: mlb_official > rotowire > fantasypros > espn > rotogrinders
+    # > fantasyalarm. Higher-confidence sources win.
     scrapers_in_priority = [
         ("mlb_official_lineups",     bundles[1]),
         ("rotowire_mlb_lineups",     bundles[0]),
         ("fantasypros_mlb_lineups",  bundles[2]),
         ("espn_mlb_scoreboard",      bundles[3]),
+        ("rotogrinders_mlb_lineups", bundles[4]),
+        ("fantasyalarm_mlb_lineups", bundles[5]),
     ]
 
     results: list[dict] = []
