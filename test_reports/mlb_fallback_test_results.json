@@ -1,0 +1,40 @@
+{
+  "timestamp": "2026-05-29T17:06:53.682349",
+  "summary": {
+    "total_tests": 4,
+    "passed": 2,
+    "failed": 2,
+    "success_rate": 50.0
+  },
+  "results": [
+    {
+      "test": "Login",
+      "status": "PASSED",
+      "http_status": 200,
+      "elapsed_time": 0.43,
+      "endpoint": "api/auth/login"
+    },
+    {
+      "test": "Baseball Analysis Run (Fallback Test)",
+      "status": "PASSED",
+      "http_status": 200,
+      "elapsed_time": 0.14,
+      "endpoint": "api/analysis/run"
+    },
+    {
+      "test": "Football Empty Result Test",
+      "status": "FAILED",
+      "error": "Timeout after 60s",
+      "endpoint": "api/analysis/run"
+    },
+    {
+      "test": "Basketball Empty Result Test",
+      "status": "FAILED",
+      "http_status": 200,
+      "expected_status": 409,
+      "elapsed_time": 0.35,
+      "endpoint": "api/analysis/run",
+      "error": "{\"pick_run_id\":\"2206971447\",\"sport\":\"basketball\",\"generated_at\":\"2026-05-29T17:06:53.578739+00:00\",\"result\":{\"verdict\":\"no_value\",\"no_value_message\":\"Hoy no hay valor. No apostar es la mejor apuesta.\",\"picks\":[],\"summary\":{\"high_confidence\":[],\"medium_confidence\":[],\"discarded_motivation\":[],\"discarded_market\":[],\"incomplete_data\":[],\"total_analyzed\":0,\"total_recommended\":0,\"total_discarded\":0,\"data_freshness\":{\"odds\":\"fresh\",\"context\":\"fresh\",\"live_active\":0},\"no_value_found\":true,\"carryover_pi"
+    }
+  ]
+}

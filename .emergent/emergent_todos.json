@@ -1,34 +1,22 @@
 [
   {
-    "content": "C1: Eastern Time en mlb_stats_api (DEFAULT_SEASON, IL/bullpen today)",
+    "content": "Crear normalize_mlb_stats_game + ingest_mlb_direct_fallback en data_ingestion",
     "status": "completed"
   },
   {
-    "content": "C2: Cache validation en get_schedule_with_probables + ContextVar cache_status",
+    "content": "Hook del fallback en _run_analysis_pipeline (sport=baseball) + pipeline_meta",
     "status": "completed"
   },
   {
-    "content": "C1: Eastern Time en mlb_day_orchestrator (analyze_mlb_day date default)",
+    "content": "Nuevos abort_reasons: no_games_all_sources, games_found_but_missing_pitchers",
     "status": "completed"
   },
   {
-    "content": "C3: pipeline_meta enriquecido en mlb_day_orchestrator + log final",
-    "status": "completed"
+    "content": "UI: banner de fallback + nuevos campos en PipelineDebugPanel",
+    "status": "in_progress"
   },
   {
-    "content": "C3: pipeline_meta en _run_analysis_pipeline (server.py)",
-    "status": "completed"
-  },
-  {
-    "content": "C1: FECHA ACTUAL en analyst_engine.py para baseball usa Eastern",
-    "status": "completed"
-  },
-  {
-    "content": "UI: Panel Pipeline debug + humanized abort_reason en AnalysisProgressModal",
-    "status": "completed"
-  },
-  {
-    "content": "Testing agent end-to-end (45/45 PASS)",
-    "status": "completed"
+    "content": "Tests funcionales",
+    "status": "pending"
   }
 ]

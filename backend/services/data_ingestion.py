@@ -678,3 +678,188 @@ async def _enrich_generic(client: httpx.AsyncClient, db, fx_raw: dict, is_live: 
     except Exception as exc:
         log.exception("enrich_generic[%s] failed: %s", sport, exc)
         return None
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# MLB Stats API direct fallback
+# ────────────────────────────────────────────────────────────────────────────
+# When API-Sports returns 0 baseball games for the day (a recurring symptom
+# when the user's API-Sports plan doesn't include MLB or the league is
+# misconfigured), we go straight to the official, free MLB Stats API to
+# ingest the schedule + probable pitchers. The output is normalized into
+# the same `db.matches` shape used by API-Sports so the rest of the
+# pipeline (analyst_engine, time_filter, baseball_historical, etc.)
+# doesn't have to know about the fallback.
+
+MLB_STATSAPI_SCHEDULE_URL = "https://statsapi.mlb.com/api/v1/schedule"
+
+
+def normalize_mlb_stats_game(raw_game: dict) -> Optional[dict]:
+    """Convert a MLB Stats API `dates[].games[]` entry into the internal
+    `db.matches` shape.
+
+    Returns ``None`` when the payload is too malformed to be useful.
+    The output deliberately mirrors the shape produced by the API-Sports
+    baseball normalizer so downstream code (analyst_engine, time_filter,
+    baseball_historical) doesn't need a branch.
+    """
+    if not isinstance(raw_game, dict):
+        return None
+    game_pk = raw_game.get("gamePk")
+    if not game_pk:
+        return None
+
+    teams = raw_game.get("teams") or {}
+    home = teams.get("home") or {}
+    away = teams.get("away") or {}
+    home_team = (home.get("team") or {})
+    away_team = (away.get("team") or {})
+    if not home_team.get("name") or not away_team.get("name"):
+        return None
+
+    status_obj = raw_game.get("status") or {}
+    detailed_state    = status_obj.get("detailedState")
+    abstract_state    = status_obj.get("abstractGameState")
+    is_live           = (abstract_state or "").lower() == "live"
+    game_date         = raw_game.get("gameDate") or ""
+    venue_name        = ((raw_game.get("venue") or {}).get("name"))
+
+    # Compute kickoff_ts (UNIX) so the existing `kickoff_ts >= now_ts` filter
+    # in _run_analysis_pipeline accepts the doc.
+    kickoff_ts: Optional[int] = None
+    try:
+        ts = datetime.fromisoformat((game_date or "").replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        kickoff_ts = int(ts.timestamp())
+    except Exception:
+        kickoff_ts = None
+
+    home_prob = home.get("probablePitcher") or {}
+    away_prob = away.get("probablePitcher") or {}
+
+    doc: dict[str, Any] = {
+        # Mandatory identifiers
+        "match_id":            str(game_pk),
+        "sport":               "baseball",
+        "source":              "mlb_stats_api",
+        # League info (every MLB game belongs to League ID 1)
+        "league":              {"id": 1, "name": "MLB"},
+        "league_id":           1,
+        "season":              ts.year if kickoff_ts else None,
+        # Schedule
+        "kickoff_iso":         game_date,
+        "kickoff_ts":          kickoff_ts,
+        "gameDate":            game_date,    # GAP #0 — keep both fields
+        "status":              detailed_state,
+        "abstractGameState":   abstract_state,
+        "is_live":             is_live,
+        "venue":               venue_name,
+        # Teams (mirror api_sports baseball normalizer shape)
+        "home_team": {
+            "id":    home_team.get("id"),
+            "name":  home_team.get("name"),
+            "context": {"fetched_at": None, "form_last_5": "", "position": None},
+        },
+        "away_team": {
+            "id":    away_team.get("id"),
+            "name":  away_team.get("name"),
+            "context": {"fetched_at": None, "form_last_5": "", "position": None},
+        },
+        # Probable pitchers (top-level + nested mirror for compatibility)
+        "home_probable_id":    home_prob.get("id"),
+        "home_probable_name":  home_prob.get("fullName"),
+        "away_probable_id":    away_prob.get("id"),
+        "away_probable_name":  away_prob.get("fullName"),
+        "home_probable":       {"id": home_prob.get("id"), "name": home_prob.get("fullName")},
+        "away_probable":       {"id": away_prob.get("id"), "name": away_prob.get("fullName")},
+        # No odds available from MLB Stats API — the user can still see signals/picks
+        # but markets without book lines fall back to the engine's own projections.
+        "odds_snapshots":      [],
+        "live_stats":          None,
+        "h2h_recent":          [],
+        "data_complete":       False,
+        "fallback_used":       True,
+        "updated_at":          nz.now_iso(),
+    }
+    # P2 — provenance
+    prov.attach_to_match(
+        doc,
+        primary_source="mlb_stats_api",
+        odds_available=False,
+        stats_available=True,
+        h2h_available=False,
+        lineups_available=bool(home_prob.get("id") and away_prob.get("id")),
+        context_available=False,
+        live_available=is_live,
+    )
+    return doc
+
+
+async def ingest_mlb_direct_fallback(
+    db,
+    date_str: str,
+    *,
+    client: Optional[httpx.AsyncClient] = None,
+) -> list[dict]:
+    """Direct ingest from MLB Stats API (no key, no plan) when API-Sports
+    returns 0 baseball games for the requested date.
+
+    Always upserts to `db.matches` so the rest of `_run_analysis_pipeline`
+    picks them up via the standard candidate query.
+
+    Returns the list of normalized + persisted match docs (may be empty
+    if the API itself returned no games).
+    """
+    if not date_str:
+        return []
+
+    params = {
+        "sportId": 1,
+        "date": date_str,
+        "hydrate": "probablePitcher,team,linescore,venue",
+    }
+    own_client = False
+    if client is None:
+        client = httpx.AsyncClient(timeout=15.0)
+        own_client = True
+
+    try:
+        try:
+            r = await client.get(MLB_STATSAPI_SCHEDULE_URL, params=params)
+            r.raise_for_status()
+            data = r.json()
+        except Exception as exc:
+            log.warning("MLB Stats API fallback fetch failed for %s: %s", date_str, exc)
+            return []
+    finally:
+        if own_client:
+            await client.aclose()
+
+    raw_games: list[dict] = []
+    for date_obj in (data.get("dates") or []):
+        raw_games.extend(date_obj.get("games") or [])
+
+    log.info("MLB Stats API fallback: %d raw games for %s", len(raw_games), date_str)
+
+    persisted: list[dict] = []
+    for rg in raw_games:
+        doc = normalize_mlb_stats_game(rg)
+        if not doc:
+            continue
+        try:
+            await db.matches.update_one(
+                {"match_id": doc["match_id"]},
+                {"$set": doc},
+                upsert=True,
+            )
+            persisted.append(doc)
+        except Exception as exc:
+            log.warning("MLB Stats API fallback upsert failed for %s: %s",
+                        doc.get("match_id"), exc)
+
+    log.info(
+        "MLB Stats API fallback persisted %d/%d games to db.matches (date=%s)",
+        len(persisted), len(raw_games), date_str,
+    )
+    return persisted

@@ -274,6 +274,25 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
           </div>
         )}
 
+        {isDone && pipelineMeta?.fallback_used && (
+          <div
+            className="rounded-md border border-cyan-500/30 bg-cyan-500/5 px-3 py-2 text-xs space-y-0.5"
+            data-testid="progress-modal-fallback-banner"
+          >
+            <div className="font-semibold text-cyan-200 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
+              {lang === 'es'
+                ? 'Se usó MLB Stats API como respaldo'
+                : 'MLB Stats API fallback was used'}
+            </div>
+            <div className="text-cyan-200/80 leading-relaxed">
+              {lang === 'es'
+                ? `API-Sports no encontró juegos (${pipelineMeta.api_sports_games_found ?? 0}). MLB Stats API devolvió ${pipelineMeta.mlb_stats_api_games_found ?? 0} juegos.`
+                : `API-Sports returned ${pipelineMeta.api_sports_games_found ?? 0} games. MLB Stats API returned ${pipelineMeta.mlb_stats_api_games_found ?? 0}.`}
+            </div>
+          </div>
+        )}
+
         {isDone && isDoneEmpty && (
           <div
             className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-xs space-y-1"
@@ -320,6 +339,8 @@ const ABORT_REASON_COPY = {
     no_probable_pitchers_all_sources:    'No se pudieron confirmar pitchers ni en StatsAPI ni en MLB.com.',
     all_games_already_played_or_finished:'Todos los juegos ya están en curso o finalizados (filtrados por seguridad).',
     no_games_for_date:                   'No se encontraron juegos MLB para esta fecha.',
+    no_games_all_sources:                'No se encontraron juegos MLB para esta fecha en API-Sports ni en MLB Stats API.',
+    games_found_but_missing_pitchers:    'Hay juegos MLB programados, pero faltan pitchers confirmados. El engine no analiza hasta tener ambos abridores.',
   },
   en: {
     no_value_found:                      'The engine ran end-to-end, but no market cleared the value filters.',
@@ -328,6 +349,8 @@ const ABORT_REASON_COPY = {
     no_probable_pitchers_all_sources:    'Could not confirm starting pitchers from StatsAPI nor MLB.com.',
     all_games_already_played_or_finished:'All games are already live or finished (filtered for safety).',
     no_games_for_date:                   'No MLB games scheduled for this date.',
+    no_games_all_sources:                'No MLB games found for this date in API-Sports nor MLB Stats API.',
+    games_found_but_missing_pitchers:    'There are MLB games scheduled, but starting pitchers are not confirmed yet. The engine waits for both starters.',
   },
 };
 
@@ -351,12 +374,17 @@ function PipelineDebugPanel({ meta, lang }) {
   const rows = [
     { k: lang === 'es' ? 'Fecha analizada'      : 'Date analysed',  v: meta.date_str },
     { k: lang === 'es' ? 'Zona horaria'         : 'Timezone',       v: meta.date_basis },
+    isMLB && { k: lang === 'es' ? 'Fuente primaria' : 'Primary source', v: meta.primary_source || 'api_sports' },
+    isMLB && meta.fallback_used && { k: lang === 'es' ? 'Fallback usado' : 'Fallback used', v: meta.fallback_reason || 'yes' },
+    isMLB && meta.api_sports_games_found != null && { k: lang === 'es' ? 'Juegos API-Sports' : 'API-Sports games', v: meta.api_sports_games_found },
+    isMLB && (meta.mlb_stats_api_games_found ?? 0) > 0 && { k: lang === 'es' ? 'Juegos MLB Stats API' : 'MLB Stats API games', v: meta.mlb_stats_api_games_found },
     isMLB && { k: lang === 'es' ? 'Juegos en schedule'  : 'Schedule games', v: meta.schedule_games_found },
     isMLB && { k: lang === 'es' ? 'Pitchers confirmados': 'Confirmed pitchers', v: meta.confirmed_games },
-    isMLB && { k: lang === 'es' ? 'Juegos procesados'   : 'Games processed',    v: meta.games_processed },
-    isMLB && { k: lang === 'es' ? 'Descartados (finalizados)' : 'Dropped (past/finished)', v: meta.dropped_past_or_finished },
-    isMLB && { k: lang === 'es' ? 'Descartados (sin pitcher)' : 'Dropped (missing pitcher)', v: meta.dropped_missing_pitchers },
-    isMLB && { k: lang === 'es' ? 'Descartados (datos pitcher <3 ap.)' : 'Dropped (low pitcher data)', v: meta.dropped_low_pitcher_data },
+    isMLB && (meta.games_missing_pitchers ?? 0) > 0 && { k: lang === 'es' ? 'Juegos sin pitcher' : 'Games missing pitcher', v: meta.games_missing_pitchers },
+    isMLB && meta.games_processed != null && { k: lang === 'es' ? 'Juegos procesados'   : 'Games processed',    v: meta.games_processed },
+    isMLB && (meta.dropped_past_or_finished ?? 0) > 0 && { k: lang === 'es' ? 'Descartados (finalizados)' : 'Dropped (past/finished)', v: meta.dropped_past_or_finished },
+    isMLB && (meta.dropped_missing_pitchers ?? 0) > 0 && { k: lang === 'es' ? 'Descartados (sin pitcher)' : 'Dropped (missing pitcher)', v: meta.dropped_missing_pitchers },
+    isMLB && (meta.dropped_low_pitcher_data ?? 0) > 0 && { k: lang === 'es' ? 'Descartados (datos pitcher <3 ap.)' : 'Dropped (low pitcher data)', v: meta.dropped_low_pitcher_data },
     !isMLB && { k: lang === 'es' ? 'Partidos ingestados'    : 'Ingested matches',  v: meta.ingested_total },
     !isMLB && { k: lang === 'es' ? 'Candidatos seleccionados': 'Candidates picked', v: meta.candidates_count },
     { k: lang === 'es' ? 'Picks recomendados'  : 'Recommended picks', v: meta.final_picks_count ?? meta.picks_total },

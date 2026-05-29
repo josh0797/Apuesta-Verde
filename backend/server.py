@@ -670,6 +670,46 @@ async def _run_analysis_pipeline(
         now_ts = datetime.now(timezone.utc).timestamp()
         upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
 
+    # ── MLB Stats API fallback (baseball only) ──────────────────────────
+    # If API-Sports returned 0 baseball games for today, hit the official
+    # free MLB Stats API directly so the user always gets MLB coverage
+    # even when the API-Sports plan doesn't include baseball. Track both
+    # sources' counts in pipeline_meta so the UI can explain what happened.
+    pipeline_meta["api_sports_games_found"] = len(upcoming) if sport == "baseball" else None
+    pipeline_meta["mlb_stats_api_games_found"] = 0
+    pipeline_meta["fallback_used"] = False
+    pipeline_meta["fallback_reason"] = None
+    pipeline_meta["primary_source"] = "api_sports"
+    if sport == "baseball" and not upcoming and not live_only:
+        log.warning(
+            "BASEBALL: api_sports returned 0 games for %s — trying MLB Stats API fallback",
+            pipeline_meta["date_str"],
+        )
+        try:
+            mlb_games = await ingestion.ingest_mlb_direct_fallback(
+                db, pipeline_meta["date_str"],
+            )
+        except Exception as exc:
+            log.warning("MLB Stats API fallback crashed: %s", exc)
+            mlb_games = []
+        pipeline_meta["mlb_stats_api_games_found"] = len(mlb_games)
+        if mlb_games:
+            pipeline_meta["source_used"]     = "mlb_stats_api_fallback"
+            pipeline_meta["fallback_used"]   = True
+            pipeline_meta["fallback_reason"] = "api_sports_zero_games"
+            # Re-query db.matches so we pick up the just-persisted MLB
+            # games (with their kickoff_ts already populated).
+            query_upcoming = {**_sport_filter(sport), "is_live": False}
+            upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
+            now_ts = datetime.now(timezone.utc).timestamp()
+            upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
+            log.info(
+                "MLB fallback succeeded: %d games persisted, %d kept after time filter",
+                len(mlb_games), len(upcoming),
+            )
+        else:
+            pipeline_meta["source_used"]  = "none"
+
     # Big-Five filter (football only) — surfaces only Premier/LaLiga/Serie A/Bundesliga/Ligue 1.
     if big_five_only and sport == "football":
         from services.football_competitions import is_big_five  # local import to avoid cycle
@@ -792,16 +832,54 @@ async def _run_analysis_pipeline(
             )
         if ingest_error:
             detail += f" — {ingest_error}"
-        pipeline_meta["abort_reason"] = (
-            "no_priority_fixtures" if (priority_fixtures is not None and len(priority_fixtures) == 0)
-            else "no_candidates_for_sport"
-        )
+        if sport == "baseball":
+            # We already tried the MLB Stats API fallback above; if we
+            # still have zero candidates, both sources failed.
+            pipeline_meta["abort_reason"] = "no_games_all_sources"
+            pipeline_meta["source_used"]  = "none"
+        else:
+            pipeline_meta["abort_reason"] = (
+                "no_priority_fixtures" if (priority_fixtures is not None and len(priority_fixtures) == 0)
+                else "no_candidates_for_sport"
+            )
         log.info(
-            "[PIPELINE_META] sport=%s date=%s basis=%s ingested=%d candidates=%d abort=%s",
+            "[PIPELINE_META] sport=%s date=%s basis=%s ingested=%d candidates=%d abort=%s "
+            "api_sports=%s mlb=%s fallback=%s",
             sport, pipeline_meta["date_str"], pipeline_meta["date_basis"],
             pipeline_meta["ingested_total"], pipeline_meta["candidates_count"],
             pipeline_meta["abort_reason"],
+            pipeline_meta.get("api_sports_games_found"),
+            pipeline_meta.get("mlb_stats_api_games_found"),
+            pipeline_meta.get("fallback_used"),
         )
+        # For baseball we return a friendly empty payload (with
+        # pipeline_meta) instead of raising 409 so the UI can render the
+        # Pipeline Debug panel + humanized abort copy. Other sports keep
+        # the legacy 409 contract so existing callers don't break.
+        if sport == "baseball":
+            empty_result = {
+                "picks":   [],
+                "summary": {"no_value_found": True, "blocked_picks": []},
+                "pipeline_meta": pipeline_meta,
+            }
+            empty_record = {
+                "id": uuid.uuid4().hex[:10],
+                "user_id": user_id,
+                "sport": sport,
+                "generated_at": started.isoformat(),
+                "matches_analyzed": 0,
+                "payload": empty_result,
+            }
+            try:
+                await db.picks.insert_one(_normalize_keys_for_bson(empty_record))
+            except Exception as exc:
+                log.warning("empty baseball pick_run insert failed: %s", exc)
+            return {
+                "pick_run_id": empty_record["id"],
+                "sport": sport,
+                "generated_at": empty_record["generated_at"],
+                "result": empty_result,
+            }
         raise HTTPException(status_code=409, detail=detail)
 
     await _emit("analyzing", 65, f"LLM analyzing {len(candidates)} {sport} matches…")
@@ -985,19 +1063,52 @@ async def _run_analysis_pipeline(
             + len((result.get("summary") or {}).get("incomplete_data") or [])
             + len((result.get("summary") or {}).get("skipped_low_relevance") or [])
         )
+        # For baseball: count how many candidates were dropped specifically
+        # because they had no probable pitcher (vs general "incomplete_data").
+        if sport == "baseball":
+            missing_p = 0
+            for c in candidates or []:
+                if not (c.get("home_probable_id") or (c.get("home_probable") or {}).get("id")):
+                    missing_p += 1
+                    continue
+                if not (c.get("away_probable_id") or (c.get("away_probable") or {}).get("id")):
+                    missing_p += 1
+            pipeline_meta["games_missing_pitchers"] = missing_p
+            pipeline_meta["confirmed_games"]       = max(0, len(candidates or []) - missing_p)
+            pipeline_meta["schedule_games_found"]  = max(
+                int(pipeline_meta.get("api_sports_games_found") or 0),
+                int(pipeline_meta.get("mlb_stats_api_games_found") or 0),
+                len(candidates or []),
+            )
         if pipeline_meta["final_picks_count"] == 0 and not pipeline_meta.get("abort_reason"):
-            # Engine ran end-to-end but nothing surfaced as a value bet.
-            pipeline_meta["abort_reason"] = "no_value_found"
+            # Baseball-specific refinement of "no_value_found":
+            #   • games exist but no pitchers       → games_found_but_missing_pitchers
+            #   • engine truly ran but nothing of value → no_value_found
+            if sport == "baseball":
+                schedule_n = int(pipeline_meta.get("schedule_games_found") or 0)
+                confirmed_n = int(pipeline_meta.get("confirmed_games") or 0)
+                if schedule_n > 0 and confirmed_n == 0:
+                    pipeline_meta["abort_reason"] = "games_found_but_missing_pitchers"
+                else:
+                    pipeline_meta["abort_reason"] = "no_value_found"
+            else:
+                pipeline_meta["abort_reason"] = "no_value_found"
         pipeline_meta["finished_at"] = datetime.now(timezone.utc).isoformat()
         result["pipeline_meta"] = pipeline_meta
         log.info(
             "[PIPELINE_META] sport=%s date=%s basis=%s ingested=%d candidates=%d "
-            "picks=%d rescued=%d discarded=%d blocked=%d abort=%s",
+            "picks=%d rescued=%d discarded=%d blocked=%d abort=%s "
+            "primary=%s source_used=%s fallback=%s api_sports_games=%s mlb_games=%s",
             sport, pipeline_meta["date_str"], pipeline_meta["date_basis"],
             pipeline_meta["ingested_total"], pipeline_meta["candidates_count"],
             pipeline_meta["final_picks_count"], pipeline_meta["final_rescued_count"],
             pipeline_meta["final_discarded_count"], pipeline_meta["blocked_by_time_filter"],
             pipeline_meta.get("abort_reason") or "none",
+            pipeline_meta.get("primary_source"),
+            pipeline_meta.get("source_used"),
+            pipeline_meta.get("fallback_used"),
+            pipeline_meta.get("api_sports_games_found"),
+            pipeline_meta.get("mlb_stats_api_games_found"),
         )
     except Exception as _exc:
         log.debug("pipeline_meta finalize failed (non-fatal): %s", _exc)
