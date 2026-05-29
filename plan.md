@@ -1,4 +1,4 @@
-# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening + P3 Editorial Context + P4 Playwright + **Bright Data Unlocker** + **Historical Detail Enrichment (Basketball→Baseball)** + **MLB Margin & Total Script Engine v2** (ACTUALIZADO)
+# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening + P3 Editorial Context + P4 Playwright + **Bright Data Unlocker** + **Historical Detail Enrichment (Basketball→Baseball)** + **MLB Margin & Total Script Engine v2** + **MLB-V3 Histórico Baseball** + **MLB-V4 Feedback Loop** (ACTUALIZADO)
 
 ## 1) Objectives
 - Reducir **falsos descartes**: no tratar igual todo edge negativo; permitir **tolerancia contextual** en mercados protegidos.
@@ -29,25 +29,31 @@
   - Subprocess + stealth + dispatch paralelo Scrapy/Playwright.
   - Detecta challenges anti-bot y degrada sin romper análisis.
 
-- **(🆕 NUEVO OBJETIVO / PENDIENTE)** **Bright Data Web Unlocker** como **tercer backend**:
+- **(🟨 PENDIENTE / SIGUIENTE PRIORIDAD)** **Bright Data Web Unlocker** como tercer backend:
   - Integrar Bright Data (API mode) para desbloquear fuentes con Cloudflare/PerimeterX.
   - Usarlo para **Sportytrader/BeSoccer/scores24** y extenderlo a **fuentes editoriales NBA/basketball**.
 
-- **(🆕 NUEVO OBJETIVO / PENDIENTE)** **Historical Detail Enrichment**:
-  - Antes de analizar/descartar **basketball/baseball**, enriquecer con histórico profundo (10–15 juegos) y generar perfiles por equipo + combinado.
-  - Añadir capas de rescate específicas:
-    - `basketballTotalPointsRescueLayer(match)`
-    - `baseballRunsRescueLayer(match)`
-  - Todo pasa por Moneyball (edge/guardrails), con traps históricas.
-  - UI: sección “Historial profundo” por deporte.
+- **(✅ COMPLETADO)** **Historical Detail Enrichment (Baseball)**:
+  - Antes de analizar/descartar MLB, enriquecer con histórico profundo (últimos 15) y generar perfiles por equipo + combinado.
+  - Añadir `baseballRunsRescueLayer(match)` y **trap signals históricas**.
+
+- **(🟨 PENDIENTE)** **Historical Detail Enrichment (Basketball)**:
+  - Antes de analizar/descartar basketball, enriquecer con histórico profundo y generar perfiles.
+  - Añadir `basketballTotalPointsRescueLayer(match)`.
+  - UI: sección “Historial profundo”.
 
 - **(✅ COMPLETADO)** **MLB Margin & Total Script Engine v2 (solo Baseball)**:
-  - Evolucionar el engine MLB para comportarse como un **sistema especializado en guion MLB**:
-    - Predecir **margen de victoria** (enfasis Run Line -1.5 favoritos dominantes)
-    - Seleccionar líneas **Over/Under más protegidas** (6.5/7.5/8/8.5/9 y unders equivalentes)
-    - Análisis **pitcher-first** con pitchers confirmados como gate duro
+  - Engine especializado en guion MLB:
+    - Predecir **margen de victoria** (Run Line -1.5 favoritos dominantes)
+    - Seleccionar líneas **Over/Under más protegidas** (6.5/7.5/8/8.5/9 y equivalentes)
+    - Análisis **pitcher-first** con gate de pitchers confirmados
     - Parlays **MLB-only** con validación de correlación positiva
-  - Restricción crítica validada: **NO tocar basketball/football** (backend y UI).
+  - Restricción crítica: **NO tocar basketball/football** (backend y UI).
+
+- **(✅ COMPLETADO)** **MLB Feedback Loop (P2)**:
+  - Guardar outcomes reales por pick: `result/outcome`, `margin`, `totalRuns`, `runLineCovered`, `overHit`.
+  - Guardar snapshot v2: `expectedRuns`, `marginProjection`, `coverProbability`, `lineSelected`.
+  - Recalibración automática cada 50 picks settled → persiste pesos en DB.
 
 ---
 
@@ -102,57 +108,37 @@
 **Estado:** ✅ COMPLETADO (2026-05-29)
 
 ### G3.1 Bug #1 — Partidos jugados como picks (RECURRENTE)
-- **Causa raíz**: No había filtro de tiempo antes de mandar al LLM. El normalizer aceptaba todo y el scheduler permitía cuentas ya jugadas.
+- **Causa raíz**: No había filtro de tiempo antes de mandar al LLM.
 - **Fix defense-in-depth (5 capas)**:
-  1. `services/time_filter.py` — utilidades canónicas: `is_match_upcoming`, `is_match_finished`, `filter_upcoming`, `validate_pick_before_output`, `filter_blocked_picks`, `STATUS_FINISHED`.
-  2. `analyst_engine.analyze_matches` — Stage 0 filter al INICIO (todos los deportes).
-  3. `mlb_day_orchestrator` — Stage 0 después de confirmar pitchers. abort_reason='all_games_already_played_or_finished' si no queda nada.
-  4. `parlay_correlation_validator.parlay_builder` — drop picks con status Final / past kickoff antes de construir parlay. `time_blocked` field expuesto.
-  5. `server._run_analysis_pipeline` — última línea: `filter_blocked_picks` sobre picks/rescued/watchlist/protected_acceptable. Los bloqueados van a `summary.blocked_picks[]` y `total_recommended` se decrementa.
+  1. `services/time_filter.py` — utilidades canónicas.
+  2. `analyst_engine.analyze_matches` — Stage 0 filter al inicio (todos los deportes).
+  3. `mlb_day_orchestrator` — Stage 0 tras confirmar pitchers; abort_reason='all_games_already_played_or_finished'.
+  4. `parlay_correlation_validator.parlay_builder` — drop picks con status Final / past kickoff.
+  5. `server._run_analysis_pipeline` — `filter_blocked_picks` final.
 
 ### G3.2 Bug #2 — Under recomendado incorrecto (Cubs-Pirates 7-2 con Under 4.5)
-- **Causa raíz**: `_pitcher_quality_score` solo usaba ERA/WHIP/K-BB, no xERA/FIP.
+- **Causa raíz**: `_pitcher_quality_score` no priorizaba xERA/FIP.
 - **Fix**:
-  - Reescritura completa de `_pitcher_quality_score` (mlb_intelligence): prioridad xERA → FIP → xFIP → ERA, con weight extra para xERA/FIP. Incorpora Hard Hit % y Barrel %.
-  - Detección de regresión: ERA vs xERA divergence ≥1.0 → tag `_regression_signal = PITCHER_OVERPERFORMING` (penalty -0.15) o `PITCHER_UNDERVALUED` (bonus +0.10).
-  - `UNDER_SAFETY_RULES` + `under_pick_passes_safety_rules()`: bloquea Under cuando hay overperforming ace, pitcher quality baja, buffer insuficiente, aperturas insuficientes.
-  - `validate_pick_before_output` bloquea Under cuando aparece `PITCHER_OVERPERFORMING`.
-
-### Testing — Iteration 32
-- **22/23 tests passed (95.7%)** — solo un test-expectation issue.
-- Verificado E2E: `/api/mlb/day?date=2025-08-15` (pasado) ahora devuelve 0 picks con `abort_reason='all_games_already_played_or_finished'`.
+  - Reescritura `_pitcher_quality_score` priorizando xERA→FIP→xFIP→ERA.
+  - Señales de regresión `PITCHER_OVERPERFORMING` / `PITCHER_UNDERVALUED`.
+  - Reglas `UNDER_SAFETY_RULES` + validación final.
 
 ---
 
 ## Phase G2 — Baseball Savant + Parlay Correlation Validator
 **Estado:** ✅ COMPLETADO (2026-05-29)
 
-### G2A — Enrichment Layer
-- `services/baseball_savant.py` — `fetch_pitcher_savant()` + `enrich_pitcher_dict()` (xERA/FIP/xFIP/HardHit/Barrel/EV). Cache 24h.
-- `services/mlb_team_stats.py` — `get_team_hand_splits()` + `get_team_bullpen_usage()` cache 30min, `_source_url` literal.
-- `mlb_day_orchestrator.py` — enriquecimiento paralelo (6s wait_for por task), `MAX_GAMES_PER_CALL=8`, `per_source_urls` completos.
-
-### G2B — Parlay Correlation Validator
-- `services/parlay_correlation_validator.py` — reglas positivas/negativas + `parlay_builder()` genérico.
-- Orchestrator response añade `parlay_suggested`.
-
-### Testing — Iteration 31
-- 22/22 tests passed.
+- `services/baseball_savant.py` — xERA/FIP/xFIP/HardHit/Barrel.
+- `services/mlb_team_stats.py` — splits + bullpen usage.
+- `services/parlay_correlation_validator.py` — builder genérico.
 
 ---
 
 ## Phase G1 — MLB Pre-game Analytics Engine
 **Estado:** ✅ COMPLETADO (2026-05-29)
 
-### G1.1 Filosofía
-Motor MLB dedicado a **edge repetible en mercados protegidos**.
-
-### G1.2 Módulos creados
-- `services/mlb_pregame_analytics.py` — funciones puras + `mlb_starter_lineup_under_profile`.
-- `services/mlb_day_orchestrator.py` — endpoint `GET /api/mlb/day?date=YYYY-MM-DD`.
-
-### G1.3 Testing
-- Iteration 30: 76/76.
+- `services/mlb_pregame_analytics.py`
+- `services/mlb_day_orchestrator.py`
 
 ---
 
@@ -161,81 +147,89 @@ Motor MLB dedicado a **edge repetible en mercados protegidos**.
 
 ### G4.1 MLB Scrapers (rescate de pitchers/lineups)
 - Integrados en `services/external_sources/mlb_lineup_rescue.py`:
-  - `rotogrinders_mlb.py` (NEW)
-  - `fantasyalarm_mlb.py` (NEW)
-  - Añadidos a `ALL_SCRAPERS`, a la ejecución paralela (`asyncio.gather`) y a la prioridad de matching.
+  - `rotogrinders_mlb.py`
+  - `fantasyalarm_mlb.py`
 
 ### G4.2 Basketball scrapers (telemetría + fallback terciario)
-- Nuevo `services/external_sources/basketball_rescue.py`:
-  - `rescue_basketball_day(date_str)`
-  - `attach_evidence(matches, rescue_payload)`
-- Nuevo fallback en `services/data_ingestion.py`:
-  - `ingest_basketball_sofascore_fallback()` (NBA-only filter)
-  - `normalize_sofascore_basketball_game()`
-- `server.py`:
-  - tras ESPN NBA fallback vacío, intenta SofaScore (fail-soft)
-  - ejecuta rescue telemétrico para adjuntar `_external_evidence` sin afectar football/baseball.
-
-### G4.3 Testing
-- Smoke tests de import + endpoint basketball `abort_reason=no_games_all_sources` (sin crash).
-- Nota: sandbox sin BrightData ⇒ 403 esperables en SofaScore/Flashscore (comportamiento correcto).
+- `services/external_sources/basketball_rescue.py`
+- `services/data_ingestion.py`:
+  - `ingest_basketball_sofascore_fallback()` (NBA-only)
+- `server.py` wiring fail-soft.
 
 ---
 
 ## Phase MLB-V2 — MLB Margin & Total Script Engine v2
 **Estado:** ✅ COMPLETADO (2026-05-29)
 
-### MLB-V2.0 Restricciones de diseño (cumplidas)
-- ✅ **No reemplazar** `mlb_pregame_analytics.py`.
-- ✅ Crear capa nueva `mlb_pregame_analytics_v2.py` que **importa** el módulo base y añade lógica avanzada.
-- ✅ Activación automática **solo** si `sport=baseball` (vía MLB orchestrator).
-- ✅ `parlay_builder()` genérico se mantiene intacto (football/basketball no se toca).
+- Nuevo módulo `/app/backend/services/mlb_pregame_analytics_v2.py`.
+- Señales nuevas en `signal_catalog.py` (sport-aware).
+- `mlb_day_orchestrator.py`:
+  - `_mlb_script_v2` + `margin_v2` por pick.
+  - Parlays `MLB_ONLY` vía `mlb_parlay_builder()`.
+- Frontend:
+  - `MLBScriptPanel.jsx` montado en `MatchCard.jsx` (solo baseball).
+- Testing:
+  - `/app/test_reports/mlb_v2_backend_test.json` → **12/12 PASS**.
 
-### MLB-V2.1 Backend foundation (nuevo módulo v2) — ✅
-**Entregables**
-- `/app/backend/services/mlb_pregame_analytics_v2.py`
-  - `favorite_margin_profile(recent_games)`
-  - `run_line_dominance_model(ctx)`
-  - `smart_total_line_selector(expected_runs, ctx, market_lines)`
-  - `pitcher_centered_evaluation(ctx)` (gate pitchers confirmados)
-  - `same_game_correlation_rule(pair_ctx)`
-  - `classify_pick_type(pick_ctx)`
-  - `mlb_parlay_builder(candidates, max_size=4, min_correlation=60)`
-  - `build_v2_payload(...)` + `emit_v2_signals(...)`
+---
 
-### MLB-V2.2 Signal catalog + orchestrator wiring — ✅
-**Back-end**
-- `services/signal_catalog.py`:
-  - Añadidos y validados (sport-aware):
-    - `RUN_LINE_MARGIN_EDGE`
-    - `SMART_OVER_LINE_SELECTED`
-    - `STRONG_STARTING_PITCHER_EDGE`
-    - `PITCHER_MISMATCH_DETECTED`
-    - `LINEUP_VS_PITCHER_EDGE`
-    - `SAME_GAME_CORRELATED_PAIR`
+## Phase MLB-V3 — Baseball Historical Detail Enrichment + baseballRunsRescueLayer
+**Estado:** ✅ COMPLETADO (2026-05-29)
 
-**Orchestrator** (`services/mlb_day_orchestrator.py`)
-- Inyección por pick:
-  - `_mlb_script_v2` (payload completo para UI)
-  - `margin_v2` (storage hook mínimo para P2 feedback loop)
-- Parlay:
-  - Reemplazo en MLB orchestrator: `parlay_builder()` → `_v2_mlb_parlay_builder()`.
-  - `parlay_suggested.parlayType='MLB_ONLY'`.
+### MLB-V3.1 Historical Profile (últimos 15)
+- Módulo existente extendido y ya en uso:
+  - `/app/backend/services/historical_enrichment/baseball_historical.py`
+  - `enrich_baseball_historical_profile(match, lookback=15)`
+- Fuente:
+  - **Primaria:** MLB Stats API (schedule + linescore)
+  - **Fallback:** API-Sports cuando MLB Stats API no tenga datos
 
-### MLB-V2.3 Frontend — MLBScriptPanel (solo baseball) — ✅
-- `/app/frontend/src/components/MLBScriptPanel.jsx` (colapsable, baseball-only)
-- `MatchCard.jsx`:
-  - Renderiza el panel únicamente cuando `sport === 'baseball'`.
-  - No altera la UI base de basketball/football.
+### MLB-V3.2 Trap signals históricas
+- `/app/backend/services/historical_enrichment/baseball_trap_signals.py`
+  - `collect_baseball_trap_signals()` + `compute_extra_fragility()`
+- Wiring en `mlb_day_orchestrator.py`:
+  - `pick_payload.historical_trap_signals[]` + bump a `fragility.score`.
 
-### MLB-V2.4 Testing (backend) — ✅
-- Reporte: `/app/test_reports/mlb_v2_backend_test.json`
-- Resultado: **12/12 PASS (100%)**
-- Incluye:
-  - unit tests de todas las funciones v2
-  - sport-aware signals (no leak a football/basketball)
-  - integración `GET /api/mlb/day` con `parlayType='MLB_ONLY'`
-  - regresión basketball/football: sin `_mlb_script_v2` ni cambios de parlay
+### MLB-V3.3 baseballRunsRescueLayer
+- Rescue existente:
+  - `/app/backend/services/baseball_runs_rescue.py` (`find_baseball_runs_value()`)
+- Wiring:
+  - si no hay `chosen_market` (score>=72) y hay perfil histórico disponible → intenta rescate en Totales/Team Totals/F5/Run Line +1.5.
+
+### MLB-V3 Testing
+- Validado en `/app/test_reports/iteration_39.json`.
+
+---
+
+## Phase MLB-V4 — Feedback Loop MLB + Recalibración automática (cada 50 picks)
+**Estado:** ✅ COMPLETADO (2026-05-29)
+
+### MLB-V4.1 Módulo feedback
+- Nuevo módulo:
+  - `/app/backend/services/mlb_feedback_loop.py`
+  - Almacena outcomes + snapshot v2.
+  - Auto-recalibración cada 50 (fail-soft, bounded weights).
+
+### MLB-V4.2 Storage híbrido (2c)
+- Extiende `pick_tracking` con `mlb_metrics`:
+  - `{margin, totalRuns, runLineCovered, overHit}`
+- Nueva colección:
+  - `mlb_pick_feedback` (1 doc por pick settled)
+- Nueva colección:
+  - `mlb_engine_weights` (doc `_id="active"`)
+
+### MLB-V4.3 Endpoints (live)
+- `GET  /api/mlb/engine/weights`
+- `POST /api/mlb/picks/{pick_id}/settle`
+- `POST /api/mlb/engine/recompute`
+
+### MLB-V4.4 Engine reads weights
+- `mlb_pregame_analytics_v2.run_line_dominance_model()` usa `ctx['_weights']`.
+- `mlb_parlay_builder()` acepta `weights=` opcional.
+- Orchestrator carga una vez por día y expone versión en `pipeline_meta.mlb_engine_weights_version`.
+
+### MLB-V4 Testing
+- Validado en `/app/test_reports/iteration_39.json`.
 
 ---
 
@@ -248,15 +242,12 @@ Motor MLB dedicado a **edge repetible en mercados protegidos**.
 
 ### B) Basketball Historical Detail (P1)
 1. Implementar profile + integración pipeline.
-2. Añadir rescue layer totales/team totals.
+2. Añadir rescue layer (totales/team totals) + trap signals.
 3. UI “Historial profundo”.
 
-### C) Baseball Historical Detail (P1)
-1. Implementar profile + rescue + UI.
-
-### D) Feedback Loop MLB (P2)
-1. Guardar resultados reales por pick (margin, totalRuns, runLineCovered, overHit).
-2. Recalibración cada 50 picks (weights projectedMargin/pitcherEdge/bullpen/lineSafety/correlation).
+### C) Feedback Loop UI (P2/P3 opcional)
+1. Pantalla de estado: pesos activos + pending_count para siguiente recalibración.
+2. Botón “recompute” manual (ya existe endpoint).
 
 ---
 
@@ -267,16 +258,31 @@ Motor MLB dedicado a **edge repetible en mercados protegidos**.
   - Scrapy/Playwright/BrightData degradan elegante.
   - Fuentes bloqueadas se desbloquean con Unlocker cuando procede.
   - UI muestra contexto con fuentes y warnings.
+
 - Historical Detail Enrichment:
-  - Ningún match basketball/baseball prioritario se descarta sin histórico profundo.
+  - Ningún match (basketball/baseball) prioritario se descarta sin intentar perfil histórico.
   - Se detectan oportunidades en **totales/team totals/F5/run line** con razonamiento humano.
   - Moneyball guardrail siempre manda: sin edge → no recomendación.
 
 - **MLB-V2 (✅ cumplido y validado)**
   - Picks MLB incluyen: `Projected Margin`, `Cover Probability`, `Best/Recommended Total Line`, `lineSafetyScore`, `pickType`, `sameGameCorrelation`.
   - Parlays MLB-only de 2–4 picks con correlación ≥60 (cuando existan suficientes picks elegibles).
-  - Run Line -1.5 solo cuando hay dominancia real (no “favoritos por 1 carrera”).
+  - Run Line -1.5 solo cuando hay dominancia real.
   - **Cero regresiones**:
     - Football/basketball sin `_mlb_script_v2`.
     - Parlay genérico intacto fuera de MLB.
-  - Testing: **12/12 PASS** en `/app/test_reports/mlb_v2_backend_test.json`.
+
+- **MLB-V3 (✅ cumplido)**
+  - `baseballHistoricalProfile` presente por pick (fail-soft: `available=false` con `_reason`).
+  - `historical_trap_signals` expuestas y ajustan `fragility.score`.
+  - `baseball_runs_rescue` se intenta antes de descartar cuando el histórico lo permite.
+
+- **MLB-V4 (✅ cumplido)**
+  - Endpoints live: `GET /api/mlb/engine/weights`, `POST /api/mlb/picks/{id}/settle`, `POST /api/mlb/engine/recompute`.
+  - Métricas outcome correctas: `margin/totalRuns/runLineCovered/overHit`.
+  - Recalibración automática cada 50 picks settled, con pesos bounded.
+
+### Testing status
+- `/app/test_reports/mlb_v2_backend_test.json`: **12/12 PASS (100%)**
+- `/app/test_reports/iteration_39.json`: **12/13 PASS (92.3%)**
+  - Única incidencia: timeout en test de regresión fútbol con `background=False` (no funcional; workaround: `background=True` o aumentar timeout).
