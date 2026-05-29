@@ -12,11 +12,11 @@
     "status": "completed"
   },
   {
-    "content": "C3: pipeline_meta enriquecido (cache_status, source_used, dropped_missing_pitchers, schedule_games_found, date_basis) en mlb_day_orchestrator + log final",
+    "content": "C3: pipeline_meta enriquecido en mlb_day_orchestrator + log final",
     "status": "completed"
   },
   {
-    "content": "C3: pipeline_meta en _run_analysis_pipeline (server.py) para que el flujo Generar picks también lo entregue",
+    "content": "C3: pipeline_meta en _run_analysis_pipeline (server.py)",
     "status": "completed"
   },
   {
@@ -28,7 +28,7 @@
     "status": "completed"
   },
   {
-    "content": "Testing agent end-to-end del flujo MLB con pipeline_meta",
-    "status": "in_progress"
+    "content": "Testing agent end-to-end (45/45 PASS)",
+    "status": "completed"
   }
 ]
