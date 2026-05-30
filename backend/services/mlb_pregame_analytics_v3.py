@@ -466,6 +466,7 @@ def build_confidence_breakdown(
     chosen_market: Optional[dict] = None,
     hist_profile: Optional[dict] = None,
     displayed_total: Optional[float] = None,
+    survival_payload: Optional[dict] = None,
 ) -> dict:
     """Decompose the displayed confidence into named components.
 
@@ -592,7 +593,31 @@ def build_confidence_breakdown(
             "tone":   "negative",
         })
 
-    final_total = (displayed_total if displayed_total is not None else computed_total) - volatility_penalty
+    # MLB-V10 — Script Survival contribution.
+    # Positive when the script has high survival probability (≥ 70).
+    # Negative when the script is fragile (< 45 survival).
+    survival_contrib = 0.0
+    survival_meta = None
+    if survival_payload and isinstance(survival_payload, dict):
+        survival_contrib = float(survival_payload.get("confidence_contribution") or 0)
+        survival_meta = {
+            "survival":      survival_payload.get("survival", {}).get("score"),
+            "fragility":     survival_payload.get("fragility", {}).get("score"),
+            "stability":     survival_payload.get("stability", {}).get("code"),
+            "label_es":      survival_payload.get("stability", {}).get("label_es"),
+        }
+    if survival_contrib != 0:
+        final_components.append({
+            "key":    "script_survival",
+            "label":  "Script Survival",
+            "value":  round(survival_contrib, 1),
+            "weight": 0,
+            "raw":    survival_meta.get("survival") if survival_meta else None,
+            "tone":   "positive" if survival_contrib > 0 else "negative",
+        })
+
+    final_total = (displayed_total if displayed_total is not None else computed_total) \
+                  - volatility_penalty + survival_contrib
     final_total = max(0.0, min(100.0, final_total))
 
     return {
@@ -600,8 +625,10 @@ def build_confidence_breakdown(
         "raw_total":           round(displayed_total if displayed_total is not None else computed_total, 1),
         "volatility_penalty":  round(volatility_penalty, 1),
         "volatility_meta":     volatility_meta,
+        "script_survival_contribution": round(survival_contrib, 1),
+        "script_survival_meta":         survival_meta,
         "components":          final_components,
-        "method":              "v3_explainability",
+        "method":              "v3_explainability_v5_survival",
     }
 
 
@@ -881,6 +908,7 @@ def build_v3_payload(
     rescue: Optional[dict] = None,
     hist_profile: Optional[dict] = None,
     displayed_total: Optional[float] = None,
+    survival_payload: Optional[dict] = None,
 ) -> dict:
     """Combine all v3 helpers into a single per-pick payload."""
     script = generate_mlb_game_script(
@@ -896,6 +924,7 @@ def build_v3_payload(
         scoring_ctx, v2_payload,
         chosen_market=chosen_market, hist_profile=hist_profile,
         displayed_total=displayed_total,
+        survival_payload=survival_payload,
     )
     reasons = generate_baseball_first_reasons(
         scoring_ctx, v2_payload, chosen_market,

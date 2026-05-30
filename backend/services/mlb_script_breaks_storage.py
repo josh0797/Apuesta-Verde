@@ -272,6 +272,32 @@ async def store_script_break_event(
     bullpen_swap_applied = bool(recommendation.get("bullpen_swap")
                                  or pick_doc.get("bullpen_swap"))
 
+    # MLB-V10 — Script Survival prediction + reference-profile tagging.
+    v5 = pick_doc.get("_mlb_script_v5") or {}
+    script_survival_prediction = (v5.get("survival") or {}).get("score")
+    fragility_prediction       = (v5.get("fragility") or {}).get("score")
+    stability_prediction       = (v5.get("stability") or {}).get("code")
+    reference_profile          = bool(v5.get("reference_profile")
+                                       or pick_doc.get("reference_profile"))
+
+    # Derive TRUE / FALSE stability events from the assessment.
+    extra_learning_codes: list[str] = []
+    if stability_prediction in ("ELITE_STABLE", "STABLE"):
+        if assessment["script_broken"]:
+            extra_learning_codes.append("FALSE_STABILITY_EVENT")
+        else:
+            extra_learning_codes.append("TRUE_STABILITY_EVENT")
+    elif stability_prediction in ("FRAGILE", "HIGHLY_FRAGILE"):
+        if assessment["script_broken"]:
+            extra_learning_codes.append("PREDICTED_FRAGILE_CONFIRMED")
+        else:
+            extra_learning_codes.append("FRAGILE_BUT_HELD")
+    if reference_profile and not assessment["script_broken"] and outcome == "won":
+        extra_learning_codes.append("REFERENCE_STABLE_UNDER_PROFILE_CONFIRMED")
+    elif reference_profile and assessment["script_broken"]:
+        extra_learning_codes.append("REFERENCE_STABLE_UNDER_PROFILE_FAILED")
+    all_learning_codes = list(assessment["learning_codes"]) + extra_learning_codes
+
     doc = {
         "id":                  str(uuid.uuid4()),
         "pick_id":             str(pick_id),
@@ -309,7 +335,12 @@ async def store_script_break_event(
 
         "bullpen_swap_applied":      bullpen_swap_applied,
 
-        "learning_event_codes":      assessment["learning_codes"],
+        # MLB-V10 — Script Survival prediction & event tags.
+        "script_survival_prediction": script_survival_prediction,
+        "fragility_prediction":       fragility_prediction,
+        "stability_prediction":       stability_prediction,
+        "reference_profile":          reference_profile,
+        "learning_event_codes":       all_learning_codes,
     }
 
     try:
@@ -332,6 +363,9 @@ async def store_script_break_event(
         "severity":               doc["severity"],
         "learning_event_codes":   doc["learning_event_codes"],
         "bullpen_swap_applied":   bullpen_swap_applied,
+        "script_survival_prediction": script_survival_prediction,
+        "stability_prediction":   stability_prediction,
+        "reference_profile":      reference_profile,
     }
 
 

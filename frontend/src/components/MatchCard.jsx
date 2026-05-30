@@ -297,10 +297,12 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
       {/* MLB Engine V3 — Explainability layer (Game Script + Pitchers +
           Why This Pick + Confidence Breakdown + baseball-first reasons).
           Renders ABOVE the v2 numeric panel so the user sees the human
-          narrative first. Baseball-only. */}
+          narrative first. Baseball-only.  V5 (Script Survival) is passed
+          through so the panel shows the stability summary line. */}
       {sport === 'baseball' && m._mlb_script_v3 ? (
         <MLBScriptV3Panel
           scriptV3={m._mlb_script_v3}
+          scriptV5={m._mlb_script_v5}
           testId={`mlb-v3-${m.match_id}`}
         />
       ) : null}
@@ -314,6 +316,7 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
       {sport === 'baseball' && (m._mlb_script_v2 || m.margin_v2) ? (
         <MLBScriptPanel
           scriptV2={m._mlb_script_v2 || {}}
+          scriptV5={m._mlb_script_v5 || null}
           parlay={m._mlb_parlay_context || null}
           testId={`mlb-script-${m.match_id}`}
         />

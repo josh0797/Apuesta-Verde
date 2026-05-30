@@ -66,7 +66,7 @@ function MetricRow({ icon: Icon, label, value, hint, tone = 'slate', testId }) {
   );
 }
 
-export function MLBScriptPanel({ scriptV2, parlay, testId }) {
+export function MLBScriptPanel({ scriptV2, scriptV5, parlay, testId }) {
   const [expanded, setExpanded] = useState(false);
 
   if (!scriptV2 || typeof scriptV2 !== 'object') return null;
@@ -208,6 +208,29 @@ export function MLBScriptPanel({ scriptV2, parlay, testId }) {
                 value={`${fragNum.toFixed(0)}/100`}
                 tone={fragNum <= 35 ? 'emerald' : (fragNum <= 55 ? 'amber' : 'rose')}
                 testId={`${testId || 'mlb-script'}-metric-fragility`}
+              />
+            ) : null}
+            {scriptV5 && scriptV5.survival?.score != null ? (
+              <MetricRow
+                icon={Shield}
+                label="Script Survival"
+                value={`${Number(scriptV5.survival.score).toFixed(0)}/100`}
+                hint={scriptV5.stability?.label_es}
+                tone={
+                  Number(scriptV5.survival.score) >= 85 ? 'emerald' :
+                  Number(scriptV5.survival.score) >= 70 ? 'sky' :
+                  Number(scriptV5.survival.score) >= 50 ? 'amber' : 'rose'
+                }
+                testId={`${testId || 'mlb-script'}-metric-survival`}
+              />
+            ) : null}
+            {scriptV5 && scriptV5.fragility?.score != null && fragNum === null ? (
+              <MetricRow
+                icon={Shield}
+                label="Fragility (v5)"
+                value={`${Number(scriptV5.fragility.score).toFixed(0)}/100`}
+                tone={Number(scriptV5.fragility.score) <= 25 ? 'emerald' : (Number(scriptV5.fragility.score) <= 50 ? 'amber' : 'rose')}
+                testId={`${testId || 'mlb-script'}-metric-fragility-v5`}
               />
             ) : null}
           </div>

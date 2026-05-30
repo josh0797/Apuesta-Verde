@@ -1257,6 +1257,22 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                     displayed_conf = float(rec.get("score"))
                 except (TypeError, ValueError):
                     displayed_conf = None
+
+            # MLB-V10 — Compute Script Survival BEFORE V3 so it can be folded
+            # into the confidence breakdown.  Pure enrichment, no IO.
+            v5_payload = None
+            try:
+                from .mlb_script_survival import build_script_survival_payload
+                v5_payload = build_script_survival_payload(
+                    scoring_ctx,
+                    v2_payload or {},
+                    hist_profile=baseball_hist_profile,
+                )
+            except Exception as exc:
+                log.debug("v5 script-survival build failed for game %s: %s",
+                           conf.get("game_pk"), exc)
+                v5_payload = None
+
             v3_payload = _v3_build_payload(
                 scoring_ctx,
                 v2_payload or {},
@@ -1266,13 +1282,30 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 rescue=rescue,
                 hist_profile=baseball_hist_profile,
                 displayed_total=displayed_conf,
+                survival_payload=v5_payload,
             )
             pick_payload["_mlb_script_v3"]  = v3_payload
             pick_payload["baseball_reasons"] = v3_payload.get("baseball_reasons") or []
             pick_payload["game_script"]      = v3_payload.get("script") or {}
+
+            if v5_payload:
+                pick_payload["_mlb_script_v5"] = v5_payload
+                pick_payload["script_survival"]   = v5_payload.get("survival", {}).get("score")
+                pick_payload["fragility_score"]   = v5_payload.get("fragility", {}).get("score")
+                pick_payload["stability_code"]    = v5_payload.get("stability", {}).get("code")
+                pick_payload["reference_profile"] = bool(v5_payload.get("reference_profile"))
         except Exception as exc:
             log.debug("v3 build_v3_payload failed for game %s: %s",
                        conf.get("game_pk"), exc)
+
+        # ── MLB-V10 — Script Survival & Fragility model (pure enrichment) ─
+        # Adds a separate _mlb_script_v5 payload with Script Survival 0-100,
+        # Fragility 0-100, stability classification (ELITE_STABLE / STABLE /
+        # MODERATELY_STABLE / FRAGILE / HIGHLY_FRAGILE) and a confidence
+        # contribution that gets folded into the V3 confidence_breakdown.
+        # Never mutates probability, buckets or the expected-runs model.
+        # (V5 payload is built above before V3 to fold survival into the
+        # confidence breakdown — this block is intentionally a no-op now.)
 
     pipeline_meta["picks_total"]     = len(picks)
     pipeline_meta["rescued_total"]   = len(rescued)

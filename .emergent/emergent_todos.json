@@ -1,30 +1,22 @@
 [
   {
-    "content": "F6A: Crear mlb_under_market_selector.py + 4 tests A/B/C/D",
+    "content": "F1+2+3: mlb_script_survival.py",
     "status": "completed"
   },
   {
-    "content": "F6A: Wire en mlb_day_orchestrator.py",
+    "content": "F4+5: Wire orchestrator + V3 confidence breakdown",
     "status": "completed"
   },
   {
-    "content": "F6A: Frontend warning bullpen fragility",
+    "content": "F6: Frontend Script Survival + Status badge",
     "status": "completed"
   },
   {
-    "content": "F6B: Crear mlb_script_breaks_storage.py + colección",
-    "status": "completed"
+    "content": "F7+8: Storage extension (FALSE/TRUE stability events + REFERENCE profile)",
+    "status": "in_progress"
   },
   {
-    "content": "F6B: Wire en endpoint settle",
-    "status": "completed"
-  },
-  {
-    "content": "F6B: Endpoint GET /api/mlb/script_breaks + stats",
-    "status": "completed"
-  },
-  {
-    "content": "Testing agent backend MLB-V9",
-    "status": "completed"
+    "content": "Testing agent MLB-V10",
+    "status": "pending"
   }
 ]

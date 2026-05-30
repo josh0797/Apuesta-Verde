@@ -11,6 +11,9 @@ import {
   CircleDot,
   AlertTriangle,
   Layers,
+  ShieldCheck,
+  Shield,
+  Activity,
 } from 'lucide-react';
 
 /**
@@ -185,7 +188,7 @@ function ConfidenceBreakdownBar({ breakdown, testIdPrefix }) {
                 <span className="text-muted-foreground truncate">{c.label}</span>
               </div>
               <span className="font-mono tabular-nums text-foreground/85">
-                +{(Number(c.value) || 0).toFixed(1)}
+                {(Number(c.value) || 0) >= 0 ? '+' : ''}{(Number(c.value) || 0).toFixed(1)}
               </span>
             </div>
           );
@@ -195,7 +198,140 @@ function ConfidenceBreakdownBar({ breakdown, testIdPrefix }) {
   );
 }
 
-export function MLBScriptV3Panel({ scriptV3, testId }) {
+/**
+ * MLBScriptSurvivalSummary — F5 — compact one-line summary of Script
+ * Survival, Fragility, and Stability classification. Shown above the
+ * baseball reasons in the V3 panel.
+ */
+const STABILITY_TONE_CLASSES = {
+  emerald: 'bg-emerald-500/12 border-emerald-500/35 text-emerald-200',
+  sky:     'bg-sky-500/12 border-sky-500/35 text-sky-200',
+  amber:   'bg-amber-500/12 border-amber-500/35 text-amber-200',
+  rose:    'bg-rose-500/12 border-rose-500/35 text-rose-200',
+};
+
+const STABILITY_LABEL_FALLBACK = {
+  ELITE_STABLE:      'Elite estable',
+  STABLE:            'Estable',
+  MODERATELY_STABLE: 'Moderadamente estable',
+  FRAGILE:           'Frágil',
+  HIGHLY_FRAGILE:    'Altamente frágil',
+};
+
+export function MLBScriptSurvivalSummary({ scriptV5, testIdPrefix }) {
+  if (!scriptV5 || typeof scriptV5 !== 'object') return null;
+  const survival = Number(scriptV5?.survival?.score ?? 0);
+  const fragility = Number(scriptV5?.fragility?.score ?? 0);
+  const stab = scriptV5?.stability || {};
+  const code = stab.code || 'MODERATELY_STABLE';
+  const label = stab.label_es || STABILITY_LABEL_FALLBACK[code] || code;
+  const tone = stab.tone || 'sky';
+  const cls = STABILITY_TONE_CLASSES[tone] || STABILITY_TONE_CLASSES.sky;
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 rounded-md border ${cls}`}
+      data-testid={`${testIdPrefix}-v5-summary`}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-[11px] uppercase tracking-wide opacity-90">Estabilidad</span>
+        <span className="text-sm font-semibold truncate" data-testid={`${testIdPrefix}-v5-label`}>
+          {label}
+        </span>
+        {scriptV5.reference_profile ? (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] bg-white/10 border border-current/30 uppercase tracking-wide">
+            Benchmark
+          </span>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-3 shrink-0 text-[11px] tabular-nums">
+        <span data-testid={`${testIdPrefix}-v5-survival`}>
+          <span className="opacity-70 mr-1">Survival</span>
+          <span className="font-bold">{survival.toFixed(0)}/100</span>
+        </span>
+        <span data-testid={`${testIdPrefix}-v5-fragility`}>
+          <span className="opacity-70 mr-1">Fragility</span>
+          <span className="font-bold">{fragility.toFixed(0)}/100</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * MLBScriptSurvivalDetail — F5 — expandable detail card with the per-component
+ * survival breakdown + drivers of fragility. Rendered inside the V3 expanded
+ * body.
+ */
+export function MLBScriptSurvivalDetail({ scriptV5, testIdPrefix }) {
+  if (!scriptV5 || typeof scriptV5 !== 'object') return null;
+  const surv = scriptV5.survival || {};
+  const frag = scriptV5.fragility || {};
+  const components = surv.components || {};
+  const weights = surv.weights || {};
+  const labelMap = {
+    pitchers:    'Pitchers',
+    bullpen:     'Bullpen',
+    offense:     'Lineups',
+    environment: 'Park/Weather',
+    historical:  'Historial',
+  };
+  const orderedKeys = ['pitchers', 'bullpen', 'offense', 'environment', 'historical'];
+  return (
+    <div className="rounded-lg border border-border/40 bg-white/[0.02] px-2.5 py-2 space-y-2" data-testid={`${testIdPrefix}-v5-detail`}>
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+          <Shield className="h-3 w-3" />
+          Script survival · desglose
+        </span>
+        <span className="text-[10px] text-muted-foreground">
+          {scriptV5.confidence_contribution != null ? `Δ conf ${Number(scriptV5.confidence_contribution) >= 0 ? '+' : ''}${Number(scriptV5.confidence_contribution).toFixed(1)}` : ''}
+        </span>
+      </div>
+      <div className="space-y-0.5">
+        {orderedKeys.map((k) => {
+          const v = Number(components[k] ?? 0);
+          const w = Number(weights[k] ?? 0);
+          const tone = v >= 70 ? 'emerald' : v >= 50 ? 'sky' : v >= 35 ? 'amber' : 'rose';
+          return (
+            <div key={k} className="flex items-center justify-between text-[11px]" data-testid={`${testIdPrefix}-v5-comp-${k}`}>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className={`h-1.5 w-1.5 rounded-full ${TONE_BAR[tone] || 'bg-slate-500/70'}`} />
+                <span className="text-muted-foreground truncate">{labelMap[k] || k}</span>
+                {w ? <span className="text-[9px] text-muted-foreground/60 ml-1">{w}%</span> : null}
+              </div>
+              <span className="font-mono tabular-nums text-foreground/85">{v.toFixed(1)}</span>
+            </div>
+          );
+        })}
+      </div>
+      {Array.isArray(frag.drivers) && frag.drivers.length > 0 ? (
+        <ul className="border-t border-border/30 pt-1.5 space-y-0.5">
+          {frag.drivers.map((d, i) => (
+            <li key={i} className="flex items-start gap-1.5 text-[10px] text-foreground/75">
+              <Activity className="h-3 w-3 text-amber-400/70 mt-0.5 shrink-0" />
+              <span>{d}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {Array.isArray(surv.rationale) && surv.rationale.length > 0 ? (
+        <ul className="space-y-0.5">
+          {surv.rationale.slice(0, 3).map((r, i) => (
+            <li key={i} className="flex items-start gap-1.5 text-[10px] text-foreground/70">
+              <CheckCircle2 className="h-3 w-3 text-emerald-400/70 mt-0.5 shrink-0" />
+              <span>{r}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+
+export function MLBScriptV3Panel({ scriptV3, scriptV5, testId }) {
   const [expanded, setExpanded] = useState(false);
   if (!scriptV3 || typeof scriptV3 !== 'object') return null;
 
@@ -263,6 +399,10 @@ export function MLBScriptV3Panel({ scriptV3, testId }) {
               {script.narrative_es}
             </p>
           ) : null}
+
+          {/* MLB-V10 — Script Survival summary line. Always visible when
+              V5 payload is present so the user sees stability at a glance. */}
+          <MLBScriptSurvivalSummary scriptV5={scriptV5} testIdPrefix={baseTestId} />
           {Array.isArray(reasons) && reasons.length > 0 ? (
             <ul className="space-y-0.5">
               {reasons.slice(0, expanded ? reasons.length : 2).map((r, i) => (
@@ -325,6 +465,9 @@ export function MLBScriptV3Panel({ scriptV3, testId }) {
               <ConfidenceBreakdownBar breakdown={breakdown} testIdPrefix={baseTestId} />
             </div>
           ) : null}
+
+          {/* MLB-V10 — Script Survival detailed breakdown (inside expanded body) */}
+          <MLBScriptSurvivalDetail scriptV5={scriptV5} testIdPrefix={baseTestId} />
 
           {/* Key drivers chips */}
           {Array.isArray(script?.key_drivers) && script.key_drivers.length > 0 ? (
