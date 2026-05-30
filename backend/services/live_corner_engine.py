@@ -551,6 +551,23 @@ def evaluate_live_corner_market(metrics: dict,
         # when the controlling team is already winning.
         should_recommend = False
 
+    # Per the user's Test C / Rule 6: when xG is HIGH and shot quality is
+    # genuine (SoT >= 4), the goal markets are more appropriate than
+    # corners. We only override should_recommend to False here when the
+    # PSG-Arsenal benchmark is NOT triggered (the benchmark explicitly
+    # overrides this rule because it represents the "high pressure, low
+    # conversion" pattern). This implements the user's directive:
+    #
+    #   "If possession high, corners high BUT xG low, shots on target low
+    #    → Prefer corners. ELSE (xG high + shots quality high) → goals win."
+    if (
+        side is not None
+        and not classification["psg_benchmark"]
+        and _f(metrics.get(f"xg_{side}")) > 0.80
+        and _i(metrics.get(f"shots_on_target_{side}")) >= 4
+    ):
+        should_recommend = False
+
     # Pick the safest Total Corners Over line.
     corners_home = _i(metrics.get("corners_home"))
     corners_away = _i(metrics.get("corners_away"))

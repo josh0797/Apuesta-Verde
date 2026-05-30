@@ -16,11 +16,15 @@
     "status": "completed"
   },
   {
-    "content": "Lint + esbuild + acceptance tests A/B/C/D verificados",
+    "content": "Fix 1 aplicado: xG > 0.80 + SoT >= 4 + sin PSG-benchmark → no recomendar corners (Test C)",
+    "status": "completed"
+  },
+  {
+    "content": "Acceptance tests A/B/C/D verificados al 100% post-fix",
     "status": "completed"
   },
   {
     "content": "Testing Agent v3 (Live Corner Intelligence end-to-end)",
-    "status": "in_progress"
+    "status": "completed"
   }
 ]
