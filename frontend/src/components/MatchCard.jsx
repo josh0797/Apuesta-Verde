@@ -20,7 +20,7 @@ import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
 import { MLBScriptPanel } from './MLBScriptPanel';
-import { MLBScriptV3Panel, MLBDiversityBadge, MLBBullpenSwapBadge } from './MLBScriptV3Panel';
+import { MLBScriptV3Panel, MLBDiversityBadge, MLBBullpenSwapBadge, MLBOverSwapBadge } from './MLBScriptV3Panel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -196,6 +196,18 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
         />
       ) : null}
 
+      {/* MLB-V6 — Over swap badge. Shown when the Market Competition step
+          swapped a Full Game Under for an Over candidate because the
+          offensive edge clearly dominated the current Under selection.
+          Baseball-only. */}
+      {sport === 'baseball' && (m.recommendation?.over_swap || m._mlb_over_discovery?.competition?.winner_side === 'OVER') ? (
+        <MLBOverSwapBadge
+          meta={m.recommendation}
+          overDiscovery={m._mlb_over_discovery}
+          testId={`mlb-over-swap-${m.match_id}`}
+        />
+      ) : null}
+
       {/* Risks + cash-out */}
       <div className="flex flex-wrap items-center gap-2">
         {(m.risks || []).slice(0, 3).map((r, i) => (
@@ -303,6 +315,7 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
         <MLBScriptV3Panel
           scriptV3={m._mlb_script_v3}
           scriptV5={m._mlb_script_v5}
+          overDiscovery={m._mlb_over_discovery}
           testId={`mlb-v3-${m.match_id}`}
         />
       ) : null}

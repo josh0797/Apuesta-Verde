@@ -14,6 +14,9 @@ import {
   ShieldCheck,
   Shield,
   Activity,
+  Flame,
+  Zap,
+  ArrowRightLeft,
 } from 'lucide-react';
 
 /**
@@ -331,7 +334,7 @@ export function MLBScriptSurvivalDetail({ scriptV5, testIdPrefix }) {
 }
 
 
-export function MLBScriptV3Panel({ scriptV3, scriptV5, testId }) {
+export function MLBScriptV3Panel({ scriptV3, scriptV5, overDiscovery, testId }) {
   const [expanded, setExpanded] = useState(false);
   if (!scriptV3 || typeof scriptV3 !== 'object') return null;
 
@@ -403,6 +406,9 @@ export function MLBScriptV3Panel({ scriptV3, scriptV5, testId }) {
           {/* MLB-V10 — Script Survival summary line. Always visible when
               V5 payload is present so the user sees stability at a glance. */}
           <MLBScriptSurvivalSummary scriptV5={scriptV5} testIdPrefix={baseTestId} />
+          {/* MLB-V6 — Offensive Explosion summary line. Always visible when
+              V6 payload is present so the user sees offense potential at a glance. */}
+          <MLBOffensiveExplosionSummary overDiscovery={overDiscovery} testIdPrefix={baseTestId} />
           {Array.isArray(reasons) && reasons.length > 0 ? (
             <ul className="space-y-0.5">
               {reasons.slice(0, expanded ? reasons.length : 2).map((r, i) => (
@@ -468,6 +474,9 @@ export function MLBScriptV3Panel({ scriptV3, scriptV5, testId }) {
 
           {/* MLB-V10 — Script Survival detailed breakdown (inside expanded body) */}
           <MLBScriptSurvivalDetail scriptV5={scriptV5} testIdPrefix={baseTestId} />
+
+          {/* MLB-V6 — Offensive Explosion detailed breakdown (inside expanded body) */}
+          <MLBOffensiveExplosionDetail overDiscovery={overDiscovery} testIdPrefix={baseTestId} />
 
           {/* Key drivers chips */}
           {Array.isArray(script?.key_drivers) && script.key_drivers.length > 0 ? (
@@ -556,6 +565,321 @@ export function MLBBullpenSwapBadge({ meta, testId }) {
           Ajuste de confianza: {meta.confidence_adjustment > 0 ? '+' : ''}{meta.confidence_adjustment} pts
         </div>
       ) : null}
+    </div>
+  );
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+ *  MLB ENGINE V6 — OVER DISCOVERY ENGINE
+ *  Re-balances the engine's historical bias towards Unders.
+ *  Consumes the `_mlb_over_discovery` payload emitted by the orchestrator:
+ *    {
+ *      outcome,
+ *      offensive_explosion: { score, components, weights, drivers, raw_inputs },
+ *      offensive_script:    { code, label_es, tone, score },
+ *      over_survival:       { score, drivers, components },
+ *      best_over_market:    { market, line, edge, score, category, ... } | null,
+ *      competition:         { winner_side, edge_gap, swap_required, explanation },
+ *      narrative_es,
+ *    }
+ * ════════════════════════════════════════════════════════════════════════ */
+
+const OFFENSIVE_SCRIPT_LABEL_FALLBACK = {
+  OFFENSIVE_EXPLOSION:    'Explosión ofensiva',
+  HIGH_SCORING:           'Alto scoring',
+  ABOVE_AVERAGE_SCORING:  'Sobre el promedio',
+  NEUTRAL:                'Neutral',
+  LOW_SCORING:            'Bajo scoring',
+  PITCHERS_DUEL:          'Duelo de pitchers',
+};
+
+const OFFENSIVE_SCRIPT_ICON = {
+  OFFENSIVE_EXPLOSION:    Flame,
+  HIGH_SCORING:           TrendingUp,
+  ABOVE_AVERAGE_SCORING:  Zap,
+  NEUTRAL:                CircleDot,
+  LOW_SCORING:            TrendingDown,
+  PITCHERS_DUEL:          Shield,
+};
+
+const OVER_SCRIPT_TONE_CLASSES = {
+  rose:    'bg-rose-500/12 border-rose-500/35 text-rose-200',
+  amber:   'bg-amber-500/12 border-amber-500/35 text-amber-200',
+  sky:     'bg-sky-500/12 border-sky-500/35 text-sky-200',
+  slate:   'bg-slate-500/12 border-slate-500/35 text-slate-200',
+  emerald: 'bg-emerald-500/12 border-emerald-500/35 text-emerald-200',
+};
+
+/**
+ * MLBOffensiveExplosionSummary — V6 — compact one-line summary chip with
+ * the Offensive Explosion Score, the Offensive Script badge and the Over
+ * Survival score. Mirrors the layout of `MLBScriptSurvivalSummary` so the
+ * two chips stack cleanly above the baseball reasons.
+ */
+export function MLBOffensiveExplosionSummary({ overDiscovery, testIdPrefix }) {
+  if (!overDiscovery || typeof overDiscovery !== 'object') return null;
+  const expl = overDiscovery.offensive_explosion || {};
+  const scriptInfo = overDiscovery.offensive_script || {};
+  const surv = overDiscovery.over_survival || {};
+  if (expl.score == null && scriptInfo.code == null) return null;
+
+  const score = Number(expl.score ?? 0);
+  const survival = Number(surv.score ?? 0);
+  const code = scriptInfo.code || 'NEUTRAL';
+  const label = scriptInfo.label_es || OFFENSIVE_SCRIPT_LABEL_FALLBACK[code] || code;
+  const tone = scriptInfo.tone || 'sky';
+  const cls = OVER_SCRIPT_TONE_CLASSES[tone] || OVER_SCRIPT_TONE_CLASSES.sky;
+  const Icon = OFFENSIVE_SCRIPT_ICON[code] || Flame;
+
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 rounded-md border ${cls}`}
+      data-testid={`${testIdPrefix}-v6-summary`}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <Icon className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-[11px] uppercase tracking-wide opacity-90">Ofensiva</span>
+        <span
+          className="text-sm font-semibold truncate"
+          data-testid={`${testIdPrefix}-v6-label`}
+        >
+          {label}
+        </span>
+      </div>
+      <div className="flex items-center gap-3 shrink-0 text-[11px] tabular-nums">
+        <span data-testid={`${testIdPrefix}-v6-explosion`}>
+          <span className="opacity-70 mr-1">Explosion</span>
+          <span className="font-bold">{score.toFixed(0)}/100</span>
+        </span>
+        {surv?.score != null ? (
+          <span data-testid={`${testIdPrefix}-v6-over-survival`}>
+            <span className="opacity-70 mr-1">Over Surv</span>
+            <span className="font-bold">{survival.toFixed(0)}/100</span>
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * MLBOffensiveExplosionDetail — V6 — expanded detail card with the
+ * per-component Offensive Explosion breakdown (lineups / pitchers /
+ * bullpens / park / weather), the Top Offensive Drivers and, if
+ * available, the best Over market with its edge.
+ */
+export function MLBOffensiveExplosionDetail({ overDiscovery, testIdPrefix }) {
+  if (!overDiscovery || typeof overDiscovery !== 'object') return null;
+  const expl = overDiscovery.offensive_explosion || {};
+  const components = expl.components || {};
+  const weights = expl.weights || {};
+  const drivers = Array.isArray(expl.drivers) ? expl.drivers : [];
+  const best = overDiscovery.best_over_market || null;
+  const outcome = overDiscovery.outcome;
+
+  if (expl.score == null && drivers.length === 0 && !best) return null;
+
+  const labelMap = {
+    lineups:  'Lineups',
+    pitchers: 'Pitchers',
+    bullpens: 'Bullpens',
+    park:     'Park',
+    weather:  'Weather',
+  };
+  const orderedKeys = ['lineups', 'pitchers', 'bullpens', 'park', 'weather'];
+
+  return (
+    <div
+      className="rounded-lg border border-border/40 bg-white/[0.02] px-2.5 py-2 space-y-2"
+      data-testid={`${testIdPrefix}-v6-detail`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+          <Flame className="h-3 w-3" />
+          Offensive Explosion · desglose
+        </span>
+        <span className="text-[10px] text-muted-foreground tabular-nums">
+          {expl.score != null
+            ? `${Number(expl.score).toFixed(0)}/100`
+            : ''}
+        </span>
+      </div>
+
+      {/* Per-component breakdown bars */}
+      <div className="space-y-0.5">
+        {orderedKeys.map((k) => {
+          if (components[k] == null) return null;
+          const v = Number(components[k] ?? 0);
+          const w = Number(weights[k] ?? 0);
+          const tone = v >= 70 ? 'rose' : v >= 55 ? 'amber' : v >= 40 ? 'sky' : 'emerald';
+          return (
+            <div
+              key={k}
+              className="flex items-center justify-between text-[11px]"
+              data-testid={`${testIdPrefix}-v6-comp-${k}`}
+            >
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className={`h-1.5 w-1.5 rounded-full ${TONE_BAR[tone] || 'bg-slate-500/70'}`} />
+                <span className="text-muted-foreground truncate">{labelMap[k] || k}</span>
+                {w ? (
+                  <span className="text-[9px] text-muted-foreground/60 ml-1">
+                    {w}%
+                  </span>
+                ) : null}
+              </div>
+              <span className="font-mono tabular-nums text-foreground/85">
+                {v.toFixed(1)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Top offensive drivers */}
+      {drivers.length > 0 ? (
+        <ul className="border-t border-border/30 pt-1.5 space-y-0.5">
+          {drivers.slice(0, 5).map((d, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-1.5 text-[10px] text-foreground/75"
+              data-testid={`${testIdPrefix}-v6-driver-${i}`}
+            >
+              <Sparkles className="h-3 w-3 text-rose-400/70 mt-0.5 shrink-0" />
+              <span>{d}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {/* Best Over market discovered */}
+      {best ? (
+        <div
+          className="border-t border-border/30 pt-1.5 flex items-center justify-between gap-2 text-[11px]"
+          data-testid={`${testIdPrefix}-v6-best-over`}
+        >
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Target className="h-3 w-3 text-rose-400/80 shrink-0" />
+            <span className="text-muted-foreground">Mejor Over</span>
+            <span className="font-medium text-foreground/90 truncate">
+              {best.market}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 tabular-nums">
+            {best.edge != null ? (
+              <span className={`font-mono ${Number(best.edge) >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                edge {Number(best.edge) >= 0 ? '+' : ''}{Number(best.edge).toFixed(1)}
+              </span>
+            ) : null}
+            {best.score != null ? (
+              <span className="font-mono text-foreground/80">
+                {Number(best.score).toFixed(0)}/100
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : outcome === 'NO_OVER_EDGE' ? (
+        <div
+          className="border-t border-border/30 pt-1.5 text-[10px] text-muted-foreground italic"
+          data-testid={`${testIdPrefix}-v6-no-edge`}
+        >
+          Sin Over con edge accionable.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+
+/**
+ * MLBOverSwapBadge — V6 — visible badge shown when the Market Competition
+ * step swapped a Full Game Under for an Over candidate because the
+ * offensive edge clearly dominated. Mirrors the layout of
+ * `MLBBullpenSwapBadge` so the two badges stack consistently.
+ *
+ * Consumes either:
+ *  - meta.over_swap === true + meta.over_swap_meta (from `recommendation`)
+ *  - or the full `_mlb_over_discovery` payload when competition.winner_side === 'OVER'
+ */
+export function MLBOverSwapBadge({ meta, overDiscovery, testId }) {
+  const swapMeta = meta?.over_swap_meta || overDiscovery || null;
+  if (!swapMeta) return null;
+  const comp = swapMeta.competition || {};
+  const winnerSide = comp.winner_side || (meta?.over_swap ? 'OVER' : null);
+  if (winnerSide !== 'OVER') return null;
+
+  const best = swapMeta.best_over_market || null;
+  const scriptInfo = swapMeta.offensive_script || {};
+  const tone = scriptInfo.tone === 'rose' ? 'rose' : 'amber';
+
+  return (
+    <div
+      className={`rounded-lg border px-3 py-2 ${
+        tone === 'rose'
+          ? 'border-rose-500/35 bg-rose-500/10 text-rose-200'
+          : 'border-amber-500/35 bg-amber-500/10 text-amber-200'
+      }`}
+      data-testid={testId || 'mlb-over-swap-badge'}
+    >
+      <div className="flex items-center gap-2">
+        <ArrowRightLeft className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-[11px] uppercase tracking-wide opacity-90">
+          Mercado cambiado · Under → Over
+        </span>
+        {best?.market ? (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/[0.08] border border-current/30 truncate max-w-[60%]">
+            {best.market}
+          </span>
+        ) : null}
+      </div>
+      {comp.explanation ? (
+        <p className="text-[11px] mt-1 opacity-95 leading-snug">
+          {comp.explanation}
+        </p>
+      ) : swapMeta.narrative_es ? (
+        <p className="text-[11px] mt-1 opacity-95 leading-snug">
+          {swapMeta.narrative_es}
+        </p>
+      ) : null}
+      {typeof comp.edge_gap === 'number' && comp.edge_gap > 0 ? (
+        <div className="mt-1 text-[10px] opacity-80 tabular-nums">
+          Ventaja de edge: {comp.edge_gap.toFixed(1)} carreras
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+
+/**
+ * MLBMarketAuditBadge — V6 — daily market audit warning chip (e.g.
+ * UNDER_BIAS_WARNING, OVER_STARVATION, MARKET_CONCENTRATION_WARNING).
+ * Optional — only renders if a `bias.warning_codes` array is provided.
+ */
+export function MLBMarketAuditBadge({ audit, testId }) {
+  if (!audit || !audit.bias) return null;
+  const codes = Array.isArray(audit.bias.warning_codes) ? audit.bias.warning_codes : [];
+  if (codes.length === 0) return null;
+  const isUnderBias = codes.includes('UNDER_BIAS_WARNING') || codes.includes('OVER_STARVATION');
+  const tone = isUnderBias ? 'rose' : 'amber';
+  const label = isUnderBias
+    ? 'Sesgo hacia Unders detectado'
+    : codes.includes('OVER_BIAS_WARNING')
+    ? 'Sesgo hacia Overs detectado'
+    : 'Concentración de mercado';
+  return (
+    <div
+      className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] border ${
+        tone === 'rose'
+          ? 'bg-rose-500/10 border-rose-500/30 text-rose-200'
+          : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+      }`}
+      data-testid={testId || 'mlb-market-audit-badge'}
+      title={audit.narrative_es || ''}
+    >
+      <AlertTriangle className="h-3 w-3" />
+      <span>{label}</span>
     </div>
   );
 }

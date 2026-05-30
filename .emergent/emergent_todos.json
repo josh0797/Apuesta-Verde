@@ -1,22 +1,22 @@
 [
   {
-    "content": "F1+2+3: mlb_script_survival.py",
+    "content": "F1-6: Crear mlb_over_discovery.py",
     "status": "completed"
   },
   {
-    "content": "F4+5: Wire orchestrator + V3 confidence breakdown",
-    "status": "completed"
-  },
-  {
-    "content": "F6: Frontend Script Survival + Status badge",
-    "status": "completed"
-  },
-  {
-    "content": "F7+8: Storage extension (FALSE/TRUE stability events + REFERENCE profile)",
+    "content": "Wire en orchestrator: tras V5 evaluar Over vs Under y competir por edge",
     "status": "in_progress"
   },
   {
-    "content": "Testing agent MLB-V10",
+    "content": "F8-9: Endpoint GET /api/mlb/daily_market_audit",
+    "status": "pending"
+  },
+  {
+    "content": "Frontend: Offensive Explosion + Offensive Script badge en MLBScriptV3Panel",
+    "status": "pending"
+  },
+  {
+    "content": "Tests + Testing agent MLB-V11",
     "status": "pending"
   }
 ]

@@ -1841,6 +1841,62 @@ async def mlb_script_breaks_stats(
                             content={"ok": False, "detail": str(exc)})
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# V6 — Daily Market Audit + Bias Detection + Diversity Score
+# ════════════════════════════════════════════════════════════════════════════
+@api.get("/mlb/daily_market_audit")
+async def mlb_daily_market_audit(
+    user: dict = Depends(get_current_user),
+    run_id: Optional[str] = None,
+):
+    """Generate the Daily Market Audit report for the latest (or given) MLB
+    pick run. Includes market histogram, bias warnings (UNDER_BIAS_WARNING /
+    OVER_BIAS_WARNING / OVER_STARVATION / MARKET_CONCENTRATION_WARNING) and
+    market diversity score.
+
+    Query params:
+      • run_id : specific MLB pick_run.id to audit (defaults to latest for user).
+    """
+    try:
+        from services.mlb_over_discovery import daily_market_audit
+        # Find the relevant pick run document.
+        q: dict = {"user_id": user["id"], "sport": "baseball"}
+        if run_id:
+            q["id"] = run_id
+        run_doc = await db.pick_runs.find_one(q, sort=[("generated_at", -1)])
+        if not run_doc:
+            return {"ok": True, "status": "NO_RUN_FOUND",
+                    "detail": "No MLB pick runs found for the current user."}
+        # Collect all visible buckets (picks + rescued + structural-lean
+        # + watchlist) since each is a "recommendation" the user could act on.
+        payload = (run_doc.get("payload") or {})
+        picks = (
+            (payload.get("picks") or [])
+            + (payload.get("rescued_picks") or [])
+            + (payload.get("structural_lean_requires_odds") or [])
+            + (payload.get("watchlist_manual_odds") or [])
+        )
+        # Evaluated count = total games considered by the pipeline.
+        pipeline_meta = payload.get("pipeline_meta") or {}
+        evaluated = (
+            pipeline_meta.get("confirmed_games")
+            or pipeline_meta.get("schedule_games_found")
+            or pipeline_meta.get("scoring_total")
+            or len(picks)
+        )
+        audit = daily_market_audit(picks, evaluated_count=evaluated)
+        return {
+            "ok":          True,
+            "run_id":      run_doc.get("id"),
+            "generated_at": run_doc.get("generated_at"),
+            "audit":       audit,
+        }
+    except Exception as exc:
+        log.exception("mlb_daily_market_audit failed: %s", exc)
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": str(exc)})
+
+
 @api.post("/mlb/engine/recompute")
 async def mlb_engine_recompute(user: dict = Depends(get_current_user)):
     """Force a recalibration cycle (still respects the batch_size_required

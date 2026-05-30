@@ -891,6 +891,107 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as exc:
             log.debug("F6A bullpen-aware Under selector failed: %s", exc)
 
+        # ── F6B — Over Discovery & Market Competition (V6) ────────────────
+        # Independently evaluates Over markets and competes against the
+        # current chosen Under selection. If Over edge dominates (≥ 2.0
+        # runs advantage or ≥ 8 confidence pts), swap the recommendation
+        # to the best Over market. Pure enrichment: no probability/bucket
+        # mutation; just a different `recommendation.market` + over_swap_meta.
+        over_swap_meta = None
+        try:
+            from .mlb_over_discovery import (
+                over_discovery_engine as _over_engine,
+                market_competition as _market_compete,
+            )
+            # Build a best-effort over_lines dict from v2_payload + chosen.
+            over_lines_input: dict = {}
+            fg_line = (
+                v2_payload.get("smartTotalsLine")
+                or _extract_line_number_from_market(
+                    (chosen_market or {}).get("market"))
+            )
+            if fg_line:
+                over_lines_input["full_game"] = fg_line
+            # F5 line (if v2 exposes one).
+            f5_data = v2_payload.get("f5") or {}
+            f5_line_over = None
+            if f5_data.get("recommendedLine"):
+                _m_f5 = re.search(r"(\d+(?:\.\d+)?)", str(f5_data["recommendedLine"]))
+                if _m_f5:
+                    try:
+                        f5_line_over = float(_m_f5.group(1))
+                    except (TypeError, ValueError):
+                        f5_line_over = None
+            if f5_line_over:
+                over_lines_input["f5"] = f5_line_over
+            # Team Totals: approximate as half of full game line.
+            if fg_line:
+                over_lines_input["team_total_home"] = round(fg_line / 2.0, 1)
+                over_lines_input["team_total_away"] = round(fg_line / 2.0, 1)
+            # YRFI is always evaluable.
+            over_lines_input["yrfi"] = True
+
+            over_discovery = _over_engine(
+                scoring_ctx,
+                v2_payload or {},
+                over_lines=over_lines_input,
+                fragility_payload=(v5_payload or {}).get("fragility")
+                                  if 'v5_payload' in locals() else None,
+            )
+
+            # Build the under_candidate dict from current chosen_market.
+            current_market_lower = (
+                (chosen_market or {}).get("market") or "").lower()
+            under_candidate = None
+            if "under" in current_market_lower and "team total" not in current_market_lower:
+                under_line = _extract_line_number_from_market(
+                    chosen_market.get("market"))
+                under_edge = 0
+                if under_line and v2_payload.get("expectedRuns") is not None:
+                    under_edge = under_line - _f(v2_payload.get("expectedRuns"))
+                under_candidate = {
+                    "market":   chosen_market.get("market"),
+                    "line":     under_line,
+                    "edge":     round(under_edge, 2),
+                    "score":    _f(chosen_market.get("score")),
+                    "category": "FULL_GAME_UNDER",
+                }
+
+            comp = _market_compete(
+                under_candidate,
+                over_discovery.get("best_over_market"),
+                current=chosen_market,
+            )
+            over_swap_meta = {
+                "outcome":             over_discovery["outcome"],
+                "offensive_explosion": over_discovery["offensive_explosion"],
+                "offensive_script":    over_discovery["offensive_script"],
+                "over_survival":       over_discovery["over_survival"],
+                "best_over_market":    over_discovery["best_over_market"],
+                "competition":         comp,
+                "narrative_es":        over_discovery["narrative_es"],
+            }
+            # Apply swap when an Over decisively beats the current Under.
+            if comp.get("winner_side") == "OVER" and comp.get("swap_required") \
+                    and over_discovery.get("best_over_market"):
+                new_sel = over_discovery["best_over_market"]
+                new_chosen = {
+                    "market":     new_sel.get("market", chosen_market.get("market")),
+                    "selection":  new_sel.get("category") or chosen_market.get("selection"),
+                    "score":      new_sel.get("score", chosen_market.get("score")),
+                    "rationale":  (
+                        (chosen_market.get("rationale") or "")
+                        + " | " + comp.get("explanation", "")
+                    ).strip(" |"),
+                    "over_swap":         True,
+                    "over_swap_meta":    over_swap_meta,
+                    "previous_market":   chosen_market.get("market"),
+                    "alt_markets":       chosen_market.get("alt_markets") or [],
+                }
+                chosen_market = new_chosen
+        except Exception as exc:
+            log.debug("V6 Over discovery / market competition failed: %s", exc)
+
         # Emit signals (with literal source_url for transparency)
         parts = {
             "home_pitcher_quality": h_q, "away_pitcher_quality": a_q,
@@ -1294,6 +1395,21 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 pick_payload["fragility_score"]   = v5_payload.get("fragility", {}).get("score")
                 pick_payload["stability_code"]    = v5_payload.get("stability", {}).get("code")
                 pick_payload["reference_profile"] = bool(v5_payload.get("reference_profile"))
+
+            # V6 — Attach the over_discovery payload (computed in the V6
+            # block above). When `over_swap_meta` exists, expose the
+            # Offensive Explosion Score + Offensive Script + Over Survival
+            # at the top level so the UI can render them next to V5.
+            if 'over_swap_meta' in dir() or 'over_swap_meta' in locals():
+                osm = locals().get("over_swap_meta")
+                if osm:
+                    pick_payload["_mlb_over_discovery"] = osm
+                    pick_payload["offensive_explosion_score"] = (
+                        (osm.get("offensive_explosion") or {}).get("score"))
+                    pick_payload["offensive_script_code"] = (
+                        (osm.get("offensive_script") or {}).get("code"))
+                    pick_payload["over_survival_score"] = (
+                        (osm.get("over_survival") or {}).get("score"))
         except Exception as exc:
             log.debug("v3 build_v3_payload failed for game %s: %s",
                        conf.get("game_pk"), exc)
