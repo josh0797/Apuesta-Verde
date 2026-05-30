@@ -15,6 +15,7 @@ import { LineMovement } from '@/components/LineMovement';
 import { MatchIntelligencePanel } from '@/components/MatchIntelligencePanel';
 import { MoneyballPanel } from '@/components/MoneyballPanel';
 import { MLBMatchupPanel } from '@/components/MLBMatchupPanel';
+import { MLBLiveIntelPanel } from '@/components/MLBLiveIntelPanel';
 import { formatDateTime, humanizeSelection } from '@/lib/format';
 
 export default function MatchDetailPage() {
@@ -183,6 +184,14 @@ export default function MatchDetailPage() {
               {sport === 'baseball' && match?.mlb_matchup && (
                 <MLBMatchupPanel matchup={match.mlb_matchup} lang={lang} />
               )}
+
+              {/* MLB-V8 Live Intelligence (Volatility + Script Break + Cashout).
+                  Triple gate enforced inside the component:
+                  sport==='baseball' && match.is_live && llmPick._mlb_script_v3.
+                  This means the panel ONLY appears for MLB picks that PASSED
+                  the pregame filter AND the match is currently live — never
+                  for the full live list. */}
+              <MLBLiveIntelPanel sport={sport} match={match} llmPick={llmPick} />
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-border bg-card/40 p-5" data-testid="no-llm-pick">

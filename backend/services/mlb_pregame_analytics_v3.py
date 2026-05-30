@@ -497,6 +497,30 @@ def build_confidence_breakdown(
         0,
     )
 
+    # MLB-V8 — Volatility Penalty: pitchers prone to early blowups reduce
+    # confidence. We import lazily to avoid a hard dependency loop.
+    volatility_penalty = 0.0
+    volatility_meta = None
+    try:
+        from .mlb_live_intelligence import pitcher_volatility_score
+        home_p_stats = scoring_ctx.get("home_pitcher_stats") or {}
+        away_p_stats = scoring_ctx.get("away_pitcher_stats") or {}
+        vol_h = pitcher_volatility_score(home_p_stats)
+        vol_a = pitcher_volatility_score(away_p_stats)
+        volatility_penalty = float(vol_h.get("penalty", 0) + vol_a.get("penalty", 0))
+        volatility_meta = {
+            "home_level":   vol_h.get("level"),
+            "away_level":   vol_a.get("level"),
+            "home_score":   vol_h.get("score"),
+            "away_score":   vol_a.get("score"),
+            "home_reasons": vol_h.get("reasons", [])[:2],
+            "away_reasons": vol_a.get("reasons", [])[:2],
+            "penalty":      volatility_penalty,
+        }
+    except Exception:
+        volatility_penalty = 0.0
+        volatility_meta = None
+
     # Raw component "strength" 0-100 each (heuristic, normalised below).
     pitchers_raw = (h_q + a_q) / 2.0
     lineups_raw  = (off_h + off_a) / 2.0
@@ -555,10 +579,29 @@ def build_confidence_breakdown(
             "raw":    round(raw_components[k], 1),
         })
 
+    # MLB-V8 — Append the Volatility Penalty as a negative-tone component
+    # so the UI can render it in red and the user understands why pitcher
+    # contribution was discounted. Subtractive: NOT scaled.
+    if volatility_penalty > 0:
+        final_components.append({
+            "key":    "volatility_penalty",
+            "label":  "Volatility Penalty",
+            "value":  -round(volatility_penalty, 1),
+            "weight": 0,
+            "raw":    round(volatility_penalty, 1),
+            "tone":   "negative",
+        })
+
+    final_total = (displayed_total if displayed_total is not None else computed_total) - volatility_penalty
+    final_total = max(0.0, min(100.0, final_total))
+
     return {
-        "total":      round(displayed_total if displayed_total is not None else computed_total, 1),
-        "components": final_components,
-        "method":     "v3_explainability",
+        "total":               round(final_total, 1),
+        "raw_total":           round(displayed_total if displayed_total is not None else computed_total, 1),
+        "volatility_penalty":  round(volatility_penalty, 1),
+        "volatility_meta":     volatility_meta,
+        "components":          final_components,
+        "method":              "v3_explainability",
     }
 
 

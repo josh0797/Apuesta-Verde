@@ -1780,6 +1780,92 @@ async def mlb_engine_recompute(user: dict = Depends(get_current_user)):
                             content={"ok": False, "detail": str(exc)})
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# MLB-V8 — Live Intelligence (Volatility + Script Break + Cashout)
+# ════════════════════════════════════════════════════════════════════════════
+class MLBLiveReevalIn(BaseModel):
+    match_id:      str
+    pregame_pick:  dict          # Full pick payload from /api/picks/today (must
+                                  # include _mlb_script_v3 + recommendation).
+    live_state:    Optional[dict] = None  # If None, we try to fetch from DB / API.
+
+
+@api.post("/mlb/live/reevaluate")
+async def mlb_live_reevaluate(payload: MLBLiveReevalIn,
+                               user: dict = Depends(get_current_user)):
+    """MLB-V8 Live Intelligence endpoint.
+
+    Restrictions (per user spec):
+      • Only applies to MLB picks that PASSED the pregame filter — the
+        endpoint REQUIRES `pregame_pick._mlb_script_v3` to be present.
+        Picks that were never processed by the V3 engine are rejected
+        with 422, so this is NOT a global "live for every match" feature.
+      • Designed to be called from MatchDetailPage when the user clicks on
+        a recommended/rescued/manual-review pick.
+
+    Inputs
+    ------
+    match_id      : MLB Stats API gamePk (string).
+    pregame_pick  : The full pick payload from /api/picks/today
+                    (carries _mlb_script_v3, _mlb_script_v2, recommendation).
+    live_state    : Optional explicit live snapshot:
+                    {current_inning, is_top_half, home_runs, away_runs,
+                     home_starter_runs_allowed, away_starter_runs_allowed,
+                     home_starter_pulled, away_starter_pulled,
+                     bullpen_runs_allowed_home, bullpen_runs_allowed_away}.
+                    If omitted, we attempt to derive a basic snapshot from the
+                    `matches` collection — fail-soft (returns NOT_LIVE_YET when
+                    no data available).
+    """
+    pregame_pick = payload.pregame_pick or {}
+    if pregame_pick.get("sport") and pregame_pick.get("sport").lower() != "baseball":
+        return JSONResponse(status_code=422,
+                            content={"ok": False,
+                                      "detail": "Live intelligence only available for baseball picks."})
+    if not pregame_pick.get("_mlb_script_v3"):
+        return JSONResponse(status_code=422,
+                            content={"ok": False,
+                                      "detail": ("Pick did not pass pregame filter (no _mlb_script_v3). "
+                                                 "Live intelligence only applies to filtered picks.")})
+
+    live_state = payload.live_state or {}
+    # Fallback: try to derive from the matches collection if frontend didn't pass it.
+    if not live_state:
+        try:
+            m_doc = await db.matches.find_one({"match_id": str(payload.match_id)})
+            if m_doc:
+                ls = (m_doc.get("live") or m_doc.get("linescore") or {})
+                live_state = {
+                    "current_inning":      ls.get("currentInning") or ls.get("current_inning"),
+                    "is_top_half":         (ls.get("inningHalf") or ls.get("inning_half") or "top").lower() == "top",
+                    "home_runs":           (ls.get("teams") or {}).get("home", {}).get("runs")
+                                            or ls.get("home_runs") or 0,
+                    "away_runs":           (ls.get("teams") or {}).get("away", {}).get("runs")
+                                            or ls.get("away_runs") or 0,
+                }
+        except Exception as exc:
+            log.debug("mlb_live_reevaluate live_state derivation failed: %s", exc)
+            live_state = {}
+
+    # If still nothing, surface a graceful NOT_LIVE_YET status so the UI can
+    # tell the user "el partido aún no está en vivo".
+    if not live_state.get("current_inning"):
+        return {"ok": True,
+                "status": "NOT_LIVE_YET",
+                "detail": "El partido aún no está en vivo; live intelligence se activará al primer inning.",
+                "match_id": payload.match_id}
+
+    try:
+        from services.mlb_live_intelligence import build_live_intelligence_payload
+        intel = build_live_intelligence_payload(pregame_pick, live_state)
+        return {"ok": True, "status": "LIVE_INTEL_OK", "match_id": payload.match_id,
+                "intelligence": intel}
+    except Exception as exc:
+        log.exception("mlb_live_reevaluate failed: %s", exc)
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": str(exc)})
+
+
 
 @api.get("/stats/dashboard")
 async def stats_dashboard(
