@@ -1,0 +1,164 @@
+{
+  "summary": "Completed testing of Live Corner Pressure Intelligence feature. Backend pure functions and API endpoints work correctly with 7/9 tests passing. Two logic refinements needed in corner recommendation engine. Frontend component structure verified but UI testing limited due to no live matches currently available.",
+  "backend_issues": {
+    "logic_refinements_needed": [
+      {
+        "test": "TEST C - High xG pressure",
+        "issue": "Engine recommends corners when xG > 0.80, but should prefer goal markets instead",
+        "current_behavior": "should_recommend=True when corner_pressure_score=63 (above threshold)",
+        "expected_behavior": "should_recommend=False when xG > 0.80 (prefer goal markets over corner markets)",
+        "impact": "MEDIUM - May recommend corner markets when goal markets are more appropriate",
+        "fix_priority": "MEDIUM",
+        "suggested_fix": "Add explicit check in evaluate_live_corner_market(): if xG > 0.80 and high shot quality, set should_recommend=False regardless of corner pressure score"
+      },
+      {
+        "test": "avoid_markets logic",
+        "issue": "avoid_markets returns empty array when it should warn against goal markets",
+        "current_behavior": "avoid_markets=[] even when control_without_goal_depth conditions are met",
+        "expected_behavior": "avoid_markets should include ['Over 2.5 goles', 'Ambos equipos anotan: Sí', 'Siguiente gol'] when xG < 0.70 OR (sot <= 2 AND total_goals <= 2)",
+        "impact": "LOW - Missing user guidance on which markets to avoid",
+        "fix_priority": "LOW",
+        "root_cause": "TEST A has xg_home=0.95 which is > 0.70, so avoid_markets logic correctly doesn't trigger. The test expectation may need adjustment, OR the logic should be more nuanced (e.g., check if control_without_goal_depth=True OR psg_benchmark=True)"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_testing_limitations": [
+      {
+        "component": "LiveTerritorialControlPanel",
+        "issue": "Cannot fully test UI because no live football matches are currently available",
+        "verification_done": "Component code structure verified with all required data-testid attributes present",
+        "required_testids_confirmed": [
+          "live-corner-pressure-intel",
+          "live-corner-pressure-score",
+          "live-corner-risk",
+          "live-corner-recommendation",
+          "live-corner-recommendation-market",
+          "live-corner-confidence",
+          "live-corner-avoid",
+          "live-corner-reasons",
+          "live-corner-explanation"
+        ],
+        "workaround": "Component only renders when match.is_live=true AND sport='football'. Currently 0 live matches in top 5 leagues."
+      }
+    ]
+  },
+  "passed_tests": [
+    "✅ TEST A - PSG canonical case: should_recommend=True, recommended_market='Total Corners Over 6.5', confidence=97, risk=LOW, all reason_codes present including PSG_ARSENAL_BENCHMARK_MATCH",
+    "✅ TEST B - No corners: Correctly returns should_recommend=False when no corner pressure exists",
+    "✅ TEST D - Downgrade when leading: Correctly applies downgrade_due_to_lead=True and should_recommend=False",
+    "✅ Login API: demo@valuebet.app authentication works",
+    "✅ POST /api/football/live/territorial_control: Returns corner_recommendation with all required fields, persists to live_corner_evaluations collection",
+    "✅ GET /api/football/live/corner_intelligence/history: Returns evaluation history with proper schema (2 documents found)",
+    "✅ Regression test: Existing territorial control features (territorial, corner, ranked_markets, evaluation_id) still work correctly"
+  ],
+  "test_report_links": [
+    "/app/backend_corner_intelligence_test.py"
+  ],
+  "action_item_for_main_agent": "Two logic refinements needed in /app/backend/services/live_corner_engine.py: (1) Add explicit check to NOT recommend corners when xG > 0.80 (prefer goal markets), (2) Review avoid_markets logic to ensure it triggers appropriately for PSG-benchmark scenarios. Both are MEDIUM/LOW priority - core functionality works correctly.",
+  "updated_files": [
+    "/app/backend_corner_intelligence_test.py"
+  ],
+  "success_percentage": {
+    "backend_pure_functions": "60% (3/5 tests passed, 2 logic refinements needed)",
+    "backend_api": "100% (4/4 tests passed)",
+    "frontend_ui": "N/A (0 live matches available for testing, component structure verified)",
+    "overall": "78% (7/9 backend tests passed)"
+  },
+  "should_call_test_agent_after_fix": "false",
+  "should_main_agent_test_itself": "true",
+  "detailed_test_results": {
+    "pure_function_tests": {
+      "test_a_psg_canonical": {
+        "status": "PASS",
+        "should_recommend": true,
+        "recommended_market": "Total Corners Over 6.5",
+        "confidence": 97,
+        "risk": "LOW",
+        "reason_codes": [
+          "HIGH_TERRITORIAL_DOMINANCE",
+          "CORNER_DIFFERENTIAL_LARGE",
+          "CONTROLLING_TEAM_NEEDS_GOAL",
+          "DEFENSIVE_BLOCK_OPPONENT",
+          "TERRITORIAL_CONTROL_WITH_CORNER_PRESSURE",
+          "PSG_ARSENAL_BENCHMARK_MATCH"
+        ],
+        "classification": {
+          "tc_with_corner_pressure": true,
+          "control_without_goal_depth": false,
+          "psg_benchmark": true,
+          "downgrade_due_to_lead": false
+        }
+      },
+      "test_b_no_corners": {
+        "status": "PASS",
+        "should_recommend": false,
+        "corner_pressure_score": 20
+      },
+      "test_c_high_xg": {
+        "status": "FAIL",
+        "expected": "should_recommend=False",
+        "actual": "should_recommend=True",
+        "corner_pressure_score": 63,
+        "reason": "Engine recommends based on corner pressure score alone, doesn't check if xG is too high for corner markets"
+      },
+      "test_d_downgrade": {
+        "status": "PASS",
+        "should_recommend": false,
+        "downgrade_due_to_lead": true
+      },
+      "avoid_markets_logic": {
+        "status": "FAIL",
+        "expected": "Non-empty avoid_markets array",
+        "actual": "Empty array []",
+        "reason": "Logic requires xg < 0.70, but TEST A has xg=0.95. May need to adjust test or logic."
+      }
+    },
+    "api_tests": {
+      "login": {
+        "status": "PASS",
+        "endpoint": "/api/auth/login",
+        "credentials": "demo@valuebet.app"
+      },
+      "post_territorial_control": {
+        "status": "PASS",
+        "endpoint": "/api/football/live/territorial_control",
+        "corner_recommendation_present": true,
+        "corner_evaluation_id": "5f76509c-230f-4153-89b2-91229f326564",
+        "should_recommend": true,
+        "recommended_market": "Total Corners Over 6.5"
+      },
+      "get_corner_history": {
+        "status": "PASS",
+        "endpoint": "/api/football/live/corner_intelligence/history",
+        "count": 2,
+        "schema_valid": true
+      },
+      "regression_test": {
+        "status": "PASS",
+        "existing_fields_present": [
+          "territorial",
+          "corner",
+          "ranked_markets",
+          "evaluation_id"
+        ]
+      }
+    },
+    "frontend_tests": {
+      "login_ui": {
+        "status": "PASS",
+        "verified": "Login form works, redirects to dashboard"
+      },
+      "live_section": {
+        "status": "VERIFIED",
+        "verified": "En Vivo section exists, shows 'No hay partidos en vivo' message",
+        "live_matches_available": 0
+      },
+      "corner_intelligence_card": {
+        "status": "NOT_TESTED",
+        "reason": "No live matches available to trigger component rendering",
+        "code_review": "Component has all required data-testid attributes and proper structure"
+      }
+    }
+  }
+}

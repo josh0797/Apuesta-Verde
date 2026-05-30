@@ -1,22 +1,26 @@
 [
   {
-    "content": "Backend: cablear apply_false_competitive_underdog_to_pick en mlb_day_orchestrator.py",
+    "content": "Backend: extender services/live_corner_engine.py con evaluate_live_corner_market()",
     "status": "completed"
   },
   {
-    "content": "Backend: exponer _mlb_false_competitive_underdog top-level + trap_signal en recommendation",
+    "content": "Backend: crear services/live_corner_storage.py + colección live_corner_evaluations",
     "status": "completed"
   },
   {
-    "content": "Frontend: crear MLBFalseCompetitiveUnderdogBadge en MLBScriptV3Panel y cablear en MatchCard",
+    "content": "Backend: cablear en endpoint + nuevo endpoint GET corner_intelligence/history",
     "status": "completed"
   },
   {
-    "content": "Lint + esbuild + smoke integración",
+    "content": "Frontend: card 'Corner Pressure Intelligence' completa",
     "status": "completed"
   },
   {
-    "content": "Testing Agent v3 (FALSE_COMPETITIVE_UNDERDOG end-to-end) — 16/16 PASS",
+    "content": "Lint + esbuild + acceptance tests A/B/C/D verificados",
     "status": "completed"
+  },
+  {
+    "content": "Testing Agent v3 (Live Corner Intelligence end-to-end)",
+    "status": "in_progress"
   }
 ]

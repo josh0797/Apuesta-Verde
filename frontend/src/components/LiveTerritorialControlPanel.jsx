@@ -201,6 +201,7 @@ export function LiveTerritorialControlPanel({ sport, match, t }) {
 
   const territorial = payload?.territorial || null;
   const corner = payload?.corner || null;
+  const cornerRecommendation = payload?.corner_recommendation || null;
   const ranked = Array.isArray(payload?.ranked_markets) ? payload.ranked_markets : [];
 
   // Show the corner recommendation ONLY when the score surfaces
@@ -337,7 +338,198 @@ export function LiveTerritorialControlPanel({ sport, match, t }) {
             />
           </div>
 
-          {/* Corner Intelligence card — always shows the score (per user
+          {/* Corner Pressure Intelligence — V2 — full recommendation card.
+              Renders ONLY when the backend produced a `corner_recommendation`
+              payload. Shows: pressure score, current corners, dominant team,
+              recommended market + risk + confidence + reason codes +
+              avoid_markets. Matches the user's UI spec verbatim. */}
+          {cornerRecommendation ? (
+            <div
+              className={`rounded-lg border px-3 py-2.5 space-y-2 ${
+                cornerRecommendation.should_recommend
+                  ? 'border-violet-500/40 bg-violet-500/8'
+                  : 'border-border/50 bg-white/[0.02]'
+              }`}
+              data-testid="live-corner-pressure-intel"
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Flag className="h-3.5 w-3.5 text-violet-300" />
+                  <span className="text-[12px] font-semibold">
+                    Corner Pressure Intelligence
+                  </span>
+                  {cornerRecommendation.classification?.psg_benchmark ? (
+                    <span
+                      className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/15 border border-violet-500/40 text-violet-200 font-mono"
+                      title="Encaja con el perfil PSG vs Arsenal"
+                      data-testid="live-corner-benchmark-tag"
+                    >
+                      PSG-BENCHMARK
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2 tabular-nums">
+                  <span
+                    className="text-[11px] font-mono font-semibold"
+                    data-testid="live-corner-pressure-score"
+                  >
+                    Score {cornerRecommendation.corner_pressure_score}/100
+                  </span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${
+                      cornerRecommendation.risk === 'LOW'
+                        ? 'bg-emerald-500/12 border-emerald-500/35 text-emerald-200'
+                        : cornerRecommendation.risk === 'MEDIUM'
+                        ? 'bg-amber-500/12 border-amber-500/35 text-amber-200'
+                        : 'bg-rose-500/12 border-rose-500/35 text-rose-200'
+                    }`}
+                    data-testid="live-corner-risk"
+                  >
+                    {cornerRecommendation.risk}
+                  </span>
+                </div>
+              </div>
+
+              {/* Current corners + pace + dominant */}
+              <div className="grid grid-cols-3 gap-2 text-[11px]">
+                <div
+                  className="rounded-md border border-border/40 bg-white/[0.03] px-2 py-1.5"
+                  data-testid="live-corner-current"
+                >
+                  <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                    Córners actuales
+                  </div>
+                  <div className="font-mono tabular-nums font-semibold">
+                    {cornerRecommendation.current_corners?.home ?? 0}
+                    <span className="text-muted-foreground mx-1">–</span>
+                    {cornerRecommendation.current_corners?.away ?? 0}
+                  </div>
+                </div>
+                <div
+                  className="rounded-md border border-border/40 bg-white/[0.03] px-2 py-1.5"
+                  data-testid="live-corner-pace"
+                >
+                  <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                    Proyección 90'
+                  </div>
+                  <div className="font-mono tabular-nums font-semibold">
+                    {Number(cornerRecommendation.projected_corner_total || 0).toFixed(1)}
+                  </div>
+                </div>
+                <div
+                  className="rounded-md border border-border/40 bg-white/[0.03] px-2 py-1.5"
+                  data-testid="live-corner-dominant"
+                >
+                  <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                    Dominante
+                  </div>
+                  <div className="text-[11px] font-semibold truncate">
+                    {cornerRecommendation.recommended_team_name || '—'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Explanation */}
+              {cornerRecommendation.explanation ? (
+                <p
+                  className="text-[11px] text-foreground/80 leading-snug"
+                  data-testid="live-corner-explanation"
+                >
+                  {cornerRecommendation.explanation}
+                </p>
+              ) : null}
+
+              {/* Recommendation block (only when should_recommend) */}
+              {cornerRecommendation.should_recommend && cornerRecommendation.recommended_market ? (
+                <div
+                  className="rounded-md border border-violet-500/45 bg-violet-500/12 px-2.5 py-2 flex flex-wrap items-center justify-between gap-2"
+                  data-testid="live-corner-recommendation"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Sparkles className="h-3.5 w-3.5 text-violet-200 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-wide text-violet-200/80">
+                        Mercado recomendado
+                      </div>
+                      <div
+                        className="text-[13px] font-semibold text-violet-100 truncate"
+                        data-testid="live-corner-recommendation-market"
+                      >
+                        {cornerRecommendation.recommended_market}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] tabular-nums shrink-0">
+                    <span
+                      className="font-mono text-violet-100"
+                      data-testid="live-corner-confidence"
+                    >
+                      Conf {cornerRecommendation.confidence}/100
+                    </span>
+                    {cornerRecommendation.recommended_odds ? (
+                      <span className="font-mono text-violet-100">
+                        @{Number(cornerRecommendation.recommended_odds).toFixed(2)}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="rounded-md border border-border/30 bg-white/[0.02] px-2.5 py-1.5 text-[10.5px] text-muted-foreground italic"
+                  data-testid="live-corner-no-recommendation"
+                >
+                  Sin recomendación de córners ahora (score {cornerRecommendation.corner_pressure_score}/100).
+                </div>
+              )}
+
+              {/* Reasons / driver codes */}
+              {Array.isArray(cornerRecommendation.human_reasons) && cornerRecommendation.human_reasons.length > 0 ? (
+                <div data-testid="live-corner-reasons">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">
+                    Razones
+                  </div>
+                  <ul className="space-y-0.5">
+                    {cornerRecommendation.human_reasons.slice(0, 5).map((r, i) => (
+                      <li
+                        key={i}
+                        className="flex items-start gap-1.5 text-[10.5px] text-foreground/85"
+                        data-testid={`live-corner-reason-${i}`}
+                      >
+                        <span className="h-1 w-1 rounded-full bg-violet-300 mt-1.5 shrink-0" />
+                        <span>{r}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {/* AVOID markets (the engine warns the user away from these) */}
+              {Array.isArray(cornerRecommendation.avoid_markets) && cornerRecommendation.avoid_markets.length > 0 ? (
+                <div
+                  className="border-t border-border/30 pt-1.5"
+                  data-testid="live-corner-avoid"
+                >
+                  <div className="text-[10px] uppercase tracking-wide text-rose-300/90 font-semibold mb-1 flex items-center gap-1">
+                    <EyeOff className="h-2.5 w-2.5" />
+                    Evitar estos mercados
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {cornerRecommendation.avoid_markets.map((m, i) => (
+                      <span
+                        key={i}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/8 border border-rose-500/25 text-rose-200"
+                        data-testid={`live-corner-avoid-${i}`}
+                      >
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Corner Intelligence (raw) card — always shows the score (per user
               spec), but the recommendation/market candidates only surface
               once the score crosses the threshold. */}
           <div

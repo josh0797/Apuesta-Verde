@@ -643,6 +643,36 @@ async def football_live_territorial_control(
             metrics, surface_threshold=int(payload.surface_threshold))
         ranked      = rank_live_markets(metrics, territorial, corner)
 
+        # ── V2 — LIVE CORNER MARKET INTELLIGENCE (full recommendation) ──
+        # In addition to the raw corner-pressure payload above, compute the
+        # rich corner_recommendation object that powers the new "Corner
+        # Pressure Intelligence" UI card. This evaluates the 2 sub-states
+        # (TERRITORIAL_CONTROL_WITH_CORNER_PRESSURE / CONTROL_WITHOUT_GOAL_DEPTH),
+        # the PSG-Arsenal benchmark, the downgrade-when-leading rule, and
+        # produces: should_recommend, recommended_market, confidence, risk,
+        # reason_codes, human_reasons, explanation, avoid_markets.
+        corner_recommendation = None
+        corner_eval_id = None
+        try:
+            from services.live_corner_engine import evaluate_live_corner_market
+            from services.live_corner_storage import store_live_corner_evaluation
+            corner_recommendation = evaluate_live_corner_market(
+                metrics,
+                surface_threshold=int(payload.surface_threshold),
+            )
+            # Persist strong recommendations into the dedicated
+            # `live_corner_evaluations` collection.
+            corner_eval_id = await store_live_corner_evaluation(
+                db,
+                user_id=user["id"],
+                match_id=payload.match_id if payload.match_id is not None else metrics.get("match_id"),
+                corner_recommendation=corner_recommendation,
+                metrics=metrics,
+                only_strong=True,
+            )
+        except Exception as _exc:
+            log.debug("corner_recommendation pipeline failed (non-fatal): %s", _exc)
+
         # Persist (fail-soft).
         eval_id = await store_live_territorial_evaluation(
             db,
@@ -656,18 +686,55 @@ async def football_live_territorial_control(
         )
 
         return {
-            "ok":                True,
-            "evaluation_id":     eval_id,
-            "match_id":          payload.match_id,
-            "territorial":       territorial,
-            "corner":            corner,
-            "ranked_markets":    ranked,
-            "metrics":           metrics,
+            "ok":                  True,
+            "evaluation_id":       eval_id,
+            "corner_evaluation_id": corner_eval_id,
+            "match_id":            payload.match_id,
+            "territorial":         territorial,
+            "corner":              corner,
+            "corner_recommendation": corner_recommendation,
+            "ranked_markets":      ranked,
+            "metrics":             metrics,
         }
     except HTTPException:
         raise
     except Exception as exc:
         log.exception("football_live_territorial_control failed: %s", exc)
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": str(exc)})
+
+
+@api.get("/football/live/corner_intelligence/history")
+async def football_live_corner_intelligence_history(
+    user: dict = Depends(get_current_user),
+    match_id: Optional[str] = None,
+    reference_only: bool = False,
+    limit: int = 30,
+):
+    """Return recent Live Corner Intelligence evaluations for the user.
+
+    Query params:
+      • match_id        — optional filter
+      • reference_only  — if true, only documents tagged with
+                          REFERENCE_LIVE_CORNER_PRESSURE_PROFILE
+      • limit           — capped at 100, default 30.
+    """
+    try:
+        from services.live_corner_storage import query_corner_evaluations
+        docs = await query_corner_evaluations(
+            db,
+            user_id=user["id"],
+            match_id=match_id,
+            reference_only=bool(reference_only),
+            limit=max(1, min(100, int(limit or 30))),
+        )
+        return {
+            "ok":     True,
+            "count":  len(docs),
+            "items":  docs,
+        }
+    except Exception as exc:
+        log.exception("football_live_corner_intelligence_history failed: %s", exc)
         return JSONResponse(status_code=500,
                             content={"ok": False, "detail": str(exc)})
 
