@@ -2135,6 +2135,22 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
     except Exception as exc:
         log.warning("possible_alternative_markets Phase 13.5 failed: %s", exc)
 
+    # ── Phase 13.6 — Football Market Trace (V4: explicit per-market audit) ─
+    # For each discarded football entry, expose an explicit `market_trace`
+    # (market, selection, team_side, odds, estimated_probability,
+    # implied_probability, edge, fragility, confidence, rejection_code,
+    # rejection_reason, fragility_drivers) + a `markets_checked` list and
+    # a `card_header`. Other sports (basketball/baseball) are also
+    # annotated for free since the function is sport-aware — the UI
+    # currently gates by sport === 'football' so non-football payloads
+    # remain inert.
+    try:
+        from .football_market_trace import attach_market_trace_to_summary
+        trace_res = attach_market_trace_to_summary(summary, sport=sport)
+        parsed.setdefault("_pipeline", {})["football_market_trace"] = trace_res
+    except Exception as exc:
+        log.warning("football_market_trace Phase 13.6 failed: %s", exc)
+
     parsed["_generated_at"] = datetime.now(timezone.utc).isoformat()
     parsed["_session_id"] = session_id
     parsed["_provider"] = provider_used

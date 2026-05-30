@@ -1465,6 +1465,31 @@ async def _run_analysis_pipeline(
     record = _normalize_keys_for_bson(record)
     result = record["payload"]
     await db.picks.insert_one(record)
+
+    # ── Football Market Audit storage (V4) ─────────────────────────────
+    # For football runs, persist the per-discarded market_trace into the
+    # dedicated `football_market_audit` collection so the user can later
+    # query historical audits (e.g. via GET /api/football/market_audit).
+    # Fail-soft: any error is logged but never breaks the response.
+    if sport == "football":
+        try:
+            from services.football_market_trace import build_run_audit_payload
+            from services.football_audit_storage import store_football_audit
+            summary = (result or {}).get("summary") or {}
+            audit_payload = build_run_audit_payload(
+                summary, sport="football",
+                run_id=pick_id_base, user_id=user_id,
+            )
+            await store_football_audit(
+                db,
+                user_id=user_id,
+                pick_run_id=pick_id_base,
+                audit_payload=audit_payload,
+                match_date=started.date().isoformat(),
+            )
+        except Exception as _exc:
+            log.debug("football audit storage failed (non-fatal): %s", _exc)
+
     return {"pick_run_id": pick_id_base, "sport": sport, "generated_at": record["generated_at"], "result": result}
 
 
@@ -1893,6 +1918,57 @@ async def mlb_daily_market_audit(
         }
     except Exception as exc:
         log.exception("mlb_daily_market_audit failed: %s", exc)
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": str(exc)})
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Football Market Audit — per-discarded explicit market trace history
+# ════════════════════════════════════════════════════════════════════════════
+@api.get("/football/market_audit")
+async def football_market_audit(
+    user: dict = Depends(get_current_user),
+    date: Optional[str] = None,
+    limit: int = 30,
+):
+    """Return historic football market audits for the authenticated user.
+
+    Each audit document contains the per-discarded ``market_trace`` and
+    ``markets_checked`` rows produced by the engine, plus a rejection-code
+    histogram so the UI can render an "Auditoría de mercados" timeline.
+
+    Query params:
+      • date  : optional `YYYY-MM-DD` filter (matches `match_date`).
+      • limit : max number of documents to return (default 30, max 100).
+    """
+    try:
+        from services.football_audit_storage import query_football_audit
+        limit = max(1, min(100, int(limit or 30)))
+        docs = await query_football_audit(
+            db,
+            user_id=user["id"],
+            date=date,
+            limit=limit,
+        )
+        # Aggregate a high-level histogram across all returned docs so the
+        # client can show a "bias detected" indicator without re-computing.
+        global_hist: dict[str, int] = {}
+        total_discarded = 0
+        for d in docs:
+            meta = (d or {}).get("summary_meta") or {}
+            hist = meta.get("histogram") or {}
+            for k, v in hist.items():
+                global_hist[k] = global_hist.get(k, 0) + int(v or 0)
+            total_discarded += int((d or {}).get("total_discarded") or 0)
+        return {
+            "ok":              True,
+            "count":           len(docs),
+            "total_discarded": total_discarded,
+            "histogram":       global_hist,
+            "audits":          docs,
+        }
+    except Exception as exc:
+        log.exception("football_market_audit failed: %s", exc)
         return JSONResponse(status_code=500,
                             content={"ok": False, "detail": str(exc)})
 

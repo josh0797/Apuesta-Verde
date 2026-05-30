@@ -20,6 +20,7 @@ import { EditorialSignalsPanel, EditorialSignalsSummary } from '@/components/Edi
 import { ExternalSourceEvidencePanel, PossibleAlternativeMarkets } from '@/components/ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from '@/components/SourcesConsultedPanel';
 import { ManualOddsReviewPanel } from '@/components/ManualOddsReviewPanel';
+import { FootballMarketAuditPanel } from '@/components/FootballMarketAuditPanel';
 
 function GroupSection({ title, count, tier, children, defaultOpen = true, testId, sectionRef, icon: Icon }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -90,7 +91,7 @@ function FragilityChip({ score, label }) {
   );
 }
 
-function DiscardedRow({ item, testId, type }) {
+function DiscardedRow({ item, testId, type, sport }) {
   const { lang } = useI18n();
   const [open, setOpen] = useState(false);
   const mb = item._moneyball || {};
@@ -100,21 +101,32 @@ function DiscardedRow({ item, testId, type }) {
   const externalEvidence = item.external_source_evidence || [];
   const possibleAlts = item.possible_alternative_markets || [];
   const reviewNote = item.user_review_note || '';
+  // V4 — Football Market Trace payload (only present when sport === 'football'
+  // and the engine attached the explicit market_trace + markets_checked).
+  const isFootball = sport === 'football';
+  const marketTrace = item.market_trace || null;
+  const marketsChecked = Array.isArray(item.markets_checked) ? item.markets_checked : [];
+  const hasFootballAudit = isFootball && (marketTrace || marketsChecked.length > 0);
+
   const hasDetails = structuredTraps.length > 0
     || frag.score != null
     || editorialSignals.length > 0
     || externalEvidence.some((e) => e.status === 'ok')
-    || possibleAlts.length > 0;
+    || possibleAlts.length > 0
+    || hasFootballAudit;
   const trapCount = structuredTraps.length;
   const sigCount = editorialSignals.length;
   const humanReason = useMemo(() => {
+    // V4 — Prefer the explicit card_header from the engine when available
+    // (e.g. "PSG Doble Oportunidad (1X) descartado por edge insuficiente (-12.9%)").
+    if (hasFootballAudit && item.card_header) return item.card_header;
     if (!trapCount && !sigCount) return item.reason || item.missing || '';
     const verb = type === 'market' ? 'Descartado: mercado directo sin valor' : (item.reason || '');
     const parts = [];
     if (trapCount) parts.push(`${trapCount} señal${trapCount === 1 ? '' : 'es'} trampa`);
     if (sigCount && sigCount !== trapCount) parts.push(`${sigCount} señal${sigCount === 1 ? '' : 'es'} de contexto`);
     return parts.length ? `${verb}. ${parts.join(' · ')}.` : verb;
-  }, [item, type, trapCount, sigCount]);
+  }, [item, type, trapCount, sigCount, hasFootballAudit]);
 
   const inner = (
     <div className="rounded-md border border-border bg-card/60 hover:border-cyan-500/30 transition-colors" data-testid={testId}>
@@ -151,6 +163,16 @@ function DiscardedRow({ item, testId, type }) {
       </div>
       {open && hasDetails && (
         <div className="border-t border-border/60 px-3 py-2.5 space-y-2 bg-background/30">
+          {/* V4 — Football Market Trace audit (renders ONLY for football
+              when the backend attached `market_trace` + `markets_checked`).
+              Goes FIRST so the user immediately sees the explicit Market /
+              Cuota / Edge / Motivo block instead of generic wording. */}
+          {hasFootballAudit && (
+            <FootballMarketAuditPanel
+              item={item}
+              testIdPrefix={`${testId}-${item.match_id || 'na'}`}
+            />
+          )}
           {possibleAlts.length > 0 && (
             <PossibleAlternativeMarkets
               markets={possibleAlts}
@@ -830,7 +852,7 @@ export default function DashboardPage() {
           )}
           {discMot.length > 0 && (
             <GroupSection title={t.dashboard.groupDiscMotivation} count={discMot.length} tier="Below" defaultOpen={true} testId="group-discarded-motivation" sectionRef={refs.discMot} icon={TrendingDown}>
-              <div className="grid gap-2">{discMot.map((d, i) => <DiscardedRow key={i} item={d} testId="discarded-motivation-row" type="motivation" />)}</div>
+              <div className="grid gap-2">{discMot.map((d, i) => <DiscardedRow key={i} item={d} testId="discarded-motivation-row" type="motivation" sport={sport} />)}</div>
             </GroupSection>
           )}
           {discMkt.length > 0 && (
@@ -843,12 +865,12 @@ export default function DashboardPage() {
                   : t.dashboard.groupDiscMarket
               }
               count={discMkt.length} tier="Below" defaultOpen={true} testId="group-discarded-market" sectionRef={refs.discMkt} icon={Shield}>
-              <div className="grid gap-2">{discMkt.map((d, i) => <DiscardedRow key={i} item={d} testId="discarded-market-row" type="market" />)}</div>
+              <div className="grid gap-2">{discMkt.map((d, i) => <DiscardedRow key={i} item={d} testId="discarded-market-row" type="market" sport={sport} />)}</div>
             </GroupSection>
           )}
           {incomplete.length > 0 && (
             <GroupSection title={t.dashboard.groupIncomplete} count={incomplete.length} tier="Below" defaultOpen={true} testId="group-incomplete" sectionRef={refs.incomplete} icon={AlertCircle}>
-              <div className="grid gap-2">{incomplete.map((d, i) => <DiscardedRow key={i} item={{ match_id: d.match_id, match_label: d.match_label, reason: d.missing }} testId="incomplete-data-row" type="incomplete" />)}</div>
+              <div className="grid gap-2">{incomplete.map((d, i) => <DiscardedRow key={i} item={{ match_id: d.match_id, match_label: d.match_label, reason: d.missing }} testId="incomplete-data-row" type="incomplete" sport={sport} />)}</div>
             </GroupSection>
           )}
 
