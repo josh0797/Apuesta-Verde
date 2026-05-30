@@ -1,22 +1,26 @@
 [
   {
-    "content": "Backend: Add Poisson totals_probability() + enrich smart_total_line_selector",
+    "content": "Backend: crear mlb_pregame_analytics_v3.py (Game Script Engine + Why-This-Pick + Confidence Breakdown + Baseball Reasons + Market Diversifier)",
     "status": "completed"
   },
   {
-    "content": "Backend: build_v2_payload resolves coverProbability per pickType + edgeVsLine + debug log",
+    "content": "Wire v3 en mlb_day_orchestrator.py — adjuntar _mlb_script_v3 a cada pick y aplicar diversificación a nivel de día",
     "status": "completed"
   },
   {
-    "content": "Frontend ManualOddsReviewPanel: display Edge vs Línea + Poisson debug + ENABLED manual odds input (client-side EV)",
+    "content": "Frontend: crear MLBScriptV3Panel.jsx (Expected Script, Pitchers card, Why This Pick checklist, Confidence Breakdown)",
     "status": "completed"
   },
   {
-    "content": "Frontend MLBScriptPanel: surface edgeVsLine + Poisson probability fields",
+    "content": "Frontend: integrar V3 Panel en MatchCard.jsx + reemplazar reasoning genérico cuando existan baseball_reasons",
     "status": "completed"
   },
   {
-    "content": "Unit tests for 4 case studies + regression check Run Line picks",
+    "content": "Probar end-to-end via /api/mlb/day + screenshot del dashboard MLB",
     "status": "completed"
+  },
+  {
+    "content": "Testing agent (backend MLB-V7) — validar payload, diversificación y no-regresión football/basketball",
+    "status": "in_progress"
   }
 ]

@@ -1,0 +1,125 @@
+{
+  "test_suite": "MLB Engine V3 (V7) Backend Tests",
+  "timestamp": "2026-05-30T01:38:14.236590",
+  "total_tests": 23,
+  "passed": 22,
+  "failed": 1,
+  "success_rate": "95.7%",
+  "results": [
+    {
+      "test": "Import sanity",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "generate_mlb_game_script (pitcher duel)",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "generate_mlb_game_script (shootout)",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "build_pitcher_block",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "build_why_this_pick",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "build_confidence_breakdown",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "generate_baseball_first_reasons",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "apply_market_diversification (dominant)",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "apply_market_diversification (empty)",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "Authentication",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB pipeline V3 structure",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB V3 script_code valid",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB V3 pitchers_block structure",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB V3 pitcher quality matches",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB V3 why_this_pick rows",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB V3 confidence_breakdown components",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB V3 confidence total matches score",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB V3 baseball_reasons no generic",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB V3 diversity present",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB V3 diversity penalty logic",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "Football no MLB V3 fields",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "Basketball no MLB V3 fields",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB buckets preserved",
+      "status": "FAIL",
+      "error": "Test returned False"
+    }
+  ]
+}

@@ -20,6 +20,7 @@ import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
 import { MLBScriptPanel } from './MLBScriptPanel';
+import { MLBScriptV3Panel, MLBDiversityBadge } from './MLBScriptV3Panel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -170,11 +171,20 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
       )}
 
       {/* Reasoning */}
-      {m.reasoning && (
+      {m.reasoning && (!Array.isArray(m.baseball_reasons) || m.baseball_reasons.length === 0) && (
         <p className="text-sm text-muted-foreground leading-relaxed border-l-2 border-cyan-500/40 pl-3">
           {m.reasoning}
         </p>
       )}
+
+      {/* MLB-V7 — Diversity warning chip (baseball-only). Shows when this
+          pick belongs to the day's dominant market. */}
+      {sport === 'baseball' && m._mlb_script_v3_diversity?.is_dominant ? (
+        <MLBDiversityBadge
+          diversity={m._mlb_script_v3_diversity}
+          testId={`mlb-diversity-${m.match_id}`}
+        />
+      ) : null}
 
       {/* Risks + cash-out */}
       <div className="flex flex-wrap items-center gap-2">
@@ -273,6 +283,17 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
         sport={m.baseballHistoricalProfile ? 'baseball' : 'basketball'}
         testId={`historical-profile-${m.match_id}`}
       />
+
+      {/* MLB Engine V3 — Explainability layer (Game Script + Pitchers +
+          Why This Pick + Confidence Breakdown + baseball-first reasons).
+          Renders ABOVE the v2 numeric panel so the user sees the human
+          narrative first. Baseball-only. */}
+      {sport === 'baseball' && m._mlb_script_v3 ? (
+        <MLBScriptV3Panel
+          scriptV3={m._mlb_script_v3}
+          testId={`mlb-v3-${m.match_id}`}
+        />
+      ) : null}
 
       {/* MLB Margin & Total Script Engine v2 — baseball-only.
           Renders the per-pick `_mlb_script_v2` payload (margin projection,

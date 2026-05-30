@@ -1,0 +1,73 @@
+{
+  "test_suite": "MLB Engine V3 (V7) Final Test",
+  "timestamp": "2026-05-30T01:42:36.603115",
+  "total_tests": 12,
+  "passed": 11,
+  "failed": 1,
+  "success_rate": "91.7%",
+  "results": [
+    {
+      "test": "MLB buckets preserved",
+      "status": "PASS"
+    },
+    {
+      "test": "_mlb_script_v3 structure",
+      "status": "PASS"
+    },
+    {
+      "test": "Script code validity",
+      "status": "PASS",
+      "code": "LOW_VARIANCE_GAME"
+    },
+    {
+      "test": "Pitchers block structure",
+      "status": "PASS"
+    },
+    {
+      "test": "Pitcher quality matches",
+      "status": "PASS"
+    },
+    {
+      "test": "Why this pick rows",
+      "status": "PASS",
+      "count": 8
+    },
+    {
+      "test": "Confidence breakdown components",
+      "status": "PASS"
+    },
+    {
+      "test": "Confidence total matches score",
+      "status": "PASS"
+    },
+    {
+      "test": "Baseball reasons no generic",
+      "status": "PASS"
+    },
+    {
+      "test": "Diversity metadata present",
+      "status": "PASS"
+    },
+    {
+      "test": "Diversity penalty logic",
+      "status": "PASS"
+    },
+    {
+      "test": "Football no MLB V3 regression",
+      "status": "SKIP"
+    }
+  ],
+  "sample_pick": {
+    "match": "Detroit Tigers @ Chicago White Sox",
+    "classification": "RESCUED_ALTERNATIVE_MARKET",
+    "script_code": "LOW_VARIANCE_GAME",
+    "pitchers": {
+      "home": "Anthony Kay",
+      "away": "Framber Valdez"
+    },
+    "diversity": {
+      "dominant_market": "RUN_LINE_PLUS_1_5",
+      "is_dominant": true
+    }
+  }
+}

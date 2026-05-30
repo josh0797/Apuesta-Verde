@@ -47,6 +47,11 @@ from .mlb_pregame_analytics_v2 import (
     mlb_parlay_builder as _v2_mlb_parlay_builder,
     mlb_structural_data_quality as _v2_structural_quality,
 )
+# MLB-V7 — Explainability & Game Script (pure functions, no probability changes)
+from .mlb_pregame_analytics_v3 import (
+    build_v3_payload as _v3_build_payload,
+    apply_market_diversification as _v3_apply_diversification,
+)
 
 log = logging.getLogger("mlb_day_orchestrator")
 
@@ -1123,10 +1128,54 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             discarded_after_full_analysis.append(pick_payload)
             discarded.append(pick_payload)   # legacy bucket — keep populated for backward-compat
 
+        # ── MLB-V7 — Explainability & Game Script (pure enrichment) ──────
+        # Attach _mlb_script_v3 to every pick we kept (any bucket that
+        # will reach the UI), so the new MLBScriptV3Panel can render
+        # the Game Script, Pitcher block, Why-This-Pick checklist,
+        # Confidence Breakdown and baseball-first reasons.
+        try:
+            chosen_for_v3 = pick_payload.get("recommendation") or chosen_market
+            displayed_conf = None
+            rec = pick_payload.get("recommendation") or {}
+            # Use the score from chosen_market (0-100) as the displayed
+            # total so the breakdown sums to it.
+            if isinstance(rec, dict) and rec.get("score") is not None:
+                try:
+                    displayed_conf = float(rec.get("score"))
+                except (TypeError, ValueError):
+                    displayed_conf = None
+            v3_payload = _v3_build_payload(
+                scoring_ctx,
+                v2_payload or {},
+                chosen_market=chosen_for_v3,
+                under_profile=under_profile,
+                nrfi=nrfi,
+                rescue=rescue,
+                hist_profile=baseball_hist_profile,
+                displayed_total=displayed_conf,
+            )
+            pick_payload["_mlb_script_v3"]  = v3_payload
+            pick_payload["baseball_reasons"] = v3_payload.get("baseball_reasons") or []
+            pick_payload["game_script"]      = v3_payload.get("script") or {}
+        except Exception as exc:
+            log.debug("v3 build_v3_payload failed for game %s: %s",
+                       conf.get("game_pk"), exc)
+
     pipeline_meta["picks_total"]     = len(picks)
     pipeline_meta["rescued_total"]   = len(rescued)
     pipeline_meta["discarded_total"] = len(discarded)
     pipeline_meta["finished_at"]     = datetime.now(timezone.utc).isoformat()
+
+    # ── MLB-V7 — Market diversification (day-level annotation) ──────────
+    # Annotate every visible pick with the day's market histogram so the
+    # UI can show "X of Y picks are Under 9.5 — consider alternatives".
+    # Pure annotation: probabilities and buckets are NOT mutated.
+    try:
+        visible_picks = picks + rescued + structural_lean_requires_odds + watchlist_manual_odds
+        _v3_apply_diversification(visible_picks)
+        pipeline_meta["diversity_annotated"] = len(visible_picks)
+    except Exception as exc:
+        log.debug("MLB-V7 diversification failed: %s", exc)
     # If we processed games but nothing surfaced as a pick or rescue,
     # surface a human-readable abort_reason so the UI can explain it.
     if (not picks) and (not rescued) and pipeline_meta.get("abort_reason") is None:
