@@ -20,7 +20,7 @@ import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
 import { MLBScriptPanel } from './MLBScriptPanel';
-import { MLBScriptV3Panel, MLBDiversityBadge } from './MLBScriptV3Panel';
+import { MLBScriptV3Panel, MLBDiversityBadge, MLBBullpenSwapBadge } from './MLBScriptV3Panel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -183,6 +183,16 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
         <MLBDiversityBadge
           diversity={m._mlb_script_v3_diversity}
           testId={`mlb-diversity-${m.match_id}`}
+        />
+      ) : null}
+
+      {/* F6A — Bullpen swap warning. Shown when the engine downgraded a
+          Full Game Under and adopted F5 Under or a protected alternate
+          line because bullpen risk was MEDIUM/HIGH. Baseball-only. */}
+      {sport === 'baseball' && m.recommendation?.bullpen_swap_meta ? (
+        <MLBBullpenSwapBadge
+          meta={m.recommendation.bullpen_swap_meta}
+          testId={`mlb-bullpen-swap-${m.match_id}`}
         />
       ) : null}
 

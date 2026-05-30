@@ -64,6 +64,28 @@ MLB_PROBABLE_PAGE = "https://www.mlb.com/probable-pitchers/{date}"   # date YYYY
 ROTOWIRE_DAILY    = "https://www.rotowire.com/baseball/daily-lineups.php"
 
 
+def _f(v, default=0.0):
+    """Safe float coercion used by F6A bullpen-swap logic."""
+    try:
+        return float(v) if v is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _extract_line_number_from_market(market_text: Any) -> Optional[float]:
+    """Extract a numeric line (e.g. 9.5) from a market label string."""
+    if market_text is None:
+        return None
+    m = re.search(r"(\d+(?:\.\d+)?)", str(market_text))
+    if not m:
+        return None
+    try:
+        return float(m.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Time-field normalization (GAP #0)
 # ────────────────────────────────────────────────────────────────────────────
@@ -777,6 +799,97 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         elif "NRFI_SIGNAL" in nrfi.get("tags", []) and frag.get("score", 100) <= 45:
             chosen_market = {"market": "NRFI", "score": nrfi.get("nrfi_score", 0),
                              "rationale": nrfi.get("explanation", "")}
+
+        # ── F6A — Bullpen-aware Under market re-ranking ──────────────────
+        # When the chosen market is a Full Game Under but the bullpen has
+        # MEDIUM/HIGH risk while starters + park supply the Under thesis,
+        # swap to F5 Under (or a protected alternate line) when available.
+        # This is a NON-DESTRUCTIVE rewrite of the chosen market; the
+        # probability engine and bucket router remain untouched.
+        bullpen_swap_meta = None
+        try:
+            if chosen_market and "under" in (chosen_market.get("market") or "").lower():
+                from .mlb_under_market_selector import select_under_market_with_bullpen_risk
+                # Build the list of available markets from the v2 payload's
+                # alt_markets + the existing under_profile alt list.
+                avail_markets: list[dict] = []
+                for m in (v2_payload.get("availableMarkets") or []):
+                    if isinstance(m, dict):
+                        avail_markets.append(m)
+                for m in (under_profile.get("alt_markets") or []):
+                    if isinstance(m, dict):
+                        avail_markets.append(m)
+                # Derive F5 Under line from v2 (if any).
+                f5_line_v2 = None
+                f5_data = (v2_payload.get("f5") or {})
+                if f5_data.get("recommendedLine"):
+                    import re as _re
+                    _mm = _re.search(r"(\d+(?:\.\d+)?)", str(f5_data["recommendedLine"]))
+                    if _mm:
+                        try:
+                            f5_line_v2 = float(_mm.group(1))
+                        except (TypeError, ValueError):
+                            f5_line_v2 = None
+
+                bullpen_swap_meta = select_under_market_with_bullpen_risk(
+                    expected_runs=v2_payload.get("expectedRuns"),
+                    full_game_total_line=(
+                        v2_payload.get("smartTotalsLine")
+                        or _extract_line_number_from_market(chosen_market.get("market"))
+                    ),
+                    f5_total_line=f5_line_v2,
+                    pitcher_score=(h_q + a_q) / 2.0,
+                    park_factor=park.get("park_runs_mult"),
+                    bullpen_risk=bull.get("score"),
+                    bullpen_era_7d=max(
+                        scoring_ctx.get("favorite_bullpen_era_7d") or 0,
+                        scoring_ctx.get("underdog_bullpen_era_7d") or 0,
+                    ),
+                    offensive_outlook=(
+                        (scoring_ctx.get("offense_home") or {}).get("score", 50)
+                        + (scoring_ctx.get("offense_away") or {}).get("score", 50)
+                    ) / 2.0,
+                    available_markets=avail_markets,
+                    current_selection={
+                        "market": chosen_market.get("market"),
+                        "line":   _extract_line_number_from_market(chosen_market.get("market")),
+                        "score":  chosen_market.get("score"),
+                    },
+                )
+                if bullpen_swap_meta.get("rule_triggered"):
+                    new_sel = bullpen_swap_meta.get("selected_market")
+                    if new_sel:
+                        # Adopt the new market while preserving the original
+                        # rationale chain — append the bullpen-swap explanation.
+                        new_chosen = {
+                            "market":   new_sel.get("market", chosen_market.get("market")),
+                            "selection": new_sel.get("selection") or chosen_market.get("selection"),
+                            "score":    new_sel.get("score", chosen_market.get("score")),
+                            "rationale": (
+                                (chosen_market.get("rationale") or "")
+                                + " | "
+                                + bullpen_swap_meta.get("explanation", "")
+                            ).strip(" |"),
+                            "bullpen_swap": True,
+                            "bullpen_swap_meta": bullpen_swap_meta,
+                            "alt_markets":      chosen_market.get("alt_markets") or [],
+                            "previous_market":  chosen_market.get("market"),
+                        }
+                        chosen_market = new_chosen
+                    else:
+                        # selected_market is None → downgrade to no-bet.
+                        chosen_market["bullpen_swap"]     = True
+                        chosen_market["bullpen_swap_meta"] = bullpen_swap_meta
+                        chosen_market["score"]            = max(
+                            0, _f(chosen_market.get("score"), 0)
+                                + bullpen_swap_meta.get("confidence_adjustment", 0))
+                        chosen_market["rationale"] = (
+                            (chosen_market.get("rationale") or "")
+                            + " | "
+                            + bullpen_swap_meta.get("explanation", "")
+                        ).strip(" |")
+        except Exception as exc:
+            log.debug("F6A bullpen-aware Under selector failed: %s", exc)
 
         # Emit signals (with literal source_url for transparency)
         parts = {

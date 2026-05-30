@@ -367,3 +367,52 @@ export function MLBDiversityBadge({ diversity, testId }) {
     </div>
   );
 }
+
+
+/**
+ * MLBBullpenSwapBadge — F6A — shows when the engine swapped a Full Game
+ * Under for F5 Under (or a protected alternate line) because bullpen
+ * risk was MEDIUM/HIGH while the Under thesis was supported by starters
+ * + park.
+ *
+ * Consumes the `bullpen_swap_meta` block emitted by the orchestrator
+ * (see services/mlb_under_market_selector.py).
+ */
+export function MLBBullpenSwapBadge({ meta, testId }) {
+  if (!meta || !meta.rule_triggered) return null;
+  const codes = Array.isArray(meta.reason_codes) ? meta.reason_codes : [];
+  const lvl = String(meta.bullpen_risk_level || 'MEDIUM').toUpperCase();
+  const tone = lvl === 'HIGH' ? 'rose' : 'amber';
+  return (
+    <div
+      className={`rounded-lg border px-3 py-2 ${
+        tone === 'rose'
+          ? 'border-rose-500/35 bg-rose-500/10 text-rose-200'
+          : 'border-amber-500/35 bg-amber-500/10 text-amber-200'
+      }`}
+      data-testid={testId || 'mlb-bullpen-swap-badge'}
+    >
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-[11px] uppercase tracking-wide opacity-90">
+          Bullpen frágil · {lvl.toLowerCase()}
+        </span>
+        {codes.includes('STARTER_PARK_SUPPORTS_F5_UNDER') ? (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/[0.08] border border-current/30">
+            F5 Under preferido
+          </span>
+        ) : null}
+      </div>
+      {meta.explanation ? (
+        <p className="text-[11px] mt-1 opacity-95 leading-snug">
+          {meta.explanation}
+        </p>
+      ) : null}
+      {typeof meta.confidence_adjustment === 'number' && meta.confidence_adjustment !== 0 ? (
+        <div className="mt-1 text-[10px] opacity-80 tabular-nums">
+          Ajuste de confianza: {meta.confidence_adjustment > 0 ? '+' : ''}{meta.confidence_adjustment} pts
+        </div>
+      ) : null}
+    </div>
+  );
+}

@@ -1744,6 +1744,27 @@ async def settle_mlb_pick(pick_id: str, payload: MLBSettleIn,
             v2_snapshot=payload.v2_snapshot,
             pick_doc=payload.pick_doc,
         )
+        # F6B — Persist a script-break event for the future learning loop.
+        # Fail-soft: a storage error must not block the settle response.
+        try:
+            from services.mlb_script_breaks_storage import store_script_break_event
+            sb_result = await store_script_break_event(
+                db,
+                pick_id=payload.pick_id,
+                run_id=payload.run_id,
+                match_id=str(payload.match_id),
+                user_id=user["id"],
+                outcome=payload.outcome,
+                final_home_runs=payload.final_home_runs,
+                final_away_runs=payload.final_away_runs,
+                pick_doc=payload.pick_doc,
+                v2_snapshot=payload.v2_snapshot,
+            )
+            result["script_break"] = sb_result
+        except Exception as sb_exc:
+            log.warning("F6B script-break storage failed for pick %s: %s",
+                        payload.pick_id, sb_exc)
+            result["script_break"] = {"ok": False, "error": str(sb_exc)}
         return {"ok": True, **result}
     except Exception as exc:
         log.exception("mlb settle failed: %s", exc)
@@ -1759,6 +1780,63 @@ async def mlb_engine_weights(user: dict = Depends(get_current_user)):
         return await get_recalibration_status(db)
     except Exception as exc:
         log.exception("mlb engine weights failed: %s", exc)
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": str(exc)})
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# F6B — Script Breaks inspection endpoints (read-only).
+# Powers the learning-loop dashboard (Phase 7 next iteration).
+# ════════════════════════════════════════════════════════════════════════════
+@api.get("/mlb/script_breaks")
+async def mlb_script_breaks_list(
+    user: dict = Depends(get_current_user),
+    days: int = 30,
+    limit: int = 100,
+    only_broken: bool = False,
+    script_code: Optional[str] = None,
+    scope: str = "me",                   # "me" or "all" (still user-filtered for safety)
+):
+    """List recent ``mlb_script_breaks`` documents for the current user.
+
+    Filters:
+      • days        : look-back window (default 30, max 365)
+      • limit       : max docs (default 100, max 500)
+      • only_broken : True ⇒ return only docs where script_broken=True
+      • script_code : filter by pregame script code (e.g. LOW_SCORING_PITCHERS_DUEL)
+    """
+    days  = max(1, min(int(days),  365))
+    limit = max(1, min(int(limit), 500))
+    try:
+        from services.mlb_script_breaks_storage import query_recent_script_breaks
+        items = await query_recent_script_breaks(
+            db,
+            user_id=user["id"] if scope == "me" else None,
+            days=days,
+            limit=limit,
+            only_broken=bool(only_broken),
+            script_code=script_code,
+        )
+        return {"ok": True, "count": len(items), "items": items}
+    except Exception as exc:
+        log.exception("mlb_script_breaks_list failed: %s", exc)
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": str(exc)})
+
+
+@api.get("/mlb/script_breaks/stats")
+async def mlb_script_breaks_stats(
+    user: dict = Depends(get_current_user),
+    days: int = 60,
+):
+    """Aggregate stats over recent script breaks (window in days, max 365)."""
+    days = max(1, min(int(days), 365))
+    try:
+        from services.mlb_script_breaks_storage import aggregate_break_stats
+        stats = await aggregate_break_stats(db, days=days)
+        return {"ok": True, **stats}
+    except Exception as exc:
+        log.exception("mlb_script_breaks_stats failed: %s", exc)
         return JSONResponse(status_code=500,
                             content={"ok": False, "detail": str(exc)})
 

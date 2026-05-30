@@ -1,34 +1,30 @@
 [
   {
-    "content": "Backend: crear mlb_live_intelligence.py",
+    "content": "F6A: Crear mlb_under_market_selector.py + 4 tests A/B/C/D",
     "status": "completed"
   },
   {
-    "content": "Wire Volatility Penalty al confidence_breakdown de v3",
+    "content": "F6A: Wire en mlb_day_orchestrator.py",
     "status": "completed"
   },
   {
-    "content": "Backend: endpoint POST /api/mlb/live/reevaluate",
+    "content": "F6A: Frontend warning bullpen fragility",
     "status": "completed"
   },
   {
-    "content": "Frontend: crear MLBLiveIntelPanel.jsx",
+    "content": "F6B: Crear mlb_script_breaks_storage.py + colección",
     "status": "completed"
   },
   {
-    "content": "Frontend: integrar Panel en MatchDetailPage.jsx con triple gate",
+    "content": "F6B: Wire en endpoint settle",
     "status": "completed"
   },
   {
-    "content": "Probar end-to-end con curl + pure-function tests",
+    "content": "F6B: Endpoint GET /api/mlb/script_breaks + stats",
     "status": "completed"
   },
   {
-    "content": "Testing agent (backend MLB-V8) — validar funciones puras + endpoint + gates de filtrado",
-    "status": "completed"
-  },
-  {
-    "content": "Ajustar threshold de under_risk_monitor (Gallen scenario → UNDER_IN_DANGER)",
-    "status": "completed"
+    "content": "Testing agent backend MLB-V9",
+    "status": "in_progress"
   }
 ]
