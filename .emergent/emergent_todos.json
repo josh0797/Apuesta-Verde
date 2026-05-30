@@ -1,30 +1,18 @@
 [
   {
-    "content": "Backend: crear services/market_lean_classifier.py (single source of truth)",
+    "content": "Market Lean Classifier (single source of truth)",
     "status": "completed"
   },
   {
-    "content": "Backend: cablear en mlb_day_orchestrator.py + override overUnderLean",
+    "content": "Override overUnderLean en mlb_day_orchestrator + frontend Revisión requerida",
     "status": "completed"
   },
   {
-    "content": "Frontend: mostrar 'Revisión requerida' + reason en HistoricalProfilePanel",
+    "content": "Live Baseball Detection (time_filter + analyst_engine + validate_pick_before_output)",
     "status": "completed"
   },
   {
-    "content": "Bug LIVE: extender time_filter con allow_live_for_sports + tag _live_route",
+    "content": "Testing Agent v3 — 32/32 PASS, ambos issues VERIFIED_FIXED",
     "status": "completed"
-  },
-  {
-    "content": "Bug LIVE: validate_pick_before_output acepta baseball live",
-    "status": "completed"
-  },
-  {
-    "content": "Lint + smoke OK",
-    "status": "completed"
-  },
-  {
-    "content": "Testing Agent v3 (market_lean + bug live baseball)",
-    "status": "in_progress"
   }
 ]
