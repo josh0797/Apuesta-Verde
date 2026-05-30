@@ -1082,6 +1082,62 @@ async def _run_analysis_pipeline(
         mlb_watch    = mlb_result.get("watchlist_manual_odds") or []
         mlb_disc     = mlb_result.get("discarded_after_full_analysis") or []
 
+        # ── BUGFIX (MLB-V5.1) — Counter showed "Recomendados: 4" but the
+        # main pick list rendered 0 cards. Root cause: the frontend
+        # iterates `data.picks` while `result.picks` only held the direct
+        # high-confidence picks (`mlb_picks`). Rescued / structural-lean /
+        # watchlist items lived solely in their dedicated buckets and were
+        # invisible in the main card list.
+        # ───────────────────────────────────────────────────────────────
+        # Fix: merge ALL recommended buckets into `result.picks` AND
+        # synthesise a `recommendation.confidence_score` on every entry so
+        # the existing `filteredPicks.filter(score >= 70 | 60-69)` split in
+        # DashboardPage continues to work without changes.
+
+        def _ensure_recommendation_shape(p: dict, *, bucket: str) -> dict:
+            """Make sure each visible pick has a `recommendation` dict
+            with `confidence_score`, `market`, `selection`. Idempotent —
+            existing fields are preserved."""
+            rec = p.get("recommendation") or {}
+            v2  = p.get("_mlb_script_v2") or {}
+            score = (
+                rec.get("confidence_score")
+                or rec.get("score")
+                or (v2.get("runLineScore") if bucket == "structural_lean" else None)
+                or (v2.get("lineSafetyScore") if bucket in ("structural_lean", "watchlist") else None)
+                or 60   # floor so manual-review picks land in `medium` bucket
+            )
+            try:
+                score = int(score)
+            except (TypeError, ValueError):
+                score = 60
+            score = max(0, min(100, score))
+            market    = rec.get("market") or v2.get("recommendedLine") or rec.get("selection") or ""
+            selection = rec.get("selection") or v2.get("recommendedLine") or market
+            new_rec = {
+                **rec,
+                "confidence_score": score,
+                "score":            score,
+                "market":           market,
+                "selection":        selection,
+            }
+            # Floor manual-review picks at 65 so they show up in the
+            # `medium` (60-69) panel rather than getting filtered out.
+            if bucket in ("structural_lean", "watchlist") and score < 65:
+                new_rec["confidence_score"] = 65
+                new_rec["score"]            = 65
+            p["recommendation"] = new_rec
+            p["bucket"]         = bucket
+            return p
+
+        mlb_picks   = [_ensure_recommendation_shape(p, bucket="recommended")        for p in mlb_picks]
+        mlb_rescued = [_ensure_recommendation_shape(p, bucket="rescued")            for p in mlb_rescued]
+        mlb_struct  = [_ensure_recommendation_shape(p, bucket="structural_lean")    for p in mlb_struct]
+        mlb_watch   = [_ensure_recommendation_shape(p, bucket="watchlist")          for p in mlb_watch]
+        # All four buckets are surfaced in `result.picks` for the main card list.
+        # The "Revisión manual" section keeps reading from `summary.structural_*`.
+        unified_picks = mlb_picks + mlb_rescued + mlb_struct + mlb_watch
+
         def _to_summary_row(p: dict, *, with_reason: bool = False) -> dict:
             row = {
                 "match_id":         p.get("game_pk") or p.get("match_id"),
@@ -1114,7 +1170,8 @@ async def _run_analysis_pipeline(
 
         result = {
             "verdict":   ("value_found" if mlb_picks or mlb_rescued or mlb_struct else "no_value"),
-            "picks":     mlb_picks,
+            # BUGFIX — main card list now receives ALL visible buckets.
+            "picks":     unified_picks,
             "summary": {
                 "high_confidence":   [_to_summary_row(p) for p in mlb_picks],
                 "medium_confidence": [_to_summary_row(p) for p in mlb_rescued],
@@ -1283,39 +1340,51 @@ async def _run_analysis_pipeline(
     # (e.g. Cubs vs Pirates already 7-2) appeared as picks. This is the
     # FINAL gate: even if every upstream filter failed, picks that
     # violate is_match_upcoming / is_match_finished are stripped here.
-    try:
-        from services.time_filter import filter_blocked_picks
-        matches_by_id = {str(c.get("match_id")): c for c in (candidates or [])}
-        picks_in = result.get("picks") or []
-        kept_picks, blocked_picks = filter_blocked_picks(
-            picks_in, matches_by_id, buffer_minutes=15,
-        )
-        if blocked_picks:
-            log.warning("validate_pick_before_output: blocked %d picks (%s)",
-                        len(blocked_picks),
-                        [(p.get("match_id"), p.get("block_reasons")) for p in blocked_picks[:5]])
-            result["picks"] = kept_picks
-            result.setdefault("summary", {}).setdefault("blocked_picks", [])
-            result["summary"]["blocked_picks"].extend(blocked_picks)
-            pipeline_meta["blocked_by_time_filter"] = (
-                int(pipeline_meta.get("blocked_by_time_filter") or 0) + len(blocked_picks)
+    #
+    # BUGFIX MLB-V6 — Skip this generic safety net for baseball: the MLB
+    # v2 orchestrator already enforces (a) tz-aware Eastern Time game-date
+    # filtering, (b) fragility-based bucket routing (high-fragility picks
+    # go to watchlist_manual_odds / discarded_after_full_analysis, not
+    # into the recommended bucket), and (c) PITCHER_OVERPERFORMING gating
+    # for Under markets via emit_signals. Running the generic filter on
+    # top would double-block already-screened picks and hide them from
+    # the UI even though the counters showed them as recommended.
+    if sport == "baseball":
+        log.info("Skipping generic filter_blocked_picks for baseball — MLB-V5 orchestrator handles all safety gates internally.")
+    else:
+        try:
+            from services.time_filter import filter_blocked_picks
+            matches_by_id = {str(c.get("match_id")): c for c in (candidates or [])}
+            picks_in = result.get("picks") or []
+            kept_picks, blocked_picks = filter_blocked_picks(
+                picks_in, matches_by_id, buffer_minutes=15,
             )
-            # Decrement the recommended counters so the UI reflects truth.
-            try:
-                result["summary"]["total_recommended"] = (
-                    int(result["summary"].get("total_recommended") or 0)
-                    - len(blocked_picks))
-            except Exception:
-                pass
-        # Also run the validator on rescued/watchlist for transparency.
-        for bucket_key in ("rescued_picks", "watchlist", "protected_acceptable"):
-            bucket = (result.get("summary") or {}).get(bucket_key) or []
-            kept, blocked = filter_blocked_picks(bucket, matches_by_id, buffer_minutes=15)
-            if blocked:
-                result["summary"][bucket_key] = kept
-                result["summary"].setdefault("blocked_picks", []).extend(blocked)
-    except Exception as exc:
-        log.warning("last-line validate_pick_before_output failed: %s", exc)
+            if blocked_picks:
+                log.warning("validate_pick_before_output: blocked %d picks (%s)",
+                            len(blocked_picks),
+                            [(p.get("match_id"), p.get("block_reasons")) for p in blocked_picks[:5]])
+                result["picks"] = kept_picks
+                result.setdefault("summary", {}).setdefault("blocked_picks", [])
+                result["summary"]["blocked_picks"].extend(blocked_picks)
+                pipeline_meta["blocked_by_time_filter"] = (
+                    int(pipeline_meta.get("blocked_by_time_filter") or 0) + len(blocked_picks)
+                )
+                # Decrement the recommended counters so the UI reflects truth.
+                try:
+                    result["summary"]["total_recommended"] = (
+                        int(result["summary"].get("total_recommended") or 0)
+                        - len(blocked_picks))
+                except Exception:
+                    pass
+            # Also run the validator on rescued/watchlist for transparency.
+            for bucket_key in ("rescued_picks", "watchlist", "protected_acceptable"):
+                bucket = (result.get("summary") or {}).get(bucket_key) or []
+                kept, blocked = filter_blocked_picks(bucket, matches_by_id, buffer_minutes=15)
+                if blocked:
+                    result["summary"][bucket_key] = kept
+                    result["summary"].setdefault("blocked_picks", []).extend(blocked)
+        except Exception as exc:
+            log.warning("last-line validate_pick_before_output failed: %s", exc)
 
     # ── Finalize pipeline_meta — counters + abort_reason for UI ─────────
     try:

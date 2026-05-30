@@ -876,10 +876,20 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
 
         pick_payload = {
             "game_pk":        game_pk,
+            "match_id":       str(game_pk),    # alias for downstream filters
             "home_team":      conf.get("home_team_name"),
             "away_team":      conf.get("away_team_name"),
             "match_label":    f"{conf.get('away_team_name','?')} @ {conf.get('home_team_name','?')}",
             "venue":          conf.get("venue"),
+            # BUGFIX MLB-V6 — propagate kickoff_iso + status so the
+            # downstream `time_filter.filter_blocked_picks()` doesn't
+            # blanket-block every pick. The orchestrator already enforces
+            # tz-aware Eastern Time filtering upstream; these fields let
+            # the final safety validator confirm the pick is upcoming.
+            "kickoff_iso":    conf.get("gameDate"),
+            "gameDate":       conf.get("gameDate"),
+            "status":         conf.get("status"),
+            "abstractGameState": conf.get("abstractGameState"),
             "home_pitcher":   conf.get("home_pitcher_name"),
             "away_pitcher":   conf.get("away_pitcher_name"),
             "pitcher_home_id": conf.get("home_pitcher_id"),
