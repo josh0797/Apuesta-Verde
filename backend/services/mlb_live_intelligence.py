@@ -681,10 +681,16 @@ def under_risk_monitor(pregame_pick: Optional[dict],
             risk += 8
         if innings_remaining <= 2.0 and delta_to_line < -0.5:
             risk = max(5.0, risk - 18)
+        # Boost: when current_total is already very close to the line, the
+        # Under is statistically much more fragile than pace alone reflects.
+        if remaining_margin <= 1.5 and innings_remaining >= 3.0:
+            risk += 12
+        if remaining_margin <= 1.0 and innings_remaining >= 3.0:
+            risk += 8
         risk = max(0.0, min(100.0, risk))
-        if risk >= 75:
+        if risk >= 70:
             verdict = "UNDER_IN_DANGER"
-        elif risk >= 50:
+        elif risk >= 45:
             verdict = "WATCH"
         else:
             verdict = "ON_TRACK"

@@ -25,6 +25,10 @@
   },
   {
     "content": "Testing agent (backend MLB-V8) — validar funciones puras + endpoint + gates de filtrado",
-    "status": "in_progress"
+    "status": "completed"
+  },
+  {
+    "content": "Ajustar threshold de under_risk_monitor (Gallen scenario → UNDER_IN_DANGER)",
+    "status": "completed"
   }
 ]
