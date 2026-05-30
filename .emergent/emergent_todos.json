@@ -1,18 +1,22 @@
 [
   {
-    "content": "Market Lean Classifier (single source of truth)",
+    "content": "Crear pattern_alignment_classifier.py",
     "status": "completed"
   },
   {
-    "content": "Override overUnderLean en mlb_day_orchestrator + frontend Revisión requerida",
+    "content": "Wire-up en mlb_day_orchestrator.py: clasificar trendSummary y attach patternAlignment a combined",
     "status": "completed"
   },
   {
-    "content": "Live Baseball Detection (time_filter + analyst_engine + validate_pick_before_output)",
+    "content": "Actualizar HistoricalProfilePanel.jsx para renderizar 3 secciones (Supports/Opposes/Neutral) con backward-compat",
     "status": "completed"
   },
   {
-    "content": "Testing Agent v3 — 32/32 PASS, ambos issues VERIFIED_FIXED",
+    "content": "Verificar lint backend + frontend (esbuild)",
     "status": "completed"
+  },
+  {
+    "content": "Test con testing_agent (backend + frontend)",
+    "status": "in_progress"
   }
 ]

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Activity, ChevronDown, TrendingUp, TrendingDown, Minus, Calendar, Wind, HeartPulse, AlertTriangle } from 'lucide-react';
+import { Activity, ChevronDown, TrendingUp, TrendingDown, Minus, Calendar, Wind, HeartPulse, AlertTriangle, CheckCircle2, XCircle, Info } from 'lucide-react';
 
 /**
  * HistoricalProfilePanel — Renders the "Historial profundo" block for
@@ -76,6 +76,10 @@ export function HistoricalProfilePanel({ profile, sport = 'basketball', testId =
         : 'Sin lean claro';
 
   const phrases = Array.isArray(combined.trendSummary) ? combined.trendSummary : [];
+  // MLB Pattern Alignment — when the backend has classified each phrase
+  // as SUPPORTS / OPPOSES / NEUTRAL with respect to the final recommended
+  // market, we render three distinct sections instead of a flat list.
+  const patternAlignment = combined.patternAlignment || null;
   const gamesAnalyzed = Math.min(home.gamesAnalyzed || 0, away.gamesAnalyzed || 0);
 
   return (
@@ -204,7 +208,12 @@ export function HistoricalProfilePanel({ profile, sport = 'basketball', testId =
           )}
 
           {/* Trend phrases */}
-          {phrases.length > 0 && (
+          {patternAlignment ? (
+            <PatternAlignmentSection
+              alignment={patternAlignment}
+              testId={`${testId}-patterns`}
+            />
+          ) : phrases.length > 0 && (
             <div className="space-y-1.5">
               <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
                 Patrones detectados
@@ -505,6 +514,127 @@ function BullpenLabel({ side, data }) {
       <span className="text-slate-500">
         ({data.gamesPlayedRecent ?? '?'} jg/{data.lookbackDays ?? 3}d)
       </span>
+    </div>
+  );
+}
+
+/**
+ * PatternAlignmentSection
+ * -----------------------
+ * Renders the historical pattern phrases split into three categories
+ * relative to the final recommended market:
+ *
+ *   ✓ Apoyan la recomendación  (supports)
+ *   ✗ Contradicen la recomendación  (opposes)
+ *   • Neutrales / contexto  (neutral)
+ *
+ * Each section is collapsible; the consistency ribbon on top mirrors the
+ * single source of truth the backend classifier emits.
+ */
+function PatternAlignmentSection({ alignment, testId }) {
+  const supports = Array.isArray(alignment?.supports) ? alignment.supports : [];
+  const opposes  = Array.isArray(alignment?.opposes)  ? alignment.opposes  : [];
+  const neutral  = Array.isArray(alignment?.neutral)  ? alignment.neutral  : [];
+  const total = supports.length + opposes.length + neutral.length;
+  if (total === 0) return null;
+
+  const consistency = alignment?.consistency || 'INFO_ONLY';
+  const ribbon = (() => {
+    switch (consistency) {
+      case 'STRONG':
+        return { label: 'Patrones alineados con la recomendación', tone: 'emerald', icon: <CheckCircle2 className="w-3.5 h-3.5" /> };
+      case 'CONFLICTED':
+        return { label: 'Patrones contradicen la recomendación', tone: 'rose', icon: <AlertTriangle className="w-3.5 h-3.5" /> };
+      case 'MIXED':
+        return { label: 'Lectura mixta — revisa argumentos en contra', tone: 'amber', icon: <AlertTriangle className="w-3.5 h-3.5" /> };
+      case 'INFO_ONLY':
+      default:
+        return { label: 'Patrones informativos (sin lean claro)', tone: 'slate', icon: <Info className="w-3.5 h-3.5" /> };
+    }
+  })();
+  const ribbonStyle = {
+    emerald: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+    rose:    'border-rose-500/40   bg-rose-500/10   text-rose-200',
+    amber:   'border-amber-500/40  bg-amber-500/10  text-amber-200',
+    slate:   'border-slate-500/30  bg-slate-500/10  text-slate-200',
+  }[ribbon.tone];
+
+  return (
+    <div className="space-y-2" data-testid={testId}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+          Patrones detectados
+          {alignment?.recommendedMarket && (
+            <span className="ml-1.5 normal-case text-slate-500">
+              · vs {alignment.recommendedMarket}
+            </span>
+          )}
+        </div>
+        <span
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-medium ${ribbonStyle}`}
+          data-testid={`${testId}-consistency`}
+          title={alignment?.summary || ''}
+        >
+          {ribbon.icon}
+          {alignment?.summary || ribbon.label}
+        </span>
+      </div>
+
+      <PatternBucket
+        title="Apoyan la recomendación"
+        items={supports}
+        kind="supports"
+        testId={`${testId}-supports`}
+      />
+      <PatternBucket
+        title="Contradicen la recomendación"
+        items={opposes}
+        kind="opposes"
+        testId={`${testId}-opposes`}
+      />
+      <PatternBucket
+        title="Neutrales / contexto"
+        items={neutral}
+        kind="neutral"
+        testId={`${testId}-neutral`}
+      />
+    </div>
+  );
+}
+
+function PatternBucket({ title, items, kind, testId }) {
+  if (!items || items.length === 0) return null;
+  const palette = {
+    supports: { bg: 'bg-emerald-500/5', border: 'border-emerald-500/25', dot: 'text-emerald-300', icon: <CheckCircle2 className="w-3 h-3 text-emerald-300" /> },
+    opposes:  { bg: 'bg-rose-500/5',    border: 'border-rose-500/25',    dot: 'text-rose-300',    icon: <XCircle className="w-3 h-3 text-rose-300" /> },
+    neutral:  { bg: 'bg-slate-500/5',   border: 'border-slate-500/20',   dot: 'text-slate-300',   icon: <Minus className="w-3 h-3 text-slate-400" /> },
+  }[kind] || { bg: 'bg-slate-500/5', border: 'border-slate-500/20', dot: 'text-slate-300', icon: null };
+
+  return (
+    <div
+      className={`rounded-md border ${palette.border} ${palette.bg} p-2`}
+      data-testid={testId}
+    >
+      <div className="flex items-center gap-1.5 mb-1.5">
+        {palette.icon}
+        <div className="text-[10px] uppercase tracking-wide text-slate-300 font-semibold">
+          {title}
+          <span className="ml-1 normal-case text-slate-500">({items.length})</span>
+        </div>
+      </div>
+      <ul className="space-y-1 text-[11px] text-slate-100">
+        {items.slice(0, 6).map((row, i) => (
+          <li
+            key={i}
+            className="flex gap-2 leading-snug"
+            data-testid={`${testId}-item-${i}`}
+            title={row?.reason || ''}
+          >
+            <span className={`${palette.dot} shrink-0`}>•</span>
+            <span>{row?.pattern || ''}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

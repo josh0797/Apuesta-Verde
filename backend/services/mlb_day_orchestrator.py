@@ -1523,6 +1523,43 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             log.debug("v3 build_v3_payload failed for game %s: %s",
                        conf.get("game_pk"), exc)
 
+        # ── MLB Pattern Alignment Classifier ─────────────────────────────
+        # Classifies every Spanish-language `trendSummary` phrase from the
+        # historical profile as SUPPORTS / OPPOSES / NEUTRAL with respect
+        # to the FINAL recommended market. This eliminates the UX bug
+        # where Under-leaning patterns (cold offense, elite ERA, bullpen
+        # rested) appeared flat under an Over-recommended pick, leaving
+        # the user unable to tell which patterns argue for vs against
+        # the engine's choice.
+        #
+        # The payload is attached to
+        #   baseballHistoricalProfile.combined.patternAlignment
+        # which the HistoricalProfilePanel renders as three distinct
+        # sections (Supports / Opposes / Neutral) plus a consistency
+        # ribbon. Backward-compat: the flat `trendSummary` array is
+        # preserved so legacy consumers keep working.
+        try:
+            from .pattern_alignment_classifier import classify_patterns_for_market
+            hp = pick_payload.get("baseballHistoricalProfile") or {}
+            combined_block = hp.get("combined") or {}
+            phrases = combined_block.get("trendSummary") or []
+            if phrases:
+                rec_final = pick_payload.get("recommendation") or {}
+                final_market_label = (
+                    (rec_final.get("market") if isinstance(rec_final, dict) else None)
+                    or (chosen_market or {}).get("market")
+                )
+                alignment_payload = classify_patterns_for_market(
+                    list(phrases), final_market_label,
+                )
+                # Mutate the historical profile in place so the existing
+                # frontend wire-up picks it up automatically.
+                combined_block["patternAlignment"] = alignment_payload
+                hp["combined"] = combined_block
+                pick_payload["baseballHistoricalProfile"] = hp
+        except Exception as exc:
+            log.debug("pattern_alignment_classifier failed: %s", exc)
+
         # ── MLB-V10 — Script Survival & Fragility model (pure enrichment) ─
         # Adds a separate _mlb_script_v5 payload with Script Survival 0-100,
         # Fragility 0-100, stability classification (ELITE_STABLE / STABLE /
