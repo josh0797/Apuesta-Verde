@@ -113,6 +113,7 @@ def is_match_upcoming(
     *,
     buffer_minutes: int = 15,
     now: Optional[datetime] = None,
+    allow_live: bool = False,
 ) -> bool:
     """True only when the match has NOT started yet (with a small safety
     buffer).
@@ -123,6 +124,10 @@ def is_match_upcoming(
       • status indicates the match is already live (1H, 2H, IN, HT, BT, ET,
         Live, Top X, Bot X, Inning X) — these are not 'upcoming'.
       • kickoff_iso is in the past (with `buffer_minutes` slack).
+
+    When ``allow_live`` is True, an IN-PROGRESS match is also considered
+    valid (used for sports that have a live-reevaluation engine, e.g.
+    baseball post-first-pitch).
     """
     if is_match_finished(match_doc):
         return False
@@ -135,13 +140,13 @@ def is_match_upcoming(
         # Baseball — anything that starts with "Inn" or numeric digit
     }
     if status in LIVE_STATUSES:
-        return False
+        return bool(allow_live)
     if status and (status.lower().startswith("inn")
                     or status.lower().startswith("top")
                     or status.lower().startswith("bot")
                     or status.lower() == "in progress"
                     or status.lower() == "live"):
-        return False
+        return bool(allow_live)
 
     kickoff = _parse_iso(match_doc.get("kickoff_iso"))
     if kickoff is None:
@@ -150,19 +155,35 @@ def is_match_upcoming(
         return False
     now = now or datetime.now(timezone.utc)
     cutoff = now + timedelta(minutes=buffer_minutes)
-    return kickoff > cutoff
+    if kickoff > cutoff:
+        return True
+    # Match is already kicked-off but may still be in play. When
+    # `allow_live` is True, keep it iff the source flagged it live.
+    if allow_live and bool(match_doc.get("is_live")):
+        return True
+    return False
 
 
 def filter_upcoming(
     matches: Iterable[dict], *, buffer_minutes: int = 15,
+    allow_live_for_sports: Optional[set[str]] = None,
 ) -> tuple[list[dict], list[dict]]:
     """Split an iterable of match dicts into (upcoming, dropped).
     Returns the same dict refs (no copying). Annotates each `dropped`
     item with a `_filter_drop_reason` for debugging.
+
+    Parameters
+    ----------
+    allow_live_for_sports : optional set of sport strings (e.g. {'baseball'}).
+        When provided, matches belonging to those sports that are IN PROGRESS
+        are kept (rather than dropped), AND each kept live match is tagged
+        with ``_live_route = True`` so downstream engines can branch into
+        their live re-evaluation flow.
     """
     kept: list[dict] = []
     dropped: list[dict] = []
     now = datetime.now(timezone.utc)
+    allow_live_for_sports = allow_live_for_sports or set()
     for m in matches:
         if not isinstance(m, dict):
             continue
@@ -170,12 +191,20 @@ def filter_upcoming(
             m["_filter_drop_reason"] = f"finished:{_extract_status(m)}"
             dropped.append(m)
             continue
-        if not is_match_upcoming(m, buffer_minutes=buffer_minutes, now=now):
+        sport = (m.get("sport") or "").lower()
+        allow_live = sport in allow_live_for_sports
+        if not is_match_upcoming(m, buffer_minutes=buffer_minutes, now=now,
+                                  allow_live=allow_live):
             m["_filter_drop_reason"] = "not_upcoming_or_in_progress_or_no_kickoff"
             dropped.append(m)
             continue
         # Annotate hours_to_kickoff so downstream layers can use it.
         m["hours_to_kickoff"] = round(hours_to_kickoff(m, now=now) or 0.0, 2)
+        # Tag live-route matches so the orchestrator can call the live
+        # re-evaluation engine instead of (or in addition to) the pregame
+        # pipeline.
+        if allow_live and bool(m.get("is_live")):
+            m["_live_route"] = True
         kept.append(m)
     if dropped:
         reasons = {m.get("_filter_drop_reason", "?") for m in dropped}
@@ -207,7 +236,16 @@ def validate_pick_before_output(
     if is_match_finished(ref):
         blocks.append("MATCH_FINISHED")
     elif not is_match_upcoming(ref, buffer_minutes=buffer_minutes):
-        blocks.append("MATCH_ALREADY_PLAYED")
+        # Baseball live games are accepted here when `is_live=True`: the
+        # MLB engine has a dedicated live-reevaluation flow and the pick
+        # is still actionable as a live-bet recommendation. Other sports
+        # are blocked as before to preserve the user's strict no-play-late
+        # guardrail.
+        sport = (ref.get("sport") or pick.get("sport") or "").lower()
+        if sport == "baseball" and bool(ref.get("is_live")):
+            pass   # accept live MLB
+        else:
+            blocks.append("MATCH_ALREADY_PLAYED")
 
     # 2. Under recommended for a game with an OVERPERFORMING pitcher.
     rec    = pick.get("recommendation") or {}

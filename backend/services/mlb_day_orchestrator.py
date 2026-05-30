@@ -1209,6 +1209,54 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 "result_placeholder": None,   # populated by feedback loop in P2
             }
 
+        # ── MLB MARKET LEAN — SINGLE SOURCE OF TRUTH ─────────────────────────
+        # Fixes the UX contradiction reported by the user where the
+        # "Historial profundo" badge showed LEAN OVER while the final
+        # pick was UNDER (Angels @ Rays Expected Runs 6.7 vs line 9.5).
+        # We re-compute the lean against the SAME inputs that produced
+        # the final pick (expected_runs + market_line + recommended_market)
+        # and OVERRIDE the historical heuristic. Mismatches are logged as
+        # MARKET_LEAN_MISMATCH and force the UI to show "Revisión
+        # requerida" instead of the contradictory badge.
+        try:
+            from .market_lean_classifier import classify_and_validate
+            exp_runs = v2_payload.get("expectedRuns") if v2_payload else None
+            mkt_line = (v2_payload.get("smartTotalsLine") if v2_payload else None) \
+                       or (v2_payload.get("recommendedLine") if v2_payload else None)
+            chosen_market_label = (
+                (chosen_market or {}).get("market")
+                or (pick_payload.get("recommendation") or {}).get("market")
+            )
+            if exp_runs is not None and mkt_line is not None:
+                p_under = None
+                p_over = None
+                # `umsel` (under market selector payload) sometimes carries
+                # the engine's calibrated probabilities; reuse when present.
+                if isinstance(pick_payload.get("_mlb_under_selector"), dict):
+                    p_under = pick_payload["_mlb_under_selector"].get("p_under")
+                    p_over = pick_payload["_mlb_under_selector"].get("p_over")
+                lean_payload = classify_and_validate(
+                    expected_runs=float(exp_runs),
+                    market_line=float(mkt_line),
+                    recommended_market=chosen_market_label,
+                    p_under=p_under,
+                    p_over=p_over,
+                    game_id=str(pick_payload.get("match_id") or game_id),
+                )
+                pick_payload["market_lean"] = lean_payload
+                # OVERRIDE the historical heuristic so the panel renders
+                # the same lean as the pick.
+                hist_block = pick_payload.get("historical_profile") or {}
+                if hist_block:
+                    hist_block["overUnderLean"] = lean_payload["lean"]
+                    hist_block["overUnderLeanConfidence"] = lean_payload["confidence"]
+                    hist_block["overUnderLeanReason"] = lean_payload["reason"]
+                    hist_block["overUnderLeanDisplay"] = lean_payload["display_lean"]
+                    hist_block["overUnderLeanConsistency"] = lean_payload["consistency"]
+                    pick_payload["historical_profile"] = hist_block
+        except Exception as exc:
+            log.debug("market_lean_classifier failed: %s", exc)
+
         # MLB-V3 — Trap signals from the historical profile (cold offense,
         # prior-series inflation, weather/park blind spots, bullpen fatigue,
         # F5 mismatch, extra-innings fatigue, pitcher-name inflation).

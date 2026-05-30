@@ -1391,8 +1391,19 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
     # Drop ANY match whose status is finished OR whose kickoff is in the
     # past (with a 15-minute safety buffer). This is the user's explicit
     # last-line guardrail per the Cubs vs Pirates regression.
+    # Baseball-specific: keep IN-PROGRESS games so the MLB live engine can
+    # re-evaluate them. They are tagged `_live_route=True` for the
+    # orchestrator to branch into the live re-evaluation path.
     from .time_filter import filter_upcoming
-    matches_payload, dropped_past = filter_upcoming(matches_payload, buffer_minutes=15)
+    matches_payload, dropped_past = filter_upcoming(
+        matches_payload, buffer_minutes=15,
+        allow_live_for_sports={"baseball"},
+    )
+    live_routed_ids = [m.get("match_id") for m in matches_payload
+                        if m.get("_live_route")]
+    if live_routed_ids:
+        log.info("time_filter: routing %d baseball live matches to live engine: %s",
+                 len(live_routed_ids), live_routed_ids[:10])
     pipeline_meta: dict[str, Any] = {
         "stage0_dropped_past_or_finished": len(dropped_past),
         "stage0_dropped_match_ids": [m.get("match_id") for m in dropped_past[:20]],

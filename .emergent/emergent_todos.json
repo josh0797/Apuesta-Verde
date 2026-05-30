@@ -1,30 +1,30 @@
 [
   {
-    "content": "Backend: extender services/live_corner_engine.py con evaluate_live_corner_market()",
+    "content": "Backend: crear services/market_lean_classifier.py (single source of truth)",
     "status": "completed"
   },
   {
-    "content": "Backend: crear services/live_corner_storage.py + colección live_corner_evaluations",
+    "content": "Backend: cablear en mlb_day_orchestrator.py + override overUnderLean",
     "status": "completed"
   },
   {
-    "content": "Backend: cablear en endpoint + nuevo endpoint GET corner_intelligence/history",
+    "content": "Frontend: mostrar 'Revisión requerida' + reason en HistoricalProfilePanel",
     "status": "completed"
   },
   {
-    "content": "Frontend: card 'Corner Pressure Intelligence' completa",
+    "content": "Bug LIVE: extender time_filter con allow_live_for_sports + tag _live_route",
     "status": "completed"
   },
   {
-    "content": "Fix 1 aplicado: xG > 0.80 + SoT >= 4 + sin PSG-benchmark → no recomendar corners (Test C)",
+    "content": "Bug LIVE: validate_pick_before_output acepta baseball live",
     "status": "completed"
   },
   {
-    "content": "Acceptance tests A/B/C/D verificados al 100% post-fix",
+    "content": "Lint + smoke OK",
     "status": "completed"
   },
   {
-    "content": "Testing Agent v3 (Live Corner Intelligence end-to-end)",
-    "status": "completed"
+    "content": "Testing Agent v3 (market_lean + bug live baseball)",
+    "status": "in_progress"
   }
 ]

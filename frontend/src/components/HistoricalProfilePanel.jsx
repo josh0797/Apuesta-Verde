@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Activity, ChevronDown, TrendingUp, TrendingDown, Minus, Calendar, Wind, HeartPulse } from 'lucide-react';
+import { Activity, ChevronDown, TrendingUp, TrendingDown, Minus, Calendar, Wind, HeartPulse, AlertTriangle } from 'lucide-react';
 
 /**
  * HistoricalProfilePanel — Renders the "Historial profundo" block for
@@ -41,24 +41,39 @@ export function HistoricalProfilePanel({ profile, sport = 'basketball', testId =
   const h2hAvg      = isBasketball ? combined.h2hTotalPointsAvg     : combined.h2hTotalRunsAvg;
 
   const lean = combined.overUnderLean || 'NEUTRAL';
+  // V2 — SINGLE SOURCE OF TRUTH consistency badge: when the orchestrator
+  // computed the lean against the actual market line and detected a
+  // mismatch with the recommended pick, `overUnderLeanDisplay` is set to
+  // 'REVIEW_REQUIRED' and we show "⚠ Revisión requerida" instead of the
+  // contradictory badge.
+  const leanDisplay = combined.overUnderLeanDisplay || lean;
+  const leanConsistency = combined.overUnderLeanConsistency || null;
+  const leanConfidence = combined.overUnderLeanConfidence;
+  const leanReason = combined.overUnderLeanReason;
+  const isReviewRequired = leanDisplay === 'REVIEW_REQUIRED';
   const fit  = Number(combined.marketFitScore || 0);
   const frag = Number(combined.fragilityScore || 0);
 
-  const tone = lean === 'OVER'
+  const tone = isReviewRequired
+    ? { border: 'border-amber-500/40', bg: 'bg-amber-500/8', icon: 'text-amber-300', accent: 'text-amber-200' }
+    : lean === 'OVER'
     ? { border: 'border-emerald-500/30', bg: 'bg-emerald-500/5', icon: 'text-emerald-300', accent: 'text-emerald-200' }
     : lean === 'UNDER'
       ? { border: 'border-sky-500/30', bg: 'bg-sky-500/5', icon: 'text-sky-300', accent: 'text-sky-200' }
       : { border: 'border-slate-500/30', bg: 'bg-slate-500/5', icon: 'text-slate-300', accent: 'text-slate-200' };
 
-  const leanIcon = lean === 'OVER' ? <TrendingUp className="w-3.5 h-3.5" />
+  const leanIcon = isReviewRequired ? <AlertTriangle className="w-3.5 h-3.5" />
+    : lean === 'OVER' ? <TrendingUp className="w-3.5 h-3.5" />
     : lean === 'UNDER' ? <TrendingDown className="w-3.5 h-3.5" />
     : <Minus className="w-3.5 h-3.5" />;
 
-  const leanLabel = lean === 'OVER'
-    ? `Lean Over ${overUnit}`
-    : lean === 'UNDER'
-      ? `Lean Under ${overUnit}`
-      : 'Sin lean claro';
+  const leanLabel = isReviewRequired
+    ? 'Revisión requerida'
+    : lean === 'OVER'
+      ? `Lean Over ${overUnit}`
+      : lean === 'UNDER'
+        ? `Lean Under ${overUnit}`
+        : 'Sin lean claro';
 
   const phrases = Array.isArray(combined.trendSummary) ? combined.trendSummary : [];
   const gamesAnalyzed = Math.min(home.gamesAnalyzed || 0, away.gamesAnalyzed || 0);
@@ -97,6 +112,30 @@ export function HistoricalProfilePanel({ profile, sport = 'basketball', testId =
 
       {open && (
         <div className="px-3 pb-3 space-y-3 border-t border-white/5">
+          {/* V2 — Review-required notice. Shown when the orchestrator
+              detected an inconsistency between the historical lean and
+              the recommended pick. Replaces the user-confusing
+              "LEAN OVER vs PICK UNDER" scenario. */}
+          {isReviewRequired && leanConsistency?.warning ? (
+            <div
+              className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/8 px-3 py-2 text-[11px] text-amber-200 leading-snug flex items-start gap-2"
+              data-testid={`${testId}-review-required`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>{leanConsistency.warning}</span>
+            </div>
+          ) : leanReason && !isReviewRequired ? (
+            <div
+              className={`mt-3 rounded-md border ${tone.border} ${tone.bg} px-3 py-1.5 text-[10.5px] ${tone.accent} leading-snug`}
+              data-testid={`${testId}-lean-reason`}
+            >
+              {leanReason}
+              {leanConfidence != null ? (
+                <span className="ml-1 font-mono opacity-80">· conf {leanConfidence}/100</span>
+              ) : null}
+            </div>
+          ) : null}
+
           {/* Combined metrics summary */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-3">
             <div className="rounded-md bg-black/30 p-2" data-testid={`${testId}-projected`}>

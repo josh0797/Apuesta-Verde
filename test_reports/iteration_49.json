@@ -1,0 +1,120 @@
+{
+  "summary": "Completed comprehensive testing of Market Lean Consistency fix (ISSUE 1) and Live Baseball Detection fix (ISSUE 2). All backend pure functions, integration points, and regression scenarios validated successfully.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [],
+    "notes": "All backend functionality working as expected. Market lean classifier correctly detects mismatches and logs MARKET_LEAN_MISMATCH warnings. Time filter correctly handles live baseball matches with allow_live_for_sports parameter."
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "notes": "Frontend loads successfully. HistoricalProfilePanel.jsx component has correct conditional rendering logic for REVIEW_REQUIRED state with data-testid attributes in place. Unable to test live baseball UI rendering due to lack of live baseball data during test execution."
+  },
+  "passed_tests": [
+    "market_lean_classifier.py: classify_market_lean() - Angels @ Rays case (expected=6.7, line=9.5) returns UNDER with delta=-2.8",
+    "market_lean_classifier.py: classify_market_lean() - expected=10.8, line=8.5 returns OVER with delta=2.3",
+    "market_lean_classifier.py: classify_market_lean() - expected=9.0, line=9.5 returns NONE (delta -0.5, abs<1.0)",
+    "market_lean_classifier.py: confidence enriched from p_under (86% from p_under=0.86)",
+    "market_lean_classifier.py: reason text in Spanish with 'carreras' and 'por debajo/encima'",
+    "validate_lean_consistency(): UNDER + 'Under 9.5' → consistent=True, mismatch=False",
+    "validate_lean_consistency(): OVER + 'Under 9.5' → consistent=False, mismatch=True with warning",
+    "validate_lean_consistency(): warning populated with Spanish explanation",
+    "classify_and_validate(): Angels @ Rays → display_lean='UNDER' (consistent case)",
+    "classify_and_validate(): mismatch case → display_lean='REVIEW_REQUIRED'",
+    "classify_and_validate(): consistency block present in output",
+    "time_filter.py: is_match_upcoming() rejects live baseball when allow_live=False",
+    "time_filter.py: is_match_upcoming() accepts live baseball when allow_live=True",
+    "time_filter.py: filter_upcoming() keeps live baseball with allow_live_for_sports={'baseball'}",
+    "time_filter.py: filter_upcoming() tags live baseball with _live_route=True",
+    "time_filter.py: filter_upcoming() drops live football (not in allow_live_for_sports)",
+    "validate_pick_before_output(): baseball live picks NOT blocked",
+    "validate_pick_before_output(): football live picks ARE blocked (regression preserved)",
+    "analyst_engine.py: imports time_filter module",
+    "analyst_engine.py: uses allow_live_for_sports parameter",
+    "analyst_engine.py: baseball configured in allow_live_for_sports={'baseball'}",
+    "Regression: football upcoming matches still work",
+    "Regression: basketball upcoming matches still work",
+    "Regression: finished matches still dropped regardless of sport",
+    "MARKET_LEAN_MISMATCH logger exists and is accessible",
+    "Mismatch detection triggers without error and logs to MARKET_LEAN_MISMATCH logger",
+    "classify_market_lean() handles None values gracefully (returns lean=NONE, expected_runs=0.0)",
+    "classify_market_lean() boundary case delta=-1.0 → UNDER (threshold test)",
+    "is_match_upcoming() correctly infers live status from 'In Progress' status string",
+    "Frontend: App loads successfully",
+    "Frontend: Login with demo credentials works",
+    "Frontend: Dashboard renders after login",
+    "Frontend: No error messages on page load"
+  ],
+  "test_report_links": [
+    "/app/backend/test_market_lean_live_baseball.py"
+  ],
+  "success_percentage": {
+    "backend": "100% (32/32 tests passed)",
+    "frontend": "100% (smoke test passed, component code review passed)"
+  },
+  "updated_files": [
+    "/app/backend/test_market_lean_live_baseball.py"
+  ],
+  "action_item_for_main_agent": "",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  "detailed_findings": {
+    "issue_1_market_lean_consistency": {
+      "status": "VERIFIED_FIXED",
+      "description": "Market lean classifier now provides single source of truth. Mismatches between lean and recommended pick are detected and logged.",
+      "test_coverage": [
+        "Pure function classify_market_lean() with Angels @ Rays canonical case",
+        "Threshold rules: expected_runs <= line-1.0 → UNDER, expected_runs >= line+1.0 → OVER, |delta|<1.0 → NONE",
+        "Confidence enrichment from p_under/p_over probabilities",
+        "Spanish reason text generation",
+        "validate_lean_consistency() detects OVER vs UNDER mismatch",
+        "classify_and_validate() returns display_lean='REVIEW_REQUIRED' on mismatch",
+        "MARKET_LEAN_MISMATCH logger receives warnings with game_id, expected_runs, market_line, lean, recommended_market"
+      ],
+      "frontend_integration": {
+        "component": "/app/frontend/src/components/HistoricalProfilePanel.jsx",
+        "verified": [
+          "Reads combined.overUnderLeanDisplay field",
+          "Conditional rendering: display_lean === 'REVIEW_REQUIRED' shows amber badge with AlertTriangle icon",
+          "Warning block with consistency.warning text displayed when mismatch detected",
+          "data-testid attributes present: historical-profile-panel-review-required, historical-profile-panel-lean-reason",
+          "Lean reason chip shown when consistent"
+        ],
+        "notes": "Component code review confirms correct implementation. Live UI testing not possible due to lack of live baseball data during test execution."
+      }
+    },
+    "issue_2_live_baseball_detection": {
+      "status": "VERIFIED_FIXED",
+      "description": "Live baseball matches (status 'In Progress', is_live=true) are now kept by filter_upcoming() when allow_live_for_sports={'baseball'} is passed.",
+      "test_coverage": [
+        "is_match_upcoming() signature accepts allow_live parameter",
+        "is_match_upcoming() returns True for live baseball when allow_live=True",
+        "is_match_upcoming() returns False for live baseball when allow_live=False (legacy behavior)",
+        "filter_upcoming() signature accepts allow_live_for_sports parameter",
+        "filter_upcoming() keeps live baseball matches and tags with _live_route=True",
+        "filter_upcoming() drops live football/basketball (not in allow_live_for_sports)",
+        "validate_pick_before_output() exempts baseball live picks from MATCH_ALREADY_PLAYED block",
+        "validate_pick_before_output() still blocks football/basketball live picks (regression)",
+        "analyst_engine.py calls filter_upcoming with allow_live_for_sports={'baseball'}",
+        "Finished matches still dropped regardless of sport"
+      ],
+      "wiring_verified": [
+        "time_filter.py: is_match_upcoming() and filter_upcoming() updated",
+        "time_filter.py: validate_pick_before_output() has baseball live exemption",
+        "analyst_engine.py: _run_analysis_pipeline calls filter_upcoming with allow_live_for_sports={'baseball'}",
+        "Status inference: 'In Progress', 'Inning X', 'Top X', 'Bot X' all recognized as live"
+      ]
+    },
+    "regression_testing": {
+      "status": "PASSED",
+      "verified": [
+        "Football upcoming matches still work (is_match_upcoming returns True)",
+        "Basketball upcoming matches still work (is_match_upcoming returns True)",
+        "Finished matches still dropped (filter_upcoming drops them)",
+        "Live football/basketball still blocked by validate_pick_before_output()",
+        "Non-baseball sports unaffected by allow_live_for_sports parameter"
+      ]
+    }
+  }
+}
