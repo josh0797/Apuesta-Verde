@@ -1,26 +1,22 @@
 [
   {
-    "content": "Backend: live_territorial_control + live_corner_engine + live_market_ranker + storage",
+    "content": "Backend: cablear apply_false_competitive_underdog_to_pick en mlb_day_orchestrator.py",
     "status": "completed"
   },
   {
-    "content": "Backend: endpoint POST /api/football/live/territorial_control + GET histórico",
+    "content": "Backend: exponer _mlb_false_competitive_underdog top-level + trap_signal en recommendation",
     "status": "completed"
   },
   {
-    "content": "Frontend: crear LiveTerritorialControlPanel.jsx",
+    "content": "Frontend: crear MLBFalseCompetitiveUnderdogBadge en MLBScriptV3Panel y cablear en MatchCard",
     "status": "completed"
   },
   {
-    "content": "Frontend: integrar panel en MatchDetailPage",
+    "content": "Lint + esbuild + smoke integración",
     "status": "completed"
   },
   {
-    "content": "Lint + esbuild OK",
-    "status": "completed"
-  },
-  {
-    "content": "Testing Agent v3 (Live Territorial Control + Corner Intelligence) — 21/21 PASS",
-    "status": "completed"
+    "content": "Testing Agent v3 (FALSE_COMPETITIVE_UNDERDOG end-to-end)",
+    "status": "in_progress"
   }
 ]

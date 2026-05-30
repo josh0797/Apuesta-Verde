@@ -20,7 +20,7 @@ import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
 import { MLBScriptPanel } from './MLBScriptPanel';
-import { MLBScriptV3Panel, MLBDiversityBadge, MLBBullpenSwapBadge, MLBOverSwapBadge } from './MLBScriptV3Panel';
+import { MLBScriptV3Panel, MLBDiversityBadge, MLBBullpenSwapBadge, MLBOverSwapBadge, MLBFalseCompetitiveUnderdogBadge } from './MLBScriptV3Panel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -205,6 +205,19 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           meta={m.recommendation}
           overDiscovery={m._mlb_over_discovery}
           testId={`mlb-over-swap-${m.match_id}`}
+        />
+      ) : null}
+
+      {/* MLB-V7 — FALSE_COMPETITIVE_UNDERDOG badge. Shown when the engine
+          detected the canonical failure mode (favorite top-offence +
+          underdog weak bullpen + offensive gap ≥ 15). Two visual modes:
+          BLOCK (severity=EXTREME, market swapped) and PENALTY (severity
+          ∈ {MODERATE, HIGH}, confidence reduced).  Baseball-only. */}
+      {sport === 'baseball' && m._mlb_false_competitive_underdog ? (
+        <MLBFalseCompetitiveUnderdogBadge
+          meta={m._mlb_false_competitive_underdog}
+          pick={m}
+          testId={`mlb-fcu-${m.match_id}`}
         />
       ) : null}
 

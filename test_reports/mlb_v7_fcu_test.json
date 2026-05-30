@@ -1,0 +1,90 @@
+{
+  "test_suite": "MLB Engine V7 FALSE_COMPETITIVE_UNDERDOG Tests",
+  "timestamp": "2026-05-30T17:07:04.916331",
+  "total_tests": 16,
+  "passed": 16,
+  "failed": 0,
+  "success_rate": "100.0%",
+  "results": [
+    {
+      "test": "Import sanity",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "evaluate_favorite_top_offense",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "evaluate_underdog_weak_bullpen",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "evaluate_offensive_gap",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "evaluate_false_competitive_underdog (CANONICAL)",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "evaluate_false_competitive_underdog (PENALTY-ONLY)",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "evaluate_false_competitive_underdog (NEGATIVE)",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "evaluate_false_competitive_underdog (NO-RISK)",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "apply_false_competitive_underdog_to_pick (BLOCK)",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "apply_false_competitive_underdog_to_pick (PENALTY)",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "Authentication",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB pipeline V7 fields",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB V7 trap signals",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "MLB V7 regression (V1-V6)",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "Football no V7 fields",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "test": "Basketball no V7 fields",
+      "status": "PASS",
+      "error": null
+    }
+  ]
+}

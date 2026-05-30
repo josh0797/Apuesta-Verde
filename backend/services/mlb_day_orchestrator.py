@@ -992,6 +992,42 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as exc:
             log.debug("V6 Over discovery / market competition failed: %s", exc)
 
+        # ── F7 — MLB FALSE_COMPETITIVE_UNDERDOG_SCRIPT ────────────────────
+        # User-specified rule (May 2026): when the engine recommends
+        # "Run Line +1.5 (underdog)" but the favourite has top-tier
+        # offence + the underdog has a weak bullpen + offensive gap is
+        # extreme, the script does NOT survive 9 innings (the favourite
+        # blows out the underdog). Penalise when gap ≥ 15, BLOCK and
+        # swap when the 3 factors combine + gap ≥ 25.
+        #
+        # Yankees @ Athletics canonical case validated locally:
+        #   gap 30, top_offense=True, weak_bullpen=True →
+        #   swap to "Run Line -1.5 (Yankees)" score 83.
+        false_competitive_underdog_meta = None
+        try:
+            from .mlb_false_competitive_underdog import (
+                apply_false_competitive_underdog_to_pick,
+            )
+            new_chosen, fcu_eval = apply_false_competitive_underdog_to_pick(
+                chosen_market,
+                scoring_ctx,
+                v2_payload=v2_payload,
+                over_discovery=over_discovery,
+            )
+            false_competitive_underdog_meta = fcu_eval
+            # apply_* returns the chosen_market unchanged when no risk.
+            # Detect whether a swap or penalty was applied.
+            if fcu_eval.get("block_required") and new_chosen and \
+                    new_chosen.get("false_competitive_underdog_swap"):
+                # Full swap (Run Line +1.5 underdog → Favorite -1.5 / TT Over / etc.)
+                chosen_market = new_chosen
+            elif fcu_eval.get("is_risk") and not fcu_eval.get("block_required"):
+                # Penalty applied — chosen_market keeps its market but
+                # `score` is already reduced by `apply_*`.
+                chosen_market = new_chosen
+        except Exception as exc:
+            log.debug("V7 false_competitive_underdog failed: %s", exc)
+
         # Emit signals (with literal source_url for transparency)
         parts = {
             "home_pitcher_quality": h_q, "away_pitcher_quality": a_q,
@@ -1410,6 +1446,31 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                         (osm.get("offensive_script") or {}).get("code"))
                     pick_payload["over_survival_score"] = (
                         (osm.get("over_survival") or {}).get("score"))
+
+            # V7 — FALSE_COMPETITIVE_UNDERDOG attach. Expose the meta at top
+            # level so the UI can render the badge / penalty narrative and
+            # the alternative-market suggestions. Also stamp a structured
+            # trap signal into `recommendation.trap_signals_structured`
+            # when severity is actionable.
+            fcum = locals().get("false_competitive_underdog_meta")
+            if fcum and (fcum.get("is_risk") or fcum.get("block_required")):
+                pick_payload["_mlb_false_competitive_underdog"] = fcum
+                pick_payload["false_competitive_underdog_severity"] = fcum.get("severity")
+                pick_payload["false_competitive_underdog_block"] = bool(
+                    fcum.get("block_required"))
+                # Add a trap signal so the moneyball layer / discarded UI
+                # can pick it up uniformly.
+                trap_code = fcum.get("trap_signal_code") or "FALSE_COMPETITIVE_UNDERDOG_RISK"
+                rec = pick_payload.get("recommendation") or {}
+                signals = list(rec.get("trap_signals_structured") or [])
+                signals.append({
+                    "code":      trap_code,
+                    "severity":  fcum.get("severity"),
+                    "narrative": fcum.get("narrative_es") or "",
+                    "source":    "mlb_engine_v7",
+                })
+                rec["trap_signals_structured"] = signals
+                pick_payload["recommendation"] = rec
         except Exception as exc:
             log.debug("v3 build_v3_payload failed for game %s: %s",
                        conf.get("game_pk"), exc)

@@ -17,6 +17,7 @@ import {
   Flame,
   Zap,
   ArrowRightLeft,
+  ShieldOff,
 } from 'lucide-react';
 
 /**
@@ -880,6 +881,180 @@ export function MLBMarketAuditBadge({ audit, testId }) {
     >
       <AlertTriangle className="h-3 w-3" />
       <span>{label}</span>
+    </div>
+  );
+}
+
+
+
+/* ════════════════════════════════════════════════════════════════════════
+ *  MLB ENGINE V7 — FALSE_COMPETITIVE_UNDERDOG_SCRIPT
+ *  Badge shown when the engine detected the "predicted competitive
+ *  underdog, but really a blow-out" pattern (favorite top-offence +
+ *  underdog weak bullpen + extreme offensive gap).
+ *
+ *  Two visual modes:
+ *    1. BLOCK + SWAP — when severity == EXTREME and the engine swapped
+ *       Run Line +1.5 (underdog) for a favourite-side market. Shows the
+ *       reason narrative + the new market.
+ *    2. PENALTY — when severity ∈ {MODERATE, HIGH} and only confidence
+ *       was reduced. Shows the magnitude of the penalty + drivers.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+const FCU_SEVERITY_TONES = {
+  EXTREME:  'bg-rose-500/12 border-rose-500/40 text-rose-100',
+  HIGH:     'bg-rose-500/10 border-rose-500/30 text-rose-200',
+  MODERATE: 'bg-amber-500/10 border-amber-500/30 text-amber-200',
+  LOW:      'bg-amber-500/8 border-amber-500/25 text-amber-200',
+};
+
+const FCU_GAP_LABEL = {
+  MODERATE: 'Gap moderado',
+  HIGH:     'Gap alto',
+  EXTREME:  'Gap extremo',
+};
+
+/**
+ * MLBFalseCompetitiveUnderdogBadge — V7.
+ *
+ * Consumes either:
+ *  - `pick._mlb_false_competitive_underdog` (top-level on the pick)
+ *  - or an explicit `meta` prop.
+ *
+ * The component is self-rendering: returns null when no risk has been
+ * detected. Mirrors the layout of MLBBullpenSwapBadge / MLBOverSwapBadge
+ * so the three badges stack consistently above the V3 panel.
+ */
+export function MLBFalseCompetitiveUnderdogBadge({ meta, pick, testId }) {
+  const data = meta || pick?._mlb_false_competitive_underdog || null;
+  if (!data || (!data.is_risk && !data.block_required)) return null;
+
+  const severity = data.severity || 'LOW';
+  const tone     = FCU_SEVERITY_TONES[severity] || FCU_SEVERITY_TONES.LOW;
+  const blocked  = !!data.block_required;
+  const penalty  = Number(data.penalty || 0);
+  const gapCat   = data.gap_category || 'NONE';
+  const gapMag   = data.gap_magnitude;
+
+  const fav      = data.favorite || {};
+  const bullpen  = data.underdog_bullpen || {};
+  const alts     = Array.isArray(data.alternative_markets) ? data.alternative_markets : [];
+  const topAlt   = alts[0] || null;
+
+  return (
+    <div
+      className={`rounded-lg border px-3 py-2 space-y-1.5 ${tone}`}
+      data-testid={testId || 'mlb-false-competitive-underdog-badge'}
+    >
+      <div className="flex items-center gap-2 flex-wrap">
+        {blocked ? (
+          <ShieldOff className="h-3.5 w-3.5 shrink-0" />
+        ) : (
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        )}
+        <span className="text-[11px] uppercase tracking-wide opacity-95 font-medium">
+          {blocked
+            ? 'Run Line +1.5 (underdog) BLOQUEADO'
+            : 'Run Line +1.5 (underdog) — penalización'}
+        </span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/[0.08] border border-current/30 font-mono">
+          {severity}
+        </span>
+        {gapCat !== 'NONE' && gapMag != null ? (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-current/25 tabular-nums">
+            {FCU_GAP_LABEL[gapCat] || gapCat} · {Number(gapMag).toFixed(0)} pts
+          </span>
+        ) : null}
+      </div>
+
+      {/* Narrative */}
+      {data.narrative_es ? (
+        <p
+          className="text-[11px] opacity-95 leading-snug"
+          data-testid="mlb-fcu-narrative"
+        >
+          {data.narrative_es}
+        </p>
+      ) : null}
+
+      {/* Top alternative market (when blocked) */}
+      {blocked && topAlt ? (
+        <div
+          className="flex items-center justify-between gap-2 px-2 py-1 rounded-md bg-white/[0.08] border border-current/25"
+          data-testid="mlb-fcu-top-alt"
+        >
+          <div className="flex items-center gap-1.5 min-w-0">
+            <ArrowRightLeft className="h-3 w-3 shrink-0" />
+            <span className="text-[10px] opacity-85">Nuevo mercado</span>
+            <span className="text-[12px] font-semibold truncate">
+              {topAlt.market}
+            </span>
+          </div>
+          {topAlt.score != null ? (
+            <span className="text-[11px] font-mono tabular-nums shrink-0">
+              {Number(topAlt.score).toFixed(0)}/100
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Penalty magnitude (when not blocked) */}
+      {!blocked && penalty ? (
+        <div
+          className="text-[10.5px] opacity-90"
+          data-testid="mlb-fcu-penalty"
+        >
+          Penalización aplicada: <span className="font-mono tabular-nums font-semibold">{penalty}</span> pts sobre la confianza original.
+        </div>
+      ) : null}
+
+      {/* Compact factor chips */}
+      <div className="flex flex-wrap items-center gap-1.5 text-[10px] opacity-85">
+        {fav.is_top_offense ? (
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-current/25"
+            data-testid="mlb-fcu-factor-top-offense"
+          >
+            <TrendingUp className="h-2.5 w-2.5" />
+            Favorito top ofensivo
+            {fav.ops ? <span className="font-mono ml-0.5">{Number(fav.ops).toFixed(3)}</span> : null}
+          </span>
+        ) : null}
+        {bullpen.is_weak ? (
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-current/25"
+            data-testid="mlb-fcu-factor-weak-bullpen"
+          >
+            <Shield className="h-2.5 w-2.5" />
+            Bullpen underdog frágil
+            {bullpen.era_7d ? <span className="font-mono ml-0.5">ERA7d {Number(bullpen.era_7d).toFixed(2)}</span> : null}
+          </span>
+        ) : null}
+        {gapMag != null && gapCat !== 'NONE' ? (
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-current/25 tabular-nums"
+            data-testid="mlb-fcu-factor-gap"
+          >
+            <Activity className="h-2.5 w-2.5" />
+            Gap {Number(gapMag).toFixed(0)} pts
+          </span>
+        ) : null}
+      </div>
+
+      {/* Other alternatives chips (when blocked) */}
+      {blocked && alts.length > 1 ? (
+        <div className="text-[10px] opacity-80">
+          <span className="opacity-70 mr-1">Otras alternativas:</span>
+          {alts.slice(1, 4).map((a, i) => (
+            <span
+              key={i}
+              className="inline-block ml-1 px-1.5 py-0.5 rounded bg-white/[0.04] border border-current/20"
+            >
+              {a.market}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
