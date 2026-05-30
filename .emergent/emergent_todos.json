@@ -1,34 +1,26 @@
 [
   {
-    "content": "Backend: crear services/football_market_trace.py",
+    "content": "Backend: live_territorial_control + live_corner_engine + live_market_ranker + storage",
     "status": "completed"
   },
   {
-    "content": "Backend: crear services/football_audit_storage.py",
+    "content": "Backend: endpoint POST /api/football/live/territorial_control + GET histórico",
     "status": "completed"
   },
   {
-    "content": "Backend: cablear attach_market_trace_to_summary + store_football_audit en el pipeline",
+    "content": "Frontend: crear LiveTerritorialControlPanel.jsx",
     "status": "completed"
   },
   {
-    "content": "Backend: añadir endpoint GET /api/football/market_audit",
+    "content": "Frontend: integrar panel en MatchDetailPage",
     "status": "completed"
   },
   {
-    "content": "Frontend: crear components/FootballMarketAuditPanel.jsx",
+    "content": "Lint + esbuild OK",
     "status": "completed"
   },
   {
-    "content": "Frontend: cablear FootballMarketAuditPanel en DiscardedRow + header dinámico",
-    "status": "completed"
-  },
-  {
-    "content": "Lint + esbuild OK (smoke screenshot skipped — sin corridas football frescas)",
-    "status": "completed"
-  },
-  {
-    "content": "Testing Agent v3 (backend + frontend Football Market Trace V4)",
+    "content": "Testing Agent v3 (Live Territorial Control + Corner Intelligence)",
     "status": "in_progress"
   }
 ]

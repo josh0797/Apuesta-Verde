@@ -487,6 +487,220 @@ async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
     return _clean(doc)
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# Live Territorial Control + Corner Intelligence (FOOTBALL ONLY)
+# ════════════════════════════════════════════════════════════════════════════
+class LiveTerritorialControlIn(BaseModel):
+    """Body for POST /api/football/live/territorial_control.
+
+    Either provide ``match_id`` (the engine pulls the latest live metrics
+    from `db.matches`) OR pass ``metrics`` directly (useful for testing).
+    Both are accepted; ``metrics`` overrides any field derived from the
+    match document.
+    """
+    match_id: Optional[str | int] = None
+    metrics: Optional[dict] = None
+    refresh: bool = False
+    surface_threshold: int = 55
+
+
+def _extract_live_metrics_from_match(doc: dict) -> dict:
+    """Build the metrics dict consumed by live_territorial_control out of
+    a `db.matches` document. Tolerates the API-Sports / ESPN heterogeneity.
+    """
+    if not doc:
+        return {}
+    home = doc.get("home_team") or doc.get("homeTeam") or {}
+    away = doc.get("away_team") or doc.get("awayTeam") or {}
+    home_name = home.get("name") if isinstance(home, dict) else str(home or "")
+    away_name = away.get("name") if isinstance(away, dict) else str(away or "")
+
+    # Score: try multiple paths.
+    score = doc.get("score") or doc.get("goals") or {}
+    sh = score.get("home") if isinstance(score, dict) else None
+    sa = score.get("away") if isinstance(score, dict) else None
+    if sh is None or sa is None:
+        sh = (doc.get("goals_home") or 0)
+        sa = (doc.get("goals_away") or 0)
+
+    # Minute.
+    status = doc.get("status") or {}
+    minute = status.get("elapsed") if isinstance(status, dict) else doc.get("minute")
+
+    # Stats (API-Sports). Two-element list per match: [home_stats, away_stats].
+    stats = doc.get("statistics") or doc.get("stats") or []
+    s_home: dict = {}
+    s_away: dict = {}
+    if isinstance(stats, list) and len(stats) >= 2:
+        # API-Sports shape: each item has { team, statistics: [{type, value}] }
+        for item in stats:
+            team_meta = (item or {}).get("team") or {}
+            team_name = team_meta.get("name") if isinstance(team_meta, dict) else None
+            bucket = {}
+            for s in (item.get("statistics") or []):
+                key = (s.get("type") or "").strip().lower()
+                val = s.get("value")
+                if isinstance(val, str) and val.endswith("%"):
+                    try:
+                        val = float(val.rstrip("%"))
+                    except (TypeError, ValueError):
+                        val = 0
+                bucket[key] = val
+            if team_name and home_name and team_name.lower() == home_name.lower():
+                s_home = bucket
+            elif team_name and away_name and team_name.lower() == away_name.lower():
+                s_away = bucket
+
+    def _stat(bucket: dict, *keys: str, default=0):
+        for k in keys:
+            if k in bucket and bucket[k] is not None:
+                return bucket[k]
+        return default
+
+    # Threat index (xT) — already computed by live_xg_proxy if available.
+    xt = doc.get("threat_index") or {}
+    xt_home = xt.get("home") if isinstance(xt, dict) else 0
+    xt_away = xt.get("away") if isinstance(xt, dict) else 0
+
+    # Running xG.
+    xg = doc.get("expected_goals") or doc.get("xg") or {}
+    xg_home = xg.get("home") if isinstance(xg, dict) else 0
+    xg_away = xg.get("away") if isinstance(xg, dict) else 0
+
+    return {
+        "minute":                 minute or 0,
+        "score_home":             sh,
+        "score_away":             sa,
+        "home_team":              home_name,
+        "away_team":              away_name,
+        "possession_home":        _stat(s_home, "ball possession", "possession"),
+        "possession_away":        _stat(s_away, "ball possession", "possession"),
+        "shots_home":             _stat(s_home, "total shots", "shots"),
+        "shots_away":             _stat(s_away, "total shots", "shots"),
+        "shots_on_target_home":   _stat(s_home, "shots on goal", "shots on target"),
+        "shots_on_target_away":   _stat(s_away, "shots on goal", "shots on target"),
+        "corners_home":           _stat(s_home, "corner kicks", "corners"),
+        "corners_away":           _stat(s_away, "corner kicks", "corners"),
+        "dangerous_attacks_home": _stat(s_home, "dangerous attacks"),
+        "dangerous_attacks_away": _stat(s_away, "dangerous attacks"),
+        "attacks_home":           _stat(s_home, "attacks"),
+        "attacks_away":           _stat(s_away, "attacks"),
+        "xt_home":                xt_home or 0,
+        "xt_away":                xt_away or 0,
+        "xg_home":                xg_home or 0,
+        "xg_away":                xg_away or 0,
+    }
+
+
+@api.post("/football/live/territorial_control")
+async def football_live_territorial_control(
+    payload: LiveTerritorialControlIn,
+    user: dict = Depends(get_current_user),
+):
+    """Evaluate the LIVE Territorial Control + Corner Intelligence engines
+    for a football match and return the full payload (territorial state,
+    corner pressure, ranked live markets).
+
+    Persists each evaluation into `db.live_territorial_evaluations` for
+    later feedback-loop calibration.
+    """
+    try:
+        from services.live_territorial_control import evaluate_live_territorial_control
+        from services.live_corner_engine import evaluate_corner_pressure
+        from services.live_market_ranker import rank_live_markets
+        from services.live_evaluation_storage import store_live_territorial_evaluation
+
+        # Resolve metrics — explicit override wins, else load from db.matches.
+        metrics = dict(payload.metrics or {})
+        match_doc = None
+        if payload.match_id is not None:
+            candidates = [str(payload.match_id)]
+            try:
+                candidates.append(int(payload.match_id))
+            except (TypeError, ValueError):
+                pass
+            match_doc = await db.matches.find_one({"match_id": {"$in": candidates}})
+            if not match_doc and not metrics:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"match {payload.match_id} not found and no explicit metrics provided",
+                )
+            if match_doc:
+                derived = _extract_live_metrics_from_match(match_doc)
+                # Explicit `metrics` overrides per-field.
+                for k, v in derived.items():
+                    metrics.setdefault(k, v)
+
+        if not metrics:
+            raise HTTPException(
+                status_code=400,
+                detail="Either `match_id` or `metrics` must be provided.",
+            )
+
+        # Run the three pure-function layers.
+        territorial = evaluate_live_territorial_control(metrics)
+        corner      = evaluate_corner_pressure(
+            metrics, surface_threshold=int(payload.surface_threshold))
+        ranked      = rank_live_markets(metrics, territorial, corner)
+
+        # Persist (fail-soft).
+        eval_id = await store_live_territorial_evaluation(
+            db,
+            user_id=user["id"],
+            match_id=payload.match_id if payload.match_id is not None else metrics.get("match_id"),
+            sport="football",
+            metrics=metrics,
+            territorial=territorial,
+            corner=corner,
+            ranked_markets=ranked,
+        )
+
+        return {
+            "ok":                True,
+            "evaluation_id":     eval_id,
+            "match_id":          payload.match_id,
+            "territorial":       territorial,
+            "corner":            corner,
+            "ranked_markets":    ranked,
+            "metrics":           metrics,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("football_live_territorial_control failed: %s", exc)
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": str(exc)})
+
+
+@api.get("/football/live/territorial_control/history")
+async def football_live_territorial_control_history(
+    user: dict = Depends(get_current_user),
+    match_id: Optional[str] = None,
+    limit: int = 30,
+):
+    """Return recent Live Territorial Control evaluations for the user.
+
+    Optionally filter by ``match_id``. Caps at 100 docs.
+    """
+    try:
+        from services.live_evaluation_storage import query_live_territorial_evaluations
+        docs = await query_live_territorial_evaluations(
+            db,
+            user_id=user["id"],
+            match_id=match_id,
+            limit=max(1, min(100, int(limit or 30))),
+        )
+        return {
+            "ok":    True,
+            "count": len(docs),
+            "items": docs,
+        }
+    except Exception as exc:
+        log.exception("football_live_territorial_control_history failed: %s", exc)
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": str(exc)})
+
+
 # ── Analysis ─────────────────────────────────────────────────────────────────
 class AnalysisRunIn(BaseModel):
     refresh: bool = True

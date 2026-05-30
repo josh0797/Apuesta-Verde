@@ -16,6 +16,7 @@ import { MatchIntelligencePanel } from '@/components/MatchIntelligencePanel';
 import { MoneyballPanel } from '@/components/MoneyballPanel';
 import { MLBMatchupPanel } from '@/components/MLBMatchupPanel';
 import { MLBLiveIntelPanel } from '@/components/MLBLiveIntelPanel';
+import { LiveTerritorialControlPanel } from '@/components/LiveTerritorialControlPanel';
 import { formatDateTime, humanizeSelection } from '@/lib/format';
 
 export default function MatchDetailPage() {
@@ -199,6 +200,14 @@ export default function MatchDetailPage() {
               <Link to="/" className="text-cyan-300 text-sm hover:text-cyan-200">{t.match.generateForMatch}</Link>
             </div>
           )}
+
+          {/* Live Territorial Control + Corner Intelligence (FOOTBALL ONLY).
+              The component self-gates: it returns null unless
+              sport==='football' && match.is_live. Renders the 📐 Control
+              Territorial card, the Corner Intelligence score (always
+              visible) + recommendation (surfaced only above threshold),
+              and the dynamic live-market ranking. */}
+          <LiveTerritorialControlPanel sport={sport} match={match} t={t} />
 
           {/* Motivational context */}
           <section className="rounded-xl border border-border bg-card p-5">
