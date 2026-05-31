@@ -801,13 +801,50 @@ export function deriveConfidenceBreakdown(pick) {
   const sum = items.reduce((acc, it) => acc + (it.delta || 0), 0);
   const computed_total = Math.max(0, Math.min(100, baseline + sum));
   const reported = Math.max(0, Math.min(100, Number(rec.confidence_score) || 0));
+  const gap = reported - computed_total;
+
+  // ── GAP #2 — LLM Reconciliation: penalize, don't justify ─────────────
+  // The previous implementation surfaced a soft "possible hidden positive
+  // signal" message when the LLM's score exceeded the explainable factor
+  // sum. That treated optimism as a *feature*. New policy:
+  //   gap > +10   → LLM_OVERCONFIDENT
+  //     final_score = factor_sum + min(15, ⌊gap/2⌋)   (anchored to model)
+  //   gap < −10   → LLM_UNDERCONFIDENT
+  //     LLM saw a hidden risk → keep reported, but flag it for the UI
+  //   |gap| ≤ 10  → BALANCED, no warning needed
+  let reconciliation_label = 'BALANCED';
+  let penalty = 0;
+  let final_score = reported;
+  let warning = null;
+  if (gap > 10) {
+    reconciliation_label = 'LLM_OVERCONFIDENT';
+    penalty = Math.min(15, Math.floor(gap / 2));
+    final_score = Math.max(0, Math.min(100, computed_total + penalty));
+    warning = (lang) =>
+      lang === 'en'
+        ? `LLM is ${gap} pts more optimistic than the data. Score anchored to the factor sum (${computed_total} + ${penalty} = ${final_score}).`
+        : `El LLM es ${gap} pts más optimista que los datos. Score anclado a la suma de factores (${computed_total} + ${penalty} = ${final_score}).`;
+  } else if (gap < -10) {
+    reconciliation_label = 'LLM_UNDERCONFIDENT';
+    // Keep reported as final_score — the LLM saw a risk the factor
+    // decomposition missed, so we trust the model on the down-side.
+    final_score = reported;
+    warning = (lang) =>
+      lang === 'en'
+        ? `LLM is ${Math.abs(gap)} pts more conservative — hidden risk the engine weighed in.`
+        : `El LLM es ${Math.abs(gap)} pts más conservador — riesgo oculto que el motor detectó.`;
+  }
 
   return {
     baseline,
     items,
     computed_total,
     reported,
-    gap: reported - computed_total,
+    gap,
+    reconciliation_label,
+    penalty,
+    final_score,
+    warning,
   };
 }
 

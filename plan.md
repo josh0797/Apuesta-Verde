@@ -273,6 +273,53 @@
 
 ---
 
+## Phase GAPS-3 — IL penalty + LLM Reconciliation + Active Series UI + Live Match Detail
+**Estado:** ✅ COMPLETADO (2026-05-31)
+
+### GAP #1 — IL Penalty (`services/mlb_il_penalty.py`)
+- Nuevo módulo `apply_il_penalty(scoring_ctx)` con tests unitarios.
+- KEY_POSITIONS = {1B,2B,3B,SS,LF,CF,RF,DH,C,IF,OF} — pitchers excluidos (ya cubiertos por capa de pitcher).
+- **Cap por equipo: 4 bateadores clave máximo** (MAX_KEY_BATS_PER_SIDE) ordenados por prioridad posicional (spine: C/SS/CF > infield > corner/DH). Necesario porque el endpoint roster-injuries de MLB acumula 10-day + 60-day + minor-league IL en una sola lista (13+ por equipo).
+- Cada bate clave faltante: ER -0.3 / conf -5 (capeados a -1.5 ER / -20 conf globales).
+- Penalty solo aplica a markets **ofensivos** (Over, Run Line, Team Total, F5 Over) — los Under se benefician de menos bates así que NO se penalizan.
+- Integrado en `mlb_day_orchestrator.py` **antes** del bloque M1/M3/M4/M5: deflaciona `_mlb_script_v2.expectedRuns` (preservando `expectedRunsRaw`) y resta del `chosen_market.score`.
+- Verificado en caso real (PIT): Brandon Lowe (2B), Henry Davis (C), Oneil Cruz (CF), Endy Rodríguez (C) → impacto ALTO, ER -1.5, conf -20.
+
+### BUG fix — Match detail 404 + crash con league object
+- `/api/matches/{match_id}` ahora prueba **ambos shapes** (str + int) en un `$in` query. Antes intentaba castear a int primero, lo cual fallaba para los MLB live (almacenados como string).
+- Fallback a `db.archived_live_matches` para matches recién finalizados.
+- `MatchDetailPage.jsx` ahora extrae `league.name` cuando viene como objeto `{id, name}` (rompía el render con "Objects are not valid as a React child").
+- Verificado: `/match/824832` (BAL @ TOR live) carga correctamente sin errores.
+
+### GAP #2 — LLM Reconciliation (penalizar, no justificar)
+- `frontend/src/lib/intelligence.js::deriveConfidenceBreakdown` extendido:
+  - `gap > +10` → `reconciliation_label = 'LLM_OVERCONFIDENT'`, `penalty = min(15, ⌊gap/2⌋)`, `final_score = factor_sum + penalty` (anclado al modelo).
+  - `gap < -10` → `LLM_UNDERCONFIDENT`, mantiene el reported como final pero etiqueta riesgo oculto.
+  - `|gap| ≤ 10` → `BALANCED`, sin warning.
+- `components/ConfidenceBreakdown.jsx` ahora renderiza:
+  - Badge **LLM SOBRECONFIANTE** en rojo (ShieldAlert) + cap `Score ajustado` visible cuando overconfident.
+  - Badge **LLM SUBCONFIANTE** en ámbar (AlertTriangle) cuando underconfident.
+  - Copy ES/EN.
+
+### GAP #3 — Active Series Context UI + override avg > 12
+- `services/mlb_active_series_analyzer.py`:
+  - Nueva función `_extract_per_team_runs(doc, home, away)` normaliza la orientación home/away respecto al juego upcoming (la UI siempre ve el mismo equipo en el mismo lado).
+  - `games_detail`: lista `[{game_number, home, away, total_runs, summary, kickoff}]` ordenada G1→Gn.
+  - `next_game_number`: número del próximo juego (G4 si la serie lleva 3).
+  - **Override hard-cap añadido**: si `avg > 12.0` → `lean = OVER` + `series_override = True` con razón explícita "Promedio de serie X carreras > 12 — entorno claramente ofensivo".
+- `components/MLBScriptPanel.jsx`:
+  - Panel rediseñado: encabezado `📊 Contexto de serie activa (Gn)`, lista per-game con scores normalizados (HOME 9 - 13 AWAY = 22 carreras), promedio con resaltado rojo cuando > 12.
+  - **Lean badge se oculta cuando `chosenMarket` es Run Line** (la serie se consume como confirmación, no como Over/Under signal). Sigue mostrando el override_reason.
+  - Nuevo bloque `🩹 Bateadores clave en IL` con counts + ER adjust + nombres (cap 3 por lado).
+- `MatchDetailPage.jsx`: ahora monta el `MLBScriptPanel` también en el detalle, no solo en el dashboard. El usuario puede ver IL + serie activa al hacer click en cualquier match MLB.
+- Verificado en caso real (BAL @ TOR live, gamePk 824832):
+  - Serie activa: G1 9-13 = 22 / G2 5-6 = 11 / G3 6-5 = 11 / Promedio 14.7
+  - Override OVER fires (avg > 12 + bullpens > 80)
+  - Pick es Run Line → Lean badge oculto, contexto sí visible (validación)
+  - IL: BAL 4 + TOR 4 → IMPACTO ALTO, ER -1.5, conf -20
+
+---
+
 ## Phase RECAL — Lightweight Recalibration + Feedback APScheduler + Bright Data Health
 **Estado:** ✅ COMPLETADO (2026-05-31)
 

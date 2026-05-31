@@ -365,6 +365,8 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           seriesDegradation={m.series_degradation || null}
           modelVerification={m.model_verification || null}
           activeSeriesBlock={m.active_series_block || null}
+          chosenMarket={m.recommendation?.market || null}
+          ilPenalty={m.il_penalty || null}
           testId={`mlb-script-${m.match_id}`}
         />
       ) : null}

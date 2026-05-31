@@ -79,6 +79,70 @@ def _extract_runs(doc: dict) -> Optional[int]:
     return None
 
 
+def _extract_per_team_runs(doc: dict, home_team: str, away_team: str) -> Optional[dict]:
+    """Extract `{home, away, total, home_team, away_team, kickoff}` from a
+    finished match doc, normalising the home/away assignment relative to
+    the upcoming game's perspective (so the UI always sees the SAME team
+    on the same side regardless of who hosted that day).
+
+    Returns ``None`` if scores can't be determined.
+    """
+    # First, find the raw home/away score from any of the known shapes.
+    raw_home: Optional[int] = None
+    raw_away: Optional[int] = None
+    for path in (doc.get("final_score"), doc.get("score")):
+        if isinstance(path, dict):
+            try:
+                raw_home = int(path.get("home"))
+                raw_away = int(path.get("away"))
+                break
+            except (TypeError, ValueError):
+                pass
+    if raw_home is None or raw_away is None:
+        ls = doc.get("live_stats") or {}
+        sc = ls.get("score") if isinstance(ls, dict) else None
+        if isinstance(sc, dict):
+            try:
+                raw_home = int(sc.get("home"))
+                raw_away = int(sc.get("away"))
+            except (TypeError, ValueError):
+                pass
+    if raw_home is None or raw_away is None:
+        return None
+
+    # Now figure out whose perspective this doc represents.
+    doc_home = _normalise(
+        (doc.get("home_team") or {}).get("name") if isinstance(doc.get("home_team"), dict)
+        else doc.get("home_team")
+    )
+    doc_away = _normalise(
+        (doc.get("away_team") or {}).get("name") if isinstance(doc.get("away_team"), dict)
+        else doc.get("away_team")
+    )
+    target_home = _normalise(home_team)
+    target_away = _normalise(away_team)
+    kickoff = doc.get("kickoff_iso") or doc.get("gameDate") or doc.get("date")
+
+    # If `doc_home == target_home` the doc is already from our viewpoint.
+    if doc_home == target_home and doc_away == target_away:
+        return {
+            "home": raw_home, "away": raw_away,
+            "total": raw_home + raw_away,
+            "home_team": home_team, "away_team": away_team,
+            "kickoff": kickoff,
+        }
+    # If reversed, swap so the caller sees consistent team-orientation.
+    if doc_home == target_away and doc_away == target_home:
+        return {
+            "home": raw_away, "away": raw_home,
+            "total": raw_home + raw_away,
+            "home_team": home_team, "away_team": away_team,
+            "kickoff": kickoff,
+        }
+    # Neither matches — bail (shouldn't happen since _team_match filtered).
+    return None
+
+
 def _extract_bullpen_pitches(doc: dict, side: str) -> int:
     """Best-effort: read bullpen pitch counts when the upstream ingestion
     stored them on the match doc. Returns 0 when unknown."""
@@ -112,12 +176,14 @@ async def get_active_series_context(
         "games_in_series":     0,
         "total_runs_avg":      None,
         "total_runs_list":     [],
+        "games_detail":        [],
         "over_rate":           None,
         "bullpen_pitches_home": 0,
         "bullpen_pitches_away": 0,
         "series_lean":         "NEUTRAL",
         "series_override":     False,
         "override_reason":     None,
+        "next_game_number":    1,
     }
     if db is None or not home_team or not away_team:
         return empty
@@ -170,6 +236,23 @@ async def get_active_series_context(
         runs_list = [r for r in (_extract_runs(d) for d in matched) if r is not None]
         if not runs_list:
             return empty
+        # Per-game breakdown — sorted oldest→newest so the UI labels can show
+        # G1, G2, G3... in the same order they were played.
+        per_game_raw = [_extract_per_team_runs(d, home_team, away_team) for d in matched]
+        per_game = [g for g in per_game_raw if g is not None]
+        per_game.sort(key=lambda g: (g.get("kickoff") or ""))
+        games_detail = []
+        for idx, g in enumerate(per_game, start=1):
+            games_detail.append({
+                "game_number":   idx,
+                "home":          g["home"],
+                "away":          g["away"],
+                "home_team":     g["home_team"],
+                "away_team":     g["away_team"],
+                "total_runs":    g["total"],
+                "kickoff":       g.get("kickoff"),
+                "summary":       f"G{idx}: {home_team} {g['home']} - {g['away']} {away_team} = {g['total']} carreras",
+            })
         avg = sum(runs_list) / len(runs_list)
         over_rate = sum(1 for r in runs_list if r > over_under_line) / len(runs_list)
         bullpen_home = max((_extract_bullpen_pitches(d, "home") for d in matched), default=0)
@@ -184,12 +267,21 @@ async def get_active_series_context(
                 lean = "OVER"
             elif avg < over_under_line - 2.0:
                 lean = "UNDER"
-            # Override when the series average violently contradicts the model.
+            # Override #1: model violently underestimates the series avg.
             if model_expected_runs and avg > float(model_expected_runs) * 1.4:
                 override = True
                 lean = "OVER"
                 reason = (f"Serie activa promedia {avg:.1f} runs vs ER "
                           f"{float(model_expected_runs):.1f} del modelo.")
+            # Override #2 (GAP #3): hard-cap — series averaging >12 runs is a
+            # clear high-scoring environment regardless of the model. Forces
+            # OVER lean + override so the orchestrator blocks any Under.
+            if avg > 12.0:
+                override = True
+                lean = "OVER"
+                hard_reason = (f"Promedio de serie {avg:.1f} carreras > 12 "
+                               f"— entorno claramente ofensivo.")
+                reason = (reason + " " + hard_reason) if reason else hard_reason
             if bullpen_home > 80 or bullpen_away > 80:
                 override = True
                 reason = ((reason + " " if reason else "")
@@ -201,6 +293,8 @@ async def get_active_series_context(
             "games_in_series":     len(runs_list),
             "total_runs_avg":      round(avg, 2),
             "total_runs_list":     runs_list,
+            "games_detail":        games_detail,
+            "next_game_number":    len(runs_list) + 1,
             "over_rate":           round(over_rate, 2),
             "bullpen_pitches_home": bullpen_home,
             "bullpen_pitches_away": bullpen_away,

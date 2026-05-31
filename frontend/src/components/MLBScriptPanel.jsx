@@ -77,6 +77,8 @@ export function MLBScriptPanel({
   seriesDegradation = null,
   modelVerification = null,
   activeSeriesBlock = null,
+  chosenMarket = null,        // e.g. "Run Line", "Total Runs Over", etc.
+  ilPenalty = null,           // GAP #1 — {er_adjustment, confidence_penalty, ...}
   testId,
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -231,46 +233,121 @@ export function MLBScriptPanel({
         </div>
       ) : null}
 
-      {/* Active Series Context Badge (Module #1) */}
-      {(activeSeriesContext?.available && (activeSeriesContext.games_in_series || 0) >= 2) && (
+      {/* Active Series Context Badge (Module #1 — GAP #3) */}
+      {(activeSeriesContext?.available && (activeSeriesContext.games_in_series || 0) >= 1) && (() => {
+        const games = activeSeriesContext.games_detail || [];
+        const nextG = activeSeriesContext.next_game_number || (games.length + 1);
+        const isRunLine = (chosenMarket || '').toLowerCase().includes('run line');
+        const isHotAvg  = Number(activeSeriesContext.total_runs_avg || 0) > 12;
+        return (
+          <div
+            className={`rounded-md border px-2.5 py-1.5 text-[11.5px] leading-snug space-y-1 ${
+              activeSeriesContext.series_override
+                ? 'border-rose-500/45 bg-rose-500/10 text-rose-200'
+                : 'border-amber-500/30 bg-amber-500/5 text-amber-200'
+            }`}
+            data-testid={`${testId || 'mlb-script'}-series-context`}
+          >
+            <div className="flex items-center gap-1.5 font-semibold">
+              <span aria-hidden>📊</span>
+              <span>Contexto de serie activa (G{nextG})</span>
+              {/* Hide Lean badge entirely when chosen market is Run Line.
+                  Run Line picks consume the series context as confirmation,
+                  not as Over/Under signal. */}
+              {!isRunLine && activeSeriesContext.series_lean && activeSeriesContext.series_lean !== 'NEUTRAL' && (
+                <span className={`ml-auto inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                  activeSeriesContext.series_lean === 'OVER'
+                    ? 'bg-rose-500/20 text-rose-100 border border-rose-500/40'
+                    : 'bg-sky-500/15 text-sky-100 border border-sky-500/30'
+                }`}>
+                  Lean: {activeSeriesContext.series_lean}
+                </span>
+              )}
+            </div>
+            {/* Per-game breakdown — G1, G2, ... with home/away score + total. */}
+            {games.length > 0 && (
+              <ul className="text-[10.5px] font-mono-tabular space-y-0.5 pl-1">
+                {games.map((g) => (
+                  <li key={g.game_number} className="flex items-baseline gap-1">
+                    <span className="text-foreground/90 font-semibold">G{g.game_number}:</span>
+                    <span className="truncate">
+                      {g.home_team} <span className="font-bold">{g.home}</span>
+                      {' - '}
+                      <span className="font-bold">{g.away}</span> {g.away_team}
+                    </span>
+                    <span className="ml-auto opacity-80">= {g.total_runs} carreras</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="text-[10.5px] flex items-center gap-2 flex-wrap">
+              <span>
+                Promedio:{' '}
+                <span className={`font-bold tabular-nums ${
+                  isHotAvg ? 'text-rose-100' : ''
+                }`}>
+                  {Number(activeSeriesContext.total_runs_avg).toFixed(1)} carreras
+                </span>
+              </span>
+              {!isRunLine && activeSeriesContext.over_rate != null && (
+                <span>· Over rate: <span className="font-semibold">{(activeSeriesContext.over_rate * 100).toFixed(0)}%</span></span>
+              )}
+            </div>
+            {seriesDegradation && (
+              <div className="text-[10.5px] opacity-95">
+                ⚠ {seriesDegradation.game_in_series === 3 ? 'Tercer juego' : seriesDegradation.game_in_series === 2 ? 'Segundo juego' : `Juego ${seriesDegradation.game_in_series}`}: ER ajustado
+                <span className="font-semibold tabular-nums ml-1">
+                  {seriesDegradation.original_er} → {seriesDegradation.adjusted_er}
+                </span>
+                <span className="ml-1">(+{seriesDegradation.adjustment})</span>
+              </div>
+            )}
+            {activeSeriesContext.override_reason && (
+              <div className="text-[10.5px] italic opacity-90">{activeSeriesContext.override_reason}</div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* GAP #1 — IL impact ribbon (only when at least one key bat is out). */}
+      {ilPenalty && (ilPenalty.home_key_il_count + ilPenalty.away_key_il_count) > 0 && (
         <div
           className={`rounded-md border px-2.5 py-1.5 text-[11px] leading-snug space-y-0.5 ${
-            activeSeriesContext.series_override
-              ? 'border-rose-500/40 bg-rose-500/10 text-rose-200'
-              : 'border-amber-500/30 bg-amber-500/5 text-amber-200'
+            ilPenalty.il_impact_label === 'ALTO'
+              ? 'border-rose-500/40 bg-rose-500/10 text-rose-100'
+              : 'border-amber-500/30 bg-amber-500/5 text-amber-100'
           }`}
-          data-testid={`${testId || 'mlb-script'}-series-context`}
+          data-testid={`${testId || 'mlb-script'}-il-penalty`}
         >
-          <div className="flex items-center gap-1 font-medium">
-            ⚠ Serie activa ({activeSeriesContext.games_in_series} juegos)
-            {activeSeriesContext.series_lean && activeSeriesContext.series_lean !== 'NEUTRAL' && (
-              <span className={`ml-auto inline-block px-1 py-0.5 rounded text-[10px] font-semibold uppercase ${
-                activeSeriesContext.series_lean === 'OVER'
-                  ? 'bg-rose-500/15 text-rose-200'
-                  : 'bg-sky-500/15 text-sky-200'
-              }`}>
-                Lean: {activeSeriesContext.series_lean}
-              </span>
+          <div className="flex items-center gap-1.5 font-semibold">
+            <span aria-hidden>🩹</span>
+            <span>Bateadores clave en IL</span>
+            <span className={`ml-auto inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+              ilPenalty.il_impact_label === 'ALTO'
+                ? 'bg-rose-500/20 text-rose-100 border border-rose-500/40'
+                : 'bg-amber-500/15 text-amber-100 border border-amber-500/30'
+            }`}>
+              Impacto {ilPenalty.il_impact_label}
+            </span>
+          </div>
+          <div className="text-[10.5px] tabular-nums">
+            HOME {ilPenalty.home_key_il_count} · AWAY {ilPenalty.away_key_il_count} · ER ajuste{' '}
+            <span className="font-semibold">{Number(ilPenalty.er_adjustment || 0).toFixed(2)}</span>
+            {ilPenalty.confidence_penalty > 0 && (
+              <span className="ml-1">· Conf −{ilPenalty.confidence_penalty}</span>
             )}
           </div>
-          <div className="text-[10.5px]">
-            Promedio: <span className="font-semibold tabular-nums">{Number(activeSeriesContext.total_runs_avg).toFixed(1)} carreras</span>
-            {activeSeriesContext.over_rate != null && (
-              <span className="ml-2">· Over rate: {(activeSeriesContext.over_rate * 100).toFixed(0)}%</span>
-            )}
-          </div>
-          {seriesDegradation && (
-            <div className="text-[10.5px] opacity-90">
-              Degradación G{seriesDegradation.game_in_series}: ER ajustado
-              <span className="font-semibold tabular-nums ml-1">
-                {seriesDegradation.original_er} → {seriesDegradation.adjusted_er}
-              </span>
-              <span className="ml-1">(+{seriesDegradation.adjustment})</span>
+          {(ilPenalty.home_missing_key?.length || ilPenalty.away_missing_key?.length) ? (
+            <div className="text-[10px] opacity-90 truncate">
+              {ilPenalty.home_missing_key?.length > 0 && (
+                <span>HOME: {ilPenalty.home_missing_key.slice(0, 3).join(', ')}</span>
+              )}
+              {ilPenalty.home_missing_key?.length > 0 && ilPenalty.away_missing_key?.length > 0 && ' · '}
+              {ilPenalty.away_missing_key?.length > 0 && (
+                <span>AWAY: {ilPenalty.away_missing_key.slice(0, 3).join(', ')}</span>
+              )}
             </div>
-          )}
-          {activeSeriesContext.override_reason && (
-            <div className="text-[10.5px] italic opacity-90">{activeSeriesContext.override_reason}</div>
-          )}
+          ) : null}
         </div>
       )}
 

@@ -473,16 +473,46 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
 
 @api.get("/matches/{match_id}")
 async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
-    """Get full detail of a single match (3 layers)."""
+    """Get full detail of a single match (3 layers).
+
+    Robust to ID-shape mismatch: MLB matches are stored with a `str`
+    `match_id` (the gamePk as text) while football/basketball matches
+    historically used `int`. We probe both shapes so the user never
+    lands on a 404 just because of casting.
+    """
+    candidates: list = []
+    # Try the raw string first (preserves leading zeros / hashes).
+    candidates.append(match_id)
+    # Then try the int form when parseable.
     try:
-        mid: int | str = int(match_id)
-    except ValueError:
-        mid = match_id
-    doc = await db.matches.find_one({"match_id": mid})
+        mid_int = int(match_id)
+        if mid_int not in candidates:
+            candidates.append(mid_int)
+    except (ValueError, TypeError):
+        pass
+
+    doc = await db.matches.find_one({"match_id": {"$in": candidates}})
+    # Last-resort: maybe the match was archived to `archived_live_matches`
+    # after the live feed closed it. Look there too so the detail page
+    # works for recently-finished games.
+    if not doc:
+        try:
+            doc = await db.archived_live_matches.find_one(
+                {"match_id": {"$in": candidates}}
+            )
+        except Exception:
+            doc = None
     if not doc:
         raise HTTPException(status_code=404, detail="match not found")
-    # Fetch full odds history
-    snapshots = await db.odds_snapshots.find({"match_id": mid}).sort("snapshot_at", -1).limit(10).to_list(length=10)
+
+    # Fetch full odds history using whichever ID variant matches docs.
+    snapshots: list = []
+    try:
+        snapshots = await db.odds_snapshots.find(
+            {"match_id": {"$in": candidates}}
+        ).sort("snapshot_at", -1).limit(10).to_list(length=10)
+    except Exception:
+        snapshots = []
     doc["odds_history"] = _clean_list(snapshots)
     return _clean(doc)
 

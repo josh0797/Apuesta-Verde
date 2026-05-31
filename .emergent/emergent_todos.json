@@ -1,18 +1,18 @@
 [
   {
-    "content": "Backend: endpoint POST /api/analysis/recalibrate",
+    "content": "GAP #1: IL penalty + integración",
     "status": "completed"
   },
   {
-    "content": "Feedback loop: FEEDBACK_BATCH_SIZE 50→40 + APScheduler job cada 30 min",
+    "content": "BUG live: /api/matches/{id} 404 + Match detail crash con league object",
     "status": "completed"
   },
   {
-    "content": "Bright Data healthcheck endpoint /api/admin/brightdata + fetch counter",
+    "content": "GAP #2: ConfidenceBreakdown OVERCONFIDENT/UNDERCONFIDENT",
     "status": "completed"
   },
   {
-    "content": "Frontend: botón Recalibrar junto a Generar picks",
+    "content": "GAP #3: per-game breakdown + avg>12 block + UI panel mejorado en Dashboard y MatchDetail",
     "status": "completed"
   },
   {

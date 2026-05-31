@@ -1396,6 +1396,44 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         # chosen_market so the pick falls to the next bucket (no veto via
         # rescue — the existing Under Veto Layer below still gets a chance
         # if the rescue tries another Under variant).
+
+        # ── GAP #1: IL Penalty (offensive pre-step) ──────────────────────
+        # Before M3 adjusts ER, deflate it for missing key bats and shave
+        # confidence off offensive chosen_markets. This was the Brandon-Lowe
+        # gap (key bat on IL but engine treating PIT offence as healthy).
+        try:
+            from .mlb_il_penalty import apply_il_penalty, market_is_offensive
+            il_pen = apply_il_penalty(scoring_ctx)
+            pick_payload["il_penalty"] = il_pen
+            # Apply ER deflation only when there is a v2 expectedRuns to
+            # adjust — otherwise the downstream layers will read it from
+            # the baseline historical profile.
+            v2_block_il = pick_payload.get("_mlb_script_v2") or {}
+            base_er_il  = v2_block_il.get("expectedRuns")
+            if (base_er_il is not None) and il_pen.get("er_adjustment", 0):
+                new_er = max(0.0, float(base_er_il) + float(il_pen["er_adjustment"]))
+                v2_block_il.setdefault("expectedRunsRaw", base_er_il)
+                v2_block_il["expectedRuns"] = round(new_er, 2)
+                v2_block_il["expectedRunsIlAdjusted"] = True
+                pick_payload["_mlb_script_v2"] = v2_block_il
+            # Apply confidence penalty only on offensive markets.
+            if (chosen_market
+                    and il_pen.get("confidence_penalty", 0)
+                    and market_is_offensive(chosen_market.get("market"))
+                    and isinstance(chosen_market.get("score"), (int, float))):
+                penalty = int(il_pen["confidence_penalty"])
+                new_score = max(0, float(chosen_market["score"]) - penalty)
+                chosen_market["score"] = new_score
+                best_score = max(0, (best_score or 0) - penalty)
+                chosen_market["rationale"] = (
+                    (chosen_market.get("rationale") or "")
+                    + f" | IL penalty -{penalty}: "
+                    + f"{il_pen.get('home_key_il_count', 0)} HOME + "
+                    + f"{il_pen.get('away_key_il_count', 0)} AWAY bates clave en IL"
+                ).strip(" |")
+        except Exception as exc:
+            log.debug("IL penalty layer failed (fail-soft): %s", exc)
+
         try:
             from .mlb_active_series_analyzer import get_active_series_context
             from .mlb_pitcher_series_degradation import apply_series_degradation
