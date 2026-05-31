@@ -102,6 +102,20 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
               </span>
             )}
             <span className="text-[11px] text-muted-foreground">{m.league}</span>
+            {/* Live-route badge — surfaced when the pregame orchestrator
+                kept a game that was already in progress instead of
+                dropping it. Lets the user know the analysis reflects
+                mid-game conditions rather than purely pregame. */}
+            {m.is_live_route && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-rose-500/15 text-rose-200 border border-rose-500/30"
+                data-testid={`pick-live-route-${m.match_id}`}
+                title={lang === 'en' ? 'Analysis reflects in-progress game state' : 'Análisis basado en estado en curso del juego'}
+              >
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-300 animate-pulse" />
+                {lang === 'en' ? 'LIVE' : 'EN VIVO'}
+              </span>
+            )}
             {/* Football Quality Badge (Phase 8) — only for football picks */}
             {sport === 'football' && m._football_quality && (
               <FootballQualityBadge

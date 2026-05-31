@@ -1892,14 +1892,149 @@ async def analysis_jobs_recent(user: dict = Depends(get_current_user)):
 
 
 @api.get("/picks/today")
-async def picks_today(sport: Optional[str] = None, user: dict = Depends(get_current_user)):
-    """Return the most recent pick run for this user (today's picks)."""
+async def picks_today(
+    sport: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+):
+    """Return the most recent pick run for this user (today's picks).
+
+    Auto-refresh policy
+    -------------------
+    The dashboard "Picks del día" used to render whatever snapshot was
+    most recently persisted, even when it was hours stale (or from a
+    previous calendar day). For users in Latam timezones that meant
+    opening the app at 8pm and still seeing a noon snapshot with 0
+    picks while the orchestrator was perfectly able to find live and
+    upcoming games right now.
+
+    We now classify the existing snapshot as `stale` when either:
+      • `generated_at` is older than `STALE_AFTER_MINUTES` (default 120m), OR
+      • `generated_at` belongs to a different UTC day than `now`.
+
+    When stale, we still return the current snapshot immediately (so
+    the page renders fast and never goes blank), but we kick off a
+    background `analysis_run` so the next poll picks up fresh picks.
+    The response carries `stale=True` and `refresh_dispatched=True` so
+    the client can decide to show a "refreshing…" hint and re-poll
+    after a few seconds.
+    """
     s = _norm_sport(sport)
-    query = {"user_id": user["id"], **({"sport": s} if s != "football" else {"$or": [{"sport": "football"}, {"sport": {"$exists": False}}]})}
+    query = {
+        "user_id": user["id"],
+        **(
+            {"sport": s}
+            if s != "football"
+            else {"$or": [{"sport": "football"}, {"sport": {"$exists": False}}]}
+        ),
+    }
     doc = await db.picks.find_one(query, sort=[("generated_at", -1)])
+
+    # ── Stale snapshot detection ─────────────────────────────────────
+    STALE_AFTER_MINUTES = 120
+    now_utc = datetime.now(timezone.utc)
+    stale = False
+    stale_reason: Optional[str] = None
+    if doc:
+        gen_at_raw = doc.get("generated_at")
+        gen_at: Optional[datetime] = None
+        if isinstance(gen_at_raw, datetime):
+            gen_at = gen_at_raw if gen_at_raw.tzinfo else gen_at_raw.replace(tzinfo=timezone.utc)
+        elif isinstance(gen_at_raw, str):
+            try:
+                gen_at = datetime.fromisoformat(gen_at_raw.replace("Z", "+00:00"))
+                if gen_at.tzinfo is None:
+                    gen_at = gen_at.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                gen_at = None
+        if gen_at is None:
+            stale = True
+            stale_reason = "no_generated_at"
+        else:
+            age_min = (now_utc - gen_at).total_seconds() / 60.0
+            if age_min > STALE_AFTER_MINUTES:
+                stale = True
+                stale_reason = f"older_than_{STALE_AFTER_MINUTES}m"
+            elif gen_at.astimezone(timezone.utc).date() != now_utc.date():
+                stale = True
+                stale_reason = "different_utc_day"
+
+    # ── Dispatch background refresh if stale ─────────────────────────
+    refresh_dispatched = False
+    refresh_job_id: Optional[str] = None
+    if stale or not doc:
+        # Guard against duplicate concurrent refreshes: skip if there is
+        # already an active analysis_run job for this user+sport.
+        try:
+            active_jobs = await job_queue.list_active(db, user["id"], limit=10)
+            already_running = any(
+                j.get("kind") == "analysis_run"
+                and j.get("stage") not in job_queue.TERMINAL
+                and (j.get("params") or {}).get("sport") == s
+                for j in (active_jobs or [])
+            )
+        except Exception:
+            already_running = False
+
+        if not already_running:
+            try:
+                async def _refresh_job(job_id: str) -> None:
+                    async def _progress(stage: str, pct: int, msg: str):
+                        await job_queue.update_progress(db, job_id, stage, pct, msg)
+                    try:
+                        result = await _run_analysis_pipeline(
+                            user_id=user["id"],
+                            sport=s,
+                            refresh=True,
+                            include_live=True,
+                            max_matches=10,
+                            progress_cb=_progress,
+                            live_only=False,
+                            big_five_only=False,
+                        )
+                        await job_queue.finish(db, job_id, result)
+                    except Exception as exc:
+                        log.exception("auto-refresh analysis_run failed")
+                        await job_queue.fail(db, job_id, str(exc))
+
+                refresh_job_id = await job_queue.enqueue_async(
+                    db,
+                    _refresh_job,
+                    user_id=user["id"],
+                    kind="analysis_run",
+                    params={
+                        "sport": s,
+                        "refresh": True,
+                        "include_live": True,
+                        "max_matches": 10,
+                        "auto": True,
+                    },
+                )
+                refresh_dispatched = True
+                log.info(
+                    "/picks/today auto-refresh dispatched user=%s sport=%s reason=%s job=%s",
+                    user["id"], s, stale_reason or "no_snapshot", refresh_job_id,
+                )
+            except Exception as exc:
+                log.warning("/picks/today auto-refresh dispatch failed: %s", exc)
+
     if not doc:
-        return {"pick_run": None, "sport": s}
-    return {"pick_run": _clean(doc), "sport": s}
+        return {
+            "pick_run":           None,
+            "sport":              s,
+            "stale":              True,
+            "stale_reason":       "no_snapshot",
+            "refresh_dispatched": refresh_dispatched,
+            "refresh_job_id":     refresh_job_id,
+        }
+    return {
+        "pick_run":           _clean(doc),
+        "sport":              s,
+        "stale":              stale,
+        "stale_reason":       stale_reason,
+        "refresh_dispatched": refresh_dispatched,
+        "refresh_job_id":     refresh_job_id,
+    }
 
 
 @api.get("/mlb/day")

@@ -463,18 +463,29 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         if is_match_finished(ref):
             dropped_past_pks.append(pk)
             continue
-        # Also drop anything whose abstractGameState is Live (in progress).
-        if (conf.get("abstractGameState") or "").lower() == "live":
+        # NOTE — we used to also drop everything whose abstractGameState
+        # was "Live" (in progress). That hid every kicked-off game from
+        # the picks engine even though the historical / bullpen / lineup
+        # signals stay valid. We now pass `allow_live=True` to
+        # `is_match_upcoming` so live games stay in the pipeline; the
+        # downstream pregame modules degrade gracefully when probable
+        # pitcher data is missing (they fall to rescue/discard buckets).
+        # The pipeline_meta tags each in-progress game with `live_route`
+        # so the UI knows the analysis is mid-game rather than pre-game.
+        is_live_game = (conf.get("abstractGameState") or "").lower() == "live"
+        if not is_match_upcoming(ref, buffer_minutes=15, allow_live=True):
             dropped_past_pks.append(pk)
             continue
-        if not is_match_upcoming(ref, buffer_minutes=15):
-            dropped_past_pks.append(pk)
-            continue
+        if is_live_game:
+            conf["_live_route"] = True
         filtered_by_pk[pk] = conf
     if dropped_past_pks:
-        log.warning("MLB orchestrator: dropped %d games as past/finished/live: %s",
+        log.warning("MLB orchestrator: dropped %d games as past/finished: %s",
                     len(dropped_past_pks), dropped_past_pks[:10])
     pipeline_meta["dropped_past_or_finished"] = len(dropped_past_pks)
+    pipeline_meta["live_route_games"] = sum(
+        1 for c in filtered_by_pk.values() if c.get("_live_route")
+    )
     if not filtered_by_pk:
         pipeline_meta["abort_reason"] = "all_games_already_played_or_finished"
         log.info(
@@ -1145,6 +1156,9 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             "gameDate":       conf.get("gameDate"),
             "status":         conf.get("status"),
             "abstractGameState": conf.get("abstractGameState"),
+            # FIX — propagate the live-route flag so the UI can render a
+            # "EN VIVO" badge on picks for games already in progress.
+            "is_live_route":  bool(conf.get("_live_route")),
             "home_pitcher":   conf.get("home_pitcher_name"),
             "away_pitcher":   conf.get("away_pitcher_name"),
             "pitcher_home_id": conf.get("home_pitcher_id"),

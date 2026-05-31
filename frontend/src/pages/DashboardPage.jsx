@@ -387,6 +387,11 @@ export default function DashboardPage() {
     : `Value analysis for the next ${terms.eventPlural} (48h)`;
   const [running, setRunning] = useState(false);
   const [run, setRun] = useState(null);
+  // Auto-refresh hint: when /api/picks/today reports stale=true and
+  // dispatches a background analysis run, surface a subtle banner so
+  // the user knows fresh picks are on the way and a re-poll will happen
+  // shortly.
+  const [autoRefresh, setAutoRefresh] = useState({ active: false, jobId: null });
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ league: '', market: '', minConfidence: 0, enginePreset: '' });
   const [activeJobId, setActiveJobId] = useState(null);
@@ -426,6 +431,26 @@ export default function DashboardPage() {
         return;
       }
       setRun(r.data.pick_run);
+      // Surface the auto-refresh banner only when the backend reports
+      // it dispatched a refresh job. We re-poll once after ~25s so the
+      // dashboard picks up the fresh snapshot without the user having
+      // to click anything.
+      if (r.data?.refresh_dispatched && r.data?.refresh_job_id) {
+        setAutoRefresh({ active: true, jobId: r.data.refresh_job_id });
+        setTimeout(() => {
+          if (sportRef.current === requestSport) {
+            api.get('/picks/today', { params: { sport } })
+              .then((r2) => {
+                if (sportRef.current !== requestSport) return;
+                if (r2.data?.pick_run) setRun(r2.data.pick_run);
+                if (!r2.data?.stale) setAutoRefresh({ active: false, jobId: null });
+              })
+              .catch(() => {});
+          }
+        }, 25000);
+      } else {
+        setAutoRefresh({ active: false, jobId: null });
+      }
     } catch (e) { /* noop */ }
     finally {
       if (sportRef.current === requestSport) setLoading(false);
@@ -628,6 +653,16 @@ export default function DashboardPage() {
           {run?.generated_at && (
             <div className="text-[11px] md:text-xs text-muted-foreground">
               {t.dashboard.lastRun}: <span className="mono font-mono-tabular text-foreground">{formatDateTime(run.generated_at, lang)}</span>
+              {autoRefresh.active && (
+                <span
+                  className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-cyan-500/10 text-cyan-200 border border-cyan-500/25 text-[10px] font-medium"
+                  data-testid="auto-refresh-indicator"
+                  title={lang === 'es' ? 'Snapshot anterior detectado como obsoleto — actualizando en segundo plano.' : 'Stale snapshot detected — refreshing in background.'}
+                >
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {lang === 'es' ? 'Actualizando…' : 'Refreshing…'}
+                </span>
+              )}
             </div>
           )}
           <Button onClick={generate} disabled={running || !!activeJobId} data-testid="generate-picks-button" className="w-full sm:w-auto shadow-[0_0_0_1px_rgba(46,229,157,0.2),0_8px_24px_rgba(46,229,157,0.15)]">

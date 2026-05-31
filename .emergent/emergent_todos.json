@@ -1,34 +1,18 @@
 [
   {
-    "content": "FIX #1 — Unificar Fragility (sobreescribir v2.fragilityScore con v5)",
+    "content": "FIX A — Permitir partidos in-progress en orquestador MLB",
     "status": "completed"
   },
   {
-    "content": "FIX #2 — marginVsLine campo nuevo + UI",
+    "content": "FIX B — Auto-refresh del snapshot en /api/picks/today",
     "status": "completed"
   },
   {
-    "content": "FIX #3 — lean top-level fields en pick_payload",
+    "content": "FIX C — Marcar picks con is_live_route + badge EN VIVO + banner Actualizando…",
     "status": "completed"
   },
   {
-    "content": "FIX #4 — script_pick_mismatch + narrative_warning",
+    "content": "Verificación E2E confirmada",
     "status": "completed"
-  },
-  {
-    "content": "FIX #5 — under_fragility_warning",
-    "status": "completed"
-  },
-  {
-    "content": "FIX #6 — bias detector + auto-penalty -10",
-    "status": "completed"
-  },
-  {
-    "content": "Guard 'underdog' string en 3 puntos del orquestador",
-    "status": "completed"
-  },
-  {
-    "content": "Testing agent E2E backend + frontend",
-    "status": "in_progress"
   }
 ]
