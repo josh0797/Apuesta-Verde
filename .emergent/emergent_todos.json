@@ -1,22 +1,30 @@
 [
   {
-    "content": "Crear pattern_alignment_classifier.py",
+    "content": "[A] Crear mlb_under_veto_layer.py",
     "status": "completed"
   },
   {
-    "content": "Wire-up en mlb_day_orchestrator.py: clasificar trendSummary y attach patternAlignment a combined",
+    "content": "[A] Aplicar tweaks de baseball_runs_rescue.py + integrar veto",
     "status": "completed"
   },
   {
-    "content": "Actualizar HistoricalProfilePanel.jsx para renderizar 3 secciones (Supports/Opposes/Neutral) con backward-compat",
+    "content": "[A] Integrar Under Veto Layer central en mlb_day_orchestrator.py",
     "status": "completed"
   },
   {
-    "content": "Verificar lint backend + frontend (esbuild)",
+    "content": "[B] Crear lib/baseballPriority.js",
     "status": "completed"
   },
   {
-    "content": "Test con testing_agent (11/11 backend, frontend code verified)",
+    "content": "[B] Modificar LivePage.jsx con toggle MLB-only + supportsLiveAnalytics para baseball",
     "status": "completed"
+  },
+  {
+    "content": "[B] Markets baseball en LiveReevalPanel + StatCell baseball-aware fallback",
+    "status": "completed"
+  },
+  {
+    "content": "Lint + testing_agent ambas tareas",
+    "status": "in_progress"
   }
 ]

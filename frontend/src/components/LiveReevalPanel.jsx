@@ -69,11 +69,29 @@ const DEFAULT_MARKETS_BASKETBALL = [
   'Spread: home -6.5', 'Spread: away -6.5',
 ];
 
+// MLB — Baseball common live markets. Match the labels used by the
+// HumanLiveInterpreter (TOTAL_UNDER_REMAINING / TOTAL_OVER_REMAINING /
+// NRFI, etc.) so the engine can directly parse the manual market the
+// user picks against the current pregame line.
+const DEFAULT_MARKETS_BASEBALL = [
+  'Total Runs: Over 7.5', 'Total Runs: Under 7.5',
+  'Total Runs: Over 8.5', 'Total Runs: Under 8.5',
+  'Total Runs: Over 9.5', 'Total Runs: Under 9.5',
+  'F5 Total Runs: Over 4.5', 'F5 Total Runs: Under 4.5',
+  'Run Line: home -1.5', 'Run Line: home +1.5',
+  'Run Line: away -1.5', 'Run Line: away +1.5',
+  'NRFI', 'YRFI',
+];
+
 function defaultMarketFor(sport) {
-  return (sport === 'basketball') ? 'Total: Over 215.5' : 'Under 2.5';
+  if (sport === 'basketball') return 'Total: Over 215.5';
+  if (sport === 'baseball')   return 'Total Runs: Under 8.5';
+  return 'Under 2.5';
 }
 function marketsFor(sport) {
-  return (sport === 'basketball') ? DEFAULT_MARKETS_BASKETBALL : DEFAULT_MARKETS_FOOTBALL;
+  if (sport === 'basketball') return DEFAULT_MARKETS_BASKETBALL;
+  if (sport === 'baseball')   return DEFAULT_MARKETS_BASEBALL;
+  return DEFAULT_MARKETS_FOOTBALL;
 }
 
 export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId }) {

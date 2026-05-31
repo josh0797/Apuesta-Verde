@@ -1368,6 +1368,73 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as exc:
             log.debug("MLB-V5 extra signal emission failed: %s", exc)
 
+        # ── MLB UNDER VETO LAYER (central kill-switch) ──────────────────
+        # Última línea de defensa antes de finalizar la recomendación.
+        # Si el chosen_market es Under (full game / F5 / team total) y
+        # el veto resuelve BLOCKED, se cancela el chosen_market y se
+        # deja que el decision tree caiga al siguiente bucket (rescue /
+        # structural / discard). Para severity=WARNING se resta la
+        # penalty de confianza pero el Under se mantiene.
+        try:
+            if chosen_market and "under" in (chosen_market.get("market") or "").lower():
+                from .mlb_under_veto_layer import (
+                    build_under_veto_context, evaluate_under_veto,
+                )
+                ctx = build_under_veto_context(baseball_hist_profile or {})
+                _book_total_v = (
+                    v2_payload.get("smartTotalsLine") if v2_payload else None
+                ) or conf.get("book_total")
+                _expected_runs_v = (
+                    v2_payload.get("expectedRuns") if v2_payload else None
+                )
+                veto_central = evaluate_under_veto(
+                    pitcher_home=ctx["home_pitcher"],
+                    pitcher_away=ctx["away_pitcher"],
+                    park=ctx["park"],
+                    book_total=_book_total_v,
+                    expected_runs=_expected_runs_v,
+                    bullpen_home=ctx["home_bullpen"],
+                    bullpen_away=ctx["away_bullpen"],
+                    recent_h2h_avg_runs=ctx.get("recent_h2h_avg_runs"),
+                )
+                # Always expose for UI/audit, even when severity=PASS.
+                pick_payload["under_veto"] = veto_central
+                pick_payload["under_veto_context_source"] = ctx.get("_source")
+
+                if veto_central.get("veto"):
+                    log.warning(
+                        "Under VETADO (orchestrator central) game=%s market=%s reasons=%s",
+                        conf.get("game_pk"), chosen_market.get("market"),
+                        veto_central.get("veto_reasons"),
+                    )
+                    # Stamp metadata then null the chosen market.
+                    pick_payload["under_veto_block"] = {
+                        "blocked_market":     chosen_market.get("market"),
+                        "blocked_score":      chosen_market.get("score"),
+                        "blocked_rationale":  chosen_market.get("rationale"),
+                        "veto":               veto_central,
+                    }
+                    chosen_market = None
+                    best_score = 0
+                elif veto_central.get("severity") == "WARNING":
+                    penalty = int(veto_central.get("confidence_penalty") or 0)
+                    if penalty > 0:
+                        try:
+                            new_score = max(
+                                0, _f(chosen_market.get("score"), 0) - penalty,
+                            )
+                            chosen_market["score"] = new_score
+                            best_score = max(0, (best_score or 0) - penalty)
+                            chosen_market["rationale"] = (
+                                (chosen_market.get("rationale") or "")
+                                + f" | Under Veto WARNING -{penalty}: "
+                                + (veto_central.get("explanation") or "")
+                            ).strip(" |")
+                        except Exception:
+                            pass
+        except Exception as exc:
+            log.debug("MLB Under Veto central layer failed: %s", exc)
+
         # ── MLB-V5 — New 6-bucket decision ───────────────────────────────
         if chosen_market and best_score >= 72 and not odds_missing:
             pick_payload["recommendation"]   = chosen_market

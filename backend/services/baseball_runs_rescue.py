@@ -42,6 +42,7 @@ log = logging.getLogger("rescue.baseball_runs")
 ENGINE_VERSION = "baseball-runs-rescue.1"
 MIN_PROJECTION_MARGIN = 0.6       # runs above/below line needed to recommend
 MIN_PROJECTION_MARGIN_HIGH = 1.0  # bigger margin for HIGH confidence
+MIN_PROJECTION_MARGIN_UNDER = 1.2 # stricter buffer for Under rescues (anti-loss layer)
 COLD_OFFENSE_THRESHOLD = 0.55     # % of last games below team-total → cold
 HOT_OFFENSE_THRESHOLD  = 0.65     # % of last games above team-total → hot
 
@@ -112,25 +113,57 @@ def _build_candidates(
                     "f5Lean":             f5_lean,
                 },
             })
-        elif lean == "UNDER" and -delta >= MIN_PROJECTION_MARGIN:
-            conf = min(95, 45 + int(fit * 0.35) + min(20, int(-delta * 12)))
-            candidates.append({
-                "rescue_market":     f"Total Runs Under {book_total:.1f}",
-                "rescue_selection":  f"UNDER {book_total:.1f}",
-                "rescue_confidence": conf,
-                "rescue_reason":     (
-                    f"Proyección del motor ({proj:.1f}) está {abs(delta):.1f} carreras por debajo "
-                    f"de la línea ({book_total:.1f}). Abridores y dinámica defensiva apoyan el Under."
-                ),
-                "fragility_score":   base_frag,
-                "metrics":           {
-                    "projectedTotalRuns": proj,
-                    "leagueAvgRunsUsed":  league_avg,
-                    "lean":               lean,
-                    "bookmaker_total_line": book_total,
-                    "f5Lean":             f5_lean,
-                },
-            })
+        elif lean == "UNDER" and -delta >= MIN_PROJECTION_MARGIN_UNDER:
+            # ── Under Veto Layer — última línea de defensa anti-Under ──
+            # Bloquea o penaliza Unders cuando la heurística sugiere
+            # alto riesgo (pitcher sin muestra, parque ofensivo con
+            # margen fino, bullpen blow-up, etc.). Fail-soft.
+            veto_payload = None
+            try:
+                from .mlb_under_veto_layer import build_under_veto_context, evaluate_under_veto
+                ctx = build_under_veto_context(profile)
+                veto_payload = evaluate_under_veto(
+                    pitcher_home=ctx["home_pitcher"],
+                    pitcher_away=ctx["away_pitcher"],
+                    park=ctx["park"],
+                    book_total=book_total,
+                    expected_runs=proj,
+                    bullpen_home=ctx["home_bullpen"],
+                    bullpen_away=ctx["away_bullpen"],
+                    recent_h2h_avg_runs=ctx.get("recent_h2h_avg_runs"),
+                )
+                if veto_payload.get("veto"):
+                    log.warning(
+                        "baseball_runs_rescue Under VETADO (book=%.1f proj=%.1f) reasons=%s",
+                        book_total, proj, veto_payload.get("veto_reasons"),
+                    )
+                    # No agregar candidato Under — saltar al siguiente bloque.
+                    veto_payload["_blocked"] = True
+            except Exception as exc:
+                log.debug("under_veto_layer failed (rescue under): %s", exc)
+                veto_payload = None
+            if not (veto_payload and veto_payload.get("_blocked")):
+                conf = min(95, 45 + int(fit * 0.35) + min(20, int(-delta * 12)))
+                if veto_payload and veto_payload.get("severity") == "WARNING":
+                    conf = max(0, conf - int(veto_payload.get("confidence_penalty") or 0))
+                candidates.append({
+                    "rescue_market":     f"Total Runs Under {book_total:.1f}",
+                    "rescue_selection":  f"UNDER {book_total:.1f}",
+                    "rescue_confidence": conf,
+                    "rescue_reason":     (
+                        f"Proyección del motor ({proj:.1f}) está {abs(delta):.1f} carreras por debajo "
+                        f"de la línea ({book_total:.1f}). Abridores y dinámica defensiva apoyan el Under."
+                    ),
+                    "fragility_score":   base_frag,
+                    "metrics":           {
+                        "projectedTotalRuns": proj,
+                        "leagueAvgRunsUsed":  league_avg,
+                        "lean":               lean,
+                        "bookmaker_total_line": book_total,
+                        "f5Lean":             f5_lean,
+                    },
+                    "under_veto":         veto_payload,
+                })
 
     # ── Candidate 2: F5 Total Runs (independent of full-game) ────────────
     if f5_proj and f5_lean != "NEUTRAL":
@@ -154,21 +187,45 @@ def _build_candidates(
                 },
             })
         elif f5_lean == "UNDER" and -f5_delta >= 0.5:
-            candidates.append({
-                "rescue_market":     "F5 Total Runs Under",
-                "rescue_selection":  f"F5 UNDER ~{f5_baseline:.1f}",
-                "rescue_confidence": min(85, 40 + int(fit * 0.3)),
-                "rescue_reason":     (
-                    f"Proyección F5 ({f5_proj:.1f}) por debajo de la baseline ({f5_baseline:.1f}). "
-                    f"Abridores históricamente contienen los primeros innings."
-                ),
-                "fragility_score":   base_frag + 5,
-                "metrics":           {
-                    "f5ProjectedRuns":      f5_proj,
-                    "f5BaselineRuns":       f5_baseline,
-                    "lean":                 f5_lean,
-                },
-            })
+            # F5 Under también pasa por el Under Veto Layer.
+            f5_veto = None
+            try:
+                from .mlb_under_veto_layer import build_under_veto_context, evaluate_under_veto
+                ctx = build_under_veto_context(profile)
+                f5_veto = evaluate_under_veto(
+                    pitcher_home=ctx["home_pitcher"],
+                    pitcher_away=ctx["away_pitcher"],
+                    park=ctx["park"],
+                    book_total=f5_baseline,
+                    expected_runs=f5_proj,
+                    bullpen_home=ctx["home_bullpen"],
+                    bullpen_away=ctx["away_bullpen"],
+                )
+                if f5_veto.get("veto"):
+                    log.warning("baseball_runs_rescue F5 Under VETADO reasons=%s", f5_veto.get("veto_reasons"))
+                    f5_veto["_blocked"] = True
+            except Exception as exc:
+                log.debug("under_veto_layer failed (rescue f5 under): %s", exc)
+            if not (f5_veto and f5_veto.get("_blocked")):
+                f5_conf = min(85, 40 + int(fit * 0.3))
+                if f5_veto and f5_veto.get("severity") == "WARNING":
+                    f5_conf = max(0, f5_conf - int(f5_veto.get("confidence_penalty") or 0))
+                candidates.append({
+                    "rescue_market":     "F5 Total Runs Under",
+                    "rescue_selection":  f"F5 UNDER ~{f5_baseline:.1f}",
+                    "rescue_confidence": f5_conf,
+                    "rescue_reason":     (
+                        f"Proyección F5 ({f5_proj:.1f}) por debajo de la baseline ({f5_baseline:.1f}). "
+                        f"Abridores históricamente contienen los primeros innings."
+                    ),
+                    "fragility_score":   base_frag + 5,
+                    "metrics":           {
+                        "f5ProjectedRuns":      f5_proj,
+                        "f5BaselineRuns":       f5_baseline,
+                        "lean":                 f5_lean,
+                    },
+                    "under_veto":         f5_veto,
+                })
 
     # ── Candidate 3: Run Line +1.5 (underdog protected) ──────────────────
     # If one team's runsForAvg + opp.runsAgainstAvg shows a tight

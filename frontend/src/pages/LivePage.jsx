@@ -16,6 +16,7 @@ import { LiveAnalysisStrip } from '@/components/LiveAnalysisStrip';
 import { LiveCopilotCard } from '@/components/LiveCopilotCard';
 import { ProvenanceBadge } from '@/components/ProvenancePanel';
 import { isBigFive } from '@/lib/competitions';
+import { isPriorityBaseball } from '@/lib/baseballPriority';
 import { partitionLive, LIVE_CACHE_TTL_SEC, validLiveMatch } from '@/lib/liveValidation';
 
 function stat(side, key) {
@@ -46,7 +47,9 @@ export default function LivePage() {
   // Big Five filter — ON by default for football to keep the page focused on
   // the same league universe used by the "Analyze live" button. The user can
   // opt out with the "Show all" toggle if they want to see lower-tier games.
+  // For baseball, the same UX applies but filters to MLB only by default.
   const [bigFiveOnly, setBigFiveOnly] = useState(true);
+  const [mlbOnly, setMlbOnly] = useState(true);
 
   // Bug-2 fix (sport-scoped requests, same pattern as DashboardPage): ref to
   // the current sport, used to DROP responses that arrive after the user has
@@ -139,14 +142,23 @@ export default function LivePage() {
   }, [sport]);
 
   const isFootball = sport === 'football';
-  const supportsLiveAnalytics = sport === 'football' || sport === 'basketball';
+  const isBaseball = sport === 'baseball';
+  // Live analytics (LiveCopilotCard, LiveAnalysisStrip, LiveReevalPanel) now
+  // applies to all three core sports. Previously baseball was excluded which
+  // silently hid every panel on the MLB live page even though the backend
+  // provided _live_interpreter and _live_analysis.
+  const supportsLiveAnalytics = isFootball || sport === 'basketball' || isBaseball;
   // For football, apply the Big Five filter unless the user disabled it.
-  // For NBA/MLB we always show everything (there is no equivalent allowlist).
+  // For baseball, apply the MLB-only filter unless disabled. For NBA we
+  // currently show everything (no equivalent allowlist yet).
   const visibleItems = useMemo(() => {
-    if (!isFootball || !bigFiveOnly) return items;
-    return items.filter((m) => isBigFive(m));
-  }, [items, isFootball, bigFiveOnly]);
-  const hiddenCount = isFootball && bigFiveOnly ? items.length - visibleItems.length : 0;
+    if (isFootball && bigFiveOnly) return items.filter((m) => isBigFive(m));
+    if (isBaseball && mlbOnly)     return items.filter((m) => isPriorityBaseball(m));
+    return items;
+  }, [items, isFootball, isBaseball, bigFiveOnly, mlbOnly]);
+  const hiddenCount = (
+    (isFootball && bigFiveOnly) || (isBaseball && mlbOnly)
+  ) ? items.length - visibleItems.length : 0;
 
   const runLiveAnalysis = async () => {
     if (running) return;
@@ -158,7 +170,8 @@ export default function LivePage() {
         refresh: false,
         include_live: true,
         live_only: true,
-        big_five_only: isFootball,
+        big_five_only: isFootball && bigFiveOnly,
+        priority_mlb_only: isBaseball && mlbOnly,
         max_matches: 10,
         sport,
         background: true,
@@ -202,7 +215,9 @@ export default function LivePage() {
 
   const ctaLabel = isFootball
     ? (lang === 'en' ? 'Analyze live — Big Five only' : 'Analizar en vivo — solo 5 grandes')
-    : (lang === 'en' ? 'Analyze live matches' : 'Analizar partidos en vivo');
+    : isBaseball
+      ? (lang === 'en' ? 'Analyze live — MLB only' : 'Analizar en vivo — solo MLB')
+      : (lang === 'en' ? 'Analyze live matches' : 'Analizar partidos en vivo');
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-6">
@@ -276,48 +291,59 @@ export default function LivePage() {
             {visibleItems.length}{hiddenCount > 0 ? `/${items.length}` : ''}
           </span>
 
-          {/* Big Five filter toggle (only meaningful for football) */}
-          {isFootball && items.length > 0 && (
-            <div className="ml-auto flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={bigFiveOnly ? 'secondary' : 'ghost'}
-                onClick={() => setBigFiveOnly(true)}
-                disabled={bigFiveOnly}
-                data-testid="live-big-five-toggle"
-                className={
-                  bigFiveOnly
-                    ? 'h-7 px-2 text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/15'
-                    : 'h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground'
-                }
-              >
-                <TrophyIcon className="h-3.5 w-3.5 mr-1" />
-                {t.live.bigFiveOnly}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={!bigFiveOnly ? 'secondary' : 'ghost'}
-                onClick={() => setBigFiveOnly(false)}
-                disabled={!bigFiveOnly}
-                data-testid="live-show-all-toggle"
-                className={
-                  !bigFiveOnly
-                    ? 'h-7 px-2 text-[11px] text-cyan-200 bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/15'
-                    : 'h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground'
-                }
-              >
-                {t.live.showAll}
-              </Button>
-            </div>
-          )}
+          {/* Priority filter toggle — applies to football (Big Five) and
+              baseball (MLB-only). Other sports show all live matches. */}
+          {(isFootball || isBaseball) && items.length > 0 && (() => {
+            const priorityActive = isFootball ? bigFiveOnly : mlbOnly;
+            const setPriority    = isFootball ? setBigFiveOnly : setMlbOnly;
+            const priorityLabel  = isFootball ? t.live.bigFiveOnly : t.live.mlbOnly;
+            return (
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={priorityActive ? 'secondary' : 'ghost'}
+                  onClick={() => setPriority(true)}
+                  disabled={priorityActive}
+                  data-testid={isFootball ? 'live-big-five-toggle' : 'live-mlb-only-toggle'}
+                  className={
+                    priorityActive
+                      ? 'h-7 px-2 text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/15'
+                      : 'h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground'
+                  }
+                >
+                  <TrophyIcon className="h-3.5 w-3.5 mr-1" />
+                  {priorityLabel}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={!priorityActive ? 'secondary' : 'ghost'}
+                  onClick={() => setPriority(false)}
+                  disabled={!priorityActive}
+                  data-testid="live-show-all-toggle"
+                  className={
+                    !priorityActive
+                      ? 'h-7 px-2 text-[11px] text-cyan-200 bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/15'
+                      : 'h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground'
+                  }
+                >
+                  {t.live.showAll}
+                </Button>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Hint when filter is hiding matches */}
-        {isFootball && bigFiveOnly && hiddenCount > 0 && visibleItems.length > 0 && (
+        {(isFootball && bigFiveOnly && hiddenCount > 0 && visibleItems.length > 0) && (
           <p className="text-[11px] text-muted-foreground italic" data-testid="live-filter-hint">
             {t.live.filteredHint.replace('{hidden}', String(hiddenCount))}
+          </p>
+        )}
+        {(isBaseball && mlbOnly && hiddenCount > 0 && visibleItems.length > 0) && (
+          <p className="text-[11px] text-muted-foreground italic" data-testid="live-filter-hint-mlb">
+            {t.live.filteredHintMlb.replace('{hidden}', String(hiddenCount))}
           </p>
         )}
 
@@ -332,6 +358,12 @@ export default function LivePage() {
         {!loading && items.length > 0 && visibleItems.length === 0 && isFootball && bigFiveOnly && (
           <div className="rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 p-6 text-center" data-testid="live-big-five-empty">
             <p className="text-sm text-amber-200">{t.live.noLiveBigFive}</p>
+          </div>
+        )}
+
+        {!loading && items.length > 0 && visibleItems.length === 0 && isBaseball && mlbOnly && (
+          <div className="rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 p-6 text-center" data-testid="live-mlb-empty">
+            <p className="text-sm text-amber-200">{t.live.noLiveMlb}</p>
           </div>
         )}
 
@@ -398,15 +430,25 @@ export default function LivePage() {
                   </div>
                   {/* Raw stats grid — only shown when the processed
                       LiveAnalysisStrip is NOT available for this match.
-                      When _live_analysis is present, the strip already
-                      renders normalised kloppy/soccer_xg metrics so we
-                      skip the duplicate raw display. */}
-                  {!m._live_analysis && (
+                      Football: kloppy/soccer_xg metrics. Baseball: inning,
+                      hits, errors, totals (the canonical MLB box-score
+                      shorthand). When _live_analysis is present the strip
+                      already renders the processed analytics so we skip
+                      this duplicate. */}
+                  {!m._live_analysis && !isBaseball && (
                     <div className="grid grid-cols-4 gap-2 text-[11px] text-muted-foreground mt-1">
                       <StatCell label={t.live.possession} h={stat(h, 'Ball Possession')} a={stat(a, 'Ball Possession')} />
                       <StatCell label={t.live.shots} h={stat(h, 'Total Shots')} a={stat(a, 'Total Shots')} />
                       <StatCell label={t.live.shotsOn} h={stat(h, 'Shots on Goal')} a={stat(a, 'Shots on Goal')} />
                       <StatCell label={t.live.xg} h={stat(h, 'expected_goals')} a={stat(a, 'expected_goals')} />
+                    </div>
+                  )}
+                  {!m._live_analysis && isBaseball && (
+                    <div className="grid grid-cols-4 gap-2 text-[11px] text-muted-foreground mt-1" data-testid={`live-mlb-boxscore-${m.match_id}`}>
+                      <StatCell label={lang === 'en' ? 'Inning' : 'Inning'} h={live.inning ?? '—'} a={live.inning_half === 'top' ? '▲' : '▼'} />
+                      <StatCell label={lang === 'en' ? 'Hits' : 'Hits'} h={stat(h, 'Hits')} a={stat(a, 'Hits')} />
+                      <StatCell label={lang === 'en' ? 'Errors' : 'Errores'} h={stat(h, 'Errors')} a={stat(a, 'Errors')} />
+                      <StatCell label={lang === 'en' ? 'Runs' : 'Carreras'} h={stat(h, 'Runs') ?? live.score?.home} a={stat(a, 'Runs') ?? live.score?.away} />
                     </div>
                   )}
                 </Link>
