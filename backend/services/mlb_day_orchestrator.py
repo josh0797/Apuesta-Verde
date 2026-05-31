@@ -755,6 +755,52 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             v2_payload = {}
         rescue     = mlb_alternative_rescue(scoring_ctx, run_line, over_under, nrfi)
 
+        # ── BUGFIX (GAPS-3.1) — Rescue diversity ──────────────────────
+        # The user reported 8/8 picks collapsing to the same generic
+        # "Run Line +1.5 (underdog)" rescue. Root cause: RUN_LINE_TRAP
+        # fires on nearly every competitive matchup, and mlb_alternative_rescue
+        # always emits the same 68-point "Favorito gana por 1 carrera"
+        # candidate. We inject the v2 `recommendedLine` (which IS unique
+        # per game — UNDER 9.5 / OVER 7.5 / NRFI / ...) as a competing
+        # rescue candidate when its lineSafetyScore is meaningful. This
+        # restores per-match diversity in the rescue bucket without
+        # touching the structural pipeline above.
+        try:
+            v2_rec_line  = (v2_payload or {}).get("recommendedLine")
+            v2_safety    = (v2_payload or {}).get("lineSafetyScore")
+            v2_run_score = (v2_payload or {}).get("runLineScore")
+            if v2_rec_line and isinstance(v2_safety, (int, float)) and v2_safety >= 65:
+                # Choose the most informative score: prefer lineSafetyScore for
+                # Under/Over lines, runLineScore when the line is a run line.
+                is_run_line = "run line" in str(v2_rec_line).lower()
+                rescue_score = int(round(
+                    v2_run_score if (is_run_line and isinstance(v2_run_score, (int, float)) and v2_run_score > 0)
+                    else v2_safety
+                ))
+                # Cap so the v2 candidate doesn't overshadow a real high-confidence pick.
+                rescue_score = max(60, min(82, rescue_score))
+                v2_candidate = {
+                    "market":           str(v2_rec_line),
+                    "selection":        str(v2_rec_line),
+                    "score":            rescue_score,
+                    "confidence_score": rescue_score,
+                    "rationale": (
+                        f"Lectura estructural v2: {v2_rec_line} "
+                        f"(line safety {round(v2_safety,1)})."
+                    ),
+                    "_source": "v2_recommended_line",
+                }
+                cands = list(rescue.get("candidates") or [])
+                # De-duplicate by market label — preserve any candidate
+                # the canonical rescue produced first.
+                existing_markets = {str(c.get("market") or "").lower() for c in cands}
+                if str(v2_rec_line).lower() not in existing_markets:
+                    cands.append(v2_candidate)
+                cands.sort(key=lambda c: c.get("score") or 0, reverse=True)
+                rescue["candidates"] = cands[:3]
+        except Exception as exc:
+            log.debug("v2-rescue diversity injection failed: %s", exc)
+
         frag = mlb_fragility_score(scoring_ctx)
         frag_by_pk[game_pk] = frag
 

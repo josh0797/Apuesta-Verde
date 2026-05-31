@@ -17,6 +17,8 @@ import { MoneyballPanel } from '@/components/MoneyballPanel';
 import { MLBMatchupPanel } from '@/components/MLBMatchupPanel';
 import { MLBLiveIntelPanel } from '@/components/MLBLiveIntelPanel';
 import { MLBScriptPanel } from '@/components/MLBScriptPanel';
+import { MLBLiveScoreboard } from '@/components/MLBLiveScoreboard';
+import { useLiveMatchDetail } from '@/hooks/useLiveMatchDetail';
 import { LiveTerritorialControlPanel } from '@/components/LiveTerritorialControlPanel';
 import { formatDateTime, humanizeSelection } from '@/lib/format';
 
@@ -55,6 +57,26 @@ export default function MatchDetailPage() {
   useEffect(() => { load(); }, [load]);
 
   const llmPick = (pickRun?.payload?.picks || []).find((p) => String(p.match_id) === String(id));
+
+  // ── Live state (MLB only — hook self-gates for other sports) ────────
+  // Refreshes every 30s while the game is in progress so the user sees
+  // a live scoreboard instead of a stale `is_live=false` from ingestion.
+  const liveCtx = useLiveMatchDetail(id, match?.sport, { enabled: !!match });
+  const liveStateRaw = liveCtx?.state || 'loading';
+  // The hook returns "no-live-data" for non-baseball sports — keep
+  // showing the upcoming/finished badge in that case (no banner).
+  const isBaseball = match?.sport === 'baseball';
+  const showLiveScoreboard = isBaseball && (
+    liveStateRaw === 'live-data-ready' ||
+    liveStateRaw === 'live-data-partial' ||
+    liveStateRaw === 'final' ||
+    (match?.is_live && liveStateRaw === 'loading')
+  );
+  // Treat the match as live whenever the live hook says so — overrides
+  // any stale `is_live=false` cached on the doc.
+  const effectiveIsLive = isBaseball
+    ? (liveStateRaw === 'live-data-ready' || liveStateRaw === 'live-data-partial')
+    : !!match?.is_live;
 
   const markPick = async (outcome) => {
     if (!llmPick || !pickRun) return;
@@ -101,8 +123,14 @@ export default function MatchDetailPage() {
       {/* Header */}
       <div className="card-glow rounded-xl border border-border/80 bg-card p-5 flex flex-col gap-3">
         <div className="flex items-center flex-wrap gap-2">
-          {match.is_live ? <LivePulse minute={live?.minute} label={t.match.livePill} /> : (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 text-[11px] font-semibold"><Clock className="h-3 w-3" />{t.match.upcomingPill}</span>
+          {effectiveIsLive ? <LivePulse minute={live?.minute} label={t.match.livePill} /> : (
+            liveStateRaw === 'final' ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-cyan-500/40 bg-cyan-500/15 text-cyan-100 text-[11px] font-semibold" data-testid="match-final-pill">
+                {lang === 'en' ? 'FINAL' : 'FINAL'}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 text-[11px] font-semibold"><Clock className="h-3 w-3" />{t.match.upcomingPill}</span>
+            )
           )}
           <span className="text-xs text-muted-foreground">{typeof match.league === 'object' ? (match.league?.name || match.league?.id || '') : match.league}</span>
           <span className="text-xs text-muted-foreground mono font-mono-tabular">{formatDateTime(match.kickoff_iso, lang)}</span>
@@ -114,14 +142,33 @@ export default function MatchDetailPage() {
         </div>
         <div className="grid grid-cols-3 items-center gap-3">
           <div className="text-left"><div className="text-xs text-muted-foreground">{t.match.home}</div><div className="text-xl font-semibold mt-0.5">{home?.name}</div></div>
-          {match.is_live ? (
-            <div className="text-center mono font-mono-tabular text-4xl font-semibold">{live?.score?.home ?? 0} <span className="text-muted-foreground">–</span> {live?.score?.away ?? 0}</div>
+          {effectiveIsLive ? (
+            <div className="text-center mono font-mono-tabular text-4xl font-semibold" data-testid="header-live-score">
+              {(liveCtx?.live?.score?.home ?? live?.score?.home ?? 0)} <span className="text-muted-foreground">–</span> {(liveCtx?.live?.score?.away ?? live?.score?.away ?? 0)}
+            </div>
           ) : (
             <div className="text-center text-xs text-muted-foreground"><div className="text-[10px] uppercase tracking-wide">{t.match.kickoff}</div><div className="mono font-mono-tabular text-foreground text-sm">{formatDateTime(match.kickoff_iso, lang)}</div></div>
           )}
           <div className="text-right"><div className="text-xs text-muted-foreground">{t.match.away}</div><div className="text-xl font-semibold mt-0.5">{away?.name}</div></div>
         </div>
       </div>
+
+      {/* MLB Live Scoreboard — sport-specific live state with polling.
+          Self-renders when state is live-ready/partial/final OR loading
+          while the doc says live. For other sports / pre-game, returns
+          null and the regular kickoff timer above is shown instead. */}
+      {showLiveScoreboard && (
+        <MLBLiveScoreboard
+          homeName={home?.name}
+          awayName={away?.name}
+          live={liveCtx.live}
+          state={liveStateRaw}
+          lastFetch={liveCtx.lastFetch}
+          refreshing={liveCtx.refreshing}
+          onRefresh={liveCtx.refresh}
+          lang={lang}
+        />
+      )}
 
       <div className="grid lg:grid-cols-12 gap-6">
         {/* Main */}

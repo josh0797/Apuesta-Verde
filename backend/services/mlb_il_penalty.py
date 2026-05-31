@@ -84,9 +84,15 @@ KEY_POSITIONS: set[str] = {
 OFFENSIVE_MARKETS = ("over", "run_line", "team_total", "f5_over", "nrfi_no")
 
 # Hard caps so a chaotic team with 8+ injuries doesn't destroy the model.
+# IMPORTANT: confidence cap of -10 (not -20) was chosen after observing that a
+# bigger cap pushed legit chosen_markets (UNDER 9.5 ~ score 50) below the
+# orchestrator's 72-threshold, causing every pick to fall to the generic
+# rescue "Run Line +1.5 (underdog) score=68" — the user reported 8/8 picks
+# collapsing to the same recommendation. Keep this conservative so the
+# penalty informs the score without nuking the structural signal.
 MAX_KEY_BATS_PER_SIDE  = 4      # ~top-of-order proxy
-MAX_ER_REDUCTION       = 1.5    # carreras (~5 key bats global)
-MAX_CONFIDENCE_PENALTY = 20     # puntos (~4 key bats global)
+MAX_ER_REDUCTION       = 1.0    # carreras (~3 key bats global cap)
+MAX_CONFIDENCE_PENALTY = 10     # puntos (~2 key bats global cap)
 ER_PER_KEY_BAT         = 0.3
 CONF_PER_KEY_BAT       = 5
 

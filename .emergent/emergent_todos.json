@@ -1,18 +1,26 @@
 [
   {
-    "content": "GAP #1: IL penalty + integración",
+    "content": "Fix A1: Cap IL penalty -10/-1.0",
     "status": "completed"
   },
   {
-    "content": "BUG live: /api/matches/{id} 404 + Match detail crash con league object",
+    "content": "Fix A2: _ensure_recommendation_shape compartido + recalibrate",
     "status": "completed"
   },
   {
-    "content": "GAP #2: ConfidenceBreakdown OVERCONFIDENT/UNDERCONFIDENT",
+    "content": "Fix A3: rescue diversity con v2 recommendedLine",
     "status": "completed"
   },
   {
-    "content": "GAP #3: per-game breakdown + avg>12 block + UI panel mejorado en Dashboard y MatchDetail",
+    "content": "Fix B1: Endpoint live-refresh + opportunistic hydrate",
+    "status": "completed"
+  },
+  {
+    "content": "Fix B2: useLiveMatchDetail hook + MLBLiveScoreboard component",
+    "status": "completed"
+  },
+  {
+    "content": "Fix B3: Estados UI con fallback texts",
     "status": "completed"
   },
   {

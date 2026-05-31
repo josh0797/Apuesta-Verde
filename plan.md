@@ -273,6 +273,55 @@
 
 ---
 
+## Phase GAPS-3.1 — Pick diversity colapsada + Live match detail hidratado
+**Estado:** ✅ COMPLETADO (2026-05-31)
+
+### Bug A — Todos los picks idénticos "Run Line +1.5 (underdog)"
+**Diagnóstico (root cause):**
+1. El cap del IL penalty estaba en `-20` conf / `-1.5` ER. Empujaba los `chosen_market` reales (UNDER 9.5 ~ score 50) por debajo del umbral 72.
+2. Todos caían al rescue → `mlb_alternative_rescue` siempre emitía `Run Line +1.5 (underdog) score=68` (porque `RUN_LINE_TRAP` se cumple en casi cualquier matchup competitivo).
+3. El recalibrate pipeline **no llamaba a `_ensure_recommendation_shape`** → la `recommendation` quedaba con solo `{market, score, rationale}` sin `confidence_score` ni `selection`.
+
+**Fix:**
+- `services/mlb_il_penalty.py`: caps reducidos a `MAX_CONFIDENCE_PENALTY=10` y `MAX_ER_REDUCTION=1.0`.
+- `server.py`: `_ensure_mlb_recommendation_shape` extraído a módulo level y aplicado en ambos pipelines (`_run_analysis_pipeline` y `_run_recalibration_pipeline`). Sintetiza `confidence_score`/`selection`/`market` desde el `chosen_market` raw.
+- `mlb_day_orchestrator.py`: inyección de **rescue diversity** — el `recommendedLine` de v2 (UNDER 9.5, OVER 7.5, ...) se añade al rescue como candidato cuando `lineSafetyScore ≥ 65`. Esto reemplaza al genérico "Favorito gana por 1 carrera" cuando hay una lectura estructural mejor.
+- Verificado: ahora `Market diversity = {'UNDER 9.5': 7, 'Run Line +1.5 (underdog)': 1}` con confianzas variadas (68/71/80/82) en lugar de 8× `RL +1.5 conf=None`.
+
+### Bug B — MatchDetailPage muestra "PRÓXIMO" + sin marcador en vivo
+**Diagnóstico:**
+- `db.matches.live_stats` se hidrata solo periódicamente por el sweep de ingestion (cada 15-30s).
+- Cuando el usuario abría el detalle entre sweeps veía `is_live=False` y sin score, aunque MLB Stats API ya tuviera el inning 7th 4-3.
+- `MatchDetailPage` solo leía del doc; sin polling.
+
+**Fix:**
+- `services/mlb_live_state.py` (nuevo): `fetch_live_state(match_id)` consulta MLB Stats API linescore + schedule en 1 round-trip (6s timeout), retorna 5 estados canónicos:
+  `loading | live-data-ready | live-data-partial | final | no-live-data`.
+  Incluye score, inning (number/half/ordinal), outs, balls/strikes, runners_on, current_batter, current_pitcher.
+- `fetch_and_persist_live_state(db, match_id)` además persiste el snapshot en `db.matches.live_stats` para que las siguientes lecturas se beneficien.
+- `server.py`:
+  - `GET /api/matches/{id}` ahora hace **hidratación oportunista**: si el match es baseball y no está Final, dispara `fetch_and_persist_live_state` antes de devolver el doc. Merge inline → sin doble round-trip.
+  - `GET /api/matches/{id}/live-refresh` (nuevo): endpoint ligero para el polling del frontend. No sport→devuelve no-live-data stub.
+- `hooks/useLiveMatchDetail.js` (nuevo): hook React con polling automático cada **30s** mientras el state sea `live-data-ready|partial`. Se detiene automáticamente cuando es `final` (anti-spam).
+- `components/MLBLiveScoreboard.jsx` (nuevo): componente sport-específico de baseball con score grande, inning ordinal con flecha (▲/▼), diamond de bases SVG, dots de outs, count balls-strikes, batter/pitcher actuales, badge de estado (FINAL/EN VIVO/PARCIAL/NO INICIA) + botón Actualizar manual.
+- `MatchDetailPage.jsx`: integra el hook + scoreboard. `effectiveIsLive` ahora **prioriza el estado del hook** sobre el `is_live` cacheado del doc, evitando el "PRÓXIMO mientras realmente está en el 7th".
+
+**Verificado:**
+- BAL @ TOR (terminado): badge **FINAL** + marcador 9-5 + 9TH ▲ + 3 outs amarillos.
+- ATL @ CIN (en curso): badge **EN VIVO** (rosa pulsante) + 5-3 + 7TH ▲ + count 0-2 + bateando JJ Bleday / lanzando Didier Fuentes + diamond.
+- Polling 30s confirmado en el hook (clearInterval auto cuando state→final).
+
+### Estados UI exportados al frontend
+| Estado | Banner | Marcador |
+|---|---|---|
+| `loading` | spinner CARGANDO | placeholder |
+| `live-data-ready` | EN VIVO (rosa pulsante) | score + inning + outs + batter/pitcher |
+| `live-data-partial` | PARCIAL + texto "Datos live parciales. Recomendación basada en lectura estructural." | score + lo que haya |
+| `final` | FINAL (cyan) | score final + last inning |
+| `no-live-data` | NO INICIA | "El partido aún no comienza" |
+
+---
+
 ## Phase GAPS-3 — IL penalty + LLM Reconciliation + Active Series UI + Live Match Detail
 **Estado:** ✅ COMPLETADO (2026-05-31)
 

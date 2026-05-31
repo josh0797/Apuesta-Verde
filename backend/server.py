@@ -146,6 +146,52 @@ def _normalize_keys_for_bson(value):
     return value
 
 
+def _ensure_mlb_recommendation_shape(p: dict, *, bucket: str) -> dict:
+    """Make sure each MLB pick has a `recommendation` dict with
+    `confidence_score`, `market`, `selection`. Idempotent — existing
+    fields are preserved.
+
+    Extracted here (instead of being a closure inside _run_analysis_pipeline)
+    so the recalibration pipeline can reuse the exact same shaping logic.
+    Without this normaliser the frontend renders blank confidence and
+    every pick collapses to the rescue's generic "Run Line +1.5 (underdog)"
+    label because there's no `recommendation.confidence_score` and the
+    "score >= 70 / 60-69" filter in DashboardPage silently drops everything.
+    """
+    rec = p.get("recommendation") or {}
+    v2  = p.get("_mlb_script_v2") or {}
+    score = (
+        rec.get("confidence_score")
+        or rec.get("score")
+        or (v2.get("runLineScore")    if bucket == "structural_lean" else None)
+        or (v2.get("lineSafetyScore") if bucket in ("structural_lean", "watchlist") else None)
+        or 60   # floor so manual-review picks land in `medium` bucket
+    )
+    try:
+        score = int(score)
+    except (TypeError, ValueError):
+        score = 60
+    score = max(0, min(100, score))
+    market    = rec.get("market") or v2.get("recommendedLine") or rec.get("selection") or ""
+    selection = rec.get("selection") or v2.get("recommendedLine") or market
+    new_rec = {
+        **rec,
+        "confidence_score": score,
+        "score":            score,
+        "market":           market,
+        "selection":        selection,
+    }
+    # Floor manual-review picks at 65 so they show up in the medium (60-69)
+    # panel rather than getting filtered out by the dashboard's threshold.
+    if bucket in ("structural_lean", "watchlist") and score < 65:
+        new_rec["confidence_score"] = 65
+        new_rec["score"]            = 65
+    p["recommendation"] = new_rec
+    p["bucket"]         = bucket
+    return p
+
+
+
 # ── Public health ────────────────────────────────────────────────────────────
 @api.get("/")
 async def root():
@@ -479,6 +525,10 @@ async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
     `match_id` (the gamePk as text) while football/basketball matches
     historically used `int`. We probe both shapes so the user never
     lands on a 404 just because of casting.
+
+    For baseball matches we also opportunistically hydrate live state
+    from MLB Stats API so the detail view always shows the current
+    inning + score, not a stale snapshot from the periodic ingestion.
     """
     candidates: list = []
     # Try the raw string first (preserves leading zeros / hashes).
@@ -505,6 +555,42 @@ async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
     if not doc:
         raise HTTPException(status_code=404, detail="match not found")
 
+    # ── Opportunistic live hydration (MLB only) ───────────────────────
+    # Stale `is_live=False` is the most common complaint: the
+    # ingestion sweep runs every 15-30s but the user can click into
+    # the detail in between. We hit the linescore endpoint once
+    # (≤6s timeout) and merge the result so the user sees a fresh
+    # scoreboard. The persistence inside fetch_and_persist_live_state
+    # also benefits the next call.
+    try:
+        if (doc.get("sport") == "baseball"
+                and (doc.get("status") or "").lower() != "final"
+                and "final" not in (doc.get("status") or "").lower()):
+            from services.mlb_live_state import fetch_and_persist_live_state
+            live = await fetch_and_persist_live_state(db, doc.get("match_id"))
+            if live.get("game_pk") is not None:
+                # Merge into the doc so the response is internally consistent
+                # without a second round-trip to Mongo.
+                doc["is_live"]    = live["is_live"]
+                doc["status"]     = live["status"] or doc.get("status")
+                doc["live_stats"] = {
+                    **(doc.get("live_stats") or {}),
+                    "score":           live["score"],
+                    "inning":          live.get("inning"),
+                    "outs":            live.get("outs"),
+                    "balls":           live.get("balls"),
+                    "strikes":         live.get("strikes"),
+                    "runners_on":      live.get("runners_on"),
+                    "current_batter":  live.get("current_batter"),
+                    "current_pitcher": live.get("current_pitcher"),
+                    "abstract_state":  live.get("abstract_state"),
+                    "detailed_state":  live.get("detailed_state"),
+                    "fetched_at":      live["fetched_at"],
+                }
+                doc["_live_state"] = live["state"]   # for the UI banner.
+    except Exception as exc:
+        log.debug("opportunistic MLB live hydrate failed: %s", exc)
+
     # Fetch full odds history using whichever ID variant matches docs.
     snapshots: list = []
     try:
@@ -515,6 +601,40 @@ async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
         snapshots = []
     doc["odds_history"] = _clean_list(snapshots)
     return _clean(doc)
+
+
+@api.get("/matches/{match_id}/live-refresh")
+async def match_live_refresh(match_id: str, user: dict = Depends(get_current_user)):
+    """On-demand poll endpoint for the live scoreboard.
+
+    Designed to be called every 30-60s by the frontend while a baseball
+    match is in progress. Returns ONLY the live state payload (small),
+    avoiding the cost of re-fetching the full match doc on every tick.
+
+    Returns one of: live-data-ready | live-data-partial | final | no-live-data.
+    """
+    # We accept any sport but currently only MLB has a live fetcher —
+    # other sports return a stub so the frontend can branch uniformly.
+    candidates: list = [match_id]
+    try:
+        candidates.append(int(match_id))
+    except (ValueError, TypeError):
+        pass
+    doc = await db.matches.find_one(
+        {"match_id": {"$in": candidates}},
+        projection={"sport": 1, "match_id": 1},
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="match not found")
+    if doc.get("sport") != "baseball":
+        return {
+            "state":      "no-live-data",
+            "is_live":    False,
+            "_reason":    "live-refresh only implemented for baseball",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+        }
+    from services.mlb_live_state import fetch_and_persist_live_state
+    return await fetch_and_persist_live_state(db, doc.get("match_id"))
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1405,46 +1525,10 @@ async def _run_analysis_pipeline(
         # the existing `filteredPicks.filter(score >= 70 | 60-69)` split in
         # DashboardPage continues to work without changes.
 
-        def _ensure_recommendation_shape(p: dict, *, bucket: str) -> dict:
-            """Make sure each visible pick has a `recommendation` dict
-            with `confidence_score`, `market`, `selection`. Idempotent —
-            existing fields are preserved."""
-            rec = p.get("recommendation") or {}
-            v2  = p.get("_mlb_script_v2") or {}
-            score = (
-                rec.get("confidence_score")
-                or rec.get("score")
-                or (v2.get("runLineScore") if bucket == "structural_lean" else None)
-                or (v2.get("lineSafetyScore") if bucket in ("structural_lean", "watchlist") else None)
-                or 60   # floor so manual-review picks land in `medium` bucket
-            )
-            try:
-                score = int(score)
-            except (TypeError, ValueError):
-                score = 60
-            score = max(0, min(100, score))
-            market    = rec.get("market") or v2.get("recommendedLine") or rec.get("selection") or ""
-            selection = rec.get("selection") or v2.get("recommendedLine") or market
-            new_rec = {
-                **rec,
-                "confidence_score": score,
-                "score":            score,
-                "market":           market,
-                "selection":        selection,
-            }
-            # Floor manual-review picks at 65 so they show up in the
-            # `medium` (60-69) panel rather than getting filtered out.
-            if bucket in ("structural_lean", "watchlist") and score < 65:
-                new_rec["confidence_score"] = 65
-                new_rec["score"]            = 65
-            p["recommendation"] = new_rec
-            p["bucket"]         = bucket
-            return p
-
-        mlb_picks   = [_ensure_recommendation_shape(p, bucket="recommended")        for p in mlb_picks]
-        mlb_rescued = [_ensure_recommendation_shape(p, bucket="rescued")            for p in mlb_rescued]
-        mlb_struct  = [_ensure_recommendation_shape(p, bucket="structural_lean")    for p in mlb_struct]
-        mlb_watch   = [_ensure_recommendation_shape(p, bucket="watchlist")          for p in mlb_watch]
+        mlb_picks   = [_ensure_mlb_recommendation_shape(p, bucket="recommended")        for p in mlb_picks]
+        mlb_rescued = [_ensure_mlb_recommendation_shape(p, bucket="rescued")            for p in mlb_rescued]
+        mlb_struct  = [_ensure_mlb_recommendation_shape(p, bucket="structural_lean")    for p in mlb_struct]
+        mlb_watch   = [_ensure_mlb_recommendation_shape(p, bucket="watchlist")          for p in mlb_watch]
         # All four buckets are surfaced in `result.picks` for the main card list.
         # The "Revisión manual" section keeps reading from `summary.structural_*`.
         unified_picks = mlb_picks + mlb_rescued + mlb_struct + mlb_watch
@@ -1989,6 +2073,15 @@ async def _run_recalibration_pipeline(
         mlb_struct   = mlb_result.get("structural_lean_requires_odds") or []
         mlb_watch    = mlb_result.get("watchlist_manual_odds") or []
         mlb_disc     = mlb_result.get("discarded_picks") or []
+        # CRITICAL: synthesise recommendation.confidence_score / selection /
+        # market on every visible pick. Without this normaliser the
+        # frontend drops every pick to the rescue's generic Run Line +1.5
+        # label because `confidence_score` is missing. This is the SAME
+        # helper applied by _run_analysis_pipeline.
+        mlb_picks    = [_ensure_mlb_recommendation_shape(p, bucket="recommended")     for p in mlb_picks]
+        mlb_rescued  = [_ensure_mlb_recommendation_shape(p, bucket="rescued")         for p in mlb_rescued]
+        mlb_struct   = [_ensure_mlb_recommendation_shape(p, bucket="structural_lean") for p in mlb_struct]
+        mlb_watch    = [_ensure_mlb_recommendation_shape(p, bucket="watchlist")       for p in mlb_watch]
         result = {
             "picks":            mlb_picks + mlb_rescued + mlb_struct + mlb_watch,
             "discarded_picks":  mlb_disc,
