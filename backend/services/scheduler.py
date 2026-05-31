@@ -158,6 +158,31 @@ async def _job_settle_finished_baseball(db):
         log.warning("settle_finished_baseball failed: %s", exc)
 
 
+async def _job_recompute_feedback_weights(db):
+    """Tick the MLB feedback loop. Fires `recompute_weights_if_due` which
+    no-ops unless there are ≥ FEEDBACK_BATCH_SIZE (40) unconsumed settled
+    picks. Cheap when there's nothing to do — safe to run every 30 min.
+    """
+    log.info("Scheduler: recompute_feedback_weights starting")
+    try:
+        from .mlb_feedback_loop import recompute_weights_if_due
+        result = await recompute_weights_if_due(db)
+        if result:
+            _status["last_run"]["recompute_feedback_weights"] = {
+                "finished_at":    datetime.now(timezone.utc).isoformat(),
+                "recalibrated":   True,
+                "rows_consumed":  len(result.get("accuracy_by_category") or {}),
+            }
+            log.info("Scheduler: recompute_feedback_weights → recalibrated")
+        else:
+            _status["last_run"]["recompute_feedback_weights"] = {
+                "finished_at":  datetime.now(timezone.utc).isoformat(),
+                "recalibrated": False,
+            }
+    except Exception as exc:
+        log.warning("recompute_feedback_weights failed: %s", exc)
+
+
 def start_scheduler(db) -> None:
     """Start the background scheduler if SCHEDULER_ENABLED=true."""
     global _scheduler
@@ -215,6 +240,18 @@ def start_scheduler(db) -> None:
         trigger=IntervalTrigger(minutes=15),
         id="settle_finished_baseball",
         next_run_time=datetime.now(timezone.utc) + timedelta(minutes=3),
+        max_instances=1,
+        coalesce=True,
+    )
+    # Feedback-loop recalibration every 30 min — auto-recomputes engine
+    # weights when ≥ 40 unconsumed settled picks accumulate. Cheap when
+    # nothing's due (a single count_documents). Aligned with the odds
+    # refresh cadence so we don't fragment scheduler ticks.
+    sch.add_job(
+        _job_recompute_feedback_weights, args=[db],
+        trigger=IntervalTrigger(minutes=30),
+        id="recompute_feedback_weights",
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=5),
         max_instances=1,
         coalesce=True,
     )

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Loader2, ChevronDown, ChevronUp, ExternalLink, Activity, Shield, TrendingDown, AlertCircle, Eye, ShieldAlert, Flag } from 'lucide-react';
+import { Sparkles, Loader2, ChevronDown, ChevronUp, ExternalLink, Activity, Shield, TrendingDown, AlertCircle, Eye, ShieldAlert, Flag, RefreshCcw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useI18n, sportTerms } from '@/lib/i18n';
 import { useSport, sportLabel } from '@/lib/sport';
@@ -554,6 +554,50 @@ export default function DashboardPage() {
     }
   };
 
+  // ── Lightweight recalibration ─────────────────────────────────────────
+  // Re-runs the analyst layers on the matches already captured in the most
+  // recent pick_run for this sport. No external ingestion, no fresh odds —
+  // only fresh "engine" output. Useful right after a deploy that adds new
+  // features (M1–M5, vetoes, scripts) so the picks adapt to the new math.
+  // Only MLB + Basketball are supported in this iteration.
+  const recalibrate = async () => {
+    if (!['baseball', 'basketball'].includes(sport)) {
+      toast.error(t.dashboard.recalibrateOnlySupported);
+      return;
+    }
+    if (!run?.id && !data?.summary) {
+      toast.error(t.dashboard.recalibrateNoRun);
+      return;
+    }
+    const requestSport = sport;
+    setRunning(true);
+    try {
+      const r = await api.post('/analysis/recalibrate', {
+        sport,
+        background: true,
+      });
+      if (sportRef.current !== requestSport) {
+        console.log('[SPORT_SWITCH] discarded stale /analysis/recalibrate response for', requestSport);
+        return;
+      }
+      if (r.data?.job_id) {
+        setActiveJobId(r.data.job_id);
+      } else if (r.data?.result) {
+        setRun({
+          id: r.data.pick_run_id,
+          sport: r.data.sport,
+          generated_at: r.data.generated_at,
+          payload: r.data.result,
+        });
+        toast.success(t.dashboard.recalibrateDone);
+      }
+    } catch (err) {
+      reportGenerationError(err, 'analysis/recalibrate · job submit');
+    } finally {
+      if (sportRef.current === requestSport) setRunning(false);
+    }
+  };
+
   const onJobDone = useCallback((result) => {
     // Refresh the dashboard with the freshly completed run.
     toast.success(t.dashboard.title + ' ✓');
@@ -675,6 +719,24 @@ export default function DashboardPage() {
               <><Sparkles className="h-4 w-4 mr-2" />{t.dashboard.generateBtn}</>
             )}
           </Button>
+          {/* Recalibrate — lightweight re-score of the latest pick_run.
+              MLB + Basketball only for now; football comes later. */}
+          {['baseball', 'basketball'].includes(sport) && (
+            <Button
+              onClick={recalibrate}
+              disabled={running || !!activeJobId || (!run?.id && !data?.summary)}
+              data-testid="recalibrate-picks-button"
+              variant="outline"
+              title={t.dashboard.recalibrateHint}
+              className="w-full sm:w-auto border-cyan-500/30 text-cyan-200 hover:bg-cyan-500/10 hover:text-cyan-100 transition-colors"
+            >
+              {running ? (
+                <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t.dashboard.recalibrating}</>
+              ) : (
+                <><RefreshCcw className="h-4 w-4 mr-2" />{t.dashboard.recalibrateBtn}</>
+              )}
+            </Button>
+          )}
         </div>
       </motion.div>
 

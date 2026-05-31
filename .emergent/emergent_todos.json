@@ -1,22 +1,22 @@
 [
   {
-    "content": "M2-A — Crear mlb_bullpen_real_usage.py: fetch box-score MLB Stats API → pitch_stress_index + bullpen_pitches_48h + starter_lasted_innings",
-    "status": "in_progress"
+    "content": "Backend: endpoint POST /api/analysis/recalibrate",
+    "status": "completed"
   },
   {
-    "content": "M2-B — Integrar pitch_stress_index en get_bullpen_recent_usage() (mlb_stats_api.py) sin romper firma",
-    "status": "pending"
+    "content": "Feedback loop: FEEDBACK_BATCH_SIZE 50→40 + APScheduler job cada 30 min",
+    "status": "completed"
   },
   {
-    "content": "MEJORA — Crear mlb_finished_game_settler.py: persiste final_score + total_runs + bullpen_pitches en archived_live_matches al cerrar el juego (alimenta M1 con datos reales)",
-    "status": "pending"
+    "content": "Bright Data healthcheck endpoint /api/admin/brightdata + fetch counter",
+    "status": "completed"
   },
   {
-    "content": "Cablear settlement en live_lifecycle.py donde se mueven matches a archived",
-    "status": "pending"
+    "content": "Frontend: botón Recalibrar junto a Generar picks",
+    "status": "completed"
   },
   {
-    "content": "Verificación E2E + smoke MLB Stats API",
-    "status": "pending"
+    "content": "Actualizar plan.md",
+    "status": "completed"
   }
 ]

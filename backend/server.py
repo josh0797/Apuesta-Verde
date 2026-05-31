@@ -1868,6 +1868,270 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
     )
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# Lightweight recalibration — re-runs the analyst on matches already in the
+# latest pick_run WITHOUT calling external APIs. Lets the user re-score the
+# day after a deploy that introduced new features (M1–M5, vetoes, scripts).
+# Scope: MLB + Basketball (football comes later).
+# ════════════════════════════════════════════════════════════════════════════
+class AnalysisRecalibrateIn(BaseModel):
+    sport:      str  = "baseball"
+    background: bool = True
+
+
+async def _run_recalibration_pipeline(
+    user_id: str,
+    sport: str,
+    progress_cb=None,
+) -> dict:
+    """Re-run analyst layers on the matches captured in the latest pick_run.
+
+    Skips ingestion, external API hydration and odds refresh. Relies on:
+      • cached match docs in `db.matches` (already enriched on the previous run)
+      • the orchestrator's own caches (MLB Stats API, team form, pitcher stats)
+      • the auto-recalibrated feedback weights
+
+    Writes a fresh pick_run with `is_recalibration=True` so the UI can label it.
+    """
+    sport = _norm_sport(sport)
+    if sport not in ("baseball", "basketball"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Recalibrar only supports MLB and Basketball in this iteration. "
+                "Football recalibration coming later."
+            ),
+        )
+
+    async def _emit(stage: str, pct: int, msg: str) -> None:
+        if progress_cb is not None:
+            try:
+                await progress_cb(stage, pct, msg)
+            except Exception:
+                pass
+
+    await _emit("loading_snapshot", 5, "Cargando último pick_run…")
+    last_run = await db.picks.find_one(
+        {"user_id": user_id, "sport": sport},
+        sort=[("generated_at", -1)],
+    )
+    if not last_run:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "No hay pick_run previo para recalibrar. "
+                "Pulsa 'Generar picks' primero."
+            ),
+        )
+
+    started = datetime.now(timezone.utc)
+    pick_id_base = uuid.uuid4().hex[:10]
+    previous_run_id = last_run.get("id")
+    previous_generated_at = last_run.get("generated_at")
+
+    # ── Sport-specific recalibration ─────────────────────────────────────
+    if sport == "baseball":
+        await _emit("analyzing", 25, "Re-ejecutando orquestador MLB…")
+        from services.mlb_day_orchestrator import analyze_mlb_day
+        from zoneinfo import ZoneInfo as _ZI
+        try:
+            eastern = _ZI("America/New_York")
+            date_str = datetime.now(eastern).strftime("%Y-%m-%d")
+        except Exception:
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        try:
+            mlb_result = await asyncio.wait_for(
+                analyze_mlb_day(date_str=date_str, db=db),
+                timeout=180.0,
+            )
+        except asyncio.TimeoutError:
+            log.error("MLB recalibrate timed out after 180s")
+            raise HTTPException(status_code=504, detail="Recalibración MLB tardó demasiado.")
+        except Exception as exc:
+            log.exception("MLB recalibrate failed")
+            raise HTTPException(status_code=502, detail=f"mlb recalibrate error: {exc}")
+
+        await _emit("analyzing", 75, "Aplicando capas v2/v5/v6/M1–M5…")
+        # Re-use the same shape as the full pipeline so the UI doesn't branch.
+        mlb_picks    = mlb_result.get("picks") or []
+        mlb_rescued  = mlb_result.get("rescued_picks") or []
+        mlb_struct   = mlb_result.get("structural_lean_requires_odds") or []
+        mlb_watch    = mlb_result.get("watchlist_manual_odds") or []
+        mlb_disc     = mlb_result.get("discarded_picks") or []
+        result = {
+            "picks":            mlb_picks + mlb_rescued + mlb_struct + mlb_watch,
+            "discarded_picks":  mlb_disc,
+            "rescued_picks":    mlb_rescued,
+            "structural_lean_requires_odds": mlb_struct,
+            "watchlist_manual_odds":         mlb_watch,
+            "summary": {
+                "no_value_found": (
+                    len(mlb_picks) + len(mlb_rescued) + len(mlb_struct) + len(mlb_watch)
+                ) == 0,
+                "blocked_picks": [],
+                "high_confidence":   [p for p in mlb_picks if (p.get("recommendation") or {}).get("confidence_score", 0) >= 75],
+                "medium_confidence": [p for p in mlb_picks if 50 <= (p.get("recommendation") or {}).get("confidence_score", 0) < 75],
+                "discarded_motivation": [],
+                "discarded_market":     mlb_disc,
+                "incomplete_data":      [],
+                "structural_lean_requires_odds": mlb_struct,
+                "watchlist_manual_odds":         mlb_watch,
+                "discarded_after_full_analysis": mlb_disc,
+                "total_analyzed":      len(mlb_picks) + len(mlb_rescued) + len(mlb_struct) + len(mlb_watch) + len(mlb_disc),
+                "total_recommended":   len(mlb_picks) + len(mlb_rescued),
+                "total_discarded":     len(mlb_disc),
+                "total_manual_review": len(mlb_struct) + len(mlb_watch),
+            },
+            "parlay_suggested": mlb_result.get("parlay_suggested"),
+            "fragility_scores": mlb_result.get("fragility_scores") or {},
+            "editorial_context_signals_by_game": mlb_result.get("editorial_context_signals_by_game") or {},
+            "pipeline_meta":    mlb_result.get("pipeline_meta") or {},
+            "engine":           "mlb_pregame_analytics_v2_recalibrated",
+            "is_recalibration": True,
+            "recalibrated_from": previous_run_id,
+            "recalibrated_from_generated_at": previous_generated_at,
+        }
+        matches_count = len(mlb_picks) + len(mlb_rescued) + len(mlb_struct) + len(mlb_watch) + len(mlb_disc)
+
+    else:  # basketball
+        await _emit("loading_snapshot", 15, "Cargando partidos del pick_run anterior…")
+        # Collect match_ids from every visible bucket of the previous run.
+        prev_payload = last_run.get("payload") or {}
+        match_ids: list = []
+        seen: set = set()
+        for bucket_key in ("picks", "rescued_picks", "discarded_picks",
+                           "structural_lean_requires_odds", "watchlist_manual_odds"):
+            for p in (prev_payload.get(bucket_key) or []):
+                mid = p.get("match_id") or p.get("matchId")
+                if mid and mid not in seen:
+                    seen.add(mid)
+                    match_ids.append(mid)
+        # Also pull from summary if main buckets are empty (rare edge).
+        if not match_ids:
+            summ = prev_payload.get("summary") or {}
+            for k in ("high_confidence", "medium_confidence", "discarded_market",
+                      "discarded_motivation", "incomplete_data"):
+                for row in (summ.get(k) or []):
+                    mid = row.get("match_id") or row.get("matchId")
+                    if mid and mid not in seen:
+                        seen.add(mid)
+                        match_ids.append(mid)
+        if not match_ids:
+            raise HTTPException(
+                status_code=404,
+                detail="El pick_run anterior no tiene partidos para recalibrar.",
+            )
+
+        await _emit("hydrating", 35, f"Hidratando {len(match_ids)} partidos…")
+        cursor = db.matches.find({"match_id": {"$in": match_ids}, "sport": "basketball"})
+        candidates = await cursor.to_list(length=len(match_ids))
+        if not candidates:
+            raise HTTPException(
+                status_code=404,
+                detail="No quedan datos en cache para esos partidos. Regenera picks.",
+            )
+
+        await _emit("analyzing", 55, "Re-ejecutando analista (Basketball)…")
+        llm_payload = [nz.summarize_match_for_llm(_clean(c)) for c in candidates]
+        try:
+            result = await asyncio.wait_for(
+                analyst_engine.analyze_matches(llm_payload, sport=sport, db=db),
+                timeout=180.0,
+            )
+        except asyncio.TimeoutError:
+            log.error("basketball recalibrate timed out after 180s")
+            raise HTTPException(status_code=504, detail="Recalibración Basketball tardó demasiado.")
+        except Exception as exc:
+            log.exception("basketball recalibrate failed")
+            raise HTTPException(status_code=502, detail=f"basketball recalibrate error: {exc}")
+
+        result["engine"]            = (result.get("engine") or "analyst_engine") + "_recalibrated"
+        result["is_recalibration"]  = True
+        result["recalibrated_from"] = previous_run_id
+        result["recalibrated_from_generated_at"] = previous_generated_at
+        matches_count = len(candidates)
+
+    await _emit("analyzing", 92, "Guardando snapshot recalibrado…")
+    record = {
+        "id": pick_id_base,
+        "user_id": user_id,
+        "sport": sport,
+        "generated_at": started.isoformat(),
+        "matches_analyzed": matches_count,
+        "is_recalibration": True,
+        "recalibrated_from": previous_run_id,
+        "payload": result,
+    }
+    record = _normalize_keys_for_bson(record)
+    result = record["payload"]
+    await db.picks.insert_one(record)
+    await _emit("done", 100, "Recalibración lista")
+    return {
+        "pick_run_id":      pick_id_base,
+        "sport":            sport,
+        "generated_at":     record["generated_at"],
+        "is_recalibration": True,
+        "recalibrated_from": previous_run_id,
+        "result":           result,
+    }
+
+
+@api.post("/analysis/recalibrate")
+async def analysis_recalibrate(
+    payload: AnalysisRecalibrateIn,
+    user: dict = Depends(get_current_user),
+):
+    """Re-score the latest pick_run with the current engine without re-ingesting.
+
+    Useful right after a deploy that introduced new features so the picks the
+    user is already looking at adapt to the new calculations. MLB + Basketball
+    only — football coming later.
+    """
+    sport = _norm_sport(payload.sport)
+    if sport not in ("baseball", "basketball"):
+        raise HTTPException(
+            status_code=400,
+            detail="Recalibrar disponible solo para MLB y Basketball por ahora.",
+        )
+
+    if payload.background:
+        async def _job(job_id: str) -> None:
+            async def progress(stage: str, pct: int, msg: str):
+                await job_queue.update_progress(db, job_id, stage, pct, msg)
+            try:
+                result = await _run_recalibration_pipeline(
+                    user_id=user["id"], sport=sport, progress_cb=progress,
+                )
+                await job_queue.finish(db, job_id, result)
+            except HTTPException as he:
+                await job_queue.fail(db, job_id, f"{he.status_code}: {he.detail}")
+            except Exception as exc:
+                log.exception("background recalibrate failed")
+                await job_queue.fail(db, job_id, str(exc))
+
+        job_id = await job_queue.enqueue_async(
+            db,
+            _job,
+            user_id=user["id"],
+            kind="analysis_recalibrate",
+            params={"sport": sport},
+        )
+        return {
+            "job_id":   job_id,
+            "status":   "queued",
+            "sport":    sport,
+            "stage":    "queued",
+            "progress": 0,
+            "kind":     "recalibrate",
+        }
+
+    return await _run_recalibration_pipeline(
+        user_id=user["id"], sport=sport, progress_cb=None,
+    )
+
+
+
 @api.get("/analysis/jobs/{job_id}")
 async def analysis_job_status(job_id: str, user: dict = Depends(get_current_user)):
     """Poll the status of a background analysis job."""
@@ -2858,6 +3122,62 @@ async def system_status(user: dict = Depends(get_current_user)):
         },
         "now": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ── Bright Data Web Unlocker health ─────────────────────────────────────────
+@api.get("/admin/brightdata")
+async def admin_brightdata_health(
+    probe: bool = False,
+    user: dict = Depends(get_current_user),
+):
+    """Diagnose the Bright Data Web Unlocker integration.
+
+    Returns:
+      • Whether the token + zone are configured.
+      • A 24h rolling counter of fetches / successes / failures (in-memory).
+      • The last fetch's status + URL (for quick "is it still working?" checks).
+      • When `probe=true`, runs a tiny live request against
+        https://geo.brdtest.com/mygeo.json — useful to confirm the credential
+        still authorises a fetch.
+    """
+    try:
+        from services.brightdata_client import get_health_snapshot, healthcheck
+    except Exception as exc:
+        log.exception("brightdata_client import failed")
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": f"import failed: {exc}"})
+
+    token_present = bool((os.environ.get("BRIGHTDATA_TOKEN") or "").strip())
+    api_key_present = bool((os.environ.get("BRIGHTDATA_API_KEY") or "").strip())
+    zone = (
+        os.environ.get("BRIGHTDATA_ZONE")
+        or "web_unlocker1"
+    )
+    editorial_enabled = (
+        os.environ.get("EDITORIAL_BRIGHTDATA_ENABLED", "true").lower()
+        in ("1", "true", "yes")
+    )
+    snapshot = get_health_snapshot()
+    payload: dict = {
+        "ok":                   token_present or api_key_present,
+        "token_present":        token_present,
+        "api_key_present":      api_key_present,
+        "zone":                 zone,
+        "editorial_enabled":    editorial_enabled,
+        "ledger_24h":           snapshot,
+        "now":                  datetime.now(timezone.utc).isoformat(),
+    }
+    if probe:
+        try:
+            probe_result = await asyncio.wait_for(healthcheck(), timeout=12.0)
+        except asyncio.TimeoutError:
+            probe_result = {"ok": False, "reason": "timeout"}
+        except Exception as exc:
+            probe_result = {"ok": False, "reason": str(exc)}
+        payload["probe"] = probe_result
+    return payload
+
+
 
 
 @api.get("/system/fallback-sources")

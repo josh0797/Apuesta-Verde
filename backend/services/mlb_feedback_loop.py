@@ -41,7 +41,7 @@ from typing import Any, Optional
 
 log = logging.getLogger("mlb_feedback_loop")
 
-FEEDBACK_BATCH_SIZE   = 50
+FEEDBACK_BATCH_SIZE   = 40
 WEIGHTS_DOC_ID        = "active"
 
 # Initial weights — mirror the v2 engine's defaults.

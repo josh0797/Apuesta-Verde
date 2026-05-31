@@ -273,6 +273,40 @@
 
 ---
 
+## Phase RECAL — Lightweight Recalibration + Feedback APScheduler + Bright Data Health
+**Estado:** ✅ COMPLETADO (2026-05-31)
+
+### RECAL.1 Endpoint `POST /api/analysis/recalibrate`
+- Re-corre el analista sobre los partidos del **último `pick_run`** del usuario para ese deporte, **sin** re-ingestar APIs externas.
+- Scope: **MLB + Basketball** (football pendiente para una iteración futura).
+- Modo **background** vía `job_queue` con polling en `/api/analysis/jobs/{id}` (compatible con el modal de progreso ya existente).
+- MLB: invoca `analyze_mlb_day(date_str, db)` que aprovecha cachés internas del orquestador (MLB Stats API, team form, pitcher stats). Tiempo medido en preview: **~10–15s**.
+- Basketball: recupera `match_ids` de cada bucket del último pick_run, hidrata desde `db.matches` y re-corre `analyst_engine.analyze_matches`. Tiempo medido: **~75s** (cuello LLM).
+- Guarda un nuevo `pick_run` con `is_recalibration: True` + `recalibrated_from: <prev_run_id>` para auditoría.
+
+### RECAL.2 Botón "Recalibrar" en Dashboard (frontend)
+- `frontend/src/pages/DashboardPage.jsx`: añadido handler `recalibrate()` y `<Button data-testid="recalibrate-picks-button">` al lado de "Generar picks del día".
+- Visible **solo** para `sport ∈ {baseball, basketball}`.
+- Deshabilitado si no hay pick_run previo o si ya hay un job activo.
+- Icono `RefreshCcw` + estilo outline cyan para distinguirlo del botón verde "Generar picks".
+- i18n: copy ES/EN (`recalibrateBtn`, `recalibrating`, `recalibrateHint`, `recalibrateDone`).
+
+### RECAL.3 Feedback-loop recalibración automática (P2)
+- `FEEDBACK_BATCH_SIZE: 50 → 40` en `services/mlb_feedback_loop.py`.
+- Nuevo job APScheduler `recompute_feedback_weights` (cada **30 min**, alineado con `refresh_upcoming`) en `services/scheduler.py::_job_recompute_feedback_weights`.
+- El job invoca `recompute_weights_if_due(db)` — no-op cuando hay menos de 40 picks settled pendientes (cuesta un `count_documents`).
+- Verificado: scheduler arranca con la lista de jobs `['refresh_live', 'refresh_upcoming', 'sweep_stale_live', 'settle_finished_baseball', 'recompute_feedback_weights', 'purge_context']`.
+
+### RECAL.4 Bright Data — healthcheck + telemetría
+- `services/brightdata_client.py`: añadido ledger en memoria (deque) con ventana de **24h** (max 5000 entradas). Cada `fetch_unlocked` registra `(ts, status, ok, url_short)`.
+- Nueva función `get_health_snapshot()` devuelve `{fetches_24h, ok_24h, fail_24h, success_ratio, last_fetch}`.
+- Nuevo endpoint `GET /api/admin/brightdata` (`?probe=true` para health-check real contra `https://geo.brdtest.com/mygeo.json`):
+  - Devuelve `{ok, token_present, api_key_present, zone, editorial_enabled, ledger_24h, probe?}`.
+  - Verificado en preview: `probe.ok=true`, response real con `country: US`, ASN HostRoyale.
+- **No** se wirearon scrapers legacy (understat / crawlee / playwright_scraper) — decisión explícita del usuario.
+
+---
+
 ## Phase MLB-V7 — MLB Engine V3 (Explainability + Game Script + Diversificación + Baseball-first)
 **Estado:** 🟨 PENDIENTE (fase futura; V6 ya cubre drivers ofensivos + swap Over/Under)
 
