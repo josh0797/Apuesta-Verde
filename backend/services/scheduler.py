@@ -140,6 +140,24 @@ async def _job_purge_context_cache(db):
     _status["last_run"]["purge"] = {"finished_at": datetime.now(timezone.utc).isoformat()}
 
 
+async def _job_settle_finished_baseball(db):
+    """Persist final_score + bullpen pitch counts for recently finished
+    baseball matches. Feeds the active-series analyzer and any future
+    learning loop with reliable settlement data.
+    """
+    log.info("Scheduler: settle_finished_baseball starting")
+    try:
+        from .mlb_finished_game_settler import settle_recent_finished
+        n = await settle_recent_finished(db, days_back=2)
+        _status["last_run"]["settle_finished_baseball"] = {
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "settled":     int(n or 0),
+        }
+        log.info("Scheduler: settle_finished_baseball settled %d games", n or 0)
+    except Exception as exc:
+        log.warning("settle_finished_baseball failed: %s", exc)
+
+
 def start_scheduler(db) -> None:
     """Start the background scheduler if SCHEDULER_ENABLED=true."""
     global _scheduler
@@ -186,6 +204,17 @@ def start_scheduler(db) -> None:
         trigger=IntervalTrigger(hours=6),
         id="purge_context",
         next_run_time=datetime.now(timezone.utc) + timedelta(hours=6),
+        max_instances=1,
+        coalesce=True,
+    )
+    # Finished-game settler every 15 min — writes final_score + bullpen
+    # pitch counts onto matches that just closed. Feeds M1 (active
+    # series) and any future learning loop with reliable settlement.
+    sch.add_job(
+        _job_settle_finished_baseball, args=[db],
+        trigger=IntervalTrigger(minutes=15),
+        id="settle_finished_baseball",
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=3),
         max_instances=1,
         coalesce=True,
     )

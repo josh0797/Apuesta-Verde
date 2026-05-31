@@ -231,6 +231,48 @@
 
 ---
 
+## Phase MLB-M2 — Bullpen Real-Usage (pitch_stress) + Finished-Game Settler
+**Estado:** ✅ COMPLETADO (2026-05-31)
+
+### M2.1 Bullpen real-usage (`services/mlb_bullpen_real_usage.py`)
+- Hidrata box-scores reales de MLB Stats API por equipo (ventana 48h).
+- Expone:
+  - `bullpen_pitches_48h` (suma real de pitches del bullpen)
+  - `bullpen_innings_48h`
+  - `starter_lasted_innings`
+  - `pitch_stress_index = bullpen_pitches_48h / 45`
+  - `compute_fatigue_score()` combina `games_played × 20 + extra_innings × 15 + pitch_stress × 25`.
+  - `derive_fatigue_label()` (fresh / moderate / high / extreme).
+- Fail-soft: error → fallback a heurística legacy (`games_played × 25 + extra × 15`).
+
+### M2.2 Integración en `services/mlb_stats_api.py::get_bullpen_recent_usage()`
+- Ahora añade al payload: `pitch_stress_index`, `bullpen_pitches_48h`, `bullpen_innings_48h`, `starter_lasted_innings`.
+- `fatigue_score_0_100` recalculado con la nueva fórmula cuando hay box-score disponible.
+- Cache TTL preservado.
+
+### M2.3 Finished-Game Settler (`services/mlb_finished_game_settler.py`)
+- `fetch_boxscore_summary(gamePk)` extrae:
+  - `final_score: {home, away, total}`
+  - `total_runs`
+  - `bullpen_usage: {home_pitches, away_pitches, home/away_innings, home/away_starter_innings}`
+- `settle_match(db, doc)` persiste en `db.matches` + `db.archived_live_matches` (idempotente vía `settled_at`).
+- `settle_recent_finished(db, days_back=2)` barre matches recién finalizados sin `settled_at`.
+
+### M2.4 Wiring de settlement
+- `services/live_lifecycle.sweep_expired_live_matches()` invoca `settle_match` en cuanto un match cierra (best-effort, no rompe el sweep si falla).
+- APScheduler job `settle_finished_baseball` corre cada **15 minutos** (`services/scheduler.py`) — captura partidos que cerraron sin pasar por el sweep live.
+
+### M2.5 Beneficio aguas abajo
+- M1 (`mlb_active_series_analyzer`) ahora consume `final_score` + `bullpen_usage` reales → arma el contexto de serie activa correctamente días después.
+- Caso real validado en preview (31 may 2026):
+  - PIT 48h → 146 pitches / stress 3.24 / starter 4.3 IP
+  - MIN 48h → 149 pitches / stress 3.31 / starter 4.0 IP
+  - NYY 48h →  73 pitches / stress 1.62 / starter 6.0 IP
+  - LAD 48h →  81 pitches / stress 1.80 / starter 7.0 IP
+- Settler probado end-to-end con dos `gamePk` reales — escribe `final_score`, `total_runs` y `bullpen_usage` completos.
+
+---
+
 ## Phase MLB-V7 — MLB Engine V3 (Explainability + Game Script + Diversificación + Baseball-first)
 **Estado:** 🟨 PENDIENTE (fase futura; V6 ya cubre drivers ofensivos + swap Over/Under)
 

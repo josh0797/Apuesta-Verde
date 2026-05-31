@@ -1,38 +1,22 @@
 [
   {
-    "content": "Guardar BRIGHTDATA_TOKEN en backend/.env + crear brightdata_client.py helper",
-    "status": "completed"
+    "content": "M2-A — Crear mlb_bullpen_real_usage.py: fetch box-score MLB Stats API → pitch_stress_index + bullpen_pitches_48h + starter_lasted_innings",
+    "status": "in_progress"
   },
   {
-    "content": "M1 — mlb_active_series_analyzer.py",
-    "status": "completed"
+    "content": "M2-B — Integrar pitch_stress_index en get_bullpen_recent_usage() (mlb_stats_api.py) sin romper firma",
+    "status": "pending"
   },
   {
-    "content": "M3 — mlb_pitcher_series_degradation.py",
-    "status": "completed"
+    "content": "MEJORA — Crear mlb_finished_game_settler.py: persiste final_score + total_runs + bullpen_pitches en archived_live_matches al cerrar el juego (alimenta M1 con datos reales)",
+    "status": "pending"
   },
   {
-    "content": "M4 — mlb_real_stats_verifier.py",
-    "status": "completed"
+    "content": "Cablear settlement en live_lifecycle.py donde se mueven matches a archived",
+    "status": "pending"
   },
   {
-    "content": "M5 — mlb_park_factor_live.py",
-    "status": "completed"
-  },
-  {
-    "content": "Integración en mlb_day_orchestrator.py",
-    "status": "completed"
-  },
-  {
-    "content": "UI: SeriesContextBadge en MLBScriptPanel.jsx",
-    "status": "completed"
-  },
-  {
-    "content": "Verificación con caso real Twins@Pirates",
-    "status": "completed"
-  },
-  {
-    "content": "[Iter siguiente] M2 (mlb_bullpen_real_usage.py) requiere cambios en mlb_stats_api.py",
+    "content": "Verificación E2E + smoke MLB Stats API",
     "status": "pending"
   }
 ]

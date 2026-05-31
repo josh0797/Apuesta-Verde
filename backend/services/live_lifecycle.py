@@ -30,8 +30,11 @@ Public API
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
+
+log = logging.getLogger(__name__)
 
 
 # ─── Status enums per sport ────────────────────────────────────────────────
@@ -399,4 +402,23 @@ async def sweep_expired_live(db, *, sport: Optional[str] = None) -> int:
             await db.archived_live_matches.insert_many(archived_records, ordered=False)
     except Exception:
         pass
+    # ── Settlement hook (M2 + M1 alimentación) ────────────────────────
+    # Right after a match closes we try to persist the official
+    # box-score (final_score + bullpen pitch counts). Best-effort: a
+    # failure here NEVER aborts the lifecycle sweep.
+    try:
+        from .mlb_finished_game_settler import settle_match
+        finished_ids = [m for m in to_expire]
+        if finished_ids:
+            cursor2 = db.matches.find(
+                {"match_id": {"$in": finished_ids}, "sport": "baseball"},
+                {"match_id": 1, "sport": 1, "game_pk": 1, "settled_at": 1},
+            )
+            async for doc in cursor2:
+                try:
+                    await settle_match(db, doc)
+                except Exception as exc:
+                    log.debug("settle_match in sweep failed: %s", exc)
+    except Exception as exc:
+        log.debug("settlement hook unavailable: %s", exc)
     return int(res.modified_count or 0)

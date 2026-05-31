@@ -397,19 +397,58 @@ async def get_bullpen_recent_usage(db, team_id: int, days: int = 3) -> Optional[
             games_played += 1
             if len(innings) > 9:
                 extra_inning_games += 1
-    fatigue_score = min(100, games_played * 25 + extra_inning_games * 15)
+    # ── Pitch-stress augmentation (M2) ─────────────────────────────────
+    # Best-effort: query the real box-score for pitch counts over the
+    # last 48h. Falls back to 0 stress if MLB Stats returns nothing — in
+    # which case `fatigue_score` is computed with the legacy formula.
+    pitch_stress = 0.0
+    bullpen_pitches_48h = 0
+    bullpen_innings_48h = 0.0
+    starter_lasted_innings: Optional[float] = None
+    try:
+        from .mlb_bullpen_real_usage import (
+            fetch_recent_bullpen_workload, compute_fatigue_score, derive_fatigue_label,
+        )
+        workload = await fetch_recent_bullpen_workload(team_id, days=min(days, 2))
+        if workload:
+            pitch_stress = workload.get("pitch_stress_index") or 0.0
+            bullpen_pitches_48h = workload.get("bullpen_pitches_48h") or 0
+            bullpen_innings_48h = workload.get("bullpen_innings_48h") or 0.0
+            starter_lasted_innings = workload.get("starter_lasted_innings")
+            fatigue_score = compute_fatigue_score(
+                games_played, extra_inning_games, pitch_stress,
+            )
+            fatigue_label = derive_fatigue_label(fatigue_score)
+        else:
+            fatigue_score = min(100, games_played * 25 + extra_inning_games * 15)
+            fatigue_label = (
+                "fresh" if fatigue_score < 30 else
+                "moderate" if fatigue_score < 60 else
+                "high" if fatigue_score < 85 else
+                "extreme"
+            )
+    except Exception as exc:
+        log.debug("bullpen pitch_stress aug failed for %s: %s", team_id, exc)
+        fatigue_score = min(100, games_played * 25 + extra_inning_games * 15)
+        fatigue_label = (
+            "fresh" if fatigue_score < 30 else
+            "moderate" if fatigue_score < 60 else
+            "high" if fatigue_score < 85 else
+            "extreme"
+        )
+
     payload = {
         "team_id": team_id,
         "days": days,
         "games_played_recent": games_played,
         "extra_inning_games_recent": extra_inning_games,
         "fatigue_score_0_100": fatigue_score,
-        "fatigue_label": (
-            "fresh" if fatigue_score < 30 else
-            "moderate" if fatigue_score < 60 else
-            "high" if fatigue_score < 85 else
-            "extreme"
-        ),
+        "fatigue_label": fatigue_label,
+        # ── M2 extension fields (optional, may be 0 when API not available) ──
+        "pitch_stress_index":      pitch_stress,
+        "bullpen_pitches_48h":     bullpen_pitches_48h,
+        "bullpen_innings_48h":     bullpen_innings_48h,
+        "starter_lasted_innings":  starter_lasted_innings,
     }
     await _cache_put(db, key, payload, TTL_TEAM_FORM)
     return payload
