@@ -2037,6 +2037,164 @@ async def picks_today(
     }
 
 
+@api.get("/picks/today/live")
+async def picks_today_live(
+    sport: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Return only the picks from today's snapshot that are tagged as
+    `is_live_route=True` — i.e. games already in progress at the time of
+    pick generation.
+
+    Why a dedicated endpoint?
+      • The dashboard's main `/picks/today` returns the full mixed set
+        (pregame + live-route) so the user keeps a single view of the
+        day's analysis.
+      • Power users / mobile widgets sometimes want a focused "in
+        progress" panel that updates faster. This endpoint gives them
+        exactly that, with the same stale-detection / auto-refresh
+        semantics as `/picks/today`.
+
+    Response shape mirrors `/picks/today` but the `pick_run.payload`
+    arrays are pre-filtered to in-progress entries only, plus a
+    convenience `counts` block. When the upstream snapshot is stale this
+    endpoint also dispatches the background refresh.
+    """
+    s = _norm_sport(sport)
+    query = {
+        "user_id": user["id"],
+        **(
+            {"sport": s}
+            if s != "football"
+            else {"$or": [{"sport": "football"}, {"sport": {"$exists": False}}]}
+        ),
+    }
+    doc = await db.picks.find_one(query, sort=[("generated_at", -1)])
+
+    # Reuse the exact stale-detection / auto-refresh logic from
+    # /picks/today to keep behavior consistent.
+    STALE_AFTER_MINUTES = 120
+    now_utc = datetime.now(timezone.utc)
+    stale = False
+    stale_reason: Optional[str] = None
+    if doc:
+        gen_at_raw = doc.get("generated_at")
+        gen_at: Optional[datetime] = None
+        if isinstance(gen_at_raw, datetime):
+            gen_at = gen_at_raw if gen_at_raw.tzinfo else gen_at_raw.replace(tzinfo=timezone.utc)
+        elif isinstance(gen_at_raw, str):
+            try:
+                gen_at = datetime.fromisoformat(gen_at_raw.replace("Z", "+00:00"))
+                if gen_at.tzinfo is None:
+                    gen_at = gen_at.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                gen_at = None
+        if gen_at is None:
+            stale, stale_reason = True, "no_generated_at"
+        else:
+            age_min = (now_utc - gen_at).total_seconds() / 60.0
+            if age_min > STALE_AFTER_MINUTES:
+                stale, stale_reason = True, f"older_than_{STALE_AFTER_MINUTES}m"
+            elif gen_at.astimezone(timezone.utc).date() != now_utc.date():
+                stale, stale_reason = True, "different_utc_day"
+
+    refresh_dispatched = False
+    refresh_job_id: Optional[str] = None
+    if stale or not doc:
+        try:
+            active_jobs = await job_queue.list_active(db, user["id"], limit=10)
+            already_running = any(
+                j.get("kind") == "analysis_run"
+                and j.get("stage") not in job_queue.TERMINAL
+                and (j.get("params") or {}).get("sport") == s
+                for j in (active_jobs or [])
+            )
+        except Exception:
+            already_running = False
+        if not already_running:
+            try:
+                async def _refresh_job(job_id: str) -> None:
+                    async def _progress(stage: str, pct: int, msg: str):
+                        await job_queue.update_progress(db, job_id, stage, pct, msg)
+                    try:
+                        result = await _run_analysis_pipeline(
+                            user_id=user["id"],
+                            sport=s,
+                            refresh=True,
+                            include_live=True,
+                            max_matches=10,
+                            progress_cb=_progress,
+                            live_only=False,
+                            big_five_only=False,
+                        )
+                        await job_queue.finish(db, job_id, result)
+                    except Exception as exc:
+                        log.exception("auto-refresh (live endpoint) failed")
+                        await job_queue.fail(db, job_id, str(exc))
+
+                refresh_job_id = await job_queue.enqueue_async(
+                    db, _refresh_job, user_id=user["id"], kind="analysis_run",
+                    params={"sport": s, "refresh": True, "include_live": True,
+                             "max_matches": 10, "auto": True, "source": "live_endpoint"},
+                )
+                refresh_dispatched = True
+            except Exception as exc:
+                log.warning("/picks/today/live auto-refresh dispatch failed: %s", exc)
+
+    if not doc:
+        return {
+            "pick_run":           None,
+            "sport":              s,
+            "stale":              True,
+            "stale_reason":       "no_snapshot",
+            "refresh_dispatched": refresh_dispatched,
+            "refresh_job_id":     refresh_job_id,
+            "counts":             {"picks": 0, "rescued": 0, "discarded": 0, "total": 0},
+        }
+
+    cleaned = _clean(doc)
+    payload = (cleaned.get("payload") or {}) if isinstance(cleaned.get("payload"), dict) else cleaned
+    # /api/mlb/day returns picks at top-level; /api/picks/today wraps them
+    # under `payload`. Support both shapes transparently.
+    summary = payload.get("summary") or {}
+
+    def _filter_live(entries):
+        if not isinstance(entries, list):
+            return []
+        return [e for e in entries if isinstance(e, dict) and bool(e.get("is_live_route"))]
+
+    picks_live     = _filter_live(payload.get("picks") or summary.get("picks"))
+    rescued_live   = _filter_live(payload.get("rescued_picks") or summary.get("rescued_picks"))
+    discarded_live = _filter_live(payload.get("discarded_picks")
+                                   or summary.get("discarded_market"))
+
+    # Inject the filtered payload back into the response so consumers
+    # keep the familiar shape, just with shorter arrays.
+    if isinstance(cleaned.get("payload"), dict):
+        cleaned["payload"]["picks"]            = picks_live
+        cleaned["payload"]["rescued_picks"]    = rescued_live
+        cleaned["payload"]["discarded_picks"]  = discarded_live
+    else:
+        cleaned["picks"]            = picks_live
+        cleaned["rescued_picks"]    = rescued_live
+        cleaned["discarded_picks"]  = discarded_live
+
+    return {
+        "pick_run":           cleaned,
+        "sport":              s,
+        "stale":              stale,
+        "stale_reason":       stale_reason,
+        "refresh_dispatched": refresh_dispatched,
+        "refresh_job_id":     refresh_job_id,
+        "counts": {
+            "picks":     len(picks_live),
+            "rescued":   len(rescued_live),
+            "discarded": len(discarded_live),
+            "total":     len(picks_live) + len(rescued_live) + len(discarded_live),
+        },
+    }
+
+
 @api.get("/mlb/day")
 async def mlb_day(date: Optional[str] = None, user: dict = Depends(get_current_user)):
     """MLB Pre-game Analytics Engine — repeatable-edge focused.

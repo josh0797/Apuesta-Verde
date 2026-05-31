@@ -1394,16 +1394,20 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
     # Baseball-specific: keep IN-PROGRESS games so the MLB live engine can
     # re-evaluate them. They are tagged `_live_route=True` for the
     # orchestrator to branch into the live re-evaluation path.
+    # All three core sports now keep IN-PROGRESS matches so the per-sport
+    # live engines can re-evaluate them. Each kept live match is tagged
+    # `_live_route=True` by `filter_upcoming` so the downstream branches
+    # can flip into the live re-evaluation flow.
     from .time_filter import filter_upcoming
     matches_payload, dropped_past = filter_upcoming(
         matches_payload, buffer_minutes=15,
-        allow_live_for_sports={"baseball"},
+        allow_live_for_sports={"baseball", "basketball", "football"},
     )
     live_routed_ids = [m.get("match_id") for m in matches_payload
                         if m.get("_live_route")]
     if live_routed_ids:
-        log.info("time_filter: routing %d baseball live matches to live engine: %s",
-                 len(live_routed_ids), live_routed_ids[:10])
+        log.info("time_filter: routing %d %s live matches to live engine: %s",
+                 len(live_routed_ids), sport, live_routed_ids[:10])
     pipeline_meta: dict[str, Any] = {
         "stage0_dropped_past_or_finished": len(dropped_past),
         "stage0_dropped_match_ids": [m.get("match_id") for m in dropped_past[:20]],
@@ -2166,6 +2170,35 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
     parsed["_session_id"] = session_id
     parsed["_provider"] = provider_used
     parsed["_sport"] = sport
+    # ── Live-route propagation (FIX C, multi-sport) ─────────────────
+    # Each match kept by `filter_upcoming` carries `_live_route=True`
+    # when it was already in progress. Propagate that flag to every
+    # pick/rescued/discarded entry so the UI (MatchCard "EN VIVO"
+    # badge + the new /picks/today/live endpoint) can identify mid-game
+    # analyses across all sports.
+    try:
+        live_map = {
+            m.get("match_id"): bool(m.get("_live_route"))
+            for m in matches_payload
+            if m.get("match_id") is not None
+        }
+        if any(live_map.values()):
+            summary_block = parsed.get("summary") or {}
+            for key in ("picks", "rescued_picks", "discarded_market",
+                         "watchlist", "watchlist_picks"):
+                entries = summary_block.get(key) or []
+                if not isinstance(entries, list):
+                    continue
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    mid = entry.get("match_id")
+                    if mid is not None and live_map.get(mid):
+                        entry["is_live_route"] = True
+            parsed["summary"] = summary_block
+            parsed["_live_route_count"] = sum(1 for v in live_map.values() if v)
+    except Exception as exc:
+        log.debug("live-route propagation failed: %s", exc)
     # Merge editorial_signal_aggregation into pipeline_meta instead of overwriting
     pipeline_meta.update(parsed.get("_pipeline", {}))
     parsed["_pipeline"] = pipeline_meta

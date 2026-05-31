@@ -1,18 +1,18 @@
 [
   {
-    "content": "FIX A — Permitir partidos in-progress en orquestador MLB",
+    "content": "A — Extender allow_live_for_sports a {baseball, basketball, football} en analyst_engine",
     "status": "completed"
   },
   {
-    "content": "FIX B — Auto-refresh del snapshot en /api/picks/today",
+    "content": "A — Propagar is_live_route a picks/rescued/discarded/watchlist en analyst_engine",
     "status": "completed"
   },
   {
-    "content": "FIX C — Marcar picks con is_live_route + badge EN VIVO + banner Actualizando…",
+    "content": "B — Crear endpoint /api/picks/today/live con filtrado + auto-refresh",
     "status": "completed"
   },
   {
-    "content": "Verificación E2E confirmada",
+    "content": "Verificación multi-sport sin regresiones",
     "status": "completed"
   }
 ]
