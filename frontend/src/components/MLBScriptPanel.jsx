@@ -73,6 +73,10 @@ export function MLBScriptPanel({
   underFragilityWarning = null,
   scriptPickMismatchNarrative = null,
   biasPenaltyMeta = null,
+  activeSeriesContext = null,
+  seriesDegradation = null,
+  modelVerification = null,
+  activeSeriesBlock = null,
   testId,
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -226,6 +230,91 @@ export function MLBScriptPanel({
           ).
         </div>
       ) : null}
+
+      {/* Active Series Context Badge (Module #1) */}
+      {(activeSeriesContext?.available && (activeSeriesContext.games_in_series || 0) >= 2) && (
+        <div
+          className={`rounded-md border px-2.5 py-1.5 text-[11px] leading-snug space-y-0.5 ${
+            activeSeriesContext.series_override
+              ? 'border-rose-500/40 bg-rose-500/10 text-rose-200'
+              : 'border-amber-500/30 bg-amber-500/5 text-amber-200'
+          }`}
+          data-testid={`${testId || 'mlb-script'}-series-context`}
+        >
+          <div className="flex items-center gap-1 font-medium">
+            ⚠ Serie activa ({activeSeriesContext.games_in_series} juegos)
+            {activeSeriesContext.series_lean && activeSeriesContext.series_lean !== 'NEUTRAL' && (
+              <span className={`ml-auto inline-block px-1 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                activeSeriesContext.series_lean === 'OVER'
+                  ? 'bg-rose-500/15 text-rose-200'
+                  : 'bg-sky-500/15 text-sky-200'
+              }`}>
+                Lean: {activeSeriesContext.series_lean}
+              </span>
+            )}
+          </div>
+          <div className="text-[10.5px]">
+            Promedio: <span className="font-semibold tabular-nums">{Number(activeSeriesContext.total_runs_avg).toFixed(1)} carreras</span>
+            {activeSeriesContext.over_rate != null && (
+              <span className="ml-2">· Over rate: {(activeSeriesContext.over_rate * 100).toFixed(0)}%</span>
+            )}
+          </div>
+          {seriesDegradation && (
+            <div className="text-[10.5px] opacity-90">
+              Degradación G{seriesDegradation.game_in_series}: ER ajustado
+              <span className="font-semibold tabular-nums ml-1">
+                {seriesDegradation.original_er} → {seriesDegradation.adjusted_er}
+              </span>
+              <span className="ml-1">(+{seriesDegradation.adjustment})</span>
+            </div>
+          )}
+          {activeSeriesContext.override_reason && (
+            <div className="text-[10.5px] italic opacity-90">{activeSeriesContext.override_reason}</div>
+          )}
+        </div>
+      )}
+
+      {/* Active Series block — pick rechazado por contradicción de serie */}
+      {activeSeriesBlock && (
+        <div
+          className="rounded-md border border-rose-500/50 bg-rose-500/15 px-2.5 py-1.5 text-[11px] leading-snug text-rose-100 space-y-0.5"
+          data-testid={`${testId || 'mlb-script'}-series-block`}
+        >
+          <div className="font-semibold">⛔ Pick bloqueado por serie activa</div>
+          <div className="text-[10.5px]">
+            Mercado: <span className="font-medium">{activeSeriesBlock.blocked_market}</span>
+            {activeSeriesBlock.series_avg_runs != null && (
+              <span className="ml-2">· Serie {activeSeriesBlock.series_avg_runs} carreras / juego</span>
+            )}
+          </div>
+          {activeSeriesBlock.override_reason && (
+            <div className="text-[10.5px] opacity-90">{activeSeriesBlock.override_reason}</div>
+          )}
+        </div>
+      )}
+
+      {/* Model Verification ribbon — surfaces UNDERESTIMATE / OVERESTIMATE flags */}
+      {modelVerification?.model_vs_reality?.flag && modelVerification.model_vs_reality.flag !== 'OK' && (
+        <div
+          className={`rounded-md border px-2.5 py-1 text-[10.5px] leading-snug ${
+            modelVerification.model_vs_reality.flag === 'UNDERESTIMATE'
+              ? 'border-rose-500/30 bg-rose-500/5 text-rose-200'
+              : 'border-cyan-500/30 bg-cyan-500/5 text-cyan-200'
+          }`}
+          data-testid={`${testId || 'mlb-script'}-verification`}
+        >
+          {modelVerification.model_vs_reality.flag === 'UNDERESTIMATE' ? '↗ Modelo subestima' : '↘ Modelo sobreestima'}
+          {modelVerification.model_vs_reality.delta != null && (
+            <span className="ml-1 tabular-nums font-semibold">
+              Δ {modelVerification.model_vs_reality.delta > 0 ? '+' : ''}
+              {modelVerification.model_vs_reality.delta} carreras
+            </span>
+          )}
+          {modelVerification.confidence_penalty > 0 && (
+            <span className="ml-2 opacity-90">· -{modelVerification.confidence_penalty} pts conf.</span>
+          )}
+        </div>
+      )}
 
       {expanded && (
         <div className="pt-1 space-y-3" data-testid={`${testId || 'mlb-script-panel'}-body`}>

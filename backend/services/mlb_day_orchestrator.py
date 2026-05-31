@@ -1382,6 +1382,142 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as exc:
             log.debug("MLB-V5 extra signal emission failed: %s", exc)
 
+        # ══════════════════════════════════════════════════════════════════
+        # REAL STATS VERIFICATION LAYER (Modules 1 + 3 + 4 + 5)
+        # ══════════════════════════════════════════════════════════════════
+        # Targets the Twins @ Pirates 2026-05-31 disaster where the engine
+        # projected ER=6.9 while the active series was averaging 15 runs.
+        # Four modules collaborate in sequence (each fail-soft):
+        #   M1  active_series_context — query finished H2H games (≤4d).
+        #   M3  series_degradation    — bump ER for G2/G3 of a series.
+        #   M5  dynamic_park_factor   — blend historical & recent RPG.
+        #   M4  verify_model_inputs   — penalize ghost edges.
+        # If M1 detects override + chosen_market is Under-like, we null the
+        # chosen_market so the pick falls to the next bucket (no veto via
+        # rescue — the existing Under Veto Layer below still gets a chance
+        # if the rescue tries another Under variant).
+        try:
+            from .mlb_active_series_analyzer import get_active_series_context
+            from .mlb_pitcher_series_degradation import apply_series_degradation
+            from .mlb_real_stats_verifier import verify_model_inputs
+            from .mlb_park_factor_live import get_dynamic_park_factor
+
+            v2_block = pick_payload.get("_mlb_script_v2") or {}
+            # `conf` from `_confirm_pitchers_statsapi` carries names as
+            # `home_team_name` / `away_team_name` (NOT as dict). Fall back
+            # to dict shape just in case future code uses it.
+            home_name = (
+                conf.get("home_team_name")
+                or ((conf.get("home_team") or {}).get("name") if isinstance(conf.get("home_team"), dict) else conf.get("home_team"))
+            )
+            away_name = (
+                conf.get("away_team_name")
+                or ((conf.get("away_team") or {}).get("name") if isinstance(conf.get("away_team"), dict) else conf.get("away_team"))
+            )
+            kickoff_iso = conf.get("gameDate") or conf.get("kickoff_iso")
+            date_str = (kickoff_iso or "")[:10] if kickoff_iso else None
+            base_er = v2_block.get("expectedRuns") or (locals().get("v5_block") or {}).get("expectedRuns")
+
+            # ── M1: Active-Series Context ─────────────────────────────
+            series_ctx = await get_active_series_context(
+                db, home_name, away_name, date_str,
+                days_back=4,
+                model_expected_runs=base_er,
+                over_under_line=float(v2_block.get("smartTotalsLine") or 9.5),
+            )
+            pick_payload["active_series_context"] = series_ctx
+
+            # ── M3: Series degradation (only if series has games) ────
+            if base_er and series_ctx.get("games_in_series", 0) >= 1:
+                g_next = int(series_ctx["games_in_series"]) + 1
+                degraded = apply_series_degradation(
+                    expected_runs=float(base_er),
+                    game_number_in_series=g_next,
+                    starter_faced_lineup_before=series_ctx["games_in_series"] >= 1,
+                )
+                pick_payload["series_degradation"] = degraded
+                # Propagate the adjusted ER back to v2 block + recompute
+                # marginVsLine downstream picks it up via the FIX#2 guard.
+                if degraded.get("adjusted_er") is not None:
+                    v2_block["expectedRunsRaw"] = base_er
+                    v2_block["expectedRuns"]    = degraded["adjusted_er"]
+                    pick_payload["_mlb_script_v2"] = v2_block
+                    base_er = degraded["adjusted_er"]
+
+            # ── M5: Dynamic park factor (informational + audit) ───────
+            try:
+                home_rpg_15 = (
+                    (pick_payload.get("baseballHistoricalProfile") or {})
+                    .get("home", {}).get("rollingRunsAvg")
+                )
+                park_hist = (
+                    (pick_payload.get("baseballHistoricalProfile") or {})
+                    .get("park", {}).get("runFactor")
+                ) or 1.0
+                park_dyn = get_dynamic_park_factor(park_hist, home_rpg_15)
+                pick_payload["park_factor_live"] = park_dyn
+            except Exception as exc_pf:
+                log.debug("park_factor_live compute failed: %s", exc_pf)
+
+            # ── M4: Verify model inputs ──────────────────────────────
+            try:
+                scoring_ctx_for_verify = {
+                    "home_pitcher":   (pick_payload.get("baseballHistoricalProfile") or {}).get("pitching", {}).get("homeStarter", {}),
+                    "away_pitcher":   (pick_payload.get("baseballHistoricalProfile") or {}).get("pitching", {}).get("awayStarter", {}),
+                    "model_era_home": v2_block.get("modelEraHome") or v2_block.get("model_era_home"),
+                    "model_era_away": v2_block.get("modelEraAway") or v2_block.get("model_era_away"),
+                    "active_series_context": series_ctx,
+                    "home_runs_per_game_model": v2_block.get("homeRunsPerGameModel"),
+                    "home_batting": (
+                        (pick_payload.get("baseballHistoricalProfile") or {})
+                        .get("home", {})
+                    ),
+                }
+                verification = await verify_model_inputs(
+                    db, scoring_ctx_for_verify, base_er,
+                    chosen_market.get("market") if chosen_market else None,
+                )
+                pick_payload["model_verification"] = verification
+                # Apply confidence penalty to chosen_market score.
+                penalty = int(verification.get("confidence_penalty") or 0)
+                if penalty > 0 and chosen_market and isinstance(chosen_market.get("score"), (int, float)):
+                    new_score = max(0, float(chosen_market["score"]) - penalty)
+                    chosen_market["score"] = new_score
+                    best_score = max(0, (best_score or 0) - penalty)
+                    chosen_market["rationale"] = (
+                        (chosen_market.get("rationale") or "")
+                        + f" | Model verification -{penalty}: "
+                        + (verification["model_vs_reality"].get("flag") or "")
+                    ).strip(" |")
+            except Exception as exc_v:
+                log.debug("verify_model_inputs failed: %s", exc_v)
+
+            # ── M1 OVERRIDE: block Under when series contradicts it ──
+            if (chosen_market
+                    and series_ctx.get("series_override")
+                    and series_ctx.get("series_lean") == "OVER"):
+                cm = (chosen_market.get("market") or "").lower().replace("underdog", "")
+                if ("under" in cm) or ("nrfi" in cm):
+                    log.warning(
+                        "ACTIVE_SERIES_OVERRIDE game=%s: Under blocked. "
+                        "Series avg %.1f runs vs ER %.1f.",
+                        conf.get("game_pk"),
+                        float(series_ctx.get("total_runs_avg") or 0),
+                        float(base_er or 0),
+                    )
+                    pick_payload["active_series_block"] = {
+                        "blocked_market":   chosen_market.get("market"),
+                        "blocked_score":    chosen_market.get("score"),
+                        "reason":           "ACTIVE_SERIES_CONTRADICTS_UNDER",
+                        "series_avg_runs":  series_ctx.get("total_runs_avg"),
+                        "series_games":     series_ctx.get("games_in_series"),
+                        "override_reason":  series_ctx.get("override_reason"),
+                    }
+                    chosen_market = None
+                    best_score = 0
+        except Exception as exc:
+            log.debug("real-stats verification layer failed: %s", exc)
+
         # ── MLB UNDER VETO LAYER (central kill-switch) ──────────────────
         # Última línea de defensa antes de finalizar la recomendación.
         # Si el chosen_market es Under (full game / F5 / team total) y

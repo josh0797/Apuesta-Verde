@@ -1,18 +1,38 @@
 [
   {
-    "content": "A — Extender allow_live_for_sports a {baseball, basketball, football} en analyst_engine",
+    "content": "Guardar BRIGHTDATA_TOKEN en backend/.env + crear brightdata_client.py helper",
     "status": "completed"
   },
   {
-    "content": "A — Propagar is_live_route a picks/rescued/discarded/watchlist en analyst_engine",
+    "content": "M1 — mlb_active_series_analyzer.py",
     "status": "completed"
   },
   {
-    "content": "B — Crear endpoint /api/picks/today/live con filtrado + auto-refresh",
+    "content": "M3 — mlb_pitcher_series_degradation.py",
     "status": "completed"
   },
   {
-    "content": "Verificación multi-sport sin regresiones",
+    "content": "M4 — mlb_real_stats_verifier.py",
     "status": "completed"
+  },
+  {
+    "content": "M5 — mlb_park_factor_live.py",
+    "status": "completed"
+  },
+  {
+    "content": "Integración en mlb_day_orchestrator.py",
+    "status": "completed"
+  },
+  {
+    "content": "UI: SeriesContextBadge en MLBScriptPanel.jsx",
+    "status": "completed"
+  },
+  {
+    "content": "Verificación con caso real Twins@Pirates",
+    "status": "completed"
+  },
+  {
+    "content": "[Iter siguiente] M2 (mlb_bullpen_real_usage.py) requiere cambios en mlb_stats_api.py",
+    "status": "pending"
   }
 ]

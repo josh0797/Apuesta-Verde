@@ -542,6 +542,196 @@ def compute_basketball_profile(
     }
 
 
+# ── Phase 2 enrichment helpers (espejo MLB) ─────────────────────────────
+#
+# These helpers mutate the existing `profile` dict in place to add three
+# optional blocks the spec asks for:
+#
+#   profile["restAdvantage"] = {homeRestDays, awayRestDays, edge, advantageSide}
+#   profile["paceFactor"]    = {leagueAvgPace, projectedPace, factor, code}
+#   profile["keyPlayers"]    = {home:[{name,status,impact}], away:[…], _source}
+#
+# They live next to the public compute / enrich pair so callers don't have
+# to import a second module. Each function MUST be fail-soft.
+# ─────────────────────────────────────────────────────────────────────────
+
+def _parse_iso_to_dt(iso_str: Optional[str]) -> Optional[datetime]:
+    if not iso_str or not isinstance(iso_str, str):
+        return None
+    try:
+        s = iso_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _attach_rest_advantage(
+    profile: dict,
+    home_games: list[dict],
+    away_games: list[dict],
+    match: dict,
+) -> None:
+    """Compute rest days for each side relative to the next match kickoff.
+
+    Rest days = days between the latest finished game and the match
+    kickoff (UTC). Edge = home_rest - away_rest (positive ⇒ home rests
+    more). Falls back to None if either side has no recent completed
+    games.
+    """
+    kickoff = _parse_iso_to_dt(match.get("kickoff_iso") or match.get("date"))
+    if kickoff is None:
+        return
+
+    def _latest_kickoff(games: list[dict]) -> Optional[datetime]:
+        latest: Optional[datetime] = None
+        for g in games or []:
+            date_str = (g.get("date") or {}).get("start") if isinstance(g.get("date"), dict) else g.get("date")
+            d = _parse_iso_to_dt(date_str)
+            if d is None or d >= kickoff:
+                continue
+            if latest is None or d > latest:
+                latest = d
+        return latest
+
+    h_latest = _latest_kickoff(home_games)
+    a_latest = _latest_kickoff(away_games)
+    if h_latest is None or a_latest is None:
+        return
+
+    h_rest = round((kickoff - h_latest).total_seconds() / 86400.0, 1)
+    a_rest = round((kickoff - a_latest).total_seconds() / 86400.0, 1)
+    edge = round(h_rest - a_rest, 1)
+    if edge >= 1.0:
+        side = "home"
+    elif edge <= -1.0:
+        side = "away"
+    else:
+        side = "neutral"
+
+    profile["restAdvantage"] = {
+        "homeRestDays":   h_rest,
+        "awayRestDays":   a_rest,
+        "edge":           edge,
+        "advantageSide":  side,
+    }
+
+
+def _attach_pace_factor(profile: dict, league_name: Optional[str]) -> None:
+    """Surface a normalized pace factor (1.0 = league average).
+
+    Uses `combined.projectedTotalPoints` and the league baseline already
+    computed by `_build_combined`. Caller can read `paceFactor.factor`
+    directly without re-deriving it on the UI side.
+    """
+    combined = profile.get("combined") or {}
+    projected = combined.get("projectedTotalPoints")
+    league_avg = combined.get("leagueAvgTotalUsed") or _league_baseline(league_name)
+    if not projected or not league_avg:
+        return
+    try:
+        factor = round(float(projected) / float(league_avg), 3)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return
+    if factor >= 1.05:
+        code = "HIGH"
+    elif factor <= 0.95:
+        code = "LOW"
+    else:
+        code = "NEUTRAL"
+    profile["paceFactor"] = {
+        "leagueAvgPace":  round(float(league_avg), 1),
+        "projectedPace":  round(float(projected), 1),
+        "factor":         factor,
+        "code":           code,
+    }
+
+
+def _attach_key_players(profile: dict, match: dict) -> None:
+    """Surface key-player status when available on the match document.
+
+    We DON'T scrape new sources — we read whatever the upstream
+    `match.injuries` / `match.lineups` ingestion already put on the
+    document. When nothing is available the block is omitted entirely
+    so the UI can hide its section.
+    """
+    src = match.get("injuries") or {}
+    home_il = src.get("home_il_players") or src.get("home") or []
+    away_il = src.get("away_il_players") or src.get("away") or []
+
+    def _norm_entry(p) -> Optional[dict]:
+        if isinstance(p, str) and p.strip():
+            return {"name": p.strip(), "status": "out", "impact": "unknown"}
+        if isinstance(p, dict):
+            name = p.get("name") or p.get("player_name") or p.get("player")
+            if not name:
+                return None
+            return {
+                "name":   name,
+                "status": (p.get("status") or p.get("availability") or "out").lower(),
+                "impact": (p.get("impact") or p.get("role") or "unknown").lower(),
+            }
+        return None
+
+    home_norm = [e for e in (_norm_entry(p) for p in home_il) if e][:3]
+    away_norm = [e for e in (_norm_entry(p) for p in away_il) if e][:3]
+    if not home_norm and not away_norm:
+        return
+    profile["keyPlayers"] = {
+        "home":     home_norm,
+        "away":     away_norm,
+        "_source":  "upstream_injuries_block",
+    }
+
+
+def _augment_trend_summary(profile: dict) -> None:
+    """Add 2-3 deeper Spanish phrases derived from the enrichment blocks
+    so the UI's "Patrones detectados" section gets a richer signal mix.
+
+    We append (never overwrite) to keep backward-compatibility with any
+    consumer that ordered phrases for display.
+    """
+    combined = profile.get("combined") or {}
+    phrases = list(combined.get("trendSummary") or [])
+
+    # Rest-advantage phrase.
+    ra = profile.get("restAdvantage")
+    if ra and ra.get("advantageSide") in ("home", "away"):
+        side = "local" if ra["advantageSide"] == "home" else "visitante"
+        edge = ra.get("edge") or 0
+        phrases.append(
+            f"Ventaja de descanso para el {side}: {abs(edge):.1f} días más de descanso."
+        )
+
+    # Pace-factor phrase.
+    pf = profile.get("paceFactor")
+    if pf:
+        if pf["code"] == "HIGH":
+            phrases.append(
+                f"Pace proyectado elevado ({pf['projectedPace']:.1f} vs liga {pf['leagueAvgPace']:.0f}) — favorece partidos altos."
+            )
+        elif pf["code"] == "LOW":
+            phrases.append(
+                f"Pace proyectado bajo ({pf['projectedPace']:.1f} vs liga {pf['leagueAvgPace']:.0f}) — favorece partidos cerrados."
+            )
+
+    # Key-player phrase.
+    kp = profile.get("keyPlayers") or {}
+    high_impact_out = [
+        p for side in ("home", "away") for p in (kp.get(side) or [])
+        if (p.get("status") in ("out", "doubtful")) and (p.get("impact") in ("star", "high", "starter"))
+    ]
+    if high_impact_out:
+        names = ", ".join(p["name"] for p in high_impact_out[:2])
+        phrases.append(f"Bajas relevantes: {names} — impacto ofensivo/defensivo proyectado.")
+
+    if len(phrases) > len(combined.get("trendSummary") or []):
+        combined["trendSummary"] = phrases[:8]  # cap to avoid noise
+        profile["combined"] = combined
+
+
 # ── Async I/O wrappers (API-Sports backed) ──────────────────────────────
 async def _fetch_team_games(
     client: httpx.AsyncClient,
@@ -652,6 +842,29 @@ async def enrich_basketball_historical_profile(
         h2h_team_views_pairs=h2h_view,
         league_name=league_name,
     )
+
+    # ── Phase 2 enrichment (espejo MLB) ──────────────────────────────
+    # Add three optional blocks on top of the base profile. Each one is
+    # fail-soft: if the data isn't there the block is omitted and the
+    # rest of the profile is untouched.
+    try:
+        _attach_rest_advantage(profile, home_games, away_games, match)
+    except Exception as exc:
+        log.debug("rest_advantage attach failed: %s", exc)
+    try:
+        _attach_pace_factor(profile, league_name)
+    except Exception as exc:
+        log.debug("pace_factor attach failed: %s", exc)
+    try:
+        _attach_key_players(profile, match)
+    except Exception as exc:
+        log.debug("key_players attach failed: %s", exc)
+    try:
+        _augment_trend_summary(profile)
+    except Exception as exc:
+        log.debug("trend_summary augment failed: %s", exc)
+
+    profile["_engine_version"] = ENGINE_VERSION + "+v2"
     return profile
 
 

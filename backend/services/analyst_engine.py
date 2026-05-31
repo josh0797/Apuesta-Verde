@@ -1969,6 +1969,41 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
                 "entries_annotated": attached,
                 "engine_version":    "basketball-hist.1",
             }
+
+            # ── Pattern alignment (espejo MLB iteration_50) ──
+            # For every entry that has a profile + a final recommended
+            # market, classify each Spanish trend phrase as SUPPORTS /
+            # OPPOSES / NEUTRAL and attach the result to
+            # basketballHistoricalProfile.combined.patternAlignment so the
+            # frontend `PatternAlignmentSection` (already sport-agnostic)
+            # renders the three buckets automatically.
+            try:
+                from .pattern_alignment_classifier_basketball import (
+                    classify_patterns_for_market_bball,
+                )
+                aligned = 0
+                for bucket in buckets:
+                    for entry in bucket:
+                        hp = entry.get("basketballHistoricalProfile") or {}
+                        combined_block = hp.get("combined") or {}
+                        phrases = combined_block.get("trendSummary") or []
+                        if not phrases:
+                            continue
+                        rec = entry.get("recommendation") or {}
+                        market = rec.get("market") if isinstance(rec, dict) else None
+                        if not market:
+                            continue
+                        combined_block["patternAlignment"] = (
+                            classify_patterns_for_market_bball(list(phrases), market)
+                        )
+                        hp["combined"] = combined_block
+                        entry["basketballHistoricalProfile"] = hp
+                        aligned += 1
+                parsed["_pipeline"]["basketball_pattern_alignment"] = {
+                    "entries_classified": aligned,
+                }
+            except Exception as exc_pa:
+                log.debug("basketball pattern_alignment failed: %s", exc_pa)
         except Exception as exc:
             log.warning("basketball historical annotation failed: %s", exc)
 

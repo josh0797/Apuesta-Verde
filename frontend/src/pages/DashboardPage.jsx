@@ -11,6 +11,7 @@ import { AnalysisProgressModal } from '@/components/AnalysisProgressModal';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { MatchCard } from '@/components/MatchCard';
+import { LiveTodayPanel } from '@/components/LiveTodayPanel';
 import { SkippedMatchRow } from '@/components/FootballQualityBadge';
 import { EmptyStateNoValue } from '@/components/EmptyStateNoValue';
 import { PicksFilterBar } from '@/components/PicksFilterBar';
@@ -715,6 +716,12 @@ export default function DashboardPage() {
           testId="editorial-signal-summary"
         />
       )}
+
+      {/* In-progress picks panel — polls /api/picks/today/live every 30s
+          and renders only the picks whose underlying matches were
+          already mid-game when the snapshot was generated. Self-hides
+          when there are no live picks AND the snapshot is fresh. */}
+      <LiveTodayPanel sport={sport} lang={lang} testId="live-today-panel" />
 
       {data && allPicks.length > 0 && (
         <PicksFilterBar

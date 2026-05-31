@@ -207,6 +207,16 @@ export function HistoricalProfilePanel({ profile, sport = 'basketball', testId =
             )
           )}
 
+          {/* Basketball-only: enriched context blocks (Phase 2 mirror of MLB) */}
+          {isBasketball && (profile.restAdvantage || profile.paceFactor || profile.keyPlayers) && (
+            <BasketballExtrasBlock
+              restAdvantage={profile.restAdvantage}
+              paceFactor={profile.paceFactor}
+              keyPlayers={profile.keyPlayers}
+              testId={`${testId}-bk-extras`}
+            />
+          )}
+
           {/* Trend phrases */}
           {patternAlignment ? (
             <PatternAlignmentSection
@@ -514,6 +524,114 @@ function BullpenLabel({ side, data }) {
       <span className="text-slate-500">
         ({data.gamesPlayedRecent ?? '?'} jg/{data.lookbackDays ?? 3}d)
       </span>
+    </div>
+  );
+}
+
+/**
+ * BasketballExtrasBlock
+ * ---------------------
+ * Surfaces the three Phase-2 basketball enrichment blocks:
+ *
+ *   • restAdvantage  → días de descanso de cada lado y el side con la ventaja.
+ *   • paceFactor     → factor pace proyectado vs media de la liga.
+ *   • keyPlayers     → bajas/dudas con impact ofensivo/defensivo.
+ *
+ * The block stays inert when none of the three are present, so the
+ * baseline 1c profile (no injuries / no pace / no kickoff) remains
+ * visually unchanged.
+ */
+function BasketballExtrasBlock({ restAdvantage, paceFactor, keyPlayers, testId }) {
+  const hasRest    = !!restAdvantage;
+  const hasPace    = !!paceFactor;
+  const homeKp     = (keyPlayers?.home || []);
+  const awayKp     = (keyPlayers?.away || []);
+  const hasPlayers = homeKp.length > 0 || awayKp.length > 0;
+  if (!hasRest && !hasPace && !hasPlayers) return null;
+
+  return (
+    <div className="rounded-md border border-slate-700/40 bg-slate-900/30 p-2.5 space-y-2" data-testid={testId}>
+      <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+        Contexto avanzado
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {hasRest && (
+          <div
+            className={`rounded-md border px-2 py-1.5 text-[11px] leading-snug ${
+              restAdvantage.advantageSide === 'home'
+                ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-200'
+                : restAdvantage.advantageSide === 'away'
+                  ? 'border-cyan-500/30 bg-cyan-500/5 text-cyan-200'
+                  : 'border-slate-500/30 bg-slate-500/5 text-slate-200'
+            }`}
+            data-testid={`${testId}-rest`}
+          >
+            <div className="text-slate-400 text-[10px] uppercase tracking-wide">Ventaja de descanso</div>
+            <div className="mt-0.5 tabular-nums">
+              Local {restAdvantage.homeRestDays}d · Visit. {restAdvantage.awayRestDays}d
+            </div>
+            <div className="text-[10px] text-slate-300/80 mt-0.5">
+              {restAdvantage.advantageSide === 'home'
+                ? `+${Math.abs(restAdvantage.edge).toFixed(1)}d a favor del local`
+                : restAdvantage.advantageSide === 'away'
+                  ? `+${Math.abs(restAdvantage.edge).toFixed(1)}d a favor del visitante`
+                  : 'Sin ventaja relevante'}
+            </div>
+          </div>
+        )}
+        {hasPace && (
+          <div
+            className={`rounded-md border px-2 py-1.5 text-[11px] leading-snug ${
+              paceFactor.code === 'HIGH'
+                ? 'border-rose-500/30 bg-rose-500/5 text-rose-200'
+                : paceFactor.code === 'LOW'
+                  ? 'border-sky-500/30 bg-sky-500/5 text-sky-200'
+                  : 'border-slate-500/30 bg-slate-500/5 text-slate-200'
+            }`}
+            data-testid={`${testId}-pace`}
+          >
+            <div className="text-slate-400 text-[10px] uppercase tracking-wide">Pace proyectado</div>
+            <div className="mt-0.5 tabular-nums">
+              {paceFactor.projectedPace.toFixed(1)} vs liga {paceFactor.leagueAvgPace.toFixed(0)}
+            </div>
+            <div className="text-[10px] text-slate-300/80 mt-0.5">
+              Factor {paceFactor.factor.toFixed(2)} · {
+                paceFactor.code === 'HIGH' ? 'Favorece total alto' :
+                paceFactor.code === 'LOW'  ? 'Favorece total bajo' : 'Pace neutral'
+              }
+            </div>
+          </div>
+        )}
+      </div>
+      {hasPlayers && (
+        <div className="rounded-md border border-amber-500/25 bg-amber-500/5 px-2 py-1.5" data-testid={`${testId}-players`}>
+          <div className="text-amber-200 text-[10px] uppercase tracking-wide font-semibold">
+            Bajas relevantes
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5 mt-1 text-[11px] text-amber-100">
+            {homeKp.length > 0 && (
+              <div data-testid={`${testId}-players-home`}>
+                <span className="text-amber-300/80 text-[10px] uppercase mr-1">Local:</span>
+                {homeKp.map((p, i) => (
+                  <span key={i} className="mr-2">
+                    {p.name}{p.status && p.status !== 'out' ? ` (${p.status})` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
+            {awayKp.length > 0 && (
+              <div data-testid={`${testId}-players-away`}>
+                <span className="text-amber-300/80 text-[10px] uppercase mr-1">Visit.:</span>
+                {awayKp.map((p, i) => (
+                  <span key={i} className="mr-2">
+                    {p.name}{p.status && p.status !== 'out' ? ` (${p.status})` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
