@@ -66,7 +66,15 @@ function MetricRow({ icon: Icon, label, value, hint, tone = 'slate', testId }) {
   );
 }
 
-export function MLBScriptPanel({ scriptV2, scriptV5, parlay, testId }) {
+export function MLBScriptPanel({
+  scriptV2,
+  scriptV5,
+  parlay,
+  underFragilityWarning = null,
+  scriptPickMismatchNarrative = null,
+  biasPenaltyMeta = null,
+  testId,
+}) {
   const [expanded, setExpanded] = useState(false);
 
   if (!scriptV2 || typeof scriptV2 !== 'object') return null;
@@ -93,6 +101,12 @@ export function MLBScriptPanel({ scriptV2, scriptV5, parlay, testId }) {
     probabilityModel,
     probabilityUnder,
     probabilityOver,
+    // FIX #2 — pick-aware margin (positive when the pattern supports the pick).
+    marginVsLine,
+    marginVsLineSide,
+    // FIX #1 — legacy fragility kept for audit/transparency.
+    _legacyFragilityScore: legacyFragility,
+    _fragilitySource: fragilitySource,
   } = scriptV2;
 
   const hasAnything = Boolean(
@@ -109,10 +123,12 @@ export function MLBScriptPanel({ scriptV2, scriptV5, parlay, testId }) {
   const sgc       = SGC_LABEL[String(sameGameCorrelation || '').toUpperCase()];
 
   const marginNum  = asNumber(marginProjection);
+  const marginVsLineNum = asNumber(marginVsLine);
   const coverNum   = asNumber(coverProbability);
   const rlsNum     = asNumber(runLineScore);
   const erNum      = asNumber(expectedRuns);
   const fragNum    = asNumber(fragilityScore);
+  const legacyFragNum = asNumber(legacyFragility);
   const lineSafeNum= asNumber(lineSafetyScore);
   const edgeNum    = asNumber(edgeVsLine);
   const probUnderNum = asNumber(probabilityUnder);
@@ -150,9 +166,13 @@ export function MLBScriptPanel({ scriptV2, scriptV5, parlay, testId }) {
           ) : null}
         </div>
         <div className="flex items-center gap-2 shrink-0 text-[10px] text-muted-foreground">
-          {marginNum !== null ? (
+          {marginVsLineNum !== null ? (
+            <span className="tabular-nums" data-testid={`${testId || 'mlb-script'}-margin-vs-line-summary`}>
+              {marginVsLineNum >= 0 ? '+' : ''}{marginVsLineNum.toFixed(2)} vs línea
+            </span>
+          ) : marginNum !== null ? (
             <span className="tabular-nums" data-testid={`${testId || 'mlb-script'}-margin-summary`}>
-              +{marginNum.toFixed(2)} marg.
+              {marginNum >= 0 ? '+' : ''}{marginNum.toFixed(2)} marg.
             </span>
           ) : null}
           {coverNum !== null ? (
@@ -161,6 +181,51 @@ export function MLBScriptPanel({ scriptV2, scriptV5, parlay, testId }) {
           <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </div>
       </button>
+
+      {/* FIX #4 — Script ↔ Pick mismatch warning ribbon */}
+      {scriptPickMismatchNarrative ? (
+        <div
+          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-200 leading-snug"
+          data-testid={`${testId || 'mlb-script'}-script-pick-mismatch`}
+        >
+          {scriptPickMismatchNarrative}
+        </div>
+      ) : null}
+
+      {/* FIX #5 — Under + high Fragility warning ribbon */}
+      {underFragilityWarning?.triggered ? (
+        <div
+          className="rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-200 leading-snug space-y-0.5"
+          data-testid={`${testId || 'mlb-script'}-under-fragility-warning`}
+        >
+          <div className="font-medium">{underFragilityWarning.message}</div>
+          {underFragilityWarning.alternative_suggested ? (
+            <div className="text-rose-300/90">
+              Alternativa sugerida:{' '}
+              <span className="font-semibold tabular-nums">
+                {underFragilityWarning.alternative_suggested}
+              </span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* FIX #6 — Bias penalty applied ribbon (low-key, informational) */}
+      {biasPenaltyMeta ? (
+        <div
+          className="rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-1 text-[10.5px] text-amber-200/90 leading-snug"
+          data-testid={`${testId || 'mlb-script'}-bias-penalty`}
+        >
+          Penalización de bias diario aplicada: -10 pts (mercado dominante:{' '}
+          <span className="font-semibold uppercase">
+            {biasPenaltyMeta.dominant_polarity || 'duplicado'}
+          </span>
+          {biasPenaltyMeta.share != null
+            ? ` · ${(Number(biasPenaltyMeta.share) * 100).toFixed(0)}% del día`
+            : ''}
+          ).
+        </div>
+      ) : null}
 
       {expanded && (
         <div className="pt-1 space-y-3" data-testid={`${testId || 'mlb-script-panel'}-body`}>
@@ -173,13 +238,27 @@ export function MLBScriptPanel({ scriptV2, scriptV5, parlay, testId }) {
 
           {/* Margin & Cover metrics */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 border-t border-border/40 pt-2">
+            {marginVsLineNum !== null ? (
+              <MetricRow
+                icon={Activity}
+                label={`Margen vs línea (${marginVsLineSide === 'under' ? 'Under' : 'Over'})`}
+                value={`${marginVsLineNum >= 0 ? '+' : ''}${marginVsLineNum.toFixed(2)}`}
+                hint="carreras a favor del pick"
+                tone={marginVsLineNum >= 1.8 ? 'emerald' : (marginVsLineNum >= 1.0 ? 'amber' : 'rose')}
+                testId={`${testId || 'mlb-script'}-metric-margin-vs-line`}
+              />
+            ) : null}
             {marginNum !== null ? (
               <MetricRow
                 icon={Activity}
-                label="Projected margin"
+                label={marginVsLineNum !== null ? "Margen run-line (equipos)" : "Projected margin"}
                 value={`${marginNum >= 0 ? '+' : ''}${marginNum.toFixed(2)}`}
                 hint="carreras"
-                tone={marginNum >= 1.8 ? 'emerald' : (marginNum >= 1.0 ? 'amber' : 'slate')}
+                tone={
+                  marginVsLineNum !== null
+                    ? 'slate'
+                    : (marginNum >= 1.8 ? 'emerald' : (marginNum >= 1.0 ? 'amber' : 'slate'))
+                }
                 testId={`${testId || 'mlb-script'}-metric-margin`}
               />
             ) : null}
@@ -206,6 +285,9 @@ export function MLBScriptPanel({ scriptV2, scriptV5, parlay, testId }) {
                 icon={Shield}
                 label="Fragility"
                 value={`${fragNum.toFixed(0)}/100`}
+                hint={fragilitySource === 'mlb_script_survival' && legacyFragNum !== null
+                  ? `unificado · legacy v2 ${legacyFragNum.toFixed(0)}`
+                  : undefined}
                 tone={fragNum <= 35 ? 'emerald' : (fragNum <= 55 ? 'amber' : 'rose')}
                 testId={`${testId || 'mlb-script'}-metric-fragility`}
               />

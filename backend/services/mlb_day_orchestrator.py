@@ -808,7 +808,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         # probability engine and bucket router remain untouched.
         bullpen_swap_meta = None
         try:
-            if chosen_market and "under" in (chosen_market.get("market") or "").lower():
+            if chosen_market and "under" in ((chosen_market.get("market") or "").lower().replace("underdog", "")):
                 from .mlb_under_market_selector import select_under_market_with_bullpen_risk
                 # Build the list of available markets from the v2 payload's
                 # alt_markets + the existing under_profile alt list.
@@ -1376,7 +1376,9 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         # structural / discard). Para severity=WARNING se resta la
         # penalty de confianza pero el Under se mantiene.
         try:
-            if chosen_market and "under" in (chosen_market.get("market") or "").lower():
+            _veto_market_lower = (chosen_market.get("market") or "").lower() if chosen_market else ""
+            _veto_probe = _veto_market_lower.replace("underdog", "")
+            if chosen_market and ("under" in _veto_probe or "nrfi" in _veto_probe):
                 from .mlb_under_veto_layer import (
                     build_under_veto_context, evaluate_under_veto,
                 )
@@ -1590,6 +1592,145 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             log.debug("v3 build_v3_payload failed for game %s: %s",
                        conf.get("game_pk"), exc)
 
+        # ── UI CONSISTENCY GUARDS (FIX #1 #2 #3 #4 #5) ───────────────────
+        # The dashboard pick card was rendering contradictory numbers
+        # (two different "Fragility" values, a confusing "Mgn" sign, an
+        # offensive script disagreeing with the recommended Under, etc.).
+        # All fixes live in a single, fail-soft block so they always run
+        # in the same order and the legacy fields stay intact for
+        # backward-compat.
+        try:
+            v5_block = pick_payload.get("_mlb_script_v5") or {}
+            v2_block = pick_payload.get("_mlb_script_v2") or {}
+            rec = pick_payload.get("recommendation") or {}
+            rec_market_str = (rec.get("market") or (chosen_market or {}).get("market") or "")
+            rec_market_lower = rec_market_str.lower() if isinstance(rec_market_str, str) else ""
+            # Strip the literal word "underdog" before matching so Run Line
+            # +1.5 (underdog) does NOT get classified as an Under-like pick.
+            _under_probe = rec_market_lower.replace("underdog", "")
+            is_under_pick = ("under" in _under_probe) or ("nrfi" in _under_probe)
+
+            # FIX #1 — Unify Fragility: when the v5 script-survival engine
+            # has produced a Fragility score, that is the single source of
+            # truth. We propagate it onto the v2 script panel so the UI
+            # never shows two different values side by side. The legacy
+            # `_mlb_script_v2.fragilityScore` field is preserved as
+            # `_legacyFragilityScore` for auditing.
+            v5_frag = (v5_block.get("fragility") or {}).get("score")
+            if v5_frag is not None and v2_block:
+                legacy_frag = v2_block.get("fragilityScore")
+                if legacy_frag is not None and abs(float(legacy_frag) - float(v5_frag)) >= 1.0:
+                    v2_block["_legacyFragilityScore"] = legacy_frag
+                    v2_block["_fragilitySource"]      = "mlb_script_survival"
+                    log.info(
+                        "Fragility unified (game=%s): v2=%s → v5=%s",
+                        conf.get("game_pk"), legacy_frag, v5_frag,
+                    )
+                v2_block["fragilityScore"] = float(v5_frag)
+                pick_payload["_mlb_script_v2"] = v2_block
+
+            # FIX #2 — Add `marginVsLine` (positive when the pattern
+            # supports the pick) so the UI no longer relies on the
+            # ambiguous run-line `marginProjection`. For Under markets:
+            #     line - expectedRuns  → positive when projected runs
+            #                            are below the line (good for Under).
+            # For Over markets: the inverse. NRFI/YRFI/RunLine markets keep
+            # the legacy `marginProjection` and `marginVsLine` is set to
+            # None so the UI knows not to render the new metric.
+            try:
+                exp_runs_v = v5_block.get("expectedRuns") or v2_block.get("expectedRuns")
+                line_v = (
+                    v2_block.get("smartTotalsLine")
+                    or v2_block.get("recommendedLine")
+                    or _extract_line_number_from_market(rec_market_str)
+                )
+                if exp_runs_v is not None and line_v is not None and v2_block:
+                    # Use _under_probe to exclude "underdog" from matching
+                    if "under" in _under_probe:
+                        margin_vs_line = float(line_v) - float(exp_runs_v)
+                    elif "over" in rec_market_lower:
+                        margin_vs_line = float(exp_runs_v) - float(line_v)
+                    else:
+                        margin_vs_line = None
+                    if margin_vs_line is not None:
+                        v2_block["marginVsLine"] = round(margin_vs_line, 2)
+                        v2_block["marginVsLineSide"] = (
+                            "under" if "under" in _under_probe else "over"
+                        )
+                        pick_payload["_mlb_script_v2"] = v2_block
+            except Exception as exc_fix2:
+                log.debug("FIX #2 marginVsLine compute failed: %s", exc_fix2)
+
+            # FIX #3 — Surface market_lean_classifier output as top-level
+            # fields. The full payload already lives in
+            # `pick_payload.market_lean`, but the UI components expect
+            # short flat keys (`lean`, `display_lean`, `lean_consistency`,
+            # `lean_reason`, `lean_confidence`) — provide both for
+            # backward-compat.
+            ml = pick_payload.get("market_lean") or {}
+            if ml:
+                pick_payload.setdefault("lean",             ml.get("lean"))
+                pick_payload.setdefault("display_lean",     ml.get("display_lean"))
+                pick_payload.setdefault("lean_consistency", ml.get("consistency"))
+                pick_payload.setdefault("lean_reason",      ml.get("reason"))
+                pick_payload.setdefault("lean_confidence",  ml.get("confidence"))
+
+            # FIX #4 — Script ↔ Pick mismatch warning. When the offensive
+            # script says ABOVE_AVERAGE_SCORING / HIGH_SCORING /
+            # OFFENSIVE_EXPLOSION but the final pick is Under-like, flag
+            # the contradiction so the UI can warn the user instead of
+            # silently presenting both side by side.
+            osm = pick_payload.get("_mlb_over_discovery") or {}
+            off_code = (osm.get("offensive_script") or {}).get("code")
+            HIGH_SCORING_SCRIPTS = {
+                "ABOVE_AVERAGE_SCORING", "HIGH_SCORING", "OFFENSIVE_EXPLOSION",
+            }
+            if is_under_pick and off_code in HIGH_SCORING_SCRIPTS:
+                osm["script_pick_mismatch"] = True
+                osm["narrative_warning"] = (
+                    "⚠ Discrepancia: el script ofensivo sugiere total "
+                    "elevado pero la recomendación es Under. Revisar "
+                    "Cover probability vs estabilidad."
+                )
+                pick_payload["_mlb_over_discovery"] = osm
+                pick_payload["script_pick_mismatch"] = True
+                pick_payload["script_pick_mismatch_narrative"] = osm["narrative_warning"]
+
+            # FIX #5 — Under + high fragility warning. When the chosen
+            # market is Under-like AND the unified Fragility exceeds 55,
+            # surface an explicit `under_fragility_warning` block with a
+            # suggested alternative line (current line + 2.0).
+            try:
+                if is_under_pick and v5_frag is not None and float(v5_frag) > 55:
+                    survival_score = (v5_block.get("survival") or {}).get("score")
+                    current_line = _extract_line_number_from_market(rec_market_str)
+                    if current_line is None:
+                        current_line = (
+                            v2_block.get("smartTotalsLine")
+                            or v2_block.get("recommendedLine")
+                            or 9.5
+                        )
+                    try:
+                        alt_line = float(current_line) + 2.0
+                    except (TypeError, ValueError):
+                        alt_line = 11.5
+                    pick_payload["under_fragility_warning"] = {
+                        "triggered":            True,
+                        "fragility_score":      float(v5_frag),
+                        "survival_score":       (
+                            float(survival_score) if survival_score is not None else None
+                        ),
+                        "message": (
+                            "Pick Under con script FRÁGIL — considerar línea "
+                            "alternativa más alta o evitar el pick."
+                        ),
+                        "alternative_suggested": f"UNDER {alt_line:.1f}",
+                    }
+            except Exception as exc_fix5:
+                log.debug("FIX #5 under_fragility_warning failed: %s", exc_fix5)
+        except Exception as exc:
+            log.debug("UI consistency guards (FIX #1-#5) failed: %s", exc)
+
         # ── MLB Pattern Alignment Classifier ─────────────────────────────
         # Classifies every Spanish-language `trendSummary` phrase from the
         # historical profile as SUPPORTS / OPPOSES / NEUTRAL with respect
@@ -1651,6 +1792,90 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         pipeline_meta["diversity_annotated"] = len(visible_picks)
     except Exception as exc:
         log.debug("MLB-V7 diversification failed: %s", exc)
+
+    # ── FIX #6 — Daily market bias detector + auto-penalty ──────────────
+    # When more than 60% of the day's picks are in the same market polarity
+    # (Under-like or Over-like), reduce -10 pts of confidence to every
+    # pick in the dominant bucket and stamp `bias_penalty_applied=True`.
+    # This forces the user (and the engine downstream) to actively justify
+    # duplicated theses rather than rubber-stamping a day of Unders.
+    try:
+        from .mlb_over_discovery import daily_market_audit
+        all_visible_picks = picks + rescued
+        audit_report = daily_market_audit(
+            all_visible_picks,
+            evaluated_count=pipeline_meta.get("games_processed"),
+        )
+        rep = audit_report.get("report") or {}
+        n_total = int(rep.get("total_picks") or 0)
+        under_total = int(rep.get("under_total") or 0)
+        over_total  = int(rep.get("over_total")  or 0)
+        under_pct = round(under_total / n_total, 2) if n_total else 0.0
+        over_pct  = round(over_total  / n_total, 2) if n_total else 0.0
+        bias_detected = (under_pct > 0.60) or (over_pct > 0.60)
+        dominant_polarity = (
+            "under" if under_pct > 0.60
+            else "over" if over_pct > 0.60
+            else None
+        )
+        bias_payload = {
+            "bias_detected":   bias_detected,
+            "dominant_market": dominant_polarity,
+            "under_pct":       under_pct,
+            "over_pct":        over_pct,
+            "total_picks":     n_total,
+            "recommendation": (
+                f"Reducir confianza -10 pts en picks {dominant_polarity} duplicados"
+                if bias_detected else
+                "Distribución de mercado equilibrada"
+            ),
+        }
+        # Expose at pipeline level for the dashboard banner.
+        pipeline_meta["market_bias"] = bias_payload
+        pipeline_meta["market_audit"] = audit_report
+
+        if bias_detected and dominant_polarity:
+            penalised = 0
+            for p in all_visible_picks:
+                rec = p.get("recommendation") or {}
+                market_str = (rec.get("market") or "").lower()
+                # Strip "underdog" so Run Line +1.5 (underdog) doesn't get
+                # tagged as an Under-style pick (same guard as FIX #4).
+                _bias_probe = market_str.replace("underdog", "")
+                hits_dominant = (
+                    (dominant_polarity == "under" and ("under" in _bias_probe or "nrfi" in _bias_probe))
+                    or (dominant_polarity == "over" and ("over" in _bias_probe or "yrfi" in _bias_probe))
+                )
+                if not hits_dominant:
+                    continue
+                # 1) confidence_score (top-level) when present
+                if "confidence_score" in p and isinstance(p["confidence_score"], (int, float)):
+                    p["confidence_score"] = max(0, float(p["confidence_score"]) - 10)
+                # 2) recommendation.score / rec.confidence — propagate to the
+                #    same field the bucket router used.
+                if isinstance(rec.get("score"), (int, float)):
+                    rec["score"] = max(0, float(rec["score"]) - 10)
+                if isinstance(rec.get("confidence"), (int, float)):
+                    rec["confidence"] = max(0, float(rec["confidence"]) - 10)
+                if isinstance(rec.get("rescue_confidence"), (int, float)):
+                    rec["rescue_confidence"] = max(0, float(rec["rescue_confidence"]) - 10)
+                p["recommendation"] = rec
+                p["bias_penalty_applied"] = True
+                p["bias_penalty_meta"] = {
+                    "dominant_polarity": dominant_polarity,
+                    "share":             under_pct if dominant_polarity == "under" else over_pct,
+                    "penalty":           -10,
+                }
+                penalised += 1
+            pipeline_meta["bias_penalty_applied_count"] = penalised
+            log.warning(
+                "MLB bias detector: %s dominant (%.0f%%) — applied -10 conf to %d picks.",
+                dominant_polarity,
+                (under_pct if dominant_polarity == "under" else over_pct) * 100,
+                penalised,
+            )
+    except Exception as exc:
+        log.debug("FIX #6 bias detector failed: %s", exc)
     # If we processed games but nothing surfaced as a pick or rescue,
     # surface a human-readable abort_reason so the UI can explain it.
     if (not picks) and (not rescued) and pipeline_meta.get("abort_reason") is None:

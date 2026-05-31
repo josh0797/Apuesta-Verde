@@ -344,6 +344,9 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           scriptV2={m._mlb_script_v2 || {}}
           scriptV5={m._mlb_script_v5 || null}
           parlay={m._mlb_parlay_context || null}
+          underFragilityWarning={m.under_fragility_warning || null}
+          scriptPickMismatchNarrative={m.script_pick_mismatch_narrative || null}
+          biasPenaltyMeta={m.bias_penalty_applied ? (m.bias_penalty_meta || { triggered: true }) : null}
           testId={`mlb-script-${m.match_id}`}
         />
       ) : null}

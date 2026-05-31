@@ -1,30 +1,34 @@
 [
   {
-    "content": "[A] Crear mlb_under_veto_layer.py",
+    "content": "FIX #1 — Unificar Fragility (sobreescribir v2.fragilityScore con v5)",
     "status": "completed"
   },
   {
-    "content": "[A] Aplicar tweaks de baseball_runs_rescue.py + integrar veto",
+    "content": "FIX #2 — marginVsLine campo nuevo + UI",
     "status": "completed"
   },
   {
-    "content": "[A] Integrar Under Veto Layer central en mlb_day_orchestrator.py",
+    "content": "FIX #3 — lean top-level fields en pick_payload",
     "status": "completed"
   },
   {
-    "content": "[B] Crear lib/baseballPriority.js",
+    "content": "FIX #4 — script_pick_mismatch + narrative_warning",
     "status": "completed"
   },
   {
-    "content": "[B] Modificar LivePage.jsx con toggle MLB-only + supportsLiveAnalytics para baseball",
+    "content": "FIX #5 — under_fragility_warning",
     "status": "completed"
   },
   {
-    "content": "[B] Markets baseball en LiveReevalPanel + StatCell baseball-aware fallback",
+    "content": "FIX #6 — bias detector + auto-penalty -10",
     "status": "completed"
   },
   {
-    "content": "Lint + testing_agent ambas tareas",
+    "content": "Guard 'underdog' string en 3 puntos del orquestador",
+    "status": "completed"
+  },
+  {
+    "content": "Testing agent E2E backend + frontend",
     "status": "in_progress"
   }
 ]
