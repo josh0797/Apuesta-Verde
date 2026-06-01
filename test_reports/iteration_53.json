@@ -1,0 +1,75 @@
+{
+  "test_date": "2025-01-XX",
+  "test_type": "backend_unit_tests",
+  "test_scope": "MLB Under Veto Layer - 5 Fixes Validation",
+  "summary": "Comprehensive backend unit testing of 5 MLB Under veto fixes to prevent failed Under picks like Yankees @ A's 13-8 (Under 9.5 lost)",
+  "total_tests": 15,
+  "passed_tests": 15,
+  "failed_tests": 0,
+  "success_rate": "100.0%",
+  "test_categories": {
+    "FIX_1_POWER_BAT_PRESENT": {
+      "description": "POWER_BAT_PRESENT rule when OPS > 0.770 blocks Under",
+      "tests": 3,
+      "passed": 3,
+      "details": [
+        "Yankees @ A's case - home OPS 0.785 triggers BLOCKED",
+        "Both teams OPS < 0.770 returns PASS",
+        "Away team OPS 0.790 triggers BLOCKED"
+      ]
+    },
+    "FIX_2_BUILD_UNDER_VETO_CONTEXT": {
+      "description": "build_under_veto_context() extracts home_team_ops/away_team_ops correctly",
+      "tests": 3,
+      "passed": 3,
+      "details": [
+        "Extract OPS from profile.batting.home.ops / away.ops",
+        "Alias support (team_ops, teamOps, season_ops) works",
+        "Missing OPS returns None (fail-soft)"
+      ]
+    },
+    "FIX_3_BULLPEN_REAL_INTEGRATION": {
+      "description": "Integration of fetch_recent_bullpen_workload with pitch_stress_index",
+      "tests": 3,
+      "passed": 3,
+      "details": [
+        "Bullpen real data with pitch_stress_index propagated correctly",
+        "Twins @ Pirates case - pitch_stress > 1.5 triggers BULLPEN_PITCH_STRESS_HIGH",
+        "Low pitch_stress_index <= 1.5 does NOT trigger"
+      ]
+    },
+    "FIX_4_MLB_SEED_CASES": {
+      "description": "MLB_SEED_CASES + detect_mlb_under_warning_pattern in learning_cases.py",
+      "tests": 3,
+      "passed": 3,
+      "details": [
+        "Power bat pattern detected (OPS > 0.770)",
+        "Active series overs pattern detected (series_avg > 12, pitch_stress > 1.5)",
+        "No pattern detected when conditions not met"
+      ]
+    },
+    "FIX_5_UNDER_MARKET_SELECTOR": {
+      "description": "Integration of veto + learning_cases in mlb_under_market_selector flow",
+      "tests": 3,
+      "passed": 3,
+      "details": [
+        "Full Game Under with HIGH bullpen risk triggers rule",
+        "Full Game Under with LOW bullpen risk does NOT trigger",
+        "F5 Under preferred when bullpen risk is HIGH and edge is viable"
+      ]
+    }
+  },
+  "key_findings": [
+    "✅ FIX #1: POWER_BAT_PRESENT rule correctly blocks Under when OPS > 0.770 (Yankees @ A's case validated)",
+    "✅ FIX #2: build_under_veto_context() successfully extracts home_team_ops/away_team_ops from multiple aliases",
+    "✅ FIX #3: home_bullpen_real/away_bullpen_real with pitch_stress_index correctly propagated and triggers BULLPEN_PITCH_STRESS_HIGH when > 1.5",
+    "✅ FIX #4: detect_mlb_under_warning_pattern() correctly identifies power_bat and active_series_overs patterns from MLB_SEED_CASES",
+    "✅ FIX #5: select_under_market_with_bullpen_risk() correctly triggers rule for HIGH bullpen risk and prefers F5 Under when viable"
+  ],
+  "test_file": "/app/backend/mlb_under_veto_test.py",
+  "next_steps": [
+    "Integration testing with mlb_day_orchestrator to verify end-to-end flow",
+    "API endpoint testing to verify under_veto and under_learning_rules exposed in pick_payload",
+    "Live MLB game testing to validate real-world behavior"
+  ]
+}
