@@ -15,6 +15,7 @@ import {
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ExplosiveInningV2Panel } from '@/components/ExplosiveInningV2Panel';
 
 /**
  * MLBLiveIntelPanel — MLB Engine V4 Live Intelligence.
@@ -227,6 +228,7 @@ export function MLBLiveIntelPanel({ sport, match, llmPick }) {
   const ur   = intel?.under_risk    || null;
   const co   = intel?.cashout       || null;
   const vol  = intel?.volatility    || null;
+  const ev2  = intel?.explosive_v2  || null;
 
   const cashoutStyle = co?.verdict ? CASHOUT_STYLES[co.verdict] || CASHOUT_STYLES.HOLD : null;
   const CashoutIcon = cashoutStyle?.icon || ShieldCheck;
@@ -302,6 +304,9 @@ export function MLBLiveIntelPanel({ sport, match, llmPick }) {
           ) : null}
         </div>
       ) : null}
+
+      {/* Explosive Inning v2 — per-inning state classifier */}
+      {ev2 ? <ExplosiveInningV2Panel payload={ev2} idx={0} /> : null}
 
       {/* Run projection tiles */}
       {lsc ? (

@@ -246,6 +246,12 @@ def build_run_evaluation_document(*,
         # Risk score
         "explosive_risk_score":        _safe_int(re_.get("explosive_risk_score"), 0),
         "risk_tier":                   _safe_str(re_.get("risk_tier")) or "LOW",
+        # v2-specific: dominant state classifier ("BULLPEN_EXPLOSION_RISK",
+        # "COMMAND_COLLAPSE_RISK", "HARD_CONTACT_CLUSTER", "BASE_TRAFFIC_PRESSURE",
+        # "TWO_OUT_RALLY_RISK", "LINEUP_TURNOVER_DANGER", "CLEAN_INNING_LOW_RISK").
+        # None for v1 pregame evaluations (which don't classify states).
+        "state":                       _safe_str(re_.get("state")),
+        "trap_signals":                _safe_list(re_.get("trap_signals")),
         "ops_score_contribution":      _safe_int(contribs.get("ops_score"), 0),
         "bullpen_era_contribution":    _safe_int(contribs.get("bullpen_era"), 0),
         "park_factor_contribution":    _safe_int(contribs.get("park_factor"), 0),
@@ -405,6 +411,7 @@ async def query_run_evaluations(db, *,
                                   match_id: Optional[Any] = None,
                                   reference_only: bool = False,
                                   risk_tier: Optional[str] = None,
+                                  state: Optional[str] = None,
                                   result: Optional[str] = None,
                                   limit: int = 30,
                                   ) -> list[dict]:
@@ -419,6 +426,8 @@ async def query_run_evaluations(db, *,
         ``REFERENCE_MLB_POWER_BAT_EXPLOSIVE``.
     risk_tier : optional
         Filtra por ``risk_tier`` ("LOW" | "MEDIUM" | "HIGH").
+    state : optional
+        Filtra por estado v2 (e.g. "BULLPEN_EXPLOSION_RISK").
     result : optional
         Filtra por resultado ("won" | "lost" | "pending" | "void").
     limit : int
@@ -432,6 +441,8 @@ async def query_run_evaluations(db, *,
             q["reference_profile_tag"] = REFERENCE_MLB_POWER_BAT_EXPLOSIVE
         if risk_tier:
             q["risk_tier"] = risk_tier
+        if state:
+            q["state"] = state
         if result:
             q["result"] = result
 

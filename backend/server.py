@@ -3087,6 +3087,50 @@ async def mlb_live_reevaluate(payload: MLBLiveReevalIn,
     try:
         from services.mlb_live_intelligence import build_live_intelligence_payload
         intel = build_live_intelligence_payload(pregame_pick, live_state)
+
+        # ── Persist v2 explosive evaluation (feedback loop) ─────────────
+        # Only when the engine produced a strong signal — store_run_evaluation
+        # enforces the policy (should_recommend OR risk_tier=HIGH OR flip).
+        try:
+            from services.mlb_run_storage import store_run_evaluation
+            from services.mlb_live_explosive_bridge import build_live_metrics
+            ev2 = intel.get("explosive_v2") or {}
+            if ev2 and ev2.get("version") == 2:
+                # Re-build the metrics snapshot so the persisted document
+                # is self-contained for downstream calibration.
+                metrics_snap = build_live_metrics(pregame_pick, live_state)
+                metrics_snap["home_team"] = (pregame_pick or {}).get("home_team") \
+                    or metrics_snap.get("home_team")
+                metrics_snap["away_team"] = (pregame_pick or {}).get("away_team") \
+                    or metrics_snap.get("away_team")
+                # Augment the engine output with bookkeeping the storage layer expects.
+                run_eval = {
+                    **ev2,
+                    "explosive_risk_score":  ev2.get("explosive_inning_pressure_score"),
+                    "game_state":            "live_f5" if metrics_snap.get("inning", 0) <= 5
+                                              else "live_9inn",
+                    "inning":                metrics_snap.get("inning"),
+                    "score_home":            metrics_snap.get("score_home"),
+                    "score_away":            metrics_snap.get("score_away"),
+                    "pregame_total_line":    metrics_snap.get("pregame_total_line"),
+                    "live_total_line":       metrics_snap.get("live_total_line"),
+                    "score_contributions":   ev2.get("score_contributions"),
+                }
+                eval_id = await store_run_evaluation(
+                    db,
+                    user_id=user.get("id") or "_live",
+                    match_id=str(payload.match_id),
+                    run_evaluation=run_eval,
+                    metrics=metrics_snap,
+                    only_strong=True,
+                )
+                if eval_id:
+                    intel["explosive_v2"]["mlb_run_evaluation_id"] = eval_id
+                    log.info("MLB live v2 evaluation persisted match=%s id=%s tier=%s",
+                              payload.match_id, eval_id[:8], ev2.get("risk_tier"))
+        except Exception as _exc_persist:
+            log.debug("v2 live persistence failed (non-fatal): %s", _exc_persist)
+
         return {"ok": True, "status": "LIVE_INTEL_OK", "match_id": payload.match_id,
                 "intelligence": intel}
     except Exception as exc:

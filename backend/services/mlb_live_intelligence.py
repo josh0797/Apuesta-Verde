@@ -928,6 +928,22 @@ def build_live_intelligence_payload(pregame_pick: Optional[dict],
     # 5. Cashout advisor.
     co = cashout_advisor(pp, live_state, lsc, sb, ur)
 
+    # 6. Explosive Inning v2 — full per-inning state classifier.
+    # Fail-soft: any import or eval error returns a stub so the rest of
+    # the payload is unaffected.
+    explosive_v2 = None
+    try:
+        from .mlb_live_explosive_bridge import evaluate_live_explosive_v2
+        explosive_v2 = evaluate_live_explosive_v2(pp, live_state)
+    except Exception as _exc:
+        explosive_v2 = {
+            "version":   2,
+            "state":     "CLEAN_INNING_LOW_RISK",
+            "risk_tier": "LOW",
+            "explosive_inning_pressure_score": 0,
+            "error":     str(_exc),
+        }
+
     return {
         "version":      4,
         "volatility": {
@@ -939,6 +955,7 @@ def build_live_intelligence_payload(pregame_pick: Optional[dict],
         "live_script":     lsc,
         "under_risk":      ur,
         "cashout":         co,
+        "explosive_v2":    explosive_v2,
         "live_state_echo": live_state or {},
         "pregame_script":  pg_script,
     }

@@ -52,7 +52,6 @@ import asyncio
 import hashlib
 import logging
 import re
-import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -179,31 +178,23 @@ async def _resolve_team_slug(
 
 
 def _best_match(team_name: str, slugs: dict[str, str]) -> Optional[str]:
-    target = _normalise(team_name)
-    if not target:
+    """Resolve a team-name input to its SoccerSTATS slug.
+
+    Wraps the shared layered matcher (``team_aliases.best_match``) so
+    SoccerSTATS benefits from TEAM_ALIASES + reverse-alias resolution +
+    token-subset matching + fuzzy fallback. The shared matcher returns
+    the matched display-name KEY; we map that key back to its slug.
+    """
+    from .team_aliases import best_match as _shared_best_match
+    key = _shared_best_match(team_name, slugs)
+    if key is None:
         return None
-    # exact
-    if target in slugs:
-        return slugs[target]
-    # startswith
-    for k, v in slugs.items():
-        if k.startswith(target) or target.startswith(k):
-            return v
-    # token-overlap (≥ 2 tokens common)
-    target_tokens = set(target.split())
-    if len(target_tokens) >= 2:
-        for k, v in slugs.items():
-            if len(target_tokens & set(k.split())) >= 2:
-                return v
-    return None
+    return slugs.get(key)
 
 
 def _normalise(s: str) -> str:
-    if not s:
-        return ""
-    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
-    s = re.sub(r"[^a-z0-9\s]", " ", s.lower())
-    return re.sub(r"\s+", " ", s).strip()
+    from .team_aliases import normalize
+    return normalize(s)
 
 
 # ── HTML parser ─────────────────────────────────────────────────────────────
