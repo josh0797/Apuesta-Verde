@@ -273,6 +273,92 @@
 
 ---
 
+## Phase GAPS-4 — LiveMarketStateValidator + LivePreMatchComparisonLayer + Under-Loss Anti-Pattern Library
+**Estado:** ✅ COMPLETADO (2026-05-31)
+
+### Layer A — `services/live_market_state_validator.py`
+- Función pura `validate_market_state(market, *, home_score, away_score, sport, inning_or_minute, is_final, selection_label=None)` retorna `{state, actionable, current_total, threshold, side, summary_es/en, suggested_alternatives, reason_code}`.
+- Estados: `still_playable | already_resolved_win | already_resolved_loss | already_resolved_unknown`.
+- Parser que reconoce Over/Under (es+en), Run Line +/−, Team Total (home/away), Handicap, Moneyline, NRFI Yes/No.
+- Ladders sport-aware para sugerir alternativas (baseball/football/basketball).
+- **Tests verificados**: MLB 5-3 Over 7.5 → already_resolved_win (alts: Over 8.5, 9.5, 10.5, 11.5); MLB 5-3 Under 9.5 → still_playable; Football 3-1 Over 1.5 → already_resolved_win; Football 3-1 Under 2.5 → already_resolved_loss; Basketball 180 Over 175.5 → already_resolved_win; Team Total home Over 4.5 con 5-3 → already_won; NRFI Yes 7th 2-1 → already_resolved.
+- Acepta `selection_label` secundario para casos donde `market="Run Line +1.5"` pero `selection="Más de 7.5 carreras"` — devuelve el peor estado entre ambos.
+
+### Layer B — `services/live_pre_match_comparison.py`
+- `compare_pregame_vs_live(pregame_pick, live_state, sport)` produce el objeto `script_comparison` canónico:
+  - `script_status`: on_script | soft_deviation | hard_deviation | broken_script | insufficient_data.
+  - `pregame_pick_status`: pending | already_won | already_lost | still_playable | not_actionable.
+  - `live_recommendation_status`: actionable | wait | avoid | hedge | cashout_watch.
+  - `score_delta`, `expected_total_through`, `actual_total`, `period_n`, `reason_codes`, `human_summary_es/en`, `suggested_alternatives`, `validator` (full Layer A output).
+- Interpola linealmente `expected_runs` × `inning/9` (baseball), `expected_goals × min/90` (football), `expected_points × Q/4` (basketball).
+- `confidence_adjustment`: -25 (broken) / -12 (hard) / -5 (soft).
+- **7 tests unitarios pasan**: incluye los 5 escenarios del usuario (MLB Over 7.5 con 5-3, Under 9.5 still_playable, Fútbol Over 1.5 con 3-1, Fútbol Under 2.5 con 3-1, Basketball Over 175.5 con 180) + edge cases (sin pregame pick, sin live data).
+
+### Wiring backend
+- `GET /api/matches/{id}` ahora enriquece el doc con `script_comparison` cuando hay pick pregame en el último pick_run del usuario para ese match. Merge inline + live_stats con score/inning/state.
+
+### UI — `LivePreMatchComparisonPanel.jsx`
+- Renderiza 3 pills (script_status / pregame_status / live_status) + tile numérico (esperado vs real + Δ + period) + resumen humano + chips de líneas alternativas sugeridas.
+- Colores: verde (on_script/actionable), ámbar (soft/cashout_watch), naranja (hard/hedge), rojo (broken/avoid), cyan (already_won), rojo (already_lost).
+- Estados informativos: "No hay análisis pregame disponible..." y "Datos live insuficientes...".
+
+### `MatchDetailPage.jsx`
+- Monta el panel **antes** del pick para que el usuario vea el verdicto primero.
+- Cuando `pregame_pick_status ∈ {already_won, already_lost, not_actionable}` el pick se renderiza en una sección **demoted ámbar** con el header "Pick pregame ya cumplido / no accionable" en lugar de la tarjeta verde de apuesta activa.
+
+---
+
+## Phase GAPS-5 — Under Veto Power-Bat + Bullpen Pitch-Stress + Learning Cases MLB
+**Estado:** ✅ COMPLETADO (2026-05-31)
+
+### FIX #1 — `POWER_BAT_PRESENT` en `mlb_under_veto_layer.py`
+- Nueva razón `POWER_BAT_PRESENT` con threshold `POWER_BAT_OPS_THRESHOLD=0.770`.
+- Añadida a `_BLOCKING_REASONS` → bloquea Under sin necesitar otras razones.
+- Disparada cuando `home_team_ops > 0.770` OR `away_team_ops > 0.770`.
+
+### FIX #2 — OPS en `build_under_veto_context`
+- Extrae `batting.home.ops` / `batting.away.ops` (con fallbacks OPS / team_ops / season_ops).
+- Propaga `home_team_ops` / `away_team_ops` al payload de retorno.
+- Orchestrator pasa estos campos a `evaluate_under_veto()`.
+
+### FIX #3 — Activación de `mlb_bullpen_real_usage` (¡por fin invocado!)
+- En `_process_one_game()`: 2 nuevas tareas `fetch_recent_bullpen_workload(team_id, days=2)` en paralelo con el resto del fan-out (sin latencia extra).
+- Resultado inyectado en `baseball_hist_profile.{home,away}_bullpen_real`.
+- `build_under_veto_context` lee `pitch_stress_index` y lo añade al ctx.
+- Nueva regla `BULLPEN_PITCH_STRESS_HIGH` (NO bloqueante por sí sola) disparada cuando `pitch_stress_index > 1.5` (≥67 pitches en 48h).
+
+### FIX #4 — `MLB_SEED_CASES` + `detect_mlb_under_warning_pattern` en `learning_cases.py`
+- 2 casos seed insertados en `db.learning_cases` (idempotente via `seed_cases`):
+  - `yankees-athletics-2026-05-31` — power_bat_visiting_avoid_under (Yankees 0.785 OPS).
+  - `twins-pirates-2026-05-31` — active_series_overs_avoid_under (avg 15 runs + pitch_stress 3.24/3.31).
+- Función `detect_mlb_under_warning_pattern(match, scoring_ctx)` aplica las reglas:
+  1. `power_bat_visiting_avoid_under`: max(home_ops, away_ops) > 0.770 → block.
+  2. `active_series_overs_avoid_under`: series.total_runs_avg > 12 AND games_in_series ≥ 2 AND max(psi) > 1.5 → block.
+- 4 tests unitarios pasan: Yankees solo / Twins solo / contexto normal (no FP) / ambas reglas a la vez.
+
+### FIX #5 — Wire en el orchestrator (no en el selector)
+- Llamado en `mlb_day_orchestrator.py` justo después de `evaluate_under_veto`.
+- Cuando `any_block=True` Y `chosen_market` es Under/NRFI → nullify `chosen_market` (cae al rescue).
+- Auditoría persistida en `pick_payload.under_learning_rules` + `pick_payload.under_veto_block.learning_block=True` con `rules_fired` para depuración.
+
+### Verificación end-to-end
+```python
+veto_ctx = {
+    'home_team_ops': 0.785, 'away_team_ops': 0.715,    # Yankees visiting
+    'pitcher_home': {'era': 3.20, 'whip': 1.18, ...},
+    'pitcher_away': {'era': 4.10, 'whip': 1.31, ...},
+    'park': {'run_factor': 1.02},
+}
+result = evaluate_under_veto(**veto_ctx, book_total=9.5, expected_runs=8.4)
+# → 'POWER_BAT_PRESENT' in result['veto_reasons']
+# → result['veto'] == True
+# → result['severity'] == 'BLOCKED'
+# → result['explanation'] == 'Equipo con OPS > 0.770 — riesgo de inning explosivo'
+```
+**Verificado en preview**, todos los tests pasan, código se carga sin errores.
+
+---
+
 ## Phase GAPS-3.1 — Pick diversity colapsada + Live match detail hidratado
 **Estado:** ✅ COMPLETADO (2026-05-31)
 

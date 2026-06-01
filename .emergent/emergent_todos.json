@@ -1,26 +1,30 @@
 [
   {
-    "content": "Fix A1: Cap IL penalty -10/-1.0",
+    "content": "FIX #1: POWER_BAT_PRESENT en VETO_REASONS + _BLOCKING_REASONS",
     "status": "completed"
   },
   {
-    "content": "Fix A2: _ensure_recommendation_shape compartido + recalibrate",
+    "content": "FIX #2: build_under_veto_context extrae OPS + propaga",
     "status": "completed"
   },
   {
-    "content": "Fix A3: rescue diversity con v2 recommendedLine",
+    "content": "FIX #3: Activar mlb_bullpen_real_usage en orchestrator + pitch_stress",
     "status": "completed"
   },
   {
-    "content": "Fix B1: Endpoint live-refresh + opportunistic hydrate",
+    "content": "FIX #4: MLB_SEED_CASES + detect_mlb_under_warning_pattern",
     "status": "completed"
   },
   {
-    "content": "Fix B2: useLiveMatchDetail hook + MLBLiveScoreboard component",
+    "content": "FIX #5: Wire learning_cases en orchestrator junto al veto",
     "status": "completed"
   },
   {
-    "content": "Fix B3: Estados UI con fallback texts",
+    "content": "A: LiveMarketStateValidator + tests",
+    "status": "completed"
+  },
+  {
+    "content": "B: LivePreMatchComparisonLayer + UI panel",
     "status": "completed"
   },
   {

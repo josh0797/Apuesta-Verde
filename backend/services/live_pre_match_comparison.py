@@ -1,0 +1,409 @@
+"""
+LivePreMatchComparisonLayer
+===========================
+
+Compares the **real live state** of a match against the **pregame
+analysis / pick** so the UI can classify whether the game is following
+the engine's script, deviating, or breaking it — and decide if the
+pregame pick is still actionable.
+
+Output (canonical `script_comparison` payload)::
+
+    {
+        "script_status":         "on_script" | "soft_deviation"
+                               | "hard_deviation" | "broken_script"
+                               | "insufficient_data",
+        "pregame_pick_status":   "pending" | "already_won" | "already_lost"
+                               | "still_playable" | "not_actionable",
+        "live_recommendation_status": "actionable" | "wait" | "avoid"
+                                    | "hedge" | "cashout_watch",
+        "score_delta":           number   # actual_total - expected_total
+        "pace_delta":            number   # +pos = faster than expected
+        "risk_delta":            number   # +pos = riskier than pregame
+        "fragility_delta":       number,
+        "confidence_adjustment": int      # delta to apply to LLM conf
+        "reason_codes":          list[str],
+        "human_summary_es":      str,
+        "human_summary_en":      str,
+        "validator":             { ...market state validator output... },
+    }
+
+Design
+------
+* Pure / deterministic — receives `pregame_pick` + `live_state` + `sport`
+  and produces the payload. No I/O, easy to unit-test.
+* Sport-aware: only baseball is fully wired today (we have explicit
+  expected_runs / inning / outs). Football & basketball fall back to the
+  market-state validator + a coarse `score_delta` so the UI still has
+  *something* to render.
+* Fail-soft: every branch is guarded; on error we return
+  `script_status="insufficient_data"` with the original pregame pick
+  untouched so the page never breaks.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Optional
+
+from services.live_market_state_validator import validate_market_state
+
+log = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Sport-specific helpers
+# ──────────────────────────────────────────────────────────────────────────
+
+def _baseball_expected_total_through(inning_n: Optional[int], expected_runs: Optional[float]) -> Optional[float]:
+    """Linearly interpolate `expected_runs` through `inning_n` of 9.
+
+    e.g. ER=8.0 in the 7th → expected 8 × 7/9 ≈ 6.22.
+    """
+    if inning_n is None or expected_runs is None:
+        return None
+    try:
+        return round(float(expected_runs) * max(0, min(9, int(inning_n))) / 9.0, 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def _football_expected_total_through(minute: Optional[int], expected_goals: Optional[float]) -> Optional[float]:
+    if minute is None or expected_goals is None:
+        return None
+    try:
+        return round(float(expected_goals) * max(0, min(90, int(minute))) / 90.0, 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def _basketball_expected_total_through(quarter: Optional[int], expected_total: Optional[float]) -> Optional[float]:
+    if quarter is None or expected_total is None:
+        return None
+    try:
+        # quarters → minutes (12 ea), totals scale linearly.
+        return round(float(expected_total) * max(0, min(4, int(quarter))) / 4.0, 2)
+    except (TypeError, ValueError):
+        return None
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Script-status classifier
+# ──────────────────────────────────────────────────────────────────────────
+
+def _classify_script(score_delta: Optional[float], sport: str) -> str:
+    """Map a `score_delta` (actual - expected) to a script-status label.
+
+    The thresholds reflect the natural variance of each sport.
+    """
+    if score_delta is None:
+        return "insufficient_data"
+    abs_d = abs(score_delta)
+    if sport == "baseball":
+        if abs_d <= 1.5: return "on_script"
+        if abs_d <= 3.0: return "soft_deviation"
+        if abs_d <= 5.0: return "hard_deviation"
+        return "broken_script"
+    if sport == "football":
+        if abs_d <= 0.5: return "on_script"
+        if abs_d <= 1.0: return "soft_deviation"
+        if abs_d <= 2.0: return "hard_deviation"
+        return "broken_script"
+    if sport == "basketball":
+        if abs_d <= 10.0: return "on_script"
+        if abs_d <= 20.0: return "soft_deviation"
+        if abs_d <= 30.0: return "hard_deviation"
+        return "broken_script"
+    # Fallback — be conservative.
+    if abs_d <= 1.0: return "on_script"
+    if abs_d <= 2.5: return "soft_deviation"
+    return "hard_deviation"
+
+
+def _live_reco_from(
+    *,
+    pregame_status: str,
+    script_status: str,
+    market_state: str,
+) -> str:
+    """Decide what to tell the user to DO right now."""
+    if pregame_status in ("already_won", "already_lost"):
+        # Pick is settled — no action needed beyond reviewing the result.
+        return "avoid"
+    if pregame_status == "not_actionable":
+        return "wait"
+    if script_status == "broken_script":
+        return "avoid"
+    if script_status == "hard_deviation":
+        return "hedge"
+    if script_status == "soft_deviation" and market_state == "still_playable":
+        return "cashout_watch"
+    if script_status == "on_script" and market_state == "still_playable":
+        return "actionable"
+    return "wait"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Public API
+# ──────────────────────────────────────────────────────────────────────────
+
+def compare_pregame_vs_live(
+    *,
+    pregame_pick: Optional[dict],
+    live_state: Optional[dict],
+    sport: str = "baseball",
+) -> dict:
+    """Produce the canonical `script_comparison` payload.
+
+    `pregame_pick` shape (subset)::
+        {
+            "recommendation": {"market": "Más de 7.5 carreras", "confidence_score": 68, ...},
+            "_mlb_script_v2": {"expectedRuns": 8.4, ...},
+            "fragility_score": 30,
+            ...
+        }
+    `live_state` shape (matches mlb_live_state.fetch_live_state output).
+    """
+    base = {
+        "script_status":              "insufficient_data",
+        "pregame_pick_status":        "pending",
+        "live_recommendation_status": "wait",
+        "score_delta":                None,
+        "pace_delta":                 None,
+        "risk_delta":                 0,
+        "fragility_delta":            0,
+        "confidence_adjustment":      0,
+        "reason_codes":               [],
+        "human_summary_es":           "Datos live insuficientes para comparar contra el análisis previo.",
+        "human_summary_en":           "Insufficient live data to compare against the pregame analysis.",
+        "validator":                  None,
+    }
+
+    if not pregame_pick or not isinstance(pregame_pick, dict):
+        base["reason_codes"].append("NO_PREGAME_PICK")
+        base["human_summary_es"] = "No hay análisis pregame disponible. Recomendación basada solo en datos live."
+        base["human_summary_en"] = "No pregame analysis available. Recommendation based on live data only."
+        return base
+
+    rec        = pregame_pick.get("recommendation") or {}
+    market     = rec.get("market") or rec.get("selection") or ""
+    selection  = rec.get("selection") or ""
+    v2         = pregame_pick.get("_mlb_script_v2") or {}
+    expected_total = (
+        v2.get("expectedRuns")  # baseball
+        or pregame_pick.get("expected_goals")          # football pregame ER analogue
+        or pregame_pick.get("expected_points_total")   # basketball
+    )
+
+    # ── Pull current live snapshot in a sport-agnostic shape ─────────────
+    ls = live_state or {}
+    score   = ls.get("score") or {}
+    home_s  = score.get("home")
+    away_s  = score.get("away")
+    is_live = bool(ls.get("is_live"))
+    is_final = (ls.get("state") == "final" or
+                str(ls.get("status") or "").lower() == "final")
+
+    # Sport-specific period (inning / minute / quarter).
+    period_n: Optional[int] = None
+    if sport == "baseball":
+        inning = ls.get("inning") or {}
+        period_n = inning.get("number")
+        expected_through = _baseball_expected_total_through(period_n, expected_total)
+    elif sport == "football":
+        period_n = ls.get("minute")
+        expected_through = _football_expected_total_through(period_n, expected_total)
+    elif sport == "basketball":
+        period_n = ls.get("quarter")
+        expected_through = _basketball_expected_total_through(period_n, expected_total)
+    else:
+        expected_through = None
+
+    # ── 1) Market-state validator (Layer A) ──────────────────────────────
+    validator = validate_market_state(
+        market,
+        selection_label=selection,
+        home_score=home_s, away_score=away_s,
+        sport=sport, inning_or_minute=period_n,
+        is_final=is_final,
+    )
+
+    # ── 2) Score / pace deltas ───────────────────────────────────────────
+    if home_s is not None and away_s is not None:
+        actual_total = home_s + away_s
+        if expected_through is not None:
+            score_delta = round(actual_total - expected_through, 2)
+            pace_delta  = round(actual_total - expected_through, 2)
+        else:
+            score_delta, pace_delta = None, None
+    else:
+        score_delta, pace_delta = None, None
+        actual_total = None
+
+    script_status = _classify_script(score_delta, sport)
+
+    # ── 3) Pregame pick status (uses validator state) ────────────────────
+    if validator.get("state") == "already_resolved_win":
+        pregame_status = "already_won"
+    elif validator.get("state") == "already_resolved_loss":
+        pregame_status = "already_lost"
+    elif validator.get("state") == "already_resolved_unknown":
+        pregame_status = "not_actionable"
+    elif is_final and validator.get("state") == "still_playable":
+        # Final but validator can't be sure → mark as not_actionable.
+        pregame_status = "not_actionable"
+    elif is_live and validator.get("actionable"):
+        pregame_status = "still_playable"
+    elif is_live and not validator.get("actionable"):
+        pregame_status = "not_actionable"
+    else:
+        pregame_status = "pending"
+
+    # ── 4) Confidence adjustment + risk / fragility deltas ───────────────
+    confidence_adjustment = 0
+    risk_delta            = 0
+    fragility_delta       = 0
+    if script_status == "broken_script":
+        confidence_adjustment = -25
+        risk_delta            = +20
+        fragility_delta       = +15
+    elif script_status == "hard_deviation":
+        confidence_adjustment = -12
+        risk_delta            = +10
+        fragility_delta       = +8
+    elif script_status == "soft_deviation":
+        confidence_adjustment = -5
+        risk_delta            = +3
+        fragility_delta       = +3
+
+    # ── 5) Live recommendation status ────────────────────────────────────
+    live_status = _live_reco_from(
+        pregame_status=pregame_status,
+        script_status=script_status,
+        market_state=validator.get("state", "still_playable"),
+    )
+
+    # ── 6) Reason codes + human summary ──────────────────────────────────
+    reason_codes: list[str] = []
+    if validator.get("reason_code") and validator.get("reason_code") != "STILL_LIVE":
+        reason_codes.append(validator["reason_code"])
+    if script_status != "on_script":
+        reason_codes.append(f"SCRIPT_{script_status.upper()}")
+    if pregame_status in ("already_won", "already_lost"):
+        reason_codes.append(f"PICK_{pregame_status.upper()}")
+    if abs(score_delta or 0) > 0 and score_delta is not None:
+        reason_codes.append("OVERPACE" if score_delta > 0 else "UNDERPACE")
+
+    summary_es, summary_en = _human_summary(
+        sport=sport, market=market, validator=validator,
+        actual_total=actual_total, expected_through=expected_through,
+        period_n=period_n, script_status=script_status,
+        pregame_status=pregame_status, live_status=live_status,
+    )
+
+    return {
+        "script_status":              script_status,
+        "pregame_pick_status":        pregame_status,
+        "live_recommendation_status": live_status,
+        "score_delta":                score_delta,
+        "pace_delta":                 pace_delta,
+        "risk_delta":                 risk_delta,
+        "fragility_delta":            fragility_delta,
+        "confidence_adjustment":      confidence_adjustment,
+        "expected_total_through":     expected_through,
+        "actual_total":               actual_total,
+        "period_n":                   period_n,
+        "reason_codes":               reason_codes,
+        "human_summary_es":           summary_es,
+        "human_summary_en":           summary_en,
+        "validator":                  validator,
+        "suggested_alternatives":     validator.get("suggested_alternatives") or [],
+    }
+
+
+def _period_label(sport: str, n: Optional[int]) -> str:
+    if n is None:
+        return ""
+    if sport == "baseball":
+        return f"en el {n}º inning"
+    if sport == "football":
+        return f"en el minuto {n}"
+    if sport == "basketball":
+        return f"en el Q{n}"
+    return f"({n})"
+
+
+def _human_summary(
+    *, sport: str, market: str, validator: dict,
+    actual_total: Optional[int], expected_through: Optional[float],
+    period_n: Optional[int], script_status: str,
+    pregame_status: str, live_status: str,
+) -> tuple[str, str]:
+    """Build the Spanish / English narrative."""
+    unit_es = {"baseball": "carreras", "football": "goles", "basketball": "puntos"}.get(sport, "puntos")
+    unit_en = {"baseball": "runs", "football": "goals", "basketball": "points"}.get(sport, "points")
+    period_es = _period_label(sport, period_n)
+
+    # Case A — pick already settled.
+    if pregame_status == "already_won":
+        alts = validator.get("suggested_alternatives") or []
+        alt_es = (" Evalúa líneas live superiores: " + ", ".join(alts) + ".") if alts else ""
+        alt_en = (" Look at higher live lines: " + ", ".join(alts) + ".") if alts else ""
+        return (
+            f"El pick pregame {market!r} ya se cumplió {period_es} con {actual_total} {unit_es}. "
+            f"No es accionable como apuesta activa.{alt_es}",
+            f"Pregame pick {market!r} already settled with {actual_total} {unit_en}. "
+            f"Not actionable as a live bet anymore.{alt_en}",
+        )
+    if pregame_status == "already_lost":
+        return (
+            f"El pick pregame {market!r} ya perdió ({actual_total} {unit_es} {period_es}).",
+            f"Pregame pick {market!r} already lost ({actual_total} {unit_en}).",
+        )
+
+    # Case B — pick still playable / pending.
+    delta_es = ""
+    delta_en = ""
+    if expected_through is not None and actual_total is not None:
+        diff = actual_total - expected_through
+        sign = "+" if diff > 0 else ""
+        delta_es = f" Pace: {actual_total} vs esperado {expected_through} ({sign}{round(diff,2)})."
+        delta_en = f" Pace: {actual_total} vs expected {expected_through} ({sign}{round(diff,2)})."
+
+    script_label_es = {
+        "on_script":         "El partido sigue el guion esperado.",
+        "soft_deviation":    "Desviación leve respecto al guion.",
+        "hard_deviation":    "Desviación fuerte respecto al guion.",
+        "broken_script":     "El guion del partido está roto — no entrar live.",
+        "insufficient_data": "Datos live insuficientes para confirmar el guion.",
+    }.get(script_status, "")
+    script_label_en = {
+        "on_script":         "Game following the script.",
+        "soft_deviation":    "Slight deviation from the script.",
+        "hard_deviation":    "Strong deviation from the script.",
+        "broken_script":     "Script broken — avoid live entry.",
+        "insufficient_data": "Insufficient live data to confirm the script.",
+    }.get(script_status, "")
+
+    reco_es = {
+        "actionable":      "Pick aún jugable.",
+        "wait":            "Esperar mejor línea o más datos.",
+        "avoid":           "Evitar entrada live.",
+        "hedge":           "Considerar cobertura/hedge.",
+        "cashout_watch":   "Vigilar cashout — el guion se está moviendo.",
+    }.get(live_status, "")
+    reco_en = {
+        "actionable":      "Pick still playable.",
+        "wait":            "Wait for a better line or more data.",
+        "avoid":           "Avoid live entry.",
+        "hedge":           "Consider hedging.",
+        "cashout_watch":   "Watch cashout — script is drifting.",
+    }.get(live_status, "")
+
+    return (
+        f"{script_label_es} {reco_es}{delta_es}".strip(),
+        f"{script_label_en} {reco_en}{delta_en}".strip(),
+    )
+
+
+__all__ = ["compare_pregame_vs_live"]

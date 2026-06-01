@@ -600,6 +600,53 @@ async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
     except Exception:
         snapshots = []
     doc["odds_history"] = _clean_list(snapshots)
+
+    # ── Live ↔ Pregame comparison (Layer A + B) ───────────────────────
+    # We enrich the doc with a `script_comparison` object whenever we
+    # have BOTH a live snapshot AND a pregame pick for this match in the
+    # user's latest pick_run. This is what the UI consumes to decide
+    # whether to render the pick as actionable or move it to the
+    # "Pick pregame ya cumplido/no accionable" section.
+    try:
+        pregame_pick = None
+        # Look only in the user's latest pick_run to keep the join cheap.
+        last_run = await db.picks.find_one(
+            {"user_id": user["id"], "sport": doc.get("sport")},
+            sort=[("generated_at", -1)],
+            projection={"payload": 1},
+        )
+        if last_run and last_run.get("payload"):
+            buckets = (
+                (last_run["payload"].get("picks")          or []) +
+                (last_run["payload"].get("rescued_picks")  or []) +
+                (last_run["payload"].get("structural_lean_requires_odds") or []) +
+                (last_run["payload"].get("watchlist_manual_odds") or [])
+            )
+            for p in buckets:
+                if str(p.get("match_id")) == str(doc.get("match_id")):
+                    pregame_pick = p
+                    break
+        live_state_for_cmp = doc.get("live_stats") or {}
+        # Build a compatible shape for the comparison layer (it expects
+        # the fetcher's payload, which uses `score` / `inning` / `state`).
+        live_shape = {
+            "score":  live_state_for_cmp.get("score"),
+            "inning": live_state_for_cmp.get("inning"),
+            "state":  doc.get("_live_state")
+                      or ("live-data-ready" if doc.get("is_live") else "no-live-data"),
+            "is_live": bool(doc.get("is_live")),
+            "status":  doc.get("status"),
+        }
+        from services.live_pre_match_comparison import compare_pregame_vs_live
+        doc["script_comparison"] = compare_pregame_vs_live(
+            pregame_pick=pregame_pick,
+            live_state=live_shape,
+            sport=doc.get("sport") or "baseball",
+        )
+    except Exception as exc:
+        log.debug("script_comparison enrichment failed (non-fatal): %s", exc)
+        doc["script_comparison"] = None
+
     return _clean(doc)
 
 

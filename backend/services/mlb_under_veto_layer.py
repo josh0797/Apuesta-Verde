@@ -45,12 +45,19 @@ VETO_REASONS = {
     "NO_PITCHER_DATA":              "Sin datos de pitcher en el profile — Under no auditable",
     "BULLPEN_BLOWUP_RISK":          "Bullpen ERA últimos 7d >5.00 — riesgo de explosión tardía",
     "RECENT_OVER_PATTERN":          "Últimos enfrentamientos H2H promediaron ≥9.0 carreras",
+    "POWER_BAT_PRESENT":            "Equipo con OPS > 0.770 — riesgo de inning explosivo",
+    "BULLPEN_PITCH_STRESS_HIGH":    "Bullpen con pitch-stress >1.5 (≥67 pitches en 48h) — fatiga real",
 }
+
+# Umbral OPS para considerar a un equipo "power bat" (regresión a la
+# media históricamente alrededor del 0.770 league-average).
+POWER_BAT_OPS_THRESHOLD = 0.770
 
 # Razones que por sí solas bloquean el Under (sin necesidad de acumular).
 _BLOCKING_REASONS = {
     "INSUFFICIENT_PITCHER_SAMPLE",
     "NO_PITCHER_DATA",
+    "POWER_BAT_PRESENT",          # caso Yankees @ A's 13-8 (Under 9.5 lost).
 }
 
 
@@ -181,6 +188,35 @@ def build_under_veto_context(profile: Optional[dict]) -> dict:
     combined = profile.get("combined") or {}
     recent_h2h = combined.get("h2hTotalRunsAvg") or combined.get("h2h_recent_runs_avg")
 
+    # FIX #2 — extract team OPS from the batting profile so the veto can
+    # apply POWER_BAT_PRESENT. Profile shape (current): `batting.home.ops`
+    # / `batting.away.ops`. We accept several spellings so any upstream
+    # normaliser change doesn't silently drop the signal.
+    batting = profile.get("batting") or {}
+    home_bat = batting.get("home") or {}
+    away_bat = batting.get("away") or {}
+
+    def _ops(b: dict) -> Optional[float]:
+        for k in ("ops", "OPS", "team_ops", "teamOps", "season_ops"):
+            v = b.get(k)
+            if v is None:
+                continue
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    home_team_ops = _ops(home_bat)
+    away_team_ops = _ops(away_bat)
+
+    # FIX #3 — surface real bullpen workload (pitch_stress_index) so the
+    # veto layer can flag fresh-bullpen exhaustion. The orchestrator
+    # injects `home_bullpen_real` / `away_bullpen_real` directly into the
+    # profile dict before calling us.
+    home_bp_real = profile.get("home_bullpen_real") or {}
+    away_bp_real = profile.get("away_bullpen_real") or {}
+
     return {
         "home_pitcher":         _starter_block(hs),
         "away_pitcher":         _starter_block(as_),
@@ -188,6 +224,10 @@ def build_under_veto_context(profile: Optional[dict]) -> dict:
         "away_bullpen":         _bullpen_block(ab),
         "park":                 {"run_factor": park_factor},
         "recent_h2h_avg_runs":  recent_h2h,
+        "home_team_ops":        home_team_ops,
+        "away_team_ops":        away_team_ops,
+        "home_bullpen_real":    home_bp_real,
+        "away_bullpen_real":    away_bp_real,
         # Provenance / debug
         "_source":              "mapped_from_profile.pitching",
         "_xera_available":      (hs.get("xera") is not None) or (as_.get("xera") is not None),
@@ -204,6 +244,12 @@ def evaluate_under_veto(
     bullpen_home:        Optional[dict] = None,
     bullpen_away:        Optional[dict] = None,
     recent_h2h_avg_runs: Optional[float] = None,
+    # FIX #1 — power-bat detection.
+    home_team_ops:       Optional[float] = None,
+    away_team_ops:       Optional[float] = None,
+    # FIX #3 — real bullpen workload (pitch_stress_index from MLB Stats API).
+    home_bullpen_real:   Optional[dict] = None,
+    away_bullpen_real:   Optional[dict] = None,
 ) -> dict:
     """Evalúa todas las reglas del veto y devuelve el verdicto.
 
@@ -286,6 +332,35 @@ def evaluate_under_veto(
                 reasons.append("RECENT_OVER_PATTERN")
         except (TypeError, ValueError):
             pass
+
+    # 7) Power-bat detection (FIX #1 — Yankees @ A's 13-8 fail).
+    # Any team with OPS > 0.770 carries non-trivial explosive-inning risk
+    # even against a quality starter. We blocked Under once either side
+    # crosses the threshold so a single 5-run frame doesn't sink the pick.
+    for label, ops in (("HOME", home_team_ops), ("AWAY", away_team_ops)):
+        if ops is None:
+            continue
+        try:
+            if float(ops) > POWER_BAT_OPS_THRESHOLD:
+                reasons.append("POWER_BAT_PRESENT")
+                break   # solo una vez aunque ambos sean power
+        except (TypeError, ValueError):
+            continue
+
+    # 8) Real bullpen pitch-stress (FIX #3 — Twins @ Pirates case).
+    # `pitch_stress_index > 1.5` means the bullpen threw >67 pitches in the
+    # last 48h, regardless of season ERA. We add a separate reason so the
+    # UI can show this distinctly from BULLPEN_BLOWUP_RISK.
+    for bp_real in (home_bullpen_real, away_bullpen_real):
+        if not isinstance(bp_real, dict):
+            continue
+        try:
+            psi = float(bp_real.get("pitch_stress_index") or 0)
+        except (TypeError, ValueError):
+            psi = 0.0
+        if psi > 1.5:
+            reasons.append("BULLPEN_PITCH_STRESS_HIGH")
+            break
 
     # ── Severidad final ──────────────────────────────────────────────
     has_blocking = any(r in _BLOCKING_REASONS for r in reasons)

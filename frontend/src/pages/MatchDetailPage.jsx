@@ -18,6 +18,7 @@ import { MLBMatchupPanel } from '@/components/MLBMatchupPanel';
 import { MLBLiveIntelPanel } from '@/components/MLBLiveIntelPanel';
 import { MLBScriptPanel } from '@/components/MLBScriptPanel';
 import { MLBLiveScoreboard } from '@/components/MLBLiveScoreboard';
+import { LivePreMatchComparisonPanel } from '@/components/LivePreMatchComparisonPanel';
 import { useLiveMatchDetail } from '@/hooks/useLiveMatchDetail';
 import { LiveTerritorialControlPanel } from '@/components/LiveTerritorialControlPanel';
 import { formatDateTime, humanizeSelection } from '@/lib/format';
@@ -173,8 +174,56 @@ export default function MatchDetailPage() {
       <div className="grid lg:grid-cols-12 gap-6">
         {/* Main */}
         <div className="lg:col-span-8 space-y-6">
-          {/* LLM pick or fallback */}
-          {llmPick ? (
+          {/* Live ↔ pregame comparison (always above the pick so the user
+              sees the verdict before the pick itself when the market is
+              already settled). */}
+          {match?.script_comparison && (
+            <LivePreMatchComparisonPanel
+              comparison={match.script_comparison}
+              lang={lang}
+            />
+          )}
+          {/* LLM pick or fallback — DEMOTED when settled / not actionable. */}
+          {(() => {
+            const cmp = match?.script_comparison || {};
+            const settled = ['already_won', 'already_lost', 'not_actionable']
+              .includes(cmp.pregame_pick_status);
+            if (llmPick && settled) {
+              // Render in a desaturated, "informational" container so
+              // the user understands the pick is no longer actionable.
+              return (
+                <div
+                  className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 space-y-3"
+                  data-testid="llm-pick-block-settled"
+                >
+                  <div className="text-[11px] uppercase tracking-wide text-amber-200 font-semibold">
+                    {lang === 'en'
+                      ? 'Pregame pick — already settled / not actionable'
+                      : 'Pick pregame ya cumplido / no accionable'}
+                  </div>
+                  <div className="flex items-center justify-between gap-3 flex-wrap opacity-80">
+                    <div>
+                      <div className="text-lg font-semibold flex items-center flex-wrap gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-100 border border-amber-500/30 text-xs">
+                          {llmPick.recommendation?.market}
+                        </span>
+                        {humanizeSelection(llmPick.recommendation?.selection, llmPick.recommendation?.market, home?.name, away?.name, lang, sport)}
+                      </div>
+                      {llmPick.recommendation?.odds_range && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {t.match.oddsRange}: <span className="text-foreground mono font-mono-tabular">{llmPick.recommendation?.odds_range}</span>
+                        </div>
+                      )}
+                    </div>
+                    <ConfidenceMeter
+                      score={llmPick.recommendation?.confidence_score || 0}
+                      size="inline"
+                    />
+                  </div>
+                </div>
+              );
+            }
+            return llmPick ? (
             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-5 space-y-4" data-testid="llm-pick-block">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
@@ -270,7 +319,8 @@ export default function MatchDetailPage() {
               <p className="text-sm text-muted-foreground">{t.match.noLLMPick}</p>
               <Link to="/" className="text-cyan-300 text-sm hover:text-cyan-200">{t.match.generateForMatch}</Link>
             </div>
-          )}
+          );
+          })()}
 
           {/* Live Territorial Control + Corner Intelligence (FOOTBALL ONLY).
               The component self-gates: it returns null unless

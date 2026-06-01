@@ -539,17 +539,23 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
 
         h_team_task = a_team_task = h_bp_task = a_bp_task = None
         h_il_task = a_il_task = None
+        # FIX #3 — Real bullpen pitch-stress from MLB Stats API box-scores.
+        # Module exists since GAP M2 but was never invoked at this layer.
+        h_bp_real_task = a_bp_real_task = None
         try:
             from .mlb_team_stats import get_team_hand_splits, get_team_bullpen_usage
             from .mlb_stats_api import get_team_il_players
+            from .mlb_bullpen_real_usage import fetch_recent_bullpen_workload
             if conf.get("home_team_id"):
                 h_team_task = get_team_hand_splits(db, conf["home_team_id"])
                 h_bp_task   = get_team_bullpen_usage(db, conf["home_team_id"])
                 h_il_task   = get_team_il_players(db, conf["home_team_id"])
+                h_bp_real_task = fetch_recent_bullpen_workload(conf["home_team_id"], days=2)
             if conf.get("away_team_id"):
                 a_team_task = get_team_hand_splits(db, conf["away_team_id"])
                 a_bp_task   = get_team_bullpen_usage(db, conf["away_team_id"])
                 a_il_task   = get_team_il_players(db, conf["away_team_id"])
+                a_bp_real_task = fetch_recent_bullpen_workload(conf["away_team_id"], days=2)
         except Exception as exc:
             log.debug("team_stats tasks init failed: %s", exc)
 
@@ -605,6 +611,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             h_bullpen_usage, a_bullpen_usage,
             h_il, a_il,
             baseball_hist_profile,
+            h_bp_real, a_bp_real,
         ) = await asyncio.gather(
             _await_or_none(savant_h_task),
             _await_or_none(savant_a_task),
@@ -615,6 +622,8 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             _await_or_none(h_il_task),
             _await_or_none(a_il_task),
             _await_hist(hist_task),
+            _await_or_none(h_bp_real_task),
+            _await_or_none(a_bp_real_task),
         )
         if h_stats_e: h_stats = h_stats_e
         if a_stats_e: a_stats = a_stats_e
@@ -625,6 +634,13 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         h_il             = h_il             or []
         a_il             = a_il             or []
         baseball_hist_profile = baseball_hist_profile or {"available": False, "_reason": "not_available"}
+        # FIX #3 — surface the real bullpen workload in the profile so
+        # build_under_veto_context can read pitch_stress_index without
+        # re-fetching from MLB Stats. Persisted under stable keys.
+        if isinstance(h_bp_real, dict):
+            baseball_hist_profile["home_bullpen_real"] = h_bp_real
+        if isinstance(a_bp_real, dict):
+            baseball_hist_profile["away_bullpen_real"] = a_bp_real
 
         return (game_pk, conf, h_stats, a_stats,
                 h_team_stats, a_team_stats,
@@ -1632,6 +1648,11 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                     bullpen_home=ctx["home_bullpen"],
                     bullpen_away=ctx["away_bullpen"],
                     recent_h2h_avg_runs=ctx.get("recent_h2h_avg_runs"),
+                    # FIX #1 + #3 — propagate OPS + real bullpen.
+                    home_team_ops=ctx.get("home_team_ops"),
+                    away_team_ops=ctx.get("away_team_ops"),
+                    home_bullpen_real=ctx.get("home_bullpen_real"),
+                    away_bullpen_real=ctx.get("away_bullpen_real"),
                 )
                 # Always expose for UI/audit, even when severity=PASS.
                 pick_payload["under_veto"] = veto_central
@@ -1668,6 +1689,44 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                             ).strip(" |")
                         except Exception:
                             pass
+
+                # FIX #5 — Learning-cases pattern match.
+                # Side-channel block based on prior MLB Under losses.
+                # Runs even when the veto returns PASS so the system can
+                # learn beyond the hard rules baked into the veto.
+                try:
+                    from .learning_cases import detect_mlb_under_warning_pattern
+                    learn_ctx = {
+                        "home_team_ops":          ctx.get("home_team_ops"),
+                        "away_team_ops":          ctx.get("away_team_ops"),
+                        "home_bullpen_real":      ctx.get("home_bullpen_real"),
+                        "away_bullpen_real":      ctx.get("away_bullpen_real"),
+                        "active_series_context":  pick_payload.get("active_series_context"),
+                    }
+                    learning = detect_mlb_under_warning_pattern(
+                        match=conf, scoring_ctx=learn_ctx,
+                    )
+                    if learning:
+                        pick_payload["under_learning_rules"] = learning
+                        if (learning.get("any_block")
+                                and chosen_market
+                                and ("under" in _veto_probe or "nrfi" in _veto_probe)):
+                            log.warning(
+                                "Under BLOQUEADO por learning_cases game=%s rules=%s",
+                                conf.get("game_pk"),
+                                [r.get("rule_key") for r in learning.get("rules_fired") or []],
+                            )
+                            pick_payload["under_veto_block"] = {
+                                **(pick_payload.get("under_veto_block") or {}),
+                                "learning_block": True,
+                                "rules_fired":   learning.get("rules_fired"),
+                                "blocked_market":    (pick_payload.get("under_veto_block") or {}).get("blocked_market")
+                                                     or (chosen_market.get("market") if chosen_market else None),
+                            }
+                            chosen_market = None
+                            best_score = 0
+                except Exception as exc:
+                    log.debug("learning_cases MLB pattern check failed: %s", exc)
         except Exception as exc:
             log.debug("MLB Under Veto central layer failed: %s", exc)
 

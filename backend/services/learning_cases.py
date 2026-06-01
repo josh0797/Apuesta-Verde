@@ -216,7 +216,7 @@ async def seed_cases(db) -> int:
     if db is None:
         return 0
     inserted = 0
-    for case in SEED_CASES:
+    for case in SEED_CASES + MLB_SEED_CASES:
         res = await db.learning_cases.update_one(
             {"case_id": case["case_id"]}, {"$setOnInsert": case}, upsert=True,
         )
@@ -225,10 +225,149 @@ async def seed_cases(db) -> int:
     return inserted
 
 
+# ════════════════════════════════════════════════════════════════════════
+# MLB seed-cases + pattern detection (FIX #4 — Yankees @ A's Under fails)
+# ════════════════════════════════════════════════════════════════════════
+# Curated post-mortems from 8 consecutive Under losses in late May 2026.
+# Each case carries the trigger context observable BEFORE the game and a
+# lesson_es so the LLM-narrative side can quote it. They feed
+# `detect_mlb_under_warning_pattern` which short-circuits any Under pick
+# whose context matches a previously-lost archetype.
+
+MLB_SEED_CASES: list[dict] = [
+    {
+        "case_id":     "yankees-athletics-2026-05-31",
+        "title":       "Yankees @ A's — Under 9.5 falló por inning explosivo",
+        "rule_key":    "power_bat_visiting_avoid_under",
+        "match_label": "Yankees @ Athletics",
+        "league":      "MLB",
+        "sport":       "baseball",
+        "date":        "2026-05-31",
+        "engine_pick": "Under 9.5",
+        "user_pick":   "Under 9.5",
+        "final_score": "13-8",
+        "outcome":     "lost",
+        "trigger_context": {
+            "yankees_ops":             0.785,
+            "yankees_3rd_inning_runs": 13,
+            "pitchers_era":            [3.2, 4.1],
+        },
+        "lesson_es": (
+            "Cuando un equipo con OPS > 0.770 visita, no apostar Under "
+            "aunque los pitchers tengan ERA elite. Un solo inning explosivo "
+            "(5+ carreras) destruye el pick."
+        ),
+        "tags": ["mlb", "under", "power_bat", "yankees"],
+    },
+    {
+        "case_id":     "twins-pirates-2026-05-31",
+        "title":       "Twins @ Pirates — Under en serie activa con bullpens cargados",
+        "rule_key":    "active_series_overs_avoid_under",
+        "match_label": "Twins @ Pirates",
+        "league":      "MLB",
+        "sport":       "baseball",
+        "date":        "2026-05-31",
+        "engine_pick": "Under 9.5",
+        "user_pick":   "Under 9.5",
+        "final_score": None,
+        "outcome":     "lost",
+        "trigger_context": {
+            "previous_games_avg":   15.0,
+            "bullpen_pitch_stress": [3.24, 3.31],
+            "game_in_series":       3,
+        },
+        "lesson_es": (
+            "En el tercer juego de serie con bullpens cargados "
+            "(pitch_stress > 1.5) Y promedio de serie > 12 runs, "
+            "el Under tiene <30% de hit rate. Evitar."
+        ),
+        "tags": ["mlb", "under", "series_context", "bullpen_fatigue"],
+    },
+]
+
+
+def detect_mlb_under_warning_pattern(
+    match: Optional[dict] = None,
+    scoring_ctx: Optional[dict] = None,
+) -> Optional[dict]:
+    """Return rules-fired payload (or None) for the current MLB context.
+
+    Applies the lessons learned from prior MLB Under losses:
+
+      1) `power_bat_visiting_avoid_under` — any team OPS > 0.770.
+      2) `active_series_overs_avoid_under` — active-series avg > 12 runs
+         AND game ≥ 2 of series AND one bullpen with pitch_stress > 1.5.
+
+    Each fired rule includes `block=True` so the caller can short-circuit
+    the Under selection. Returns ``None`` when no rule applies — caller
+    treats that as "no learned pattern".
+    """
+    if not scoring_ctx:
+        return None
+    rules_fired: list[dict] = []
+
+    # Rule 1 — power bat present.
+    try:
+        home_ops = float(scoring_ctx.get("home_team_ops") or 0)
+    except (TypeError, ValueError):
+        home_ops = 0.0
+    try:
+        away_ops = float(scoring_ctx.get("away_team_ops") or 0)
+    except (TypeError, ValueError):
+        away_ops = 0.0
+    if max(home_ops, away_ops) > 0.770:
+        rules_fired.append({
+            "rule_key":   "power_bat_visiting_avoid_under",
+            "case_ref":   "yankees-athletics-2026-05-31",
+            "block":      True,
+            "evidence":   {"max_ops": round(max(home_ops, away_ops), 3)},
+        })
+
+    # Rule 2 — active series overs with fatigued bullpens.
+    series_ctx = scoring_ctx.get("active_series_context") or {}
+    bp_home    = scoring_ctx.get("home_bullpen_real") or {}
+    bp_away    = scoring_ctx.get("away_bullpen_real") or {}
+    try:
+        series_avg = float(series_ctx.get("total_runs_avg") or 0)
+    except (TypeError, ValueError):
+        series_avg = 0.0
+    games_in_series = int(series_ctx.get("games_in_series") or 0)
+    try:
+        psi_home = float(bp_home.get("pitch_stress_index") or 0)
+    except (TypeError, ValueError):
+        psi_home = 0.0
+    try:
+        psi_away = float(bp_away.get("pitch_stress_index") or 0)
+    except (TypeError, ValueError):
+        psi_away = 0.0
+    if (series_avg > 12.0
+            and games_in_series >= 2
+            and (psi_home > 1.5 or psi_away > 1.5)):
+        rules_fired.append({
+            "rule_key":   "active_series_overs_avoid_under",
+            "case_ref":   "twins-pirates-2026-05-31",
+            "block":      True,
+            "evidence":   {
+                "series_avg":      round(series_avg, 1),
+                "games_in_series": games_in_series,
+                "max_pitch_stress": round(max(psi_home, psi_away), 2),
+            },
+        })
+
+    if not rules_fired:
+        return None
+    return {
+        "any_block":   any(r["block"] for r in rules_fired),
+        "rules_fired": rules_fired,
+    }
+
+
 __all__ = [
     "RULE_CLOSE_MODERATE_PRIORITISE_U35",
     "SEED_CASES",
+    "MLB_SEED_CASES",
     "detect_close_moderate_pace",
+    "detect_mlb_under_warning_pattern",
     "apply_case_rules",
     "save_case",
     "list_cases",
