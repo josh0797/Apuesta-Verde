@@ -1,22 +1,22 @@
 [
   {
-    "content": "Crear y ejecutar script de diagnóstico StatBunker: fetch las 3 URLs canónicas (LeagueTable / GoalsFor / GoalsAgainst con comp_id=777 La Liga), reportar status, content_length, tables found, headers, primeras 3 filas",
+    "content": "Probe: descubrir comp_ids reales de Bundesliga, Serie A, Ligue 1, Champions League y Liga MX (sondeo de IDs + scrape de página de competiciones)",
     "status": "completed"
   },
   {
-    "content": "Implementar services/external_sources/statbunker.py: comp_id resolver (mapping manual Tier 1/2) + parser GoalsFor/GoalsAgainst + fallback de dominio + cache 24h en MongoDB",
+    "content": "Añadir los comp_ids descubiertos a _COMP_IDS en statbunker.py (25/26 + 24/25 para retros)",
     "status": "completed"
   },
   {
-    "content": "Expandir _league_to_soccerstats_slug con sudamericanas adicionales (libertadores, sudamericana, copa argentina, primera nacional, primera B, peruvian primera, chilean primera, ecuadorian, colombian, etc.) + amistosos internacionales",
+    "content": "Crear discover_comp_ids() en statbunker.py: scrape de la página de competiciones de StatBunker y mapeo league_name → comp_id por temporada",
     "status": "completed"
   },
   {
-    "content": "Wire StatBunker en _prefetch_early_goal_profiles con merge_early_goal_profiles (StatBunker primary, SoccerSTATS secondary, derived API-Sports fallback)",
+    "content": "Crear APScheduler monthly job en server.py: ejecuta auto-discovery + actualiza colección MongoDB statbunker_comp_ids + extiende _COMP_IDS en runtime",
     "status": "completed"
   },
   {
-    "content": "Tests: probar con datos reales La Liga (Real Madrid / Barcelona) y comparar early_goal_pct entre fuentes",
+    "content": "Tests: validar discovery + verificar comp_ids reales con fetch live",
     "status": "completed"
   }
 ]

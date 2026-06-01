@@ -70,24 +70,98 @@ FETCH_TIMEOUT_SEC = 25.0
 # When a season isn't mapped, we fall back to "_current" (the active season).
 _COMP_IDS: dict[str, dict[str, int]] = {
     "2025-2026": {
-        "premier league":          776,
-        "epl":                     776,
-        "la liga":                 777,
-        "laliga":                  777,
-        "primera division":        777,
+        # ── Top 5 European leagues ───────────────────────────────
+        "premier league":           776,
+        "epl":                      776,
+        "la liga":                  777,
+        "laliga":                   777,
+        "primera division":         777,
+        "serie a":                  785,
+        "ligue 1":                  787,
+        "french ligue":             787,
+        "french ligue 1":           787,
+        # Bundesliga 25/26 not indexed yet (latest is 24/25)
+
+        # ── UEFA / European competitions ─────────────────────────
+        "uefa champions league":    783,
+        "champions league":         783,
+        "ucl":                      783,
+        "uefa europa league":       784,
+        "europa league":            784,
+        "uefa conference league":   786,
+        "uefa europa conference league": 786,
+        "conference league":        786,
+        "uefa super cup":           781,
+        "super cup":                781,
+
+        # ── English lower divisions ──────────────────────────────
+        "championship":             779,
+        "sky bet championship":     779,
+        "league one":               778,
+        "sky bet league one":       778,
+        "league two":               780,
+        "sky bet league two":       780,
+        "fa cup":                   788,
+
+        # ── Other top European ───────────────────────────────────
+        "mls":                      714,                # latest indexed
+        "scottish premiership":     749,
+        "scottish premier league":  749,
     },
     "2024-2025": {
-        "premier league":          596,
-        "epl":                     596,
-        "la liga":                 731,
-        "laliga":                  731,
-        "primera division":        731,
+        "premier league":           596,
+        "epl":                      596,
+        "la liga":                  731,
+        "laliga":                   731,
+        "primera division":         731,
+        "bundesliga":               762,
     },
     "2023-2024": {
-        "la liga":                 753,
-        "laliga":                  753,
-        "primera division":        753,
+        "la liga":                  753,
+        "laliga":                   753,
+        "primera division":         753,
+        "bundesliga":               751,
     },
+}
+
+
+# Codes used by StatBunker's /competitions/?comp_type=<X> dropdown.
+# These are stable across seasons — only the comp_id changes year-to-year.
+# Used by the auto-discovery job to find the latest comp_id for each league.
+_STATBUNKER_COMP_CODES: dict[str, str] = {
+    "EPL":      "premier league",
+    "LL":       "la liga",
+    "SA":       "serie a",
+    "BL":       "bundesliga",
+    "LC":       "ligue 1",
+    "EC":       "championship",
+    "EL1":      "league one",
+    "EL2":      "league two",
+    "SPL":      "scottish premiership",
+    "MLS":      "mls",
+    "DL":       "eredivisie",
+    "ABUN":     "austrian bundesliga",
+    "SWSL":     "swiss super league",
+    "DANSL":    "danish super league",
+    "UCL":      "uefa champions league",
+    "UCUP":     "uefa europa league",
+    "ESC":      "uefa super cup",
+    "UEFANL":   "uefa nations league",
+    "UECON":    "uefa conference league",
+    "FAC":      "fa cup",
+    "CC":       "league cup",
+    "COPA":     "copa libertadores",
+    "FWCC":     "fifa club world cup",
+    "WC":       "fifa world cup",
+    "ECC":      "euro",
+    "copaam":   "copa america",
+    "ACON":     "africa cup of nations",
+    "Goldc":    "concacaf gold cup",
+    "ASCUP":    "afc asian cup",
+    "WCQ":      "world cup qualifying",
+    "WCQE":     "world cup qualifying europe",
+    "WCQSA":    "world cup qualifying south america",
+    "INT":      "international friendlies",
 }
 
 
@@ -119,6 +193,214 @@ def resolve_comp_id(league_name: Optional[str], season: Optional[str] = None) ->
     if norm2 != norm and norm2 in bucket:
         return bucket[norm2]
     return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Auto-discovery
+# ─────────────────────────────────────────────────────────────────────────────
+# `_COMP_IDS` is a static fallback. The monthly APScheduler job calls
+# `discover_comp_ids()` to scan every code in `_STATBUNKER_COMP_CODES`,
+# resolve the **active season** comp_id, persist it to MongoDB, and
+# update `_COMP_IDS` in-process. This way new seasons go live as soon
+# as StatBunker indexes them — no code deploy required.
+
+DISCOVERY_COLLECTION = "statbunker_comp_ids"
+
+
+_SEASON_RE = re.compile(r"(\d{2})\s*/\s*(\d{2,4})")
+
+
+def _title_to_season(title: str) -> Optional[str]:
+    """Extract the season label from a 'Goals for <League> 25/26' title."""
+    if not title:
+        return None
+    m = _SEASON_RE.search(title)
+    if not m:
+        return None
+    start_short, end_part = m.group(1), m.group(2)
+    try:
+        start = 2000 + int(start_short)
+        if len(end_part) <= 2:
+            end = 2000 + int(end_part)
+        else:
+            end = int(end_part)
+        return f"{start}-{end}"
+    except ValueError:
+        return None
+
+
+async def _resolve_comp_id_for_code(
+    code: str,
+) -> Optional[tuple[int, str, str]]:
+    """Resolve the active comp_id for a StatBunker code by hitting
+    `/competitions/?comp_type=<code>` and pulling the latest comp_id +
+    season from the GoalsFor title.
+
+    Returns (comp_id, season, title) or None if discovery failed.
+    """
+    list_url = f"https://www.statbunker.com/competitions/?comp_type={code}"
+    try:
+        body = await asyncio.wait_for(fetch_unlocked(list_url), timeout=FETCH_TIMEOUT_SEC)
+    except (asyncio.TimeoutError, Exception):
+        return None
+    if not body or "404" in body[:600]:
+        return None
+
+    # The active comp_id is the most recent one in the listing — usually
+    # the first `comp_id=NNN` reference inside a teamstats/leagueview
+    # link near the top of the body.
+    ids = re.findall(r"comp_id=(\d+)", body)
+    if not ids:
+        return None
+
+    # Fetch the GoalsFor page to confirm + extract season label.
+    seen_titles: list[tuple[int, str]] = []
+    for cid_str in ids[:6]:
+        try:
+            cid = int(cid_str)
+        except ValueError:
+            continue
+        url = f"https://www.statbunker.com/competitions/GoalsFor?comp_id={cid}"
+        try:
+            gbody = await asyncio.wait_for(fetch_unlocked(url), timeout=FETCH_TIMEOUT_SEC)
+        except (asyncio.TimeoutError, Exception):
+            continue
+        if not gbody or "404" in gbody[:600]:
+            continue
+        title_m = re.search(r"<title[^>]*>([^<]+)</title>", gbody)
+        if not title_m:
+            continue
+        title = title_m.group(1).strip()
+        seen_titles.append((cid, title))
+
+    if not seen_titles:
+        return None
+
+    # Pick the one with the highest season label (e.g. 25/26 > 24/25).
+    def _season_rank(t: tuple[int, str]) -> int:
+        m = _SEASON_RE.search(t[1])
+        return int(m.group(1)) if m else 0
+
+    seen_titles.sort(key=_season_rank, reverse=True)
+    cid, title = seen_titles[0]
+    season = _title_to_season(title) or _current_season()
+    return cid, season, title
+
+
+async def discover_comp_ids(db=None, *, codes: Optional[list[str]] = None) -> dict:
+    """Scan StatBunker for the active comp_id per league code.
+
+    Persists results to MongoDB and patches the in-process `_COMP_IDS`
+    so subsequent fetches benefit immediately. Idempotent and safe to
+    re-run.
+
+    Args:
+        db:    Motor MongoDB handle (optional).
+        codes: Override the default code list — useful for targeted refreshes.
+
+    Returns a dict:
+        {
+            "discovered": [{"code": "BL", "league": "...", "season":"...",
+                             "comp_id": 762, "title": "..."}, ...],
+            "failures":   [{"code": "MX", "reason": "..."}, ...],
+            "ts":         "<ISO>"
+        }
+    """
+    codes = codes or list(_STATBUNKER_COMP_CODES.keys())
+    discovered: list[dict] = []
+    failures: list[dict] = []
+
+    # Run in batches of 4 to be polite to Bright Data.
+    batch_size = 4
+    for i in range(0, len(codes), batch_size):
+        batch = codes[i:i + batch_size]
+        results = await asyncio.gather(
+            *[_resolve_comp_id_for_code(c) for c in batch],
+            return_exceptions=True,
+        )
+        for code, r in zip(batch, results):
+            league = _STATBUNKER_COMP_CODES.get(code)
+            if isinstance(r, tuple):
+                cid, season, title = r
+                discovered.append({
+                    "code":    code,
+                    "league":  league,
+                    "season":  season,
+                    "comp_id": cid,
+                    "title":   title,
+                })
+                # Patch in-process _COMP_IDS so the new id is used right away.
+                bucket = _COMP_IDS.setdefault(season, {})
+                if league and bucket.get(league) != cid:
+                    bucket[league] = cid
+            else:
+                reason = (
+                    str(r)[:120] if isinstance(r, Exception)
+                    else "no_active_comp_id"
+                )
+                failures.append({"code": code, "league": league, "reason": reason})
+
+    # Persist to MongoDB
+    if db is not None and discovered:
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            for entry in discovered:
+                key = f"{entry['league']}|{entry['season']}"
+                await db[DISCOVERY_COLLECTION].replace_one(
+                    {"key": key},
+                    {
+                        "key":         key,
+                        "code":        entry["code"],
+                        "league":      entry["league"],
+                        "season":      entry["season"],
+                        "comp_id":     entry["comp_id"],
+                        "title":       entry["title"],
+                        "discovered_at": now,
+                    },
+                    upsert=True,
+                )
+            log.info(
+                "[STATBUNKER] discovery persisted %d comp_ids (%d failures)",
+                len(discovered), len(failures),
+            )
+        except Exception as exc:
+            log.warning("[STATBUNKER] discovery persist failed: %s", exc)
+
+    return {
+        "discovered": discovered,
+        "failures":   failures,
+        "ts":         datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def load_discovered_comp_ids(db) -> int:
+    """Read previously-discovered comp_ids from MongoDB and merge them into
+    `_COMP_IDS`. Call this once at backend startup so the in-process
+    table picks up everything persisted by past monthly jobs.
+
+    Returns the number of (league, season) entries loaded.
+    """
+    if db is None:
+        return 0
+    try:
+        cursor = db[DISCOVERY_COLLECTION].find({}, {"_id": 0})
+        loaded = 0
+        async for doc in cursor:
+            league = doc.get("league")
+            season = doc.get("season")
+            cid = doc.get("comp_id")
+            if not (league and season and cid):
+                continue
+            bucket = _COMP_IDS.setdefault(season, {})
+            if bucket.get(league) != cid:
+                bucket[league] = cid
+                loaded += 1
+        if loaded:
+            log.info("[STATBUNKER] loaded %d discovered comp_ids from MongoDB", loaded)
+        return loaded
+    except Exception as exc:
+        log.warning("[STATBUNKER] failed to load discovered comp_ids: %s", exc)
+        return 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -505,6 +787,8 @@ __all__ = [
     "parse_team_rows",
     "build_profile_from_rows",
     "resolve_comp_id",
+    "discover_comp_ids",
+    "load_discovered_comp_ids",
     "NAME",
     "APPLICABLE_SPORTS",
     "REQUIRES_UNLOCKER",

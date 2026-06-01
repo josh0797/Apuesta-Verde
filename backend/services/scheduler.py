@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 
 from . import data_ingestion
 
@@ -183,6 +184,48 @@ async def _job_recompute_feedback_weights(db):
         log.warning("recompute_feedback_weights failed: %s", exc)
 
 
+# ── Monthly StatBunker comp_id auto-discovery ───────────────────────────
+async def _job_discover_statbunker_comp_ids(db):
+    """Scan StatBunker for the active comp_id per league code, persist
+    to MongoDB and patch `_COMP_IDS` in-process.
+
+    Runs on the 1st of every month at 03:00 UTC. Cheap: ~10 fetches via
+    Bright Data, finishes in <60s.
+    """
+    log.info("Scheduler: discover_statbunker_comp_ids starting")
+    started = datetime.now(timezone.utc)
+    try:
+        from .external_sources.statbunker import discover_comp_ids
+        result = await discover_comp_ids(db)
+        _status["last_run"]["discover_statbunker_comp_ids"] = {
+            "ts":         started.isoformat(),
+            "duration_s": (datetime.now(timezone.utc) - started).total_seconds(),
+            "discovered": len(result.get("discovered") or []),
+            "failures":   len(result.get("failures") or []),
+        }
+        log.info(
+            "discover_statbunker_comp_ids: %d discovered, %d failures",
+            len(result.get("discovered") or []),
+            len(result.get("failures") or []),
+        )
+    except Exception as exc:
+        log.warning("discover_statbunker_comp_ids failed: %s", exc)
+
+
+# ── One-shot startup: load previously-discovered comp_ids from MongoDB ──
+async def _job_warm_statbunker_comp_ids(db):
+    """Pre-load previously-discovered comp_ids from MongoDB into the
+    in-process `_COMP_IDS` table. Runs once shortly after boot so all
+    subsequent fetches benefit from past discovery runs.
+    """
+    try:
+        from .external_sources.statbunker import load_discovered_comp_ids
+        loaded = await load_discovered_comp_ids(db)
+        log.info("warm_statbunker_comp_ids: %d entries loaded from MongoDB", loaded)
+    except Exception as exc:
+        log.warning("warm_statbunker_comp_ids failed: %s", exc)
+
+
 def start_scheduler(db) -> None:
     """Start the background scheduler if SCHEDULER_ENABLED=true."""
     global _scheduler
@@ -252,6 +295,25 @@ def start_scheduler(db) -> None:
         trigger=IntervalTrigger(minutes=30),
         id="recompute_feedback_weights",
         next_run_time=datetime.now(timezone.utc) + timedelta(minutes=5),
+        max_instances=1,
+        coalesce=True,
+    )
+    # Warm StatBunker comp_ids from MongoDB shortly after boot.
+    sch.add_job(
+        _job_warm_statbunker_comp_ids, args=[db],
+        trigger=IntervalTrigger(days=365),  # one-shot via next_run_time
+        id="warm_statbunker_comp_ids",
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
+        max_instances=1,
+        coalesce=True,
+    )
+    # Monthly: discover the active comp_id for every StatBunker league code
+    # (1st of each month at 03:00 UTC). New seasons auto-go-live the day
+    # StatBunker indexes them — no code deploy needed.
+    sch.add_job(
+        _job_discover_statbunker_comp_ids, args=[db],
+        trigger=CronTrigger(day=1, hour=3, minute=0, timezone="UTC"),
+        id="discover_statbunker_comp_ids",
         max_instances=1,
         coalesce=True,
     )
