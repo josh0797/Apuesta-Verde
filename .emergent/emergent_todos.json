@@ -1,18 +1,26 @@
 [
   {
-    "content": "Implementar compute_explosive_inning_risk() en mlb_under_veto_layer.py con calibración LOW/MEDIUM/HIGH y reglas no-double-count",
+    "content": "FIX B: Quitar POWER_BAT_PRESENT de _BLOCKING_REASONS en mlb_under_veto_layer.py (pasa a WARNING)",
     "status": "completed"
   },
   {
-    "content": "Integrar compute_explosive_inning_risk en mlb_day_orchestrator.py: MEDIUM=-10pts+prefer F5, HIGH=block FG Under + flip a Over solo con triple validación (survival>55 AND edge>=1.0 AND score>=60)",
+    "content": "FIX #3: Inyectar scoring_ctx['home_bullpen_real'] y ['away_bullpen_real'] en mlb_day_orchestrator.py (línea ~705)",
     "status": "completed"
   },
   {
-    "content": "Crear script de prueba python -c para validar 3 escenarios (LOW/MEDIUM/HIGH) y verificar flip a Over con doble gate",
+    "content": "FIX #4 + #5: Refactor select_under_market_with_bullpen_risk para aceptar veto_result y explosive_risk opcionales con la nueva lógica de gate",
     "status": "completed"
   },
   {
-    "content": "Verificar logs backend + supervisorctl status tras la integración",
+    "content": "Server: Proyectar explosive_inning_risk y explosive_inning_risk_action en _to_summary_row de server.py",
+    "status": "completed"
+  },
+  {
+    "content": "FIX A (UI): Reemplazar bloque 'Mercados a revisar manualmente' por panel 'Explosive Inning Risk' en ManualOddsReviewPanel.jsx",
+    "status": "completed"
+  },
+  {
+    "content": "Tests: validar B (POWER_BAT WARNING), FIX #3 (scoring_ctx), FIX #4 (gates) + verificar UI con screenshot",
     "status": "completed"
   }
 ]

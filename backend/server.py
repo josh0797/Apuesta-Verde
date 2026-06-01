@@ -1608,6 +1608,17 @@ async def _run_analysis_pipeline(
                     row["requires_manual_odds"] = True
                 if p.get("_structural_quality"):
                     row["structural_quality"] = p["_structural_quality"]
+                # Surface Explosive Inning Risk + action (FIX #1 / A).
+                # The UI uses these fields to render the
+                # "Explosive Inning Risk" sub-panel inside each row.
+                if p.get("explosive_inning_risk"):
+                    row["explosive_inning_risk"] = p["explosive_inning_risk"]
+                if p.get("explosive_inning_risk_action"):
+                    row["explosive_inning_risk_action"] = p["explosive_inning_risk_action"]
+                if p.get("under_veto"):
+                    row["under_veto"] = p["under_veto"]
+                if p.get("under_veto_block"):
+                    row["under_veto_block"] = p["under_veto_block"]
             return row
 
         result = {

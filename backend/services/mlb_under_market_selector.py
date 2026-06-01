@@ -161,6 +161,11 @@ def select_under_market_with_bullpen_risk(
     offensive_outlook:    Optional[float] = None,
     available_markets:    Optional[list[dict]] = None,
     current_selection:    Optional[dict] = None,
+    # FIX #4 — accept pre-computed veto + explosive_risk from orchestrator
+    # so we can apply the central gates BEFORE running the bullpen-risk
+    # selector. Both are optional → backward-compatible.
+    veto_result:          Optional[dict] = None,
+    explosive_risk:       Optional[dict] = None,
 ) -> dict:
     """Re-rank the Under markets given bullpen risk.
 
@@ -225,6 +230,65 @@ def select_under_market_with_bullpen_risk(
 
     selection_market = (selection.get("market") or "").strip()
     selection_market_lower = selection_market.lower()
+
+    # ── FIX #4 — Veto + Explosive Risk early gate ──────────────────────
+    # Antes de elegir F5 vs Full Game, consultar el veto central y el
+    # Explosive Inning Risk Score. La lógica espejea exactamente la del
+    # orchestrator: BLOCKED veto → None. HIGH risk → marca para Over
+    # protegido. MEDIUM → penalty -15 + preferir F5. LOW → continuar.
+    risk_level = None
+    if isinstance(explosive_risk, dict):
+        risk_level = (explosive_risk.get("risk_level") or "").upper() or None
+    veto_blocked = bool(isinstance(veto_result, dict) and veto_result.get("veto"))
+
+    if veto_blocked:
+        return {
+            "selected_market":           None,
+            "rejected_markets":          [],
+            "bullpen_fragility_warning": False,
+            "confidence_adjustment":     0,
+            "explanation":               (
+                "Veto central activo — Under descartado. "
+                + (veto_result.get("explanation") or "")
+            ).strip(),
+            "reason_codes":              list(veto_result.get("veto_reasons") or []),
+            "ranking":                   [],
+            "rule_triggered":            False,
+            "bullpen_risk_level":        _normalise_bullpen_risk(
+                bullpen_risk, bullpen_fatigue, bullpen_era_7d),
+            "park_label":                _normalise_park_factor(park_factor),
+            "veto":                      veto_result,
+            "explosive_risk":            explosive_risk,
+        }
+
+    if risk_level == "HIGH":
+        # NO flip automático aquí — el orchestrator es el responsable de
+        # evaluar el Over protegido con triple gate (survival>55 &&
+        # edge>=1.0 && score>=60). Si el orchestrator no encontró un
+        # Over válido, ya descartó el partido. Aquí solo señalizamos.
+        return {
+            "selected_market":           None,
+            "rejected_markets":          [],
+            "bullpen_fragility_warning": True,
+            "confidence_adjustment":     0,
+            "explanation":               (
+                "Explosive Inning Risk HIGH — Under descartado. "
+                + (explosive_risk.get("explanation") or "")
+            ).strip(),
+            "reason_codes":              list(explosive_risk.get("reasons") or []),
+            "ranking":                   [],
+            "rule_triggered":            True,
+            "bullpen_risk_level":        _normalise_bullpen_risk(
+                bullpen_risk, bullpen_fatigue, bullpen_era_7d),
+            "park_label":                _normalise_park_factor(park_factor),
+            "veto":                      veto_result,
+            "explosive_risk":            explosive_risk,
+            "_recommend_over_review":    True,
+            "risk_score":                explosive_risk.get("risk_score"),
+            "reason":                    explosive_risk.get("reasons"),
+        }
+    # MEDIUM → la lógica de penalty/F5-preference se aplica más abajo
+    # mezclada con el rule_triggered existente. LOW → flujo normal.
 
     # Detect: are we currently on a Full Game Under?
     is_full_game_under = (
@@ -319,14 +383,33 @@ def select_under_market_with_bullpen_risk(
         fg_penalty = 7      # mid of -5..-8
     elif bp_lvl == "HIGH":
         fg_penalty = 12     # mid of -10..-15
-    fg_score_final = max(0.0, fg_score_base - (fg_penalty if rule_should_apply else 0))
+    # FIX #4 — Explosive Risk MEDIUM agrega -15 adicional al FG Under
+    # (acumulable con bullpen risk penalty) y empuja al F5 como mercado
+    # preferido. La idea: degradar confianza sin bloquear, dejando que
+    # el F5 gane el ranking si tiene viabilidad.
+    explosive_penalty = 15 if risk_level == "MEDIUM" else 0
+    fg_penalty_total = fg_penalty + (
+        explosive_penalty if risk_level == "MEDIUM" else 0
+    )
+    fg_score_final = max(
+        0.0,
+        fg_score_base - (
+            fg_penalty_total
+            if (rule_should_apply or risk_level == "MEDIUM")
+            else 0
+        ),
+    )
     fg_market = {
         "market":   f"Full Game Under {fg_line}" if fg_line else "Full Game Under",
         "line":     fg_line,
         "score":    round(fg_score_final, 1),
         "edge":     round(edge_runs, 2),
         "category": "FULL_GAME_UNDER",
-        "penalty_applied": fg_penalty if rule_should_apply else 0,
+        "penalty_applied": (
+            fg_penalty_total
+            if (rule_should_apply or risk_level == "MEDIUM")
+            else 0
+        ),
     }
     ranking.append(fg_market)
 
@@ -390,6 +473,39 @@ def select_under_market_with_bullpen_risk(
             )
             selected = None
             rejected.append(fg_market)
+    elif risk_level == "MEDIUM":
+        # FIX #4 — Explosive Risk MEDIUM (sin bullpen rule activa).
+        # Penalización -15 al FG Under + preferir F5 si viable. No bloquea.
+        rule_triggered = True
+        bullpen_fragility_warning = True
+        confidence_adjustment = -explosive_penalty
+        reason_codes.append("EXPLOSIVE_RISK_MEDIUM_DOWNGRADES_FULL_GAME_UNDER")
+        explanation_parts.append(
+            "Explosive Inning Risk MEDIUM — Full Game Under penalizado "
+            f"(-{explosive_penalty} pts). "
+            + (explosive_risk.get("explanation") or "")
+        )
+        if f5_viable:
+            reason_codes.append("EXPLOSIVE_RISK_PREFERS_F5_UNDER")
+            explanation_parts.append(
+                f"F5 Under {f5_candidate['line']} preferido sobre Full Game: "
+                "menor exposición a innings tardíos potencialmente explosivos."
+            )
+            selected = f5_candidate
+            rejected.append(fg_market)
+        elif fg_score_final >= 60:
+            explanation_parts.append(
+                f"Full Game Under {fg_line} mantenido con confianza degradada "
+                f"({fg_penalty_total} pts) — sin F5 disponible."
+            )
+            selected = fg_market
+        else:
+            explanation_parts.append(
+                "Edge insuficiente tras penalty Explosive MEDIUM — preferir "
+                "revisión manual."
+            )
+            selected = None
+            rejected.append(fg_market)
     else:
         # Rule didn't trigger — keep existing selection.
         if is_full_game_under:
@@ -427,6 +543,9 @@ def select_under_market_with_bullpen_risk(
         "rule_triggered":            rule_triggered,
         "bullpen_risk_level":        bp_lvl,
         "park_label":                park_lbl,
+        # FIX #4 — surface veto + explosive risk for downstream UI / audit.
+        "veto":                      veto_result,
+        "explosive_risk":            explosive_risk,
         "preconditions": {
             "is_full_game_under":  is_full_game_under,
             "edge_supports_under": edge_supports_under,

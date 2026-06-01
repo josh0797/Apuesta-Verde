@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, AlertCircle, Activity, Target, Gauge, Calculator } from 'lucide-react';
+import { ChevronDown, AlertCircle, Activity, Target, Gauge, Calculator, Flame, ShieldAlert, ShieldCheck } from 'lucide-react';
 
 /**
  * ManualOddsReviewPanel — renders MLB games that the v2 engine identified as
@@ -50,6 +50,187 @@ function computeEdge(decimalOdds, probabilityPct) {
     impliedProbPct: (1 / o) * 100,
     breakEvenOdds:  prob > 0 ? 1 / prob : null,
   };
+}
+
+/**
+ * ExplosiveInningRiskPanel — renders the Explosive Inning Risk Score
+ * computed by `compute_explosive_inning_risk` in the MLB orchestrator.
+ *
+ * Replaces the older "Mercados a revisar manualmente" chip list because
+ * the actual signal users need before reviewing odds is whether this
+ * game has structural Under risk (HIGH = block FG Under; MEDIUM = -10
+ * conf + prefer F5; LOW = Under sostenible).
+ *
+ * Renders nothing when `explosive_inning_risk` is absent so games that
+ * weren't evaluated by the new layer fall back gracefully.
+ */
+const REASON_LABELS_ES = {
+  POWER_BAT_MAX_OPS_GT_800:    'Power bats detectados (OPS > 0.800)',
+  POWER_BAT_MAX_OPS_GT_770:    'Power bats detectados (OPS > 0.770)',
+  BULLPEN_ERA7D_GT_5:          'Bullpen ERA últimos 7d > 5.00 (fatiga alta)',
+  BULLPEN_PITCH_STRESS_GT_2:   'Bullpen con pitch-stress > 2.0 (≥90 pitches/48h)',
+  BULLPEN_PITCH_STRESS_GT_1_5: 'Bullpen con pitch-stress > 1.5 (≥67 pitches/48h)',
+  ACTIVE_SERIES_H2H_GT_12:     'Series activa: promedio H2H > 12 carreras',
+  ACTIVE_SERIES_H2H_GT_10:     'Series activa: promedio H2H > 10 carreras por encuentro',
+  HITTER_PARK_FACTOR:          'Parque ofensivo (run factor > 1.10)',
+  LINE_GAP_LT_1_0:             'Gap línea-modelo < 1.0 carreras (margen casi nulo)',
+  LINE_GAP_LT_1_5:             'Gap línea-modelo < 1.5 carreras (margen frágil)',
+  SCRIPT_SURVIVAL_LT_50:       'Script Survival < 50 (guion Under colapsa probable)',
+  SCRIPT_SURVIVAL_LT_60:       'Script Survival < 60 (guion Under inestable)',
+};
+
+const RISK_META = {
+  LOW: {
+    icon:    ShieldCheck,
+    label:   'LOW',
+    headline:'Under sostenible',
+    sub:     'Sin señales de inning explosivo.',
+    // Hardcoded Tailwind classes (JIT-safe — no dynamic interpolation).
+    wrapper:    'border-emerald-500/30 bg-emerald-500/[0.05]',
+    iconColor:  'text-emerald-300',
+    badge:      'border-emerald-500/45 bg-emerald-500/15 text-emerald-200',
+    headingClr: 'text-emerald-200',
+    reasonText: 'text-emerald-100/95',
+    dot:        'bg-emerald-400',
+    bdValue:    'text-emerald-200',
+  },
+  MEDIUM: {
+    icon:    Flame,
+    label:   'MEDIUM',
+    headline:'Under penalizado',
+    sub:     '-10 a -25 pts de confianza · preferir F5 Under sobre Full Game.',
+    wrapper:    'border-amber-500/30 bg-amber-500/[0.05]',
+    iconColor:  'text-amber-300',
+    badge:      'border-amber-500/45 bg-amber-500/15 text-amber-200',
+    headingClr: 'text-amber-200',
+    reasonText: 'text-amber-100/95',
+    dot:        'bg-amber-400',
+    bdValue:    'text-amber-200',
+  },
+  HIGH: {
+    icon:    ShieldAlert,
+    label:   'HIGH',
+    headline:'Full Game Under bloqueado',
+    sub:     'Evaluar Over protegido (triple gate). Si falla → descartar.',
+    wrapper:    'border-rose-500/30 bg-rose-500/[0.05]',
+    iconColor:  'text-rose-300',
+    badge:      'border-rose-500/45 bg-rose-500/15 text-rose-200',
+    headingClr: 'text-rose-200',
+    reasonText: 'text-rose-100/95',
+    dot:        'bg-rose-400',
+    bdValue:    'text-rose-200',
+  },
+};
+
+function ExplosiveInningRiskPanel({ risk, action, idx }) {
+  if (!risk || !risk.risk_level) return null;
+  const lvl = (risk.risk_level || '').toUpperCase();
+  const meta = RISK_META[lvl] || RISK_META.LOW;
+  const Icon = meta.icon;
+  const reasons = Array.isArray(risk.reasons) ? risk.reasons : [];
+  const score = Number.isFinite(parseFloat(risk.risk_score))
+    ? parseFloat(risk.risk_score) : null;
+  const breakdown = (risk && typeof risk.breakdown === 'object') ? risk.breakdown : {};
+
+  const actionLabel = (() => {
+    if (!action || !action.action) return null;
+    switch (action.action) {
+      case 'FLIP_TO_OVER':       return 'Flip a Over (3 gates OK)';
+      case 'DISCARD_NO_FLIP':    return 'Descartado (Over no validó gates)';
+      case 'PREFER_F5_UNDER':    return 'Swap a F5 Under';
+      default:                    return action.action;
+    }
+  })();
+
+  return (
+    <div
+      className={`rounded-md border ${meta.wrapper} px-3 py-2.5 space-y-2`}
+      data-testid={`explosive-inning-risk-panel-${idx}`}
+    >
+      {/* Header — level + score + headline */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon className={`h-4 w-4 shrink-0 ${meta.iconColor}`} />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground/80">
+                Explosive Inning Risk
+              </span>
+              <span
+                className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] border ${meta.badge} font-semibold`}
+                data-testid={`explosive-risk-level-${idx}`}
+              >
+                {meta.label}
+              </span>
+              {score !== null ? (
+                <span className="text-[10px] tabular-nums text-muted-foreground/85">
+                  score {score}/100
+                </span>
+              ) : null}
+            </div>
+            <div className={`text-[12px] mt-0.5 font-medium ${meta.headingClr}`}>
+              {meta.headline}
+            </div>
+          </div>
+        </div>
+        {actionLabel ? (
+          <span
+            className="shrink-0 text-[10px] px-2 py-0.5 rounded-full border border-border/60 bg-background/50 text-muted-foreground tabular-nums"
+            data-testid={`explosive-risk-action-${idx}`}
+          >
+            {actionLabel}
+          </span>
+        ) : null}
+      </div>
+
+      {/* Sub-headline / impact summary */}
+      <p className="text-[11px] text-muted-foreground/90 leading-relaxed">
+        {meta.sub}
+      </p>
+
+      {/* Reasons list — single line per signal */}
+      {reasons.length > 0 ? (
+        <ul className="space-y-1" data-testid={`explosive-risk-reasons-${idx}`}>
+          {reasons.map((code) => {
+            const label = REASON_LABELS_ES[code] || code;
+            return (
+              <li
+                key={code}
+                className={`flex items-start gap-1.5 text-[11px] ${meta.reasonText}`}
+                data-testid={`explosive-risk-reason-${idx}-${code}`}
+              >
+                <span className={`mt-[5px] inline-block h-1 w-1 rounded-full ${meta.dot} shrink-0`} />
+                <span>{label}</span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="text-[11px] text-muted-foreground/70 italic">
+          Sin señales activas — Under sigue el flujo normal.
+        </p>
+      )}
+
+      {/* Breakdown details (collapsed) */}
+      {Object.keys(breakdown).length > 0 ? (
+        <details className="text-[10.5px] text-muted-foreground/80">
+          <summary className="cursor-pointer hover:text-muted-foreground">
+            Ver desglose por categoría
+          </summary>
+          <ul className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 pl-1 font-mono tabular-nums">
+            {Object.entries(breakdown).map(([k, v]) => (
+              <li key={k} className="flex justify-between">
+                <span className="text-muted-foreground/70">{k}</span>
+                <span className={v > 0 ? meta.bdValue : 'text-muted-foreground/60'}>
+                  {v > 0 ? `+${v}` : v}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </div>
+  );
 }
 
 function ManualReviewRow({ item, idx, testId }) {
@@ -194,11 +375,19 @@ function ManualReviewRow({ item, idx, testId }) {
             </details>
           ) : null}
 
-          {/* Suggested markets */}
-          {(item.suggested_markets || []).length ? (
+          {/* Explosive Inning Risk (replaces the older "Mercados a revisar
+              manualmente" chips). Rendered only when the new layer
+              produced a verdict — otherwise gracefully omitted. */}
+          {item.explosive_inning_risk ? (
+            <ExplosiveInningRiskPanel
+              risk={item.explosive_inning_risk}
+              action={item.explosive_inning_risk_action}
+              idx={idx}
+            />
+          ) : (item.suggested_markets || []).length ? (
             <div>
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1.5">
-                Mercados a revisar manualmente
+                Mercados sugeridos para revisar
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {item.suggested_markets.map((m, i) => (

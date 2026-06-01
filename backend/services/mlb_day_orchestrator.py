@@ -742,6 +742,18 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             "lineup_status":              (conf.get("_external_rescue") or {}).get("lineup_status") or ("confirmed" if (conf.get("home_pitcher_name") and conf.get("away_pitcher_name")) else "missing"),
             "home_lineup":                conf.get("home_lineup") or [],
             "away_lineup":                conf.get("away_lineup") or [],
+            # FIX #3 — Real bullpen workload (pitch_stress_index, fatigue_score,
+            # fatigue_label) precomputado por `fetch_recent_bullpen_workload`
+            # 2 días atrás. Alimenta `compute_explosive_inning_risk()` para
+            # detectar innings explosivos generados por bullpens fatigados,
+            # no por los abridores. `baseball_hist_profile` también guarda
+            # estos datos para que `build_under_veto_context` los lea.
+            "home_bullpen_real":          (
+                baseball_hist_profile.get("home_bullpen_real") or {}
+            ),
+            "away_bullpen_real":          (
+                baseball_hist_profile.get("away_bullpen_real") or {}
+            ),
         }
         run_line   = run_line_predictor(scoring_ctx)
         over_under = over_under_predictor(scoring_ctx, conf.get("book_total"))

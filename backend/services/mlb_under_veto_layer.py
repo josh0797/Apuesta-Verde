@@ -54,10 +54,15 @@ VETO_REASONS = {
 POWER_BAT_OPS_THRESHOLD = 0.770
 
 # Razones que por sí solas bloquean el Under (sin necesidad de acumular).
+#
+# NOTA — POWER_BAT_PRESENT ya NO es bloqueante (re-balance acordado con
+# usuario, run #2). OPS alto por sí solo no debe vetar un Under contra
+# starters de élite. La señal sigue activa como WARNING acumulable y
+# alimenta `compute_explosive_inning_risk()` que decide si el Under se
+# debe degradar (MEDIUM) o reemplazar (HIGH + triple gate Over).
 _BLOCKING_REASONS = {
     "INSUFFICIENT_PITCHER_SAMPLE",
     "NO_PITCHER_DATA",
-    "POWER_BAT_PRESENT",          # caso Yankees @ A's 13-8 (Under 9.5 lost).
 }
 
 
