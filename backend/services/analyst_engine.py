@@ -1733,6 +1733,43 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
             except Exception as exc:
                 log.debug("corner pre-fetch failed: %s", exc)
 
+            # ── Phase 10a-bis — Pregame corner fallback ─────────────────
+            # If the async fetch above didn't populate `_corner_form` for
+            # a given match (rate-limit, timeout, missing team ids…) but
+            # the match doc already carries `recent_fixtures` with corner
+            # stats, materialise the profile synchronously. This keeps
+            # the corner rescue layer alive when API-Sports is flaky.
+            try:
+                from .football_corner_pregame import attach_pregame_corner_form as _attach_pregame_corners
+                fallback_attached = 0
+                for entry in original_disc_mkt:
+                    mid = entry.get("match_id")
+                    if mid in already_rescued_ids:
+                        continue
+                    mm = by_id.get(mid)
+                    if not mm:
+                        continue
+                    existing = mm.get("_corner_form") or {}
+                    if existing and existing.get("mode") == "live":
+                        continue
+                    # Already set by async fetch with usable sample → skip.
+                    if existing and (
+                        (existing.get("home") or {}).get("sample_size", 0) >= 1
+                        or (existing.get("away") or {}).get("sample_size", 0) >= 1
+                    ):
+                        continue
+                    _attach_pregame_corners(mm)
+                    cf = mm.get("_corner_form") or {}
+                    if cf.get("data_quality") in ("usable", "strong", "thin"):
+                        fallback_attached += 1
+                if fallback_attached:
+                    log.info(
+                        "pregame corner fallback enriched %d matches",
+                        fallback_attached,
+                    )
+            except Exception as exc:
+                log.debug("pregame corner fallback failed: %s", exc)
+
         # ── Phase 10b — Pre-fetch basketball historical profile ─────────
         # Regla del producto: ningún match basketball que pase el filtro
         # prioritario puede descartarse sin antes consultar su historial

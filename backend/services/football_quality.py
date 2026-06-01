@@ -246,7 +246,15 @@ def compute_market_liquidity_score(match: dict) -> dict:
         elif n >= 1:
             score += 4
 
-    markets_present = sum(1 for k in ("moneyline", "spread", "totals", "h2h", "1x2", "both_teams_to_score") if odds.get(k))
+    markets_present = sum(
+        1 for k in (
+            "moneyline", "spread", "totals", "h2h", "1x2",
+            "both_teams_to_score",
+            # Corner markets — counted because they unlock the corner
+            # rescue layer (attach_pregame_corner_form + corner_market_layer).
+            "corners", "total_corners", "team_corners",
+        ) if odds.get(k)
+    )
     score += min(30, markets_present * 8)
     if markets_present:
         factors.append(f"{markets_present} mercados activos")
@@ -358,10 +366,25 @@ def compute_football_selection_score(match: dict) -> dict:
     # scan (Under 3.5/2.5 + DC combos) when the direct 1X2 has no edge. The
     # flag is informational here; the actual scan + decision is made in
     # services/under_market_scan.py and applied by the analyst engine.
+    #
+    # Updated: H2H is no longer mandatory when corner data is available
+    # (either pre-attached `_corner_form` from football_corner_pregame, raw
+    # `corner_stats` enrichment, or a live corner odds market). This lets
+    # the corner rescue layer evaluate Tier 1/2 matches that would
+    # otherwise be killed for "no H2H".
+    has_corner_data = (
+        bool(match.get("_corner_form"))
+        or bool(match.get("corner_stats"))
+    )
+    has_corner_market = bool((match.get("odds") or {}).get("corners"))
     pa_eligible = (
         tier_num in (1, 2)
-        and bool(match.get("h2h_recent"))
-        and bool(market_l["score"] > 0)  # at least one bookmaker priced something
+        and bool(market_l["score"] > 0)
+        and (
+            bool(match.get("h2h_recent"))
+            or has_corner_data
+            or has_corner_market
+        )
     )
 
     return {

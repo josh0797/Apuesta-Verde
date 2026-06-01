@@ -399,6 +399,133 @@ def _detect_corner_trap_signals(
     return signals
 
 
+def _normalise_team_form(form: dict) -> dict:
+    """Coerce pregame keys (`corners_for_avg` etc.) into the live shape
+    (`avg_for` / `avg_against`) so `compute_corner_metrics` reads either.
+
+    `football_corner_pregame.build_team_corner_profile` emits
+    `corners_for_avg`/`corners_against_avg`. The live fetcher emits
+    `avg_for`/`avg_against`. We don't want two compute paths.
+    """
+    if not isinstance(form, dict):
+        return {}
+    if form.get("avg_for") is not None or form.get("avg_against") is not None:
+        return form
+    out = dict(form)
+    if form.get("corners_for_avg") is not None:
+        out["avg_for"] = form["corners_for_avg"]
+    if form.get("corners_against_avg") is not None:
+        out["avg_against"] = form["corners_against_avg"]
+    return out
+
+
+def _pregame_protected_recommendation(
+    corner_form: dict,
+    *,
+    why_direct_failed: Optional[str] = None,
+) -> Optional[dict]:
+    """Pre-match shortcut when no corner odds are available.
+
+    Spec (acordado con el usuario):
+        - Over  6.5  si expected_total >= 10.0
+        - Over  7.5  si expected_total >= 11.0
+        - Under 12.5 si expected_total <= 8.5
+        - data_quality debe ser "usable" o "strong" — sino no recomendar.
+
+    Devuelve la sugerencia como PROTECTED_ACCEPTABLE sin edge porque no
+    hay odds_snapshots; la UI puede pedirle al usuario que pegue la
+    cuota manual (igual que el flujo MLB STRUCTURAL_LEAN).
+    """
+    expected_total = corner_form.get("expected_total_corners")
+    quality = corner_form.get("data_quality")
+
+    if quality not in ("usable", "strong"):
+        return None
+    try:
+        expected_total = float(expected_total) if expected_total is not None else None
+    except (TypeError, ValueError):
+        return None
+    if expected_total is None:
+        return None
+
+    # Resolve the best line per spec.
+    line: Optional[float] = None
+    side: Optional[str] = None
+    if expected_total >= 11.0:
+        line, side = 7.5, "over"
+    elif expected_total >= 10.0:
+        line, side = 6.5, "over"
+    elif expected_total <= 8.5:
+        line, side = 12.5, "under"
+    if line is None:
+        return None
+
+    side_label = "Más de" if side == "over" else "Menos de"
+    market_label = "Total Corners " + ("Over" if side == "over" else "Under")
+    selection_label = f"{side_label} {line} córners"
+
+    # Sample size for transparency.
+    home_n = (corner_form.get("home") or {}).get("sample_size") or 0
+    away_n = (corner_form.get("away") or {}).get("sample_size") or 0
+
+    reasons = [
+        f"Proyección pre-match: {expected_total:.1f} córners totales "
+        f"(local {(corner_form.get('expected_home_corners') or 0):.1f} + "
+        f"visitante {(corner_form.get('expected_away_corners') or 0):.1f}).",
+        f"Muestra: {home_n} partidos recientes local, {away_n} visitante.",
+        f"Calidad de datos: {quality}.",
+        "Mercado directo (1X2 / Doble Op) sin edge — córners ofrece lectura alternativa.",
+    ]
+    risks = [
+        "Sin cuota automática para córners — pegar tu cuota manualmente "
+        "para calcular EV.",
+        "Mercado de córners más volátil que goles; un equipo controlador "
+        "puede romper la proyección.",
+    ]
+    if home_n < 5 or away_n < 5:
+        risks.append("Muestra reciente limitada (<5 partidos por equipo).")
+
+    why_safer = (
+        f"Proyección combinada {expected_total:.1f} córners alineada con "
+        f"línea {line}. Mercado independiente del resultado, basado en "
+        "volumen ofensivo de los últimos partidos."
+    )
+
+    return {
+        "rescued":         True,
+        "rescueType":      "CORNER_MARKET_PREGAME",
+        "routed_to":       "rescued_picks",
+        "market":          market_label,
+        "selection":       selection_label,
+        "line":            line,
+        "side":            side,
+        "decimal_odds":    None,                 # sin cuota automática
+        "edge":            None,                 # se calcula al pegar la cuota
+        "estimatedProbability": None,
+        "impliedProbability":   None,
+        "classification":  "PROTECTED_ACCEPTABLE",
+        "confidence":      60 if quality == "strong" else 55,
+        "requires_manual_odds": True,
+        "expected_total_corners": round(expected_total, 2),
+        "data_quality":    quality,
+        "reasons":         reasons,
+        "risks":           risks,
+        "whyDirectMarketsFailed": (
+            why_direct_failed
+            or "Mercados directos (1X2 / Doble Op / Under goles) sin edge real."
+        ),
+        "whyThisMarketIsSafer":  why_safer,
+        "reason": (
+            f"Pre-match: proyección {expected_total:.1f} córners → línea "
+            f"sugerida {market_label.split()[-1]} {line} (calidad {quality})."
+        ),
+        "market_category":  mt.CATEGORY_PROTECTED,
+        "tolerance_used":   mt.CATEGORY_PROTECTED,
+        "fragility_score":  35 if quality == "strong" else 50,
+        "_source":          "corner_market_layer_pregame_v1",
+    }
+
+
 # ── Entry point ─────────────────────────────────────────────────────────────
 def find_corner_value(
     match: dict,
@@ -407,26 +534,40 @@ def find_corner_value(
 ) -> Optional[dict]:
     """Intenta encontrar valor en el mercado de córners para `match`.
 
+    Soporta dos modos según ``match["_corner_form"]["mode"]``:
+
+      * ``"live"`` o ausente con odds_snapshots → flujo Poisson original
+        que requiere ``home_form.sample_size >= 1`` y odds del mercado.
+
+      * ``"pregame"`` SIN odds_snapshots de córners → atajo determinista
+        (Over 6.5 si expected_total >= 10, Over 7.5 si >= 11, Under 12.5
+        si <= 8.5) que devuelve una recomendación PROTECTED_ACCEPTABLE
+        con ``requires_manual_odds=True`` para que la UI pida la cuota.
+
     Pre-requisitos:
-      - match["_corner_form"]["home"]["sample_size"] >= 1
-      - match["_corner_form"]["away"]["sample_size"] >= 1
-      - match["odds_snapshots"][-1]["markets"] contiene líneas de Total Corners
+      - match["_corner_form"]["home"] / ["away"] con sample válida
+      - O bien match["odds_snapshots"][-1]["markets"] con líneas de corners,
+        o bien mode="pregame" con expected_total_corners.
 
     Returns:
         None si no hay valor o no hay datos suficientes,
-        o un dict con la recomendación lista para incluir en summary.rescued_picks.
+        o un dict con la recomendación lista para summary.rescued_picks.
     """
     # ── Sport guardrail (defense-in-depth) ──
-    # Este módulo es FOOTBALL-ONLY. Si por error llega un match de otro
-    # deporte, salir limpio sin generar texto contaminado.
     sport = match.get("sport") or "football"
     if sport != "football":
         log.debug("corner_market_layer skipped: sport=%s is not football", sport)
         return None
 
     corner_form = match.get("_corner_form") or {}
-    home_form = corner_form.get("home") or {}
-    away_form = corner_form.get("away") or {}
+    home_form_raw = corner_form.get("home") or {}
+    away_form_raw = corner_form.get("away") or {}
+    mode = corner_form.get("mode")
+
+    # Normalise pregame profile keys → live shape so compute_corner_metrics
+    # never needs to care which path populated them.
+    home_form = _normalise_team_form(home_form_raw)
+    away_form = _normalise_team_form(away_form_raw)
 
     if not home_form or not away_form:
         return None
@@ -435,10 +576,19 @@ def find_corner_value(
 
     # Extraer líneas de córners disponibles
     snaps = match.get("odds_snapshots") or []
-    if not snaps:
-        return None
-    markets = (snaps[-1] or {}).get("markets") or {}
-    corner_lines = _extract_corner_lines(markets)
+    markets = (snaps[-1] or {}).get("markets") if snaps else {}
+    corner_lines = _extract_corner_lines(markets or {})
+
+    # ── PREGAME shortcut: no corner odds available ──────────────────
+    # When the rescue runs before the live feed has populated corner odds,
+    # we still want to surface a usable signal. The spec is purely
+    # heuristic: project total corners and recommend Over/Under per
+    # threshold. The user pastes the bookmaker odds manually.
+    if mode == "pregame" and not corner_lines:
+        return _pregame_protected_recommendation(
+            corner_form, why_direct_failed=why_direct_failed,
+        )
+
     if not corner_lines:
         return None
 

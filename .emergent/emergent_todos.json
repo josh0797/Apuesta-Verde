@@ -1,26 +1,22 @@
 [
   {
-    "content": "FIX B: Quitar POWER_BAT_PRESENT de _BLOCKING_REASONS en mlb_under_veto_layer.py (pasa a WARNING)",
+    "content": "Crear /app/backend/services/football_corner_pregame.py con build_team_corner_profile + attach_pregame_corner_form + _rate + _corner_data_quality",
     "status": "completed"
   },
   {
-    "content": "FIX #3: Inyectar scoring_ctx['home_bullpen_real'] y ['away_bullpen_real'] en mlb_day_orchestrator.py (línea ~705)",
+    "content": "Integrar attach_pregame_corner_form en el pipeline pre-match (analyst_engine.py) antes de attempt_alternative_market_rescue, como fallback cuando el prefetch async no obtuvo datos",
     "status": "completed"
   },
   {
-    "content": "FIX #4 + #5: Refactor select_under_market_with_bullpen_risk para aceptar veto_result y explosive_risk opcionales con la nueva lógica de gate",
+    "content": "Ampliar football_quality.py: añadir corners/total_corners/team_corners a markets_present + flexibilizar protected_alternative_eligible para aceptar corner data como alternativa a H2H",
     "status": "completed"
   },
   {
-    "content": "Server: Proyectar explosive_inning_risk y explosive_inning_risk_action en _to_summary_row de server.py",
+    "content": "Extender corner_market_layer.find_corner_value para soportar mode='pregame': si pregame + quality usable/strong, evaluar Over 6.5 (exp>=10), Over 7.5 (exp>=11), Under 12.5 (exp<=8.5) incluso sin odds_snapshots",
     "status": "completed"
   },
   {
-    "content": "FIX A (UI): Reemplazar bloque 'Mercados a revisar manualmente' por panel 'Explosive Inning Risk' en ManualOddsReviewPanel.jsx",
-    "status": "completed"
-  },
-  {
-    "content": "Tests: validar B (POWER_BAT WARNING), FIX #3 (scoring_ctx), FIX #4 (gates) + verificar UI con screenshot",
+    "content": "Tests: validar los 4 cambios + lint Python + supervisorctl status",
     "status": "completed"
   }
 ]
