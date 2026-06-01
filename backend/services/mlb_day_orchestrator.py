@@ -1995,6 +1995,106 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                                 )
                 except Exception as _exc_xr:
                     log.debug("Explosive Inning Risk computation failed: %s", _exc_xr)
+
+                # ════════════════════════════════════════════════════════════
+                # PERSIST EXPLOSIVE EVALUATION → mlb_run_evaluations
+                # Feedback loop: cada evaluación fuerte (HIGH, flip, o
+                # recomendación final) se persiste para calibrar umbrales.
+                # Mapea v1 (pregame-aggregate) al schema v2 esperado por
+                # `store_run_evaluation`.
+                # ════════════════════════════════════════════════════════════
+                try:
+                    if db is not None and pick_payload.get("explosive_inning_risk"):
+                        from .mlb_run_storage import store_run_evaluation
+                        _expl = pick_payload.get("explosive_inning_risk") or {}
+                        _action = pick_payload.get("explosive_inning_risk_action") or {}
+                        _action_kind = _action.get("action")
+                        _flip_triggered = _action_kind == "FLIP_TO_OVER"
+
+                        # Determine recommended_market depending on flip outcome
+                        _rec_market_text = None
+                        _rec_line = None
+                        _rec_odds = None
+                        if _flip_triggered and chosen_market:
+                            _rec_market_text = chosen_market.get("market")
+                            _rec_line = chosen_market.get("line")
+                        elif chosen_market and not _flip_triggered:
+                            _rec_market_text = chosen_market.get("market")
+                            _rec_line = chosen_market.get("line")
+
+                        _bd = _expl.get("breakdown") or {}
+                        _run_eval = {
+                            "explosive_risk_score":   _expl.get("risk_score"),
+                            "risk_tier":              _expl.get("risk_level"),
+                            "flip_triggered":         _flip_triggered,
+                            "should_recommend":       chosen_market is not None,
+                            "recommended_market":     _rec_market_text,
+                            "recommended_line":       _rec_line,
+                            "recommended_odds":       _rec_odds,
+                            "confidence":             chosen_market.get("score") if chosen_market else 0,
+                            "risk":                   _expl.get("risk_level"),
+                            "reason_codes":           list(_expl.get("reasons") or []),
+                            "human_reasons":          [
+                                (_expl.get("explanation") or "").strip(),
+                            ] if _expl.get("explanation") else [],
+                            "explanation":            _expl.get("explanation"),
+                            "avoid_markets":          (
+                                ["Full Game Under"]
+                                if _expl.get("risk_level") == "HIGH" else []
+                            ),
+                            "score_contributions": {
+                                # v1 breakdown → v2 named contributions
+                                "ops_score":        _bd.get("ops") or 0,
+                                "bullpen_era":      _bd.get("bullpen") or 0,
+                                "park_factor":      _bd.get("park") or 0,
+                                "gap":              _bd.get("line_gap") or 0,
+                                "script_survival":  _bd.get("script_survival") or 0,
+                                # extra contribution kept for traceability
+                                "active_series":    _bd.get("active_series") or 0,
+                            },
+                            "game_state":             "pregame",
+                            "inning":                 None,
+                            "score_home":             0,
+                            "score_away":             0,
+                            "pregame_total_line":     _book_total_v,
+                            "live_total_line":        None,
+                            "game_date":              date_str,
+                        }
+                        _metrics_snap = {
+                            "home_team":              conf.get("home_team"),
+                            "away_team":              conf.get("away_team"),
+                            "starter_home":           conf.get("home_pitcher_name"),
+                            "starter_away":           conf.get("away_pitcher_name"),
+                            "pitcher_stress_index":   (
+                                (ctx.get("home_bullpen_real") or {}).get("pitch_stress_index")
+                                or (ctx.get("away_bullpen_real") or {}).get("pitch_stress_index")
+                            ),
+                            "park_factor":            (ctx.get("park") or {}).get("run_factor"),
+                            "recent_h2h_avg_runs":    ctx.get("recent_h2h_avg_runs"),
+                            "expected_runs":          _expected_runs_v,
+                            "book_total":             _book_total_v,
+                            "home_team_ops":          ctx.get("home_team_ops"),
+                            "away_team_ops":          ctx.get("away_team_ops"),
+                            "explosive_action":       _action,
+                        }
+                        _eval_id = await store_run_evaluation(
+                            db,
+                            user_id="_slate",
+                            match_id=str(conf.get("game_pk") or ""),
+                            run_evaluation=_run_eval,
+                            metrics=_metrics_snap,
+                            only_strong=True,
+                        )
+                        if _eval_id:
+                            pick_payload["mlb_run_evaluation_id"] = _eval_id
+                            log.info(
+                                "MLB run evaluation persisted game=%s id=%s tier=%s flip=%s",
+                                conf.get("game_pk"), _eval_id[:8],
+                                _expl.get("risk_level"), _flip_triggered,
+                            )
+                except Exception as _exc_persist:
+                    log.debug("store_run_evaluation pregame failed (non-fatal): %s",
+                              _exc_persist)
         except Exception as exc:
             log.debug("MLB Under Veto central layer failed: %s", exc)
 
