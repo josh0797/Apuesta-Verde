@@ -739,6 +739,171 @@ async def _prefetch_corner_forms_for_rescue(
     return enriched
 
 
+# ── League-slug mapping for SoccerSTATS ─────────────────────────────────
+# Only common leagues are mapped explicitly; the rest fall back to a
+# heuristic that lower-cases the league name and uses common slug rules.
+_SOCCERSTATS_LEAGUE_SLUGS: dict[str, str] = {
+    "premier league":          "england",
+    "championship":            "england2",
+    "league one":              "england3",
+    "league two":              "england4",
+    "national league":         "england5",
+    "la liga":                 "spain",
+    "laliga":                  "spain",
+    "primera division":        "spain",
+    "segunda division":        "spain2",
+    "laliga 2":                "spain2",
+    "serie a":                 "italy",
+    "serie b":                 "italy2",
+    "bundesliga":              "germany",
+    "2. bundesliga":           "germany2",
+    "ligue 1":                 "france",
+    "ligue 2":                 "france2",
+    "eredivisie":              "netherlands",
+    "primeira liga":           "portugal",
+    "liga portugal":           "portugal",
+    "superlig":                "turkey",
+    "süper lig":               "turkey",
+    "scottish premiership":    "scotland",
+    "scottish premier league": "scotland",
+    "mls":                     "usa",
+    "argentine primera":       "argentina",
+    "brasileiro":              "brazil",
+    "serie a brazil":          "brazil",
+    "liga mx":                 "mexico",
+    "j1 league":               "japan",
+    "j league":                "japan",
+}
+
+
+def _league_to_soccerstats_slug(league_name: Optional[str]) -> Optional[str]:
+    """Map a human league name to SoccerSTATS's URL slug.
+
+    Returns None when we can't resolve confidently — the scraper will
+    then skip the team and the pipeline degrades to derived fixtures.
+    """
+    if not league_name:
+        return None
+    key = league_name.lower().strip()
+    if key in _SOCCERSTATS_LEAGUE_SLUGS:
+        return _SOCCERSTATS_LEAGUE_SLUGS[key]
+    # Heuristic: strip qualifiers and common words, try direct mapping.
+    cleaned = re.sub(r"\b(20\d\d|the|men's|women's|fc|league|division)\b", "", key).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    if cleaned in _SOCCERSTATS_LEAGUE_SLUGS:
+        return _SOCCERSTATS_LEAGUE_SLUGS[cleaned]
+    return None
+
+
+async def _prefetch_early_goal_profiles(
+    matches: list[Optional[dict]],
+    *,
+    db: Any = None,
+    timeout_seconds: float = 28.0,
+) -> int:
+    """Bulk-prefetch SoccerSTATS Goals-per-time-segment per team.
+
+    Mutates each match to add:
+
+        match["home_team"]["context"]["seasonal_form"]["early_goal_profile"] = {...}
+        match["away_team"]["context"]["seasonal_form"]["early_goal_profile"] = {...}
+
+    When SoccerSTATS doesn't return usable data (data_quality="missing")
+    we backfill from API-Sports recent_fixtures via
+    `derived_early_goal.derive_early_goal_profile_from_fixtures`.
+
+    Returns the number of (team, match) slots successfully enriched
+    (max = 2 * len(matches)).
+    """
+    import asyncio as _aio
+    try:
+        from .external_sources.soccerstats import fetch_team_early_goal_profile
+        from .derived_early_goal import (
+            derive_early_goal_profile_from_fixtures,
+            merge_early_goal_profiles,
+        )
+    except Exception as exc:
+        log.warning("early-goal modules unavailable: %s", exc)
+        return 0
+
+    real_matches = [m for m in matches if m]
+    if not real_matches:
+        return 0
+
+    enriched = 0
+
+    async def _resolve_for_team(m: dict, side: str) -> None:
+        nonlocal enriched
+        team = m.get(f"{side}_team") or {}
+        team_name = team.get("name") or team.get("team_name")
+        league = m.get("league") or m.get("league_name")
+        if not team_name:
+            return
+        league_slug = _league_to_soccerstats_slug(league)
+
+        primary = None
+        if league_slug:
+            try:
+                primary = await fetch_team_early_goal_profile(
+                    team_name, league_slug, db=db,
+                )
+            except Exception as exc:
+                log.debug("[EARLY_GOAL] soccerstats fetch failed team=%s: %s",
+                          team_name, exc)
+
+        # Backfill from recent_fixtures (API-Sports) regardless of
+        # primary outcome — `merge_early_goal_profiles` picks the
+        # best-quality source automatically.
+        derived = None
+        ctx = team.get("context") or {}
+        recent = ctx.get("recent_fixtures") or ctx.get("last_matches") or []
+        if recent:
+            try:
+                derived = derive_early_goal_profile_from_fixtures(
+                    recent,
+                    team_id=team.get("id"),
+                    team_name=team_name,
+                    league=league,
+                )
+            except Exception as exc:
+                log.debug("[EARLY_GOAL] derived fail team=%s: %s", team_name, exc)
+
+        final = merge_early_goal_profiles(primary, derived)
+        if not final:
+            final = primary or derived
+            if not final:
+                return
+
+        # Attach to canonical path team_context.seasonal_form.early_goal_profile
+        team.setdefault("context", {})
+        team["context"].setdefault("seasonal_form", {})
+        team["context"]["seasonal_form"]["early_goal_profile"] = final
+        m[f"{side}_team"] = team
+
+        if final and final.get("data_quality") in ("strong", "usable", "thin"):
+            enriched += 1
+
+    try:
+        tasks: list = []
+        for m in real_matches:
+            tasks.append(_resolve_for_team(m, "home"))
+            tasks.append(_resolve_for_team(m, "away"))
+        await _aio.wait_for(
+            _aio.gather(*tasks, return_exceptions=True),
+            timeout=timeout_seconds,
+        )
+    except _aio.TimeoutError:
+        log.info("early-goal pre-fetch timed out after %.0fs (enriched %d/%d slots)",
+                 timeout_seconds, enriched, 2 * len(real_matches))
+    except Exception as exc:
+        log.warning("early-goal pre-fetch error: %s", exc)
+    log.info("early-goal pre-fetch: enriched %d/%d slots",
+             enriched, 2 * len(real_matches))
+    return enriched
+
+
+
+
 
 
 async def _hydrate_team_news(matches_payload: list[dict]) -> int:
@@ -1732,6 +1897,27 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
                 log.warning("corner pre-fetch timeout (>12s) — skipping, pipeline continues")
             except Exception as exc:
                 log.debug("corner pre-fetch failed: %s", exc)
+
+            # ── Phase 10a-ter — Early-goal profile pre-fetch (SoccerSTATS) ─
+            # Fetches "Goals per time segment" per team via Bright Data
+            # so the corner trap detector (EARLY_SCORING_FAVOURITE) can
+            # consult real season-level early_goal_pct instead of relying
+            # on hand-set fixtures fields. Fail-soft: a 30s ceiling,
+            # parallelised across all candidate matches.
+            try:
+                await asyncio.wait_for(
+                    _prefetch_early_goal_profiles(
+                        [by_id.get(e.get("match_id")) for e in original_disc_mkt
+                         if e.get("match_id") in by_id
+                         and e.get("match_id") not in already_rescued_ids],
+                        db=db,
+                    ),
+                    timeout=30.0,
+                )
+            except asyncio.TimeoutError:
+                log.warning("early-goal pre-fetch timeout (>30s) — skipping, pipeline continues")
+            except Exception as exc:
+                log.debug("early-goal pre-fetch failed: %s", exc)
 
             # ── Phase 10a-bis — Pregame corner fallback ─────────────────
             # If the async fetch above didn't populate `_corner_form` for

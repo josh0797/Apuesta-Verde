@@ -283,7 +283,19 @@ def _detect_early_scoring_favourite(match: dict) -> Optional[dict]:
 
     fav_team = match.get(f"{fav_side}_team") or {}
     ctx = fav_team.get("context") or {}
-    early_pct = _to_float_safe(ctx.get("early_goal_pct"))
+    # FIX — prefer the canonical seasonal early-goal profile populated by
+    # `analyst_engine._prefetch_early_goal_profiles` (SoccerSTATS + API-Sports
+    # derived). Fall back to a flat `early_goal_pct` on the context for
+    # backwards compatibility with hand-set fixtures.
+    seasonal = ctx.get("seasonal_form") or {}
+    early_profile = seasonal.get("early_goal_profile") or {}
+    early_pct = _to_float_safe(
+        early_profile.get("early_goal_pct")
+        if early_profile.get("data_quality") in ("strong", "usable", "thin")
+        else None
+    )
+    if early_pct is None:
+        early_pct = _to_float_safe(ctx.get("early_goal_pct"))
     if early_pct is None:
         return None
     if early_pct >= 0.55:

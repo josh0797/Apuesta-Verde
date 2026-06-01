@@ -1,26 +1,22 @@
 [
   {
-    "content": "Backend: actualizar football_corner_pregame.py — umbrales 7+ partidos (strong≥10 / usable≥7 / thin≥4 / insufficient<4) + detectar trap signals (SLOW_POSSESSION_LOW_DEPTH, EARLY_SCORING_FAVOURITE)",
+    "content": "Crear services/external_sources/soccerstats.py: parser de table.asp?league=X&tid=s4/s5 (First/Second Half stats por equipo) + cache 24h por (team, league)",
     "status": "completed"
   },
   {
-    "content": "Backend: actualizar corner_market_layer._pregame_protected_recommendation para respetar trap_signals (HIGH → None, MEDIUM → reducir confianza) y exponer trap_signals en el output",
+    "content": "Crear services/derived_early_goal.py: deriva early_goal_pct/early_concede_pct desde recent_fixtures (API-Sports con minute por gol) como fuente complementaria sin scraping",
     "status": "completed"
   },
   {
-    "content": "Server: proyectar _corner_form + corner_trap_signals en _to_summary_row para que la UI los lea",
+    "content": "Crear bulk pre-fetch async en analyst_engine.py: paralelo, timeout 30s, fail-soft, attached al team_context['seasonal_form']['early_goal_profile'] con data_quality",
     "status": "completed"
   },
   {
-    "content": "Frontend: crear CornerPregamePanel.jsx con stats por equipo + expected total + data_quality + trap signals + línea recomendada + Pegar tu cuota",
+    "content": "Wire al detector _detect_early_scoring_favourite en football_corner_pregame.py para leer del seasonal_form.early_goal_profile.early_goal_pct cuando exista",
     "status": "completed"
   },
   {
-    "content": "Frontend: wirear CornerPregamePanel en ManualOddsReviewPanel.jsx cuando el item tenga _corner_form (mode=pregame)",
-    "status": "completed"
-  },
-  {
-    "content": "Tests + verificación visual con screenshot",
+    "content": "Tests: validar parsing real con BD + verificar shape de salida + fallback path cuando scraper falla",
     "status": "completed"
   }
 ]
