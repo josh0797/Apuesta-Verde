@@ -16,6 +16,7 @@ Documento (UUID PK, ISO-8601 UTC datetimes)::
         "sport":                    "baseball",
         "game_date":                "YYYY-MM-DD",
         "inning":                   int | None,
+        "half":                     "top" | "bottom" | None,
         "game_state":               "pregame" | "live_f5" | "live_9inn",
 
         # Marcador al momento de la evaluación
@@ -28,21 +29,32 @@ Documento (UUID PK, ISO-8601 UTC datetimes)::
         # Snapshot del pitching
         "starter_home":             str | None,
         "starter_away":             str | None,
+        "current_pitcher":          str | None,
         "pitcher_stress_index":     float | None,
+        "bullpen_fatigue_score":    float | None,
 
         # Desglose del risk score
         "explosive_risk_score":     int (0..100),
         "risk_tier":                "LOW" | "MEDIUM" | "HIGH",
+        "state":                    str | None,        # v2-only
+        "trap_signals":             list[str],
         "ops_score_contribution":   int,
         "bullpen_era_contribution": int,
         "park_factor_contribution": int,
         "gap_contribution":         int,
         "script_survival_contribution": int,
+        "pitcher_stress_contribution":  int,    # v2 extension
+        "base_traffic_contribution":    int,    # v2 extension
+        "hard_contact_contribution":    int,    # v2 extension
+        "lineup_turnover_contribution": int,    # v2 extension
 
         # Recomendación
         "recommended_market":       str,
         "recommended_line":         float | None,
         "recommended_odds":         float | None,
+        "recommended_side":         str | None,   # "over"|"under"|"team_total_over"
+        "market_scope":             str | None,   # "full_game"|"f5"|"inning"|"team_total"
+        "should_recommend":         bool,
         "flip_triggered":           bool,
 
         # Calidad
@@ -223,7 +235,12 @@ def build_run_evaluation_document(*,
         "inning":                      (_safe_int(re_.get("inning"), 0)
                                          if re_.get("inning") is not None
                                          else None),
+        "half":                        _safe_str(re_.get("half")
+                                                  or re_.get("half_inning")
+                                                  or mx_.get("half")
+                                                  or mx_.get("half_inning")),
         "game_state":                  _safe_str(re_.get("game_state")
+                                                  or mx_.get("game_state")
                                                   or "pregame"),
 
         # Marcador
@@ -240,8 +257,13 @@ def build_run_evaluation_document(*,
                                                   or re_.get("starter_home")),
         "starter_away":                _safe_str(mx_.get("starter_away")
                                                   or re_.get("starter_away")),
+        "current_pitcher":             _safe_str(re_.get("current_pitcher")
+                                                  or mx_.get("current_pitcher")),
         "pitcher_stress_index":        _safe_float(mx_.get("pitcher_stress_index")
                                                     or re_.get("pitcher_stress_index")),
+        "bullpen_fatigue_score":       _safe_float(re_.get("bullpen_fatigue_score")
+                                                    or mx_.get("bullpen_fatigue_score")
+                                                    or mx_.get("bullpen_fatigue")),
 
         # Risk score
         "explosive_risk_score":        _safe_int(re_.get("explosive_risk_score"), 0),
@@ -252,16 +274,70 @@ def build_run_evaluation_document(*,
         # None for v1 pregame evaluations (which don't classify states).
         "state":                       _safe_str(re_.get("state")),
         "trap_signals":                _safe_list(re_.get("trap_signals")),
-        "ops_score_contribution":      _safe_int(contribs.get("ops_score"), 0),
-        "bullpen_era_contribution":    _safe_int(contribs.get("bullpen_era"), 0),
-        "park_factor_contribution":    _safe_int(contribs.get("park_factor"), 0),
-        "gap_contribution":            _safe_int(contribs.get("gap"), 0),
-        "script_survival_contribution": _safe_int(contribs.get("script_survival"), 0),
+        # ── Contribution mapping (flexible) ─────────────────────────
+        # Accepts both v1 keys (ops_score / bullpen_era / park_factor /
+        # gap / script_survival) AND v2 engine keys (base_traffic /
+        # command / hard_contact / lineup / bullpen / two_out_rally).
+        # Each canonical column reads the first non-empty source.
+        "ops_score_contribution":      _safe_int(
+            contribs.get("ops_score")
+            or contribs.get("ops_score_contribution"),
+            0,
+        ),
+        "bullpen_era_contribution":    _safe_int(
+            contribs.get("bullpen_era")
+            or contribs.get("bullpen_era_contribution")
+            or contribs.get("bullpen_explosion")
+            or contribs.get("bullpen"),
+            0,
+        ),
+        "park_factor_contribution":    _safe_int(
+            contribs.get("park_factor")
+            or contribs.get("park_factor_contribution"),
+            0,
+        ),
+        "gap_contribution":            _safe_int(
+            contribs.get("gap")
+            or contribs.get("gap_contribution"),
+            0,
+        ),
+        "script_survival_contribution": _safe_int(
+            contribs.get("script_survival")
+            or contribs.get("script_survival_contribution"),
+            0,
+        ),
+        "pitcher_stress_contribution": _safe_int(
+            contribs.get("pitcher_stress")
+            or contribs.get("pitcher_stress_contribution")
+            or contribs.get("command_collapse")
+            or contribs.get("command"),
+            0,
+        ),
+        "base_traffic_contribution":   _safe_int(
+            contribs.get("base_traffic")
+            or contribs.get("base_traffic_contribution"),
+            0,
+        ),
+        "hard_contact_contribution":   _safe_int(
+            contribs.get("hard_contact")
+            or contribs.get("hard_contact_contribution"),
+            0,
+        ),
+        "lineup_turnover_contribution": _safe_int(
+            contribs.get("lineup_turnover")
+            or contribs.get("lineup_turnover_contribution")
+            or contribs.get("lineup"),
+            0,
+        ),
 
         # Recomendación
         "recommended_market":          _safe_str(re_.get("recommended_market")),
         "recommended_line":            _safe_float(re_.get("recommended_line")),
         "recommended_odds":            _safe_float(re_.get("recommended_odds")),
+        "recommended_side":            _safe_str(re_.get("recommended_side")),
+        "market_scope":                _safe_str(re_.get("market_scope")
+                                                  or mx_.get("market_scope")),
+        "should_recommend":            bool(re_.get("should_recommend")),
         "flip_triggered":              bool(re_.get("flip_triggered")),
 
         # Calidad
@@ -455,10 +531,31 @@ async def query_run_evaluations(db, *,
         return []
 
 
+async def query_latest_run_evaluation(db, *,
+                                        user_id: str,
+                                        match_id: Optional[Any] = None,
+                                        ) -> Optional[dict]:
+    """Convenience helper — return the most-recent evaluation document
+    for a ``user_id`` (optionally narrowed to a single ``match_id``).
+
+    Returns ``None`` if no evaluation exists. Useful for UI shortcuts
+    like "show the last persisted v2 verdict for this match" without
+    fetching the full timeline.
+    """
+    docs = await query_run_evaluations(
+        db,
+        user_id=user_id,
+        match_id=match_id,
+        limit=1,
+    )
+    return docs[0] if docs else None
+
+
 __all__ = [
     "REFERENCE_MLB_POWER_BAT_EXPLOSIVE",
     "build_run_evaluation_document",
     "store_run_evaluation",
     "update_run_evaluation_result",
     "query_run_evaluations",
+    "query_latest_run_evaluation",
 ]

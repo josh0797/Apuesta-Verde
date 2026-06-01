@@ -2011,16 +2011,51 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                         _action_kind = _action.get("action")
                         _flip_triggered = _action_kind == "FLIP_TO_OVER"
 
-                        # Determine recommended_market depending on flip outcome
+                        # ── Identidad del partido (FIX: confirmed source
+                        # uses `gamePk`/`home_team_name`/`away_team_name`
+                        # — the previous reads of `game_pk`/`home_team`
+                        # were silently None) ──────────────────────────
+                        _match_id = str(
+                            conf.get("gamePk")
+                            or conf.get("game_pk")
+                            or game_pk
+                            or ""
+                        )
+                        _home_team = (
+                            conf.get("home_team_name")
+                            or conf.get("home_team")
+                        )
+                        _away_team = (
+                            conf.get("away_team_name")
+                            or conf.get("away_team")
+                        )
+
+                        # Determine recommended_market + side depending
+                        # on flip outcome
                         _rec_market_text = None
                         _rec_line = None
                         _rec_odds = None
-                        if _flip_triggered and chosen_market:
+                        _rec_side = None
+                        _market_scope = None
+                        if chosen_market:
                             _rec_market_text = chosen_market.get("market")
                             _rec_line = chosen_market.get("line")
-                        elif chosen_market and not _flip_triggered:
-                            _rec_market_text = chosen_market.get("market")
-                            _rec_line = chosen_market.get("line")
+                            _m_lower = (_rec_market_text or "").lower()
+                            if "under" in _m_lower and "team total" not in _m_lower:
+                                _rec_side = "under"
+                            elif "over" in _m_lower and "team total" not in _m_lower:
+                                _rec_side = "over"
+                            elif "team total" in _m_lower:
+                                _rec_side = "team_total_over" if "over" in _m_lower else "team_total_under"
+                            # Market scope
+                            if "f5" in _m_lower or "first 5" in _m_lower:
+                                _market_scope = "f5"
+                            elif "team total" in _m_lower:
+                                _market_scope = "team_total"
+                            elif "inning" in _m_lower:
+                                _market_scope = "inning"
+                            else:
+                                _market_scope = "full_game"
 
                         _bd = _expl.get("breakdown") or {}
                         _run_eval = {
@@ -2031,6 +2066,8 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                             "recommended_market":     _rec_market_text,
                             "recommended_line":       _rec_line,
                             "recommended_odds":       _rec_odds,
+                            "recommended_side":       _rec_side,
+                            "market_scope":           _market_scope,
                             "confidence":             chosen_market.get("score") if chosen_market else 0,
                             "risk":                   _expl.get("risk_level"),
                             "reason_codes":           list(_expl.get("reasons") or []),
@@ -2043,7 +2080,8 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                                 if _expl.get("risk_level") == "HIGH" else []
                             ),
                             "score_contributions": {
-                                # v1 breakdown → v2 named contributions
+                                # v1 breakdown → keeps original keys; the
+                                # storage layer accepts both v1 and v2 names.
                                 "ops_score":        _bd.get("ops") or 0,
                                 "bullpen_era":      _bd.get("bullpen") or 0,
                                 "park_factor":      _bd.get("park") or 0,
@@ -2052,8 +2090,11 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                                 # extra contribution kept for traceability
                                 "active_series":    _bd.get("active_series") or 0,
                             },
-                            "game_state":             "pregame",
+                            "game_state":             (
+                                "live_9inn" if conf.get("_live_route") else "pregame"
+                            ),
                             "inning":                 None,
+                            "half":                   None,
                             "score_home":             0,
                             "score_away":             0,
                             "pregame_total_line":     _book_total_v,
@@ -2061,11 +2102,16 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                             "game_date":              date_str,
                         }
                         _metrics_snap = {
-                            "home_team":              conf.get("home_team"),
-                            "away_team":              conf.get("away_team"),
+                            "game_date":              date_str,
+                            "home_team":              _home_team,
+                            "away_team":              _away_team,
                             "starter_home":           conf.get("home_pitcher_name"),
                             "starter_away":           conf.get("away_pitcher_name"),
                             "pitcher_stress_index":   (
+                                (ctx.get("home_bullpen_real") or {}).get("pitch_stress_index")
+                                or (ctx.get("away_bullpen_real") or {}).get("pitch_stress_index")
+                            ),
+                            "bullpen_fatigue_score":  (
                                 (ctx.get("home_bullpen_real") or {}).get("pitch_stress_index")
                                 or (ctx.get("away_bullpen_real") or {}).get("pitch_stress_index")
                             ),
@@ -2073,14 +2119,16 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                             "recent_h2h_avg_runs":    ctx.get("recent_h2h_avg_runs"),
                             "expected_runs":          _expected_runs_v,
                             "book_total":             _book_total_v,
+                            "pregame_total_line":     _book_total_v,
                             "home_team_ops":          ctx.get("home_team_ops"),
                             "away_team_ops":          ctx.get("away_team_ops"),
                             "explosive_action":       _action,
+                            "market_scope":           _market_scope,
                         }
                         _eval_id = await store_run_evaluation(
                             db,
                             user_id="_slate",
-                            match_id=str(conf.get("game_pk") or ""),
+                            match_id=_match_id,
                             run_evaluation=_run_eval,
                             metrics=_metrics_snap,
                             only_strong=True,
@@ -2088,13 +2136,13 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                         if _eval_id:
                             pick_payload["mlb_run_evaluation_id"] = _eval_id
                             log.info(
-                                "MLB run evaluation persisted game=%s id=%s tier=%s flip=%s",
-                                conf.get("game_pk"), _eval_id[:8],
+                                "MLB run evaluation persisted match_id=%s id=%s tier=%s flip=%s",
+                                _match_id, _eval_id[:8],
                                 _expl.get("risk_level"), _flip_triggered,
                             )
                 except Exception as _exc_persist:
-                    log.debug("store_run_evaluation pregame failed (non-fatal): %s",
-                              _exc_persist)
+                    log.warning("MLB run evaluation storage failed: %s",
+                                _exc_persist)
         except Exception as exc:
             log.debug("MLB Under Veto central layer failed: %s", exc)
 
