@@ -1,22 +1,22 @@
 [
   {
-    "content": "Probe: descubrir comp_ids reales de Bundesliga, Serie A, Ligue 1, Champions League y Liga MX (sondeo de IDs + scrape de página de competiciones)",
-    "status": "completed"
+    "content": "Crear TEAM_ALIASES dict (clubs + selecciones nacionales): Inter↔Internazionale, PSG↔Paris Saint Germain, Bayern↔Bayern Munich, etc.",
+    "status": "in_progress"
   },
   {
-    "content": "Añadir los comp_ids descubiertos a _COMP_IDS en statbunker.py (25/26 + 24/25 para retros)",
-    "status": "completed"
+    "content": "Mejorar _best_match() en statbunker.py para usar TEAM_ALIASES (resolve aliases ANTES de fuzzy matching)",
+    "status": "pending"
   },
   {
-    "content": "Crear discover_comp_ids() en statbunker.py: scrape de la página de competiciones de StatBunker y mapeo league_name → comp_id por temporada",
-    "status": "completed"
+    "content": "Probe: descubrir comp_ids reales de selecciones nacionales (World Cup, World Cup Qualifying, Nations League, Euro, Copa America, Gold Cup, Asian Cup, International Friendlies)",
+    "status": "pending"
   },
   {
-    "content": "Crear APScheduler monthly job en server.py: ejecuta auto-discovery + actualiza colección MongoDB statbunker_comp_ids + extiende _COMP_IDS en runtime",
-    "status": "completed"
+    "content": "Añadir los comp_ids descubiertos de selecciones a _COMP_IDS + TEAM_ALIASES de selecciones nacionales (Argentina, Brasil, USA, México, etc.)",
+    "status": "pending"
   },
   {
-    "content": "Tests: validar discovery + verificar comp_ids reales con fetch live",
-    "status": "completed"
+    "content": "Tests: validar fetch de Inter/PSG/Bayern + fetch de selecciones nacionales reales",
+    "status": "pending"
   }
 ]
