@@ -1,34 +1,34 @@
 [
   {
-    "content": "FIX #1: POWER_BAT_PRESENT en VETO_REASONS + _BLOCKING_REASONS",
-    "status": "completed"
+    "content": "FIX #1: compute_explosive_inning_risk en mlb_under_veto_layer.py",
+    "status": "in_progress"
   },
   {
-    "content": "FIX #2: build_under_veto_context extrae OPS + propaga",
-    "status": "completed"
+    "content": "FIX #2: POWER_BAT_PRESENT → WARNING (remove from _BLOCKING_REASONS)",
+    "status": "pending"
   },
   {
-    "content": "FIX #3: Activar mlb_bullpen_real_usage en orchestrator + pitch_stress",
-    "status": "completed"
+    "content": "FIX #3: Pasar bullpen_real al risk score (orchestrator + ctx)",
+    "status": "pending"
   },
   {
-    "content": "FIX #4: MLB_SEED_CASES + detect_mlb_under_warning_pattern",
-    "status": "completed"
+    "content": "FIX #4: mlb_under_market_selector consulta veto + risk",
+    "status": "pending"
   },
   {
-    "content": "FIX #5: Wire learning_cases en orchestrator junto al veto",
-    "status": "completed"
+    "content": "FIX #5: Flip Under→Over solo si risk=HIGH + over_discovery valida",
+    "status": "pending"
   },
   {
-    "content": "A: LiveMarketStateValidator + tests",
-    "status": "completed"
+    "content": "FIX #6: Learning cases ahora alimentan risk score (no block)",
+    "status": "pending"
   },
   {
-    "content": "B: LivePreMatchComparisonLayer + UI panel",
-    "status": "completed"
+    "content": "FIX #7: UI ExplosiveInningRiskBadge en MLBScriptPanel",
+    "status": "pending"
   },
   {
-    "content": "Actualizar plan.md",
-    "status": "completed"
+    "content": "Tests + actualizar plan.md",
+    "status": "pending"
   }
 ]
