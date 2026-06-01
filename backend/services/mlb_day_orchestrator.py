@@ -1727,6 +1727,262 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                             best_score = 0
                 except Exception as exc:
                     log.debug("learning_cases MLB pattern check failed: %s", exc)
+
+                # ── EXPLOSIVE INNING RISK (FIX nuevo) ──────────────
+                # Modelo cuantitativo 0-100+ que pondera OPS, bullpen
+                # (ERA7d + pitch_stress_index), active series, park,
+                # gap línea-modelo y Script Survival.
+                # LOW    → Under sigue normal.
+                # MEDIUM → -10 pts confianza + preferir F5 Under.
+                # HIGH   → bloquear FG Under; evaluar Over protegido
+                #          con triple validación (survival>55 &&
+                #          edge>=1.0 && score>=60). Si no cumple →
+                #          descartar partido (sin forzar Over).
+                try:
+                    from .mlb_under_veto_layer import (
+                        compute_explosive_inning_risk,
+                    )
+                    # Fusionar season bullpen + real workload por lado.
+                    _bp_home_merged = {
+                        **(ctx.get("home_bullpen") or {}),
+                        **(ctx.get("home_bullpen_real") or {}),
+                    }
+                    _bp_away_merged = {
+                        **(ctx.get("away_bullpen") or {}),
+                        **(ctx.get("away_bullpen_real") or {}),
+                    }
+                    # Script Survival precomputed cheaply (pure fn).
+                    _ss_score = None
+                    try:
+                        from .mlb_script_survival import (
+                            build_script_survival_payload as _bss,
+                        )
+                        _ss = _bss(scoring_ctx, v2_payload or {}) or {}
+                        _ss_score = (_ss.get("survival") or {}).get("score")
+                    except Exception:
+                        _ss_score = None
+
+                    explosive = compute_explosive_inning_risk(
+                        home_team_ops=ctx.get("home_team_ops"),
+                        away_team_ops=ctx.get("away_team_ops"),
+                        bullpen_home=_bp_home_merged,
+                        bullpen_away=_bp_away_merged,
+                        recent_h2h_avg_runs=ctx.get("recent_h2h_avg_runs"),
+                        park_factor=(ctx.get("park") or {}).get("run_factor"),
+                        expected_runs=_expected_runs_v,
+                        book_total=_book_total_v,
+                        script_survival=_ss_score,
+                    )
+                    pick_payload["explosive_inning_risk"] = explosive
+                    log.info(
+                        "Explosive Inning Risk game=%s level=%s score=%s reasons=%s",
+                        conf.get("game_pk"), explosive.get("risk_level"),
+                        explosive.get("risk_score"), explosive.get("reasons"),
+                    )
+
+                    # Solo actuar si el chosen_market sigue siendo Under
+                    # (la cadena previa veto/learning_cases podría ya
+                    # haberlo nulado).
+                    if chosen_market:
+                        _mkt_lower = (chosen_market.get("market") or "").lower()
+                        _is_under_market = (
+                            ("under" in _mkt_lower and "team total" not in _mkt_lower)
+                            or "nrfi" in _mkt_lower
+                        )
+                        _is_full_game_under = (
+                            _is_under_market and "f5" not in _mkt_lower
+                            and "first 5" not in _mkt_lower
+                        )
+
+                        risk_level = explosive.get("risk_level")
+
+                        # ──── MEDIUM: -10 pts + preferir F5 Under ────
+                        if risk_level == "MEDIUM" and _is_under_market:
+                            try:
+                                new_score = max(
+                                    0, _f(chosen_market.get("score"), 0) - 10,
+                                )
+                                chosen_market["score"] = new_score
+                                best_score = max(0, (best_score or 0) - 10)
+                                chosen_market["rationale"] = (
+                                    (chosen_market.get("rationale") or "")
+                                    + " | Explosive Risk MEDIUM -10: "
+                                    + (explosive.get("explanation") or "")
+                                ).strip(" |")
+                            except Exception:
+                                pass
+
+                            # Swap a F5 Under solo si:
+                            #   - estamos en Full Game Under
+                            #   - v2_payload trae línea F5 Over/Under
+                            if _is_full_game_under:
+                                _f5_data = (v2_payload or {}).get("f5") or {}
+                                _f5_line_raw = (
+                                    _f5_data.get("recommendedLine")
+                                    or _f5_data.get("line")
+                                )
+                                if _f5_line_raw:
+                                    _m = re.search(
+                                        r"(\d+(?:\.\d+)?)", str(_f5_line_raw),
+                                    )
+                                    if _m:
+                                        try:
+                                            _f5_line = float(_m.group(1))
+                                            chosen_market = {
+                                                **chosen_market,
+                                                "market": f"F5 Total Under {_f5_line}",
+                                                "category": "F5_UNDER",
+                                                "rationale": (
+                                                    (chosen_market.get("rationale") or "")
+                                                    + " | Swap a F5 Under (Explosive MEDIUM)"
+                                                ).strip(" |"),
+                                            }
+                                            pick_payload["explosive_inning_risk_action"] = {
+                                                "action":  "PREFER_F5_UNDER",
+                                                "from":    pick_payload.get(
+                                                    "under_veto_block", {},
+                                                ).get("blocked_market")
+                                                or "Full Game Under",
+                                                "to":      f"F5 Total Under {_f5_line}",
+                                                "penalty": 10,
+                                            }
+                                        except Exception:
+                                            pass
+
+                        # ──── HIGH: bloquear FG Under + flip protegido ────
+                        elif risk_level == "HIGH" and _is_full_game_under:
+                            log.warning(
+                                "Explosive Inning Risk HIGH bloqueando Full Game Under game=%s reasons=%s",
+                                conf.get("game_pk"), explosive.get("reasons"),
+                            )
+                            pick_payload["under_veto_block"] = {
+                                **(pick_payload.get("under_veto_block") or {}),
+                                "explosive_inning_block": True,
+                                "risk_score":  explosive.get("risk_score"),
+                                "reasons":     explosive.get("reasons"),
+                                "blocked_market": (
+                                    (pick_payload.get("under_veto_block") or {}).get(
+                                        "blocked_market"
+                                    )
+                                    or chosen_market.get("market")
+                                ),
+                            }
+                            _blocked_under_meta = {
+                                "market": chosen_market.get("market"),
+                                "score":  chosen_market.get("score"),
+                            }
+                            chosen_market = None
+                            best_score = 0
+
+                            # Evaluar Over protegido con triple gate.
+                            try:
+                                from .mlb_over_discovery import (
+                                    over_discovery_engine as _over_eng_hi,
+                                )
+                                _over_lines_hi: dict = {}
+                                _fg_line_hi = (
+                                    (v2_payload or {}).get("smartTotalsLine")
+                                    or _book_total_v
+                                )
+                                if _fg_line_hi:
+                                    _over_lines_hi["full_game"] = _f(_fg_line_hi)
+                                _f5_data_hi = (v2_payload or {}).get("f5") or {}
+                                _f5_line_raw_hi = (
+                                    _f5_data_hi.get("recommendedLine")
+                                    or _f5_data_hi.get("line")
+                                )
+                                if _f5_line_raw_hi:
+                                    _m_hi = re.search(
+                                        r"(\d+(?:\.\d+)?)", str(_f5_line_raw_hi),
+                                    )
+                                    if _m_hi:
+                                        try:
+                                            _over_lines_hi["f5"] = float(_m_hi.group(1))
+                                        except (TypeError, ValueError):
+                                            pass
+                                if _fg_line_hi:
+                                    _over_lines_hi["team_total_home"] = round(
+                                        _f(_fg_line_hi) / 2.0, 1,
+                                    )
+                                    _over_lines_hi["team_total_away"] = round(
+                                        _f(_fg_line_hi) / 2.0, 1,
+                                    )
+                                _over_lines_hi["yrfi"] = True
+
+                                _od = _over_eng_hi(
+                                    scoring_ctx,
+                                    v2_payload or {},
+                                    over_lines=_over_lines_hi,
+                                )
+                                _best = _od.get("best_over_market") or {}
+                                _surv_sc = _f(
+                                    (_od.get("over_survival") or {}).get("score"),
+                                )
+                                _best_edge = _f(_best.get("edge"))
+                                _best_score_o = _f(_best.get("score"))
+
+                                # Triple gate exactamente como pidió el usuario.
+                                _gates = {
+                                    "over_survival_gt_55": _surv_sc > 55,
+                                    "best_over_edge_gte_1": _best_edge >= 1.0,
+                                    "best_over_score_gte_60": _best_score_o >= 60,
+                                }
+                                _all_gates_passed = (
+                                    bool(_best)
+                                    and all(_gates.values())
+                                )
+
+                                pick_payload["explosive_inning_risk_action"] = {
+                                    "action": (
+                                        "FLIP_TO_OVER"
+                                        if _all_gates_passed
+                                        else "DISCARD_NO_FLIP"
+                                    ),
+                                    "from": _blocked_under_meta.get("market"),
+                                    "blocked_under": _blocked_under_meta,
+                                    "over_discovery": {
+                                        "best_over_market": _best,
+                                        "over_survival_score": _surv_sc,
+                                        "narrative_es": _od.get("narrative_es"),
+                                    },
+                                    "gates": _gates,
+                                    "gates_passed": _all_gates_passed,
+                                }
+
+                                if _all_gates_passed:
+                                    # Construir un chosen_market Over válido.
+                                    chosen_market = {
+                                        "market":    _best.get("market"),
+                                        "score":     _best_score_o,
+                                        "category":  _best.get("category"),
+                                        "line":      _best.get("line"),
+                                        "edge":      _best_edge,
+                                        "rationale": (
+                                            "Flip protegido a Over por Explosive "
+                                            "Inning Risk HIGH — "
+                                            + (_od.get("narrative_es") or "")
+                                        ).strip(),
+                                        "_origin":   "EXPLOSIVE_RISK_PROTECTED_OVER",
+                                    }
+                                    best_score = _best_score_o
+                                    log.warning(
+                                        "Explosive HIGH flip to Over OK game=%s market=%s edge=%.2f score=%.0f surv=%.0f",
+                                        conf.get("game_pk"),
+                                        _best.get("market"),
+                                        _best_edge, _best_score_o, _surv_sc,
+                                    )
+                                else:
+                                    log.warning(
+                                        "Explosive HIGH gates FAILED game=%s gates=%s → descartar",
+                                        conf.get("game_pk"), _gates,
+                                    )
+                            except Exception as _exc_hi:
+                                log.debug(
+                                    "Explosive HIGH over_discovery flip failed: %s",
+                                    _exc_hi,
+                                )
+                except Exception as _exc_xr:
+                    log.debug("Explosive Inning Risk computation failed: %s", _exc_xr)
         except Exception as exc:
             log.debug("MLB Under Veto central layer failed: %s", exc)
 

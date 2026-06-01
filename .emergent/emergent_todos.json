@@ -1,34 +1,18 @@
 [
   {
-    "content": "FIX #1: compute_explosive_inning_risk en mlb_under_veto_layer.py",
-    "status": "in_progress"
+    "content": "Implementar compute_explosive_inning_risk() en mlb_under_veto_layer.py con calibración LOW/MEDIUM/HIGH y reglas no-double-count",
+    "status": "completed"
   },
   {
-    "content": "FIX #2: POWER_BAT_PRESENT → WARNING (remove from _BLOCKING_REASONS)",
-    "status": "pending"
+    "content": "Integrar compute_explosive_inning_risk en mlb_day_orchestrator.py: MEDIUM=-10pts+prefer F5, HIGH=block FG Under + flip a Over solo con triple validación (survival>55 AND edge>=1.0 AND score>=60)",
+    "status": "completed"
   },
   {
-    "content": "FIX #3: Pasar bullpen_real al risk score (orchestrator + ctx)",
-    "status": "pending"
+    "content": "Crear script de prueba python -c para validar 3 escenarios (LOW/MEDIUM/HIGH) y verificar flip a Over con doble gate",
+    "status": "completed"
   },
   {
-    "content": "FIX #4: mlb_under_market_selector consulta veto + risk",
-    "status": "pending"
-  },
-  {
-    "content": "FIX #5: Flip Under→Over solo si risk=HIGH + over_discovery valida",
-    "status": "pending"
-  },
-  {
-    "content": "FIX #6: Learning cases ahora alimentan risk score (no block)",
-    "status": "pending"
-  },
-  {
-    "content": "FIX #7: UI ExplosiveInningRiskBadge en MLBScriptPanel",
-    "status": "pending"
-  },
-  {
-    "content": "Tests + actualizar plan.md",
-    "status": "pending"
+    "content": "Verificar logs backend + supervisorctl status tras la integración",
+    "status": "completed"
   }
 ]

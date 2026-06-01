@@ -399,3 +399,203 @@ def evaluate_under_veto(
             ),
         },
     }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# EXPLOSIVE INNING RISK SCORE
+# ════════════════════════════════════════════════════════════════════════════
+#
+# Modelo cuantitativo (0-100+) que mide la probabilidad de que un Under
+# explote por un inning grande (5+ carreras). Suma señales de OPS,
+# bullpen (ERA7d + pitch_stress_index), active series H2H, park, gap
+# entre línea de book y expected runs, y Script Survival.
+#
+# Calibración (acordada con el usuario):
+#   LOW:    0–49   → Under permitido normal.
+#   MEDIUM: 50–84  → -10 pts confianza, preferir F5 Under sobre FG Under,
+#                    NO flip a Over.
+#   HIGH:   85+    → bloquear Full Game Under. Evaluar Over protegido,
+#                    flip SOLO si los 3 gates se cumplen:
+#                      over_survival.score    > 55  AND
+#                      best_over_market.edge  >= 1.0 AND
+#                      best_over_market.score >= 60
+#                    Si no cumple → descartar partido (no forzar Over).
+#
+# Pesos por categoría (single category, no double count):
+#   OPS:        max>.800 → 20  |  max>.770 → 15
+#   Bullpen:    era_7d>5.00 → +15  (suma con) pitch_stress>2.0 → 20  |  >1.5 → 10
+#   Series:     h2h_avg>12 → 20  |  >10 → 10
+#   Park:       run_factor>1.10 → 10
+#   Line gap:   gap<1.0 → 20  |  gap<1.5 → 15   (gap = book_total - expected_runs)
+#   Script:     survival<50 → 20  |  <60 → 15
+
+
+# Códigos de razón (clave → mensaje humano en español).
+EXPLOSIVE_RISK_REASONS = {
+    "POWER_BAT_MAX_OPS_GT_800":     "Equipo con OPS > 0.800 (slugging extremo)",
+    "POWER_BAT_MAX_OPS_GT_770":     "Equipo con OPS > 0.770 (slugging por encima del league avg)",
+    "BULLPEN_ERA7D_GT_5":           "Bullpen ERA últimos 7d > 5.00",
+    "BULLPEN_PITCH_STRESS_GT_2":    "Bullpen con pitch-stress > 2.0 (≥90 pitches/48h, fatiga severa)",
+    "BULLPEN_PITCH_STRESS_GT_1_5":  "Bullpen con pitch-stress > 1.5 (≥67 pitches/48h)",
+    "ACTIVE_SERIES_H2H_GT_12":      "Active series H2H promedio > 12 carreras",
+    "ACTIVE_SERIES_H2H_GT_10":      "Active series H2H promedio > 10 carreras",
+    "HITTER_PARK_FACTOR":           "Parque hitter-friendly (run factor > 1.10)",
+    "LINE_GAP_LT_1_0":              "Gap línea-modelo < 1.0 carreras (margen casi nulo)",
+    "LINE_GAP_LT_1_5":              "Gap línea-modelo < 1.5 carreras (margen frágil)",
+    "SCRIPT_SURVIVAL_LT_50":        "Script Survival < 50 (guion Under colapsa muy probable)",
+    "SCRIPT_SURVIVAL_LT_60":        "Script Survival < 60 (guion Under inestable)",
+}
+
+
+def _to_float(v) -> Optional[float]:
+    """Coerce arbitrary value to float or return None on failure."""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def compute_explosive_inning_risk(
+    *,
+    home_team_ops:        Optional[float] = None,
+    away_team_ops:        Optional[float] = None,
+    bullpen_home:         Optional[dict]  = None,
+    bullpen_away:         Optional[dict]  = None,
+    recent_h2h_avg_runs:  Optional[float] = None,
+    park_factor:          Optional[float] = None,
+    expected_runs:        Optional[float] = None,
+    book_total:           Optional[float] = None,
+    script_survival:      Optional[float] = None,
+) -> dict:
+    """Calcula Explosive Inning Risk Score (0-100+) + nivel + razones.
+
+    Función pura, fail-soft: si una señal es None se omite la categoría
+    correspondiente sin penalizar el cálculo.
+
+    `bullpen_home` / `bullpen_away` aceptan ``era_7d`` y/o
+    ``pitch_stress_index`` en el mismo dict. El orchestrator suele
+    fusionar ``home_bullpen`` con ``home_bullpen_real`` antes de llamar.
+
+    Retorno
+    -------
+    {
+        "risk_score":  int,                       # 0-100+
+        "risk_level":  "LOW" | "MEDIUM" | "HIGH",
+        "reasons":     [str, ...],                # códigos crudos
+        "explanation": str,                       # texto humano (es)
+        "breakdown":   {category: pts, ...},      # debug por categoría
+    }
+    """
+    reasons: list[str] = []
+    breakdown: dict[str, int] = {
+        "ops":             0,
+        "bullpen":         0,
+        "active_series":   0,
+        "park":            0,
+        "line_gap":        0,
+        "script_survival": 0,
+    }
+
+    # ── 1) OPS (single category, no double count) ───────────────────
+    h_ops = _to_float(home_team_ops)
+    a_ops = _to_float(away_team_ops)
+    ops_values = [v for v in (h_ops, a_ops) if v is not None]
+    if ops_values:
+        max_ops = max(ops_values)
+        if max_ops > 0.800:
+            breakdown["ops"] = 20
+            reasons.append("POWER_BAT_MAX_OPS_GT_800")
+        elif max_ops > POWER_BAT_OPS_THRESHOLD:  # > 0.770
+            breakdown["ops"] = 15
+            reasons.append("POWER_BAT_MAX_OPS_GT_770")
+
+    # ── 2) Bullpen (era_7d + pitch_stress; no-double en PSI) ────────
+    def _bp_signals(b):
+        if not isinstance(b, dict):
+            return None, None
+        return _to_float(b.get("era_7d")), _to_float(b.get("pitch_stress_index"))
+
+    eras: list[float] = []
+    psis: list[float] = []
+    for b in (bullpen_home, bullpen_away):
+        era_7d, psi = _bp_signals(b)
+        if era_7d is not None:
+            eras.append(era_7d)
+        if psi is not None:
+            psis.append(psi)
+
+    bp_pts = 0
+    if eras and max(eras) > 5.0:
+        bp_pts += 15
+        reasons.append("BULLPEN_ERA7D_GT_5")
+    if psis:
+        max_psi = max(psis)
+        # no double count: aplicar solo el mayor umbral cruzado.
+        if max_psi > 2.0:
+            bp_pts += 20
+            reasons.append("BULLPEN_PITCH_STRESS_GT_2")
+        elif max_psi > 1.5:
+            bp_pts += 10
+            reasons.append("BULLPEN_PITCH_STRESS_GT_1_5")
+    breakdown["bullpen"] = bp_pts
+
+    # ── 3) Active series H2H (single category) ──────────────────────
+    h2h = _to_float(recent_h2h_avg_runs)
+    if h2h is not None:
+        if h2h > 12:
+            breakdown["active_series"] = 20
+            reasons.append("ACTIVE_SERIES_H2H_GT_12")
+        elif h2h > 10:
+            breakdown["active_series"] = 10
+            reasons.append("ACTIVE_SERIES_H2H_GT_10")
+
+    # ── 4) Park factor ──────────────────────────────────────────────
+    pf = _to_float(park_factor)
+    if pf is not None and pf > 1.10:
+        breakdown["park"] = 10
+        reasons.append("HITTER_PARK_FACTOR")
+
+    # ── 5) Line gap (single category, no double count) ─────────────
+    bt = _to_float(book_total)
+    er = _to_float(expected_runs)
+    if bt is not None and er is not None:
+        gap = bt - er
+        if gap < 1.0:
+            breakdown["line_gap"] = 20
+            reasons.append("LINE_GAP_LT_1_0")
+        elif gap < 1.5:
+            breakdown["line_gap"] = 15
+            reasons.append("LINE_GAP_LT_1_5")
+
+    # ── 6) Script Survival (single category) ────────────────────────
+    ss = _to_float(script_survival)
+    if ss is not None:
+        if ss < 50:
+            breakdown["script_survival"] = 20
+            reasons.append("SCRIPT_SURVIVAL_LT_50")
+        elif ss < 60:
+            breakdown["script_survival"] = 15
+            reasons.append("SCRIPT_SURVIVAL_LT_60")
+
+    # ── Total + nivel ──────────────────────────────────────────────
+    risk_score = sum(breakdown.values())
+    if risk_score >= 85:
+        level = "HIGH"
+    elif risk_score >= 50:
+        level = "MEDIUM"
+    else:
+        level = "LOW"
+
+    explanation = "; ".join(
+        EXPLOSIVE_RISK_REASONS.get(r, r) for r in reasons
+    )
+
+    return {
+        "risk_score":  int(risk_score),
+        "risk_level":  level,
+        "reasons":     reasons,
+        "explanation": explanation,
+        "breakdown":   breakdown,
+    }
