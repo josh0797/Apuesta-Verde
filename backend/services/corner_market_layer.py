@@ -438,6 +438,7 @@ def _pregame_protected_recommendation(
     """
     expected_total = corner_form.get("expected_total_corners")
     quality = corner_form.get("data_quality")
+    trap_signals = corner_form.get("trap_signals") or []
 
     if quality not in ("usable", "strong"):
         return None
@@ -446,6 +447,16 @@ def _pregame_protected_recommendation(
     except (TypeError, ValueError):
         return None
     if expected_total is None:
+        return None
+
+    # Trap signals — abort or downgrade.
+    high_traps = [t for t in trap_signals if t.get("severity") == "high"]
+    medium_traps = [t for t in trap_signals if t.get("severity") == "medium"]
+    if high_traps:
+        log.info(
+            "corner pregame skipped — high severity traps: %s",
+            [t.get("code") for t in high_traps],
+        )
         return None
 
     # Resolve the best line per spec.
@@ -491,6 +502,11 @@ def _pregame_protected_recommendation(
         "volumen ofensivo de los últimos partidos."
     )
 
+    # Medium-severity traps don't kill the pick but lower confidence.
+    base_confidence = 60 if quality == "strong" else 55
+    if medium_traps:
+        base_confidence = max(50, base_confidence - 5 * len(medium_traps))
+
     return {
         "rescued":         True,
         "rescueType":      "CORNER_MARKET_PREGAME",
@@ -504,12 +520,16 @@ def _pregame_protected_recommendation(
         "estimatedProbability": None,
         "impliedProbability":   None,
         "classification":  "PROTECTED_ACCEPTABLE",
-        "confidence":      60 if quality == "strong" else 55,
+        "confidence":      base_confidence,
         "requires_manual_odds": True,
         "expected_total_corners": round(expected_total, 2),
         "data_quality":    quality,
+        "corner_form":     corner_form,          # surface full profile for UI panel
+        "trap_signals":    trap_signals,
         "reasons":         reasons,
-        "risks":           risks,
+        "risks":           risks + [
+            t.get("explanation") or t.get("code") for t in medium_traps
+        ],
         "whyDirectMarketsFailed": (
             why_direct_failed
             or "Mercados directos (1X2 / Doble Op / Under goles) sin edge real."

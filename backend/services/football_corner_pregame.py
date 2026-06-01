@@ -53,6 +53,8 @@ from typing import Optional
 __all__ = [
     "build_team_corner_profile",
     "attach_pregame_corner_form",
+    "detect_corner_trap_signals",
+    "CORNER_TRAP_REASON_LABELS_ES",
 ]
 
 
@@ -149,18 +151,197 @@ def build_team_corner_profile(team_context: dict) -> dict:
 
 
 def _corner_data_quality(home_profile: dict, away_profile: dict) -> str:
-    """Coalesce the smaller of the two sample sizes into a quality label."""
+    """Coalesce the smaller of the two sample sizes into a quality label.
+
+    Thresholds tightened per user feedback: corner stats benefit from a
+    larger window because possession patterns + pressing intensity drift
+    notably over short stretches. Minimum reliable sample is 7 partidos
+    por equipo (≈ one stable form block).
+    """
     n = min(
         home_profile.get("sample_size") or 0,
         away_profile.get("sample_size") or 0,
     )
-    if n >= 8:
+    if n >= 10:
         return "strong"
-    if n >= 5:
+    if n >= 7:
         return "usable"
-    if n >= 3:
+    if n >= 4:
         return "thin"
     return "insufficient"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TRAP SIGNALS  (corners-specific)
+# ════════════════════════════════════════════════════════════════════════════
+#
+# Catalogue of structural reasons NOT to take a corner pick even when the
+# raw average suggests value. Each detector returns a dict
+#     {"code": str, "severity": "high"|"medium", "explanation": str}
+# or None if the pattern doesn't apply.
+#
+# These signals are surfaced in `_corner_form["trap_signals"]` so the
+# rescue layer (`corner_market_layer._pregame_protected_recommendation`)
+# can decline picks even when the projection looks attractive.
+
+
+CORNER_TRAP_REASON_LABELS_ES = {
+    "SLOW_POSSESSION_LOW_DEPTH":   (
+        "Ambos equipos con posesión lenta y poca profundidad — "
+        "córners proyectados no se materializan."
+    ),
+    "EARLY_SCORING_FAVOURITE":     (
+        "Favorito muy corto que suele marcar temprano y controlar el ritmo — "
+        "el partido tiende a abrirse y bajan los córners."
+    ),
+    "ONE_SIDED_PRESSURE":          (
+        "Asimetría marcada en generación de córners — un equipo concentra "
+        "casi todos, fragiliza Over si el otro no aparece."
+    ),
+}
+
+
+def _to_float_safe(v):
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _detect_slow_possession_low_depth(
+    home_context: dict, away_context: dict,
+) -> Optional[dict]:
+    """High severity when both teams exhibit slow possession AND low
+    attacking depth (shots on target per 90 or penalty-area touches).
+
+    Expected context fields (any combination — fail-soft):
+      - possession_avg          0-100 (lower = slower)
+      - shots_on_target_per_90  float
+      - touches_in_box_per_90   float
+      - depth_score             0-100 already-normalised flag
+    """
+    def _slow_low(ctx: dict) -> Optional[bool]:
+        if not isinstance(ctx, dict):
+            return None
+        poss = _to_float_safe(ctx.get("possession_avg"))
+        sot  = _to_float_safe(ctx.get("shots_on_target_per_90"))
+        box  = _to_float_safe(ctx.get("touches_in_box_per_90"))
+        depth = _to_float_safe(ctx.get("depth_score"))
+        # Need at least possession + one depth proxy to decide.
+        if poss is None:
+            return None
+        slow = poss <= 48.0
+        low_depth = False
+        if depth is not None:
+            low_depth = depth <= 35.0
+        elif sot is not None:
+            low_depth = sot <= 3.2
+        elif box is not None:
+            low_depth = box <= 18.0
+        else:
+            return None
+        return slow and low_depth
+
+    h = _slow_low(home_context)
+    a = _slow_low(away_context)
+    if h is True and a is True:
+        return {
+            "code":        "SLOW_POSSESSION_LOW_DEPTH",
+            "severity":    "high",
+            "explanation": CORNER_TRAP_REASON_LABELS_ES["SLOW_POSSESSION_LOW_DEPTH"],
+        }
+    return None
+
+
+def _detect_early_scoring_favourite(match: dict) -> Optional[dict]:
+    """High severity when one side is a heavy favourite (decimal odds
+    ≤ 1.45) AND has a high rate of scoring before minute 30. The
+    moment they go ahead they typically slow the pace down and corner
+    volume drops sharply.
+
+    Looks at:
+      match["odds"]["1x2"]                 → favourite price
+      home_team/away_team ["context"]["early_goal_pct"]   → 0-1 share of
+        games where they scored before min 30 (last 10 matches).
+    """
+    if not isinstance(match, dict):
+        return None
+    odds = match.get("odds") or {}
+    ml = odds.get("1x2") or odds.get("moneyline") or odds.get("h2h") or {}
+    if not isinstance(ml, dict):
+        return None
+    home_odd = _to_float_safe(ml.get("home"))
+    away_odd = _to_float_safe(ml.get("away"))
+
+    fav_side: Optional[str] = None
+    if home_odd is not None and home_odd <= 1.45:
+        fav_side = "home"
+    elif away_odd is not None and away_odd <= 1.45:
+        fav_side = "away"
+    if fav_side is None:
+        return None
+
+    fav_team = match.get(f"{fav_side}_team") or {}
+    ctx = fav_team.get("context") or {}
+    early_pct = _to_float_safe(ctx.get("early_goal_pct"))
+    if early_pct is None:
+        return None
+    if early_pct >= 0.55:
+        return {
+            "code":        "EARLY_SCORING_FAVOURITE",
+            "severity":    "high",
+            "explanation": CORNER_TRAP_REASON_LABELS_ES["EARLY_SCORING_FAVOURITE"],
+        }
+    if early_pct >= 0.40:
+        return {
+            "code":        "EARLY_SCORING_FAVOURITE",
+            "severity":    "medium",
+            "explanation": CORNER_TRAP_REASON_LABELS_ES["EARLY_SCORING_FAVOURITE"],
+        }
+    return None
+
+
+def _detect_one_sided_pressure(
+    home_profile: dict, away_profile: dict,
+) -> Optional[dict]:
+    """Medium severity when one team's corners_for_avg is more than 2.5x
+    the other's. Suggests an Over bet relies almost entirely on one side
+    showing up — fragile spot.
+    """
+    h = _to_float_safe(home_profile.get("corners_for_avg"))
+    a = _to_float_safe(away_profile.get("corners_for_avg"))
+    if h is None or a is None or h <= 0 or a <= 0:
+        return None
+    ratio = max(h, a) / min(h, a)
+    if ratio >= 2.5:
+        return {
+            "code":        "ONE_SIDED_PRESSURE",
+            "severity":    "medium",
+            "explanation": CORNER_TRAP_REASON_LABELS_ES["ONE_SIDED_PRESSURE"],
+        }
+    return None
+
+
+def detect_corner_trap_signals(
+    match: dict, home_profile: dict, away_profile: dict,
+) -> list[dict]:
+    """Run all corner trap detectors and return the active ones."""
+    signals: list[dict] = []
+    home_ctx = (match.get("home_team") or {}).get("context") or {}
+    away_ctx = (match.get("away_team") or {}).get("context") or {}
+
+    for detector in (
+        lambda: _detect_slow_possession_low_depth(home_ctx, away_ctx),
+        lambda: _detect_early_scoring_favourite(match),
+        lambda: _detect_one_sided_pressure(home_profile, away_profile),
+    ):
+        try:
+            s = detector()
+        except Exception:
+            s = None
+        if s:
+            signals.append(s)
+    return signals
 
 
 def attach_pregame_corner_form(match: dict) -> dict:
@@ -210,6 +391,14 @@ def attach_pregame_corner_form(match: dict) -> dict:
     if home_expected is not None and away_expected is not None:
         combined_avg = round(home_expected + away_expected, 2)
 
+    # Run trap detection AFTER the profiles are built. Fail-soft.
+    try:
+        trap_signals = detect_corner_trap_signals(
+            match, home_profile, away_profile,
+        )
+    except Exception:
+        trap_signals = []
+
     match["_corner_form"] = {
         "mode":                    "pregame",
         "home":                    home_profile,
@@ -222,5 +411,6 @@ def attach_pregame_corner_form(match: dict) -> dict:
         ),
         "expected_total_corners":  combined_avg,
         "data_quality":            _corner_data_quality(home_profile, away_profile),
+        "trap_signals":            trap_signals,
     }
     return match

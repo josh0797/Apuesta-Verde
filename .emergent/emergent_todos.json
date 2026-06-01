@@ -1,22 +1,26 @@
 [
   {
-    "content": "Crear /app/backend/services/football_corner_pregame.py con build_team_corner_profile + attach_pregame_corner_form + _rate + _corner_data_quality",
+    "content": "Backend: actualizar football_corner_pregame.py — umbrales 7+ partidos (strong≥10 / usable≥7 / thin≥4 / insufficient<4) + detectar trap signals (SLOW_POSSESSION_LOW_DEPTH, EARLY_SCORING_FAVOURITE)",
     "status": "completed"
   },
   {
-    "content": "Integrar attach_pregame_corner_form en el pipeline pre-match (analyst_engine.py) antes de attempt_alternative_market_rescue, como fallback cuando el prefetch async no obtuvo datos",
+    "content": "Backend: actualizar corner_market_layer._pregame_protected_recommendation para respetar trap_signals (HIGH → None, MEDIUM → reducir confianza) y exponer trap_signals en el output",
     "status": "completed"
   },
   {
-    "content": "Ampliar football_quality.py: añadir corners/total_corners/team_corners a markets_present + flexibilizar protected_alternative_eligible para aceptar corner data como alternativa a H2H",
+    "content": "Server: proyectar _corner_form + corner_trap_signals en _to_summary_row para que la UI los lea",
     "status": "completed"
   },
   {
-    "content": "Extender corner_market_layer.find_corner_value para soportar mode='pregame': si pregame + quality usable/strong, evaluar Over 6.5 (exp>=10), Over 7.5 (exp>=11), Under 12.5 (exp<=8.5) incluso sin odds_snapshots",
+    "content": "Frontend: crear CornerPregamePanel.jsx con stats por equipo + expected total + data_quality + trap signals + línea recomendada + Pegar tu cuota",
     "status": "completed"
   },
   {
-    "content": "Tests: validar los 4 cambios + lint Python + supervisorctl status",
+    "content": "Frontend: wirear CornerPregamePanel en ManualOddsReviewPanel.jsx cuando el item tenga _corner_form (mode=pregame)",
+    "status": "completed"
+  },
+  {
+    "content": "Tests + verificación visual con screenshot",
     "status": "completed"
   }
 ]

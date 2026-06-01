@@ -22,6 +22,7 @@ import { ExternalSourceEvidencePanel, PossibleAlternativeMarkets } from '@/compo
 import { SourcesConsultedPanel } from '@/components/SourcesConsultedPanel';
 import { ManualOddsReviewPanel } from '@/components/ManualOddsReviewPanel';
 import { FootballMarketAuditPanel } from '@/components/FootballMarketAuditPanel';
+import { CornerPregamePanel } from '@/components/CornerPregamePanel';
 
 function GroupSection({ title, count, tier, children, defaultOpen = true, testId, sectionRef, icon: Icon }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -240,8 +241,13 @@ function DiscardedRow({ item, testId, type, sport }) {
 function RescuedRow({ item, testId }) {
   const [open, setOpen] = useState(false);
   const edgePct = item.edge != null ? (item.edge * 100).toFixed(1) : null;
-  const isCorner = item.rescueType === 'CORNER_MARKET';
+  const isCorner = item.rescueType === 'CORNER_MARKET' || item.rescueType === 'CORNER_MARKET_PREGAME';
+  const isCornerPregame = item.rescueType === 'CORNER_MARKET_PREGAME';
   const m = item.metrics || {};
+  // Pregame corner picks have no automatic odds — show "manual" instead.
+  const oddsDisplay = item.decimal_odds != null
+    ? `@${item.decimal_odds}`
+    : (isCornerPregame ? '@manual' : '@—');
   return (
     <div className={`rounded-md border ${isCorner ? 'border-violet-500/30 bg-violet-500/5 hover:border-violet-500/50' : 'border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/50'} transition-colors`} data-testid={testId}>
       <div className="flex items-center justify-between gap-3 px-3 py-2">
@@ -249,7 +255,7 @@ function RescuedRow({ item, testId }) {
           {isCorner ? <Flag className="h-3.5 w-3.5 text-violet-300 shrink-0" /> : <Sparkles className="h-3.5 w-3.5 text-emerald-300 shrink-0" />}
           <span className="text-sm text-foreground/90 truncate">{item.match_label}</span>
           <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border ${isCorner ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'}`}>
-            {isCorner ? 'Córners' : (item.classification === 'PROTECTED_ACCEPTABLE' ? 'Protegido' : 'Rescatado')}
+            {isCornerPregame ? 'Córners Pre-match' : (isCorner ? 'Córners' : (item.classification === 'PROTECTED_ACCEPTABLE' ? 'Protegido' : 'Rescatado'))}
           </span>
           {item.fragility_score != null && <FragilityChip score={item.fragility_score} />}
         </div>
@@ -257,7 +263,7 @@ function RescuedRow({ item, testId }) {
           <span className="text-xs font-mono text-foreground/80 truncate max-w-[260px]">
             {isCorner ? item.selection : `${item.market} (${item.selection})`}
           </span>
-          <span className="text-xs font-mono text-foreground/70">@{item.decimal_odds}</span>
+          <span className="text-xs font-mono text-foreground/70">{oddsDisplay}</span>
           {edgePct != null && (
             <span className={`text-xs font-mono ${item.edge >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
               {item.edge >= 0 ? '+' : ''}{edgePct}%
@@ -274,7 +280,13 @@ function RescuedRow({ item, testId }) {
       </div>
       {open && (
         <div className={`border-t ${isCorner ? 'border-violet-500/20' : 'border-emerald-500/20'} px-3 py-2.5 space-y-2.5 bg-background/30 text-xs`}>
-          {isCorner && (m.cornerForAvgHomeLast5 != null || m.cornerForAvgAwayLast5 != null) && (
+          {/* Dedicated pre-match corner panel — replaces the live metrics
+              grid when the pick came from the pregame branch and surfaces
+              per-team averages, trap signals and a paste-odds calculator. */}
+          {isCornerPregame && (item.corner_form || item._corner_form) ? (
+            <CornerPregamePanel item={item} testId={`${testId}-pregame-panel`} />
+          ) : null}
+          {isCorner && !isCornerPregame && (m.cornerForAvgHomeLast5 != null || m.cornerForAvgAwayLast5 != null) && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid={`${testId}-corner-metrics`}>
               <div className="bg-card/60 rounded px-2 py-1.5">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Local (Últ. 5)</div>
