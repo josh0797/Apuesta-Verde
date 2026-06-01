@@ -767,12 +767,86 @@ _SOCCERSTATS_LEAGUE_SLUGS: dict[str, str] = {
     "scottish premiership":    "scotland",
     "scottish premier league": "scotland",
     "mls":                     "usa",
-    "argentine primera":       "argentina",
-    "brasileiro":              "brazil",
-    "serie a brazil":          "brazil",
-    "liga mx":                 "mexico",
     "j1 league":               "japan",
     "j league":                "japan",
+
+    # ── South America ──────────────────────────────────────────────
+    "argentine primera":       "argentina",
+    "primera division argentina": "argentina",
+    "liga profesional":        "argentina",
+    "liga argentina":          "argentina",
+    "primera nacional":        "argentina2",
+    "primera b nacional":      "argentina2",
+    "argentine primera b":     "argentina3",
+    "copa argentina":          "argentina_copa",
+    "brasileiro":              "brazil",
+    "serie a brazil":          "brazil",
+    "campeonato brasileiro":   "brazil",
+    "brasileirao":             "brazil",
+    "brasileirão":             "brazil",
+    "serie b brazil":          "brazil2",
+    "campeonato brasileiro serie b": "brazil2",
+    "brasileirao serie b":     "brazil2",
+    "primera division chile":  "chile",
+    "primera division de chile":  "chile",
+    "chilean primera":         "chile",
+    "campeonato chileno":      "chile",
+    "primera division colombia":"colombia",
+    "categoria primera a":     "colombia",
+    "colombian primera":       "colombia",
+    "liga betplay":            "colombia",
+    "liga aguila":             "colombia",
+    "primera division peru":   "peru",
+    "liga 1 peru":             "peru",
+    "peruvian primera":        "peru",
+    "primera division ecuador":"ecuador",
+    "ecuadorian primera":      "ecuador",
+    "liga pro ecuador":        "ecuador",
+    "primera division uruguay":"uruguay",
+    "uruguayan primera":       "uruguay",
+    "campeonato uruguayo":     "uruguay",
+    "primera division paraguay":"paraguay",
+    "paraguayan primera":      "paraguay",
+    "primera division bolivia":"bolivia",
+    "bolivian primera":        "bolivia",
+    "primera division venezuela":"venezuela",
+    "venezuelan primera":      "venezuela",
+    "liga futve":              "venezuela",
+    "liga mx":                 "mexico",
+    "liga bbva mx":            "mexico",
+    "mexican primera":         "mexico",
+    "copa libertadores":       "conmebol_libertadores",
+    "libertadores":            "conmebol_libertadores",
+    "copa sudamericana":       "conmebol_sudamericana",
+    "sudamericana":            "conmebol_sudamericana",
+    "recopa sudamericana":     "conmebol_recopa",
+
+    # ── International friendlies / Internationals ──────────────────
+    "international friendlies":     "intfriendly",
+    "international friendly":       "intfriendly",
+    "friendlies":                   "intfriendly",
+    "club friendlies":              "clubfriendly",
+    "club friendly":                "clubfriendly",
+    "world cup":                    "worldcup",
+    "world cup qualification":      "worldcupqualification",
+    "wcq south america":            "wcqsa",
+    "wcq europe":                   "wcqeu",
+    "uefa nations league":          "nationsleague",
+    "nations league":               "nationsleague",
+    "uefa champions league":        "championsleague",
+    "champions league":             "championsleague",
+    "uefa europa league":           "europaleague",
+    "europa league":                "europaleague",
+    "uefa conference league":       "conferenceleague",
+    "conference league":            "conferenceleague",
+    "copa america":                 "copa_america",
+    "copa américa":                 "copa_america",
+    "euro":                         "euro",
+    "uefa euro":                    "euro",
+    "concacaf gold cup":            "goldcup",
+    "gold cup":                     "goldcup",
+    "afc asian cup":                "asiancup",
+    "asian cup":                    "asiancup",
 }
 
 
@@ -817,7 +891,12 @@ async def _prefetch_early_goal_profiles(
     """
     import asyncio as _aio
     try:
-        from .external_sources.soccerstats import fetch_team_early_goal_profile
+        from .external_sources.soccerstats import (
+            fetch_team_early_goal_profile as _soccerstats_fetch,
+        )
+        from .external_sources.statbunker import (
+            fetch_team_early_goal_profile as _statbunker_fetch,
+        )
         from .derived_early_goal import (
             derive_early_goal_profile_from_fixtures,
             merge_early_goal_profiles,
@@ -839,21 +918,29 @@ async def _prefetch_early_goal_profiles(
         league = m.get("league") or m.get("league_name")
         if not team_name:
             return
-        league_slug = _league_to_soccerstats_slug(league)
 
+        # ── Tier 1: StatBunker (richest data when comp_id is known) ──
         primary = None
-        if league_slug:
+        try:
+            primary = await _statbunker_fetch(team_name, league or "", db=db)
+            if primary and primary.get("data_quality") == "missing":
+                primary = None
+        except Exception as exc:
+            log.debug("[EARLY_GOAL] statbunker fail team=%s: %s", team_name, exc)
+
+        # ── Tier 2: SoccerSTATS (covers more leagues, fewer stats) ──
+        secondary = None
+        league_slug = _league_to_soccerstats_slug(league)
+        if league_slug and (primary is None or primary.get("data_quality") in (None, "thin")):
             try:
-                primary = await fetch_team_early_goal_profile(
-                    team_name, league_slug, db=db,
-                )
+                secondary = await _soccerstats_fetch(team_name, league_slug, db=db)
+                if secondary and secondary.get("data_quality") == "missing":
+                    secondary = None
             except Exception as exc:
-                log.debug("[EARLY_GOAL] soccerstats fetch failed team=%s: %s",
+                log.debug("[EARLY_GOAL] soccerstats fail team=%s: %s",
                           team_name, exc)
 
-        # Backfill from recent_fixtures (API-Sports) regardless of
-        # primary outcome — `merge_early_goal_profiles` picks the
-        # best-quality source automatically.
+        # ── Tier 3: Derived from API-Sports recent_fixtures (free) ──
         derived = None
         ctx = team.get("context") or {}
         recent = ctx.get("recent_fixtures") or ctx.get("last_matches") or []
@@ -866,21 +953,22 @@ async def _prefetch_early_goal_profiles(
                     league=league,
                 )
             except Exception as exc:
-                log.debug("[EARLY_GOAL] derived fail team=%s: %s", team_name, exc)
+                log.debug("[EARLY_GOAL] derived fail team=%s: %s",
+                          team_name, exc)
 
-        final = merge_early_goal_profiles(primary, derived)
+        # Cascade merge: each step keeps the best-quality slot AND fills
+        # any None fields from lower-quality sources.
+        final = merge_early_goal_profiles(primary, secondary)
+        final = merge_early_goal_profiles(final, derived)
         if not final:
-            final = primary or derived
-            if not final:
-                return
+            return
 
-        # Attach to canonical path team_context.seasonal_form.early_goal_profile
         team.setdefault("context", {})
         team["context"].setdefault("seasonal_form", {})
         team["context"]["seasonal_form"]["early_goal_profile"] = final
         m[f"{side}_team"] = team
 
-        if final and final.get("data_quality") in ("strong", "usable", "thin"):
+        if final.get("data_quality") in ("strong", "usable", "thin"):
             enriched += 1
 
     try:

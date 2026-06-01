@@ -1,22 +1,22 @@
 [
   {
-    "content": "Crear services/external_sources/soccerstats.py: parser de table.asp?league=X&tid=s4/s5 (First/Second Half stats por equipo) + cache 24h por (team, league)",
+    "content": "Crear y ejecutar script de diagnóstico StatBunker: fetch las 3 URLs canónicas (LeagueTable / GoalsFor / GoalsAgainst con comp_id=777 La Liga), reportar status, content_length, tables found, headers, primeras 3 filas",
     "status": "completed"
   },
   {
-    "content": "Crear services/derived_early_goal.py: deriva early_goal_pct/early_concede_pct desde recent_fixtures (API-Sports con minute por gol) como fuente complementaria sin scraping",
+    "content": "Implementar services/external_sources/statbunker.py: comp_id resolver (mapping manual Tier 1/2) + parser GoalsFor/GoalsAgainst + fallback de dominio + cache 24h en MongoDB",
     "status": "completed"
   },
   {
-    "content": "Crear bulk pre-fetch async en analyst_engine.py: paralelo, timeout 30s, fail-soft, attached al team_context['seasonal_form']['early_goal_profile'] con data_quality",
+    "content": "Expandir _league_to_soccerstats_slug con sudamericanas adicionales (libertadores, sudamericana, copa argentina, primera nacional, primera B, peruvian primera, chilean primera, ecuadorian, colombian, etc.) + amistosos internacionales",
     "status": "completed"
   },
   {
-    "content": "Wire al detector _detect_early_scoring_favourite en football_corner_pregame.py para leer del seasonal_form.early_goal_profile.early_goal_pct cuando exista",
+    "content": "Wire StatBunker en _prefetch_early_goal_profiles con merge_early_goal_profiles (StatBunker primary, SoccerSTATS secondary, derived API-Sports fallback)",
     "status": "completed"
   },
   {
-    "content": "Tests: validar parsing real con BD + verificar shape de salida + fallback path cuando scraper falla",
+    "content": "Tests: probar con datos reales La Liga (Real Madrid / Barcelona) y comparar early_goal_pct entre fuentes",
     "status": "completed"
   }
 ]
