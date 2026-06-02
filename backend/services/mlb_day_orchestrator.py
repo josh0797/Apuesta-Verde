@@ -1298,6 +1298,39 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 "result_placeholder": None,   # populated by feedback loop in P2
             }
 
+        # ── Recent-form split (L5 vs L15) + on-base pressure ────────────
+        # 4 HTTP calls per game (2 teams × 2 windows) — cheap thanks to
+        # the 12h cache in mlb_recent_form_split._CACHE. Fail-soft: a
+        # failed fetch just leaves the payload absent and the UI hides
+        # the section. NEVER raises.
+        try:
+            import httpx as _httpx_rf
+            from .mlb_recent_form_split import (
+                get_team_recent_form,
+                build_recent_form_payload,
+            )
+            home_team_id = conf.get("home_team_id")
+            away_team_id = conf.get("away_team_id")
+            # MLB regular season runs Mar→Oct so the current calendar
+            # year is the right season key — except in Jan/Feb when we
+            # want the previous year's stats (offseason).
+            _now = datetime.now(timezone.utc)
+            _season_year = _now.year if _now.month >= 3 else _now.year - 1
+            if home_team_id and away_team_id:
+                async with _httpx_rf.AsyncClient() as _client_rf:
+                    home_form, away_form = await asyncio.gather(
+                        get_team_recent_form(_client_rf, int(home_team_id), _season_year),
+                        get_team_recent_form(_client_rf, int(away_team_id), _season_year),
+                        return_exceptions=False,
+                    )
+                if home_form or away_form:
+                    recent_form_payload = build_recent_form_payload(home_form, away_form)
+                    pick_payload["recent_run_split"]  = recent_form_payload["recent_run_split"]
+                    pick_payload["recent_run_trend"]  = recent_form_payload["recent_run_trend"]
+                    pick_payload["on_base_profile"]   = recent_form_payload["on_base_profile"]
+        except Exception as _exc_rf:
+            log.debug("recent_form_split fetch failed (fail-soft): %s", _exc_rf)
+
         # ── MLB MARKET LEAN — SINGLE SOURCE OF TRUTH ─────────────────────────
         # Fixes the UX contradiction reported by the user where the
         # "Historial profundo" badge showed LEAN OVER while the final
@@ -2275,6 +2308,92 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as exc:
             log.debug("MLB Under Veto central layer failed: %s", exc)
 
+        # ── Script Conflict Detector ────────────────────────────────────
+        # Run BEFORE we route the pick. If the deep historical/script
+        # reading contradicts the chosen market direction (e.g. pick
+        # Under but historical lean is Over, or projected_runs >= line),
+        # we attach a conflict object and — for high-severity cases —
+        # demote the pick out of `RECOMMENDED` into `WATCHLIST_MANUAL`.
+        # Severity ladder:
+        #   high   → block from RECOMMENDED bucket, route to watchlist
+        #            with explicit conflict reason
+        #   medium → keep pick but flag for UI warning + small score penalty
+        #   none   → no-op
+        try:
+            from .mlb_script_conflict import detect_total_script_conflict
+            deep_script_for_conflict = pick_payload.get("baseballHistoricalProfile") or {}
+            # Enrich with v2 expectedRuns + smartTotalsLine for line/proj checks.
+            _v2_for_conflict = pick_payload.get("_mlb_script_v2") or {}
+            if _v2_for_conflict:
+                deep_script_for_conflict = {
+                    **deep_script_for_conflict,
+                    "projected_runs":      _v2_for_conflict.get("expectedRuns"),
+                    "smartTotalsLine":     _v2_for_conflict.get("smartTotalsLine"),
+                    "f5_projected_runs":   _v2_for_conflict.get("f5ProjectedRuns"),
+                }
+            script_conflict = detect_total_script_conflict(
+                chosen_market, deep_script_for_conflict,
+            )
+
+            # Round-2: incorporate recent_run_trend as an additional gate.
+            # A RISING_RUN_ENVIRONMENT (Δ ≥ +1.25 runs/game L5 vs L15)
+            # weakens any Under recommendation regardless of other signals.
+            _recent_trend = pick_payload.get("recent_run_trend")
+            _market_lower_rc = str(
+                (chosen_market or {}).get("market")
+                or (chosen_market or {}).get("selection")
+                or ""
+            ).lower()
+            if (
+                _recent_trend == "RISING_RUN_ENVIRONMENT"
+                and "under" in _market_lower_rc
+                and not script_conflict.get("has_conflict")
+            ):
+                rr_split = pick_payload.get("recent_run_split") or {}
+                delta = rr_split.get("total_runs_delta_5_vs_15")
+                script_conflict = {
+                    "has_conflict": True,
+                    "code":         "UNDER_PICK_VS_RISING_RUN_TREND",
+                    "severity":     "medium",
+                    "message": (
+                        f"L5 vs L15 muestra un entorno de carreras en alza "
+                        f"(Δ {delta:+.2f} carreras/juego)" if delta is not None
+                        else "L5 vs L15 muestra un entorno de carreras en alza"
+                    ) + " — el pick Under puede estar leyendo una baseline obsoleta.",
+                    "details":      {
+                        "recent_run_trend": _recent_trend,
+                        "total_runs_delta_5_vs_15": delta,
+                    },
+                }
+            if script_conflict.get("has_conflict"):
+                pick_payload["script_conflict"] = script_conflict
+                if script_conflict.get("severity") == "high" and chosen_market:
+                    # Demote: do NOT route to RECOMMENDED. Force the
+                    # downstream `elif`-cascade to take the manual-review
+                    # path by zeroing the score gate.
+                    best_score = min(best_score or 0, 71)
+                    if isinstance(chosen_market.get("score"), (int, float)):
+                        chosen_market["score"] = min(chosen_market["score"], 71)
+                    chosen_market["script_conflict_demoted"] = True
+                    chosen_market["rationale"] = (
+                        (chosen_market.get("rationale") or "")
+                        + " | Script conflict ("
+                        + script_conflict.get("code", "")
+                        + "): demotion forzada → watchlist_manual_odds"
+                    ).strip(" |")
+                    log.info(
+                        "Script conflict DEMOTE match_id=%s code=%s",
+                        pick_payload.get("match_id"),
+                        script_conflict.get("code"),
+                    )
+                elif script_conflict.get("severity") == "medium" and chosen_market:
+                    # Soft penalty: shave 5 points off the score.
+                    if isinstance(chosen_market.get("score"), (int, float)):
+                        chosen_market["score"] = max(0, chosen_market["score"] - 5)
+                    best_score = max(0, (best_score or 0) - 5)
+        except Exception as _exc_conflict:
+            log.debug("script_conflict detector failed (fail-soft): %s", _exc_conflict)
+
         # ── MLB-V5 — New 6-bucket decision ───────────────────────────────
         if chosen_market and best_score >= 72 and not odds_missing:
             pick_payload["recommendation"]   = chosen_market
@@ -2295,10 +2414,27 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             # Manual review — engine has structural reading but no automatic odds.
             pick_payload["classification"]         = "STRUCTURAL_LEAN"
             pick_payload["requires_manual_odds"]   = True
+            pick_payload["manual_odds_status"]     = "missing"
+            pick_payload["manual_odds_prompt"]     = (
+                "Pega la cuota de tu bookie para calcular edge."
+            )
+            pick_payload["can_calculate_edge_manually"] = True
             pick_payload["manual_review_reason"]   = (
                 "Sin cuota automática. El análisis estructural MLB detectó "
                 "mercados posibles."
             )
+            # Expose estimated probability if available so the manual-odds
+            # endpoint can compute edge without a second pipeline run.
+            try:
+                _v2_p = (pick_payload.get("_mlb_script_v2") or {})
+                _est_prob = (
+                    _v2_p.get("coverProbability")
+                    or _v2_p.get("estimatedProbability")
+                )
+                if _est_prob is not None:
+                    pick_payload["estimated_probability"] = float(_est_prob)
+            except Exception:
+                pass
             pick_payload["suggested_markets"] = [
                 "Run Line +1.5", "Run Line -1.5",
                 "F5 Moneyline", "F5 Total Runs",
@@ -2311,6 +2447,12 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         elif structural_quality["score"] >= 50 and has_structural_lean:
             # Odds present but no clean direct/rescue edge — partial reading.
             pick_payload["classification"]         = "WATCHLIST_MANUAL_REVIEW"
+            pick_payload["requires_manual_odds"]   = True
+            pick_payload["manual_odds_status"]     = "user_review_recommended"
+            pick_payload["manual_odds_prompt"]     = (
+                "Cuota disponible pero sin edge claro — verifica con tu bookie."
+            )
+            pick_payload["can_calculate_edge_manually"] = True
             pick_payload["manual_review_reason"]   = (
                 "Lectura estructural parcial; revisar cuota manual antes "
                 "de invertir."

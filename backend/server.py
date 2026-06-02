@@ -8,7 +8,7 @@ import httpx
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -3309,6 +3309,139 @@ async def mlb_run_evaluations_summary(
             status_code=500,
             detail=f"mlb_run_evaluations_summary_failed: {exc}",
         )
+
+
+# ── Manual Odds entry for MLB structural-lean picks ─────────────────────────
+class MlbManualOddsIn(BaseModel):
+    """Body for POST /api/mlb/picks/{pick_id}/manual-odds.
+
+    Accepts both ``1.85`` and ``"1,85"`` (Spanish locale comma decimal).
+    The endpoint recomputes value_status against the engine's stored
+    ``estimated_probability`` (when present) and patches the pick run
+    document so the next ``/api/picks/today`` fetch sees the new fields.
+    """
+    manual_odds: Any            # str | float — parsed by parse_manual_odds
+    promote_if_value: bool = False
+    # value_threshold / fair_threshold are tunable but default to the
+    # same numbers used by moneyball_layer to keep classifications aligned.
+    value_threshold: float = 0.03
+    fair_threshold:  float = -0.02
+
+
+@api.post("/mlb/picks/{pick_id}/manual-odds")
+async def mlb_pick_manual_odds(
+    pick_id: str,
+    payload: MlbManualOddsIn,
+    user: dict = Depends(get_current_user),
+):
+    """Compute edge/value_status for an MLB structural-lean pick using
+    a user-entered odds value. Patches the pick document in-place so the
+    UI can immediately re-render with the new ``manual_odds_*`` fields.
+
+    Lookup strategy:
+        1. Search ``pick_runs`` for any document containing a pick with
+           ``id == pick_id`` (preferred — that's where the orchestrator
+           writes the structural-lean payloads).
+        2. Fail with 404 if no match.
+
+    Returns the updated pick subset so the frontend can update its
+    local state without a full slate refetch.
+    """
+    from services.mlb_script_conflict import parse_manual_odds, calculate_manual_edge
+
+    odds = parse_manual_odds(payload.manual_odds)
+    if odds is None:
+        raise HTTPException(
+            status_code=400,
+            detail="manual_odds inválida (debe ser ≥ 1.01, acepta '1.85' o '1,85')",
+        )
+
+    # Locate the pick inside the user's latest pick_runs.
+    run = await db.pick_runs.find_one(
+        {
+            "user_id": user["id"],
+            "sport":   "baseball",
+            "$or": [
+                {"payload.picks.id":                  pick_id},
+                {"payload.rescued.id":                pick_id},
+                {"payload.watchlist_manual_odds.id":  pick_id},
+                {"payload.structural_lean_requires_odds.id": pick_id},
+            ],
+        },
+        sort=[("generated_at", -1)],
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="pick not found in recent runs")
+
+    # Find the actual pick payload across all buckets.
+    target: Optional[dict] = None
+    target_bucket: Optional[str] = None
+    payload_dict = run.get("payload") or {}
+    for bucket in (
+        "picks", "rescued",
+        "structural_lean_requires_odds", "watchlist_manual_odds",
+    ):
+        for p in (payload_dict.get(bucket) or []):
+            if p.get("id") == pick_id:
+                target = p
+                target_bucket = bucket
+                break
+        if target:
+            break
+
+    if not target:
+        raise HTTPException(status_code=404, detail="pick payload not located")
+
+    est_prob = (
+        target.get("estimated_probability")
+        or ((target.get("_mlb_script_v2") or {}).get("coverProbability"))
+        or ((target.get("_mlb_script_v2") or {}).get("estimatedProbability"))
+    )
+
+    edge_payload = calculate_manual_edge(
+        estimated_probability=est_prob,
+        manual_odds=odds,
+        value_threshold=payload.value_threshold,
+        fair_threshold=payload.fair_threshold,
+    )
+
+    # Persist on the pick document.
+    update_set = {
+        f"payload.{target_bucket}.$[elem].manual_odds":                edge_payload["manual_odds"],
+        f"payload.{target_bucket}.$[elem].manual_implied_probability": edge_payload["manual_implied_probability"],
+        f"payload.{target_bucket}.$[elem].manual_edge":                edge_payload["manual_edge"],
+        f"payload.{target_bucket}.$[elem].manual_edge_pct":            edge_payload["manual_edge_pct"],
+        f"payload.{target_bucket}.$[elem].manual_value_status":        edge_payload["value_status"],
+        f"payload.{target_bucket}.$[elem].manual_can_recommend":       edge_payload["can_recommend"],
+        f"payload.{target_bucket}.$[elem].manual_rationale":           edge_payload["rationale"],
+        f"payload.{target_bucket}.$[elem].manual_odds_status":         "submitted",
+        f"payload.{target_bucket}.$[elem].manual_odds_submitted_at":   datetime.now(timezone.utc).isoformat(),
+    }
+    # Optional promotion to a recommended bucket if the user opted in
+    # AND the edge confirms VALUE.
+    promoted = False
+    if payload.promote_if_value and edge_payload["value_status"] == "VALUE":
+        update_set[f"payload.{target_bucket}.$[elem].classification"] = "RECOMMENDED_MANUAL_ODDS"
+        promoted = True
+
+    try:
+        await db.pick_runs.update_one(
+            {"_id": run["_id"]},
+            {"$set": update_set},
+            array_filters=[{"elem.id": pick_id}],
+        )
+    except Exception as exc:
+        log.warning("mlb_pick_manual_odds: update_one failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"persistence failed: {exc}")
+
+    return {
+        "ok":            True,
+        "pick_id":       pick_id,
+        "bucket":        target_bucket,
+        "promoted":      promoted,
+        "estimated_probability": float(est_prob) if est_prob is not None else None,
+        **edge_payload,
+    }
 
 
 @api.get("/mlb/daily_market_audit")

@@ -1,18 +1,30 @@
 [
   {
-    "content": "Backend: refactor mlb_il_penalty con filtro 10-day IL + raw/applied",
+    "content": "FASE A: helper detect_total_script_conflict + módulo dedicado",
     "status": "completed"
   },
   {
-    "content": "Backend: integración contextual offensive vs defensive en orchestrator",
+    "content": "FASE A: enriquecer payload structural_lean con manual_odds_* fields",
     "status": "completed"
   },
   {
-    "content": "Frontend: render condicional + texto direccional en MLBScriptPanel",
+    "content": "FASE A: endpoint POST /api/mlb/picks/{pick_id}/manual-odds",
     "status": "completed"
   },
   {
-    "content": "Corregir 4 errores lint pre-existentes en orchestrator",
+    "content": "FASE A: integrar conflict detector en final pick router",
+    "status": "completed"
+  },
+  {
+    "content": "FASE B: helper get_team_recent_runs_split (L5/L15) + cache",
+    "status": "completed"
+  },
+  {
+    "content": "FASE B: on_base_pressure profile + recent_run_trend",
+    "status": "completed"
+  },
+  {
+    "content": "FASE C: UI input \"Agregar cuota manual\" + render conflict warning",
     "status": "completed"
   },
   {

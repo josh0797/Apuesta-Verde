@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { ChevronDown, AlertCircle, Activity, Target, Gauge, Calculator, Flame, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { ChevronDown, AlertCircle, Activity, Target, Gauge, Calculator, Flame, ShieldAlert, ShieldCheck, AlertTriangle } from 'lucide-react';
+import api from '@/lib/api';
+import { toast } from 'sonner';
 
 /**
  * ManualOddsReviewPanel — renders MLB games that the v2 engine identified as
@@ -40,12 +42,17 @@ function asNumber(v) {
  * `coverProbability` from v2 is also already a probability percentage.
  */
 function computeEdge(decimalOdds, probabilityPct) {
-  const o = parseFloat(decimalOdds);
+  // Accept comma OR dot as decimal separator (1,85 or 1.85).
+  const oRaw = typeof decimalOdds === 'string'
+    ? decimalOdds.trim().replace(',', '.')
+    : decimalOdds;
+  const o = parseFloat(oRaw);
   const p = parseFloat(probabilityPct);
   if (!Number.isFinite(o) || o <= 1 || !Number.isFinite(p) || p <= 0 || p >= 100) return null;
   const prob = p / 100;
   const ev = (prob * (o - 1)) - (1 - prob);
   return {
+    parsedOdds:     o,
     edgePct:        ev * 100,
     impliedProbPct: (1 / o) * 100,
     breakEvenOdds:  prob > 0 ? 1 / prob : null,
@@ -236,6 +243,8 @@ function ExplosiveInningRiskPanel({ risk, action, idx }) {
 function ManualReviewRow({ item, idx, testId }) {
   const [expanded, setExpanded] = useState(false);
   const [manualOdds, setManualOdds] = useState('');
+  const [saving, setSaving]       = useState(false);
+  const [saved, setSaved]         = useState(null);   // backend response after save
   const cls = item.classification || 'STRUCTURAL_LEAN';
   const meta = TONE_BY_CLASSIFICATION[cls] || TONE_BY_CLASSIFICATION.STRUCTURAL_LEAN;
   const v2 = item.mlb_script_v2 || {};
@@ -405,7 +414,28 @@ function ManualReviewRow({ item, idx, testId }) {
 
           {/* Manual odds paste — client-side EV calculator (BUGFIX P2 activation).
               The recommended `coverProbability` is honoured (Poisson for totals,
-              dominance for Run Line) and we compute EV = prob*(odds-1) - (1-prob). */}
+              dominance for Run Line) and we compute EV = prob*(odds-1) - (1-prob).
+              Round-3 fix: also calls the backend endpoint to persist the result
+              + accept coma as decimal separator + show conflict warning. */}
+          {item.script_conflict && item.script_conflict.has_conflict ? (
+            <div
+              className={`rounded-md border px-2.5 py-2 text-[11px] leading-snug space-y-0.5 ${
+                item.script_conflict.severity === 'high'
+                  ? 'border-rose-500/40 bg-rose-500/10 text-rose-100'
+                  : 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+              }`}
+              data-testid={`manual-review-row-${idx}-script-conflict`}
+            >
+              <div className="flex items-center gap-1.5 font-semibold">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span>Conflicto de script ({item.script_conflict.severity || 'low'})</span>
+              </div>
+              <div className="text-[10.5px] opacity-95">
+                {item.script_conflict.message || item.script_conflict.code}
+              </div>
+            </div>
+          ) : null}
+
           <div className="rounded-md border border-border/60 bg-background/30 px-3 py-2 space-y-2" data-testid={`manual-review-row-${idx}-odds-calc`}>
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <label className="text-[11px] text-muted-foreground flex items-center gap-1.5" htmlFor={`odds-input-${idx}`}>
@@ -414,10 +444,9 @@ function ManualReviewRow({ item, idx, testId }) {
               </label>
               <input
                 id={`odds-input-${idx}`}
-                type="number"
-                step="0.01"
-                min="1.01"
-                placeholder="1.90"
+                type="text"
+                inputMode="decimal"
+                placeholder="1.90 o 1,90"
                 value={manualOdds}
                 onChange={(e) => setManualOdds(e.target.value)}
                 className="w-24 text-[12px] tabular-nums bg-background border border-border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
@@ -446,6 +475,60 @@ function ManualReviewRow({ item, idx, testId }) {
               </div>
             ) : manualOdds ? (
               <div className="text-[10px] text-rose-300/80">Cuota debe ser &gt; 1.01.</div>
+            ) : null}
+
+            {/* Save button — persists manual odds via backend endpoint
+                /api/mlb/picks/{pick_id}/manual-odds. The backend
+                recomputes value_status server-side so the saved row
+                is consistent with the engine's stored probability. */}
+            {edgeCalc && item.id ? (
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={async () => {
+                    setSaving(true);
+                    try {
+                      const r = await api.post(
+                        `/mlb/picks/${item.id}/manual-odds`,
+                        {
+                          manual_odds:       manualOdds,
+                          promote_if_value:  false,
+                        },
+                      );
+                      setSaved(r.data);
+                      toast.success(
+                        `Cuota guardada — ${r.data.value_status} (edge ${r.data.manual_edge_pct >= 0 ? '+' : ''}${r.data.manual_edge_pct?.toFixed(1)}%)`,
+                      );
+                    } catch (err) {
+                      toast.error(
+                        err?.response?.data?.detail || 'No se pudo guardar la cuota manual',
+                      );
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                  className="text-[10.5px] px-2.5 py-1 rounded border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  data-testid={`manual-review-row-${idx}-save-odds-btn`}
+                >
+                  {saving ? 'Guardando…' : 'Guardar cuota manual'}
+                </button>
+                {saved ? (
+                  <span
+                    className={`text-[10.5px] tabular-nums ${
+                      saved.value_status === 'VALUE'
+                        ? 'text-emerald-300'
+                        : saved.value_status === 'FAIR_VALUE'
+                          ? 'text-amber-300'
+                          : 'text-rose-300'
+                    }`}
+                    data-testid={`manual-review-row-${idx}-saved-status`}
+                  >
+                    {saved.value_status}{' '}
+                    ({saved.manual_edge_pct >= 0 ? '+' : ''}{Number(saved.manual_edge_pct ?? 0).toFixed(1)}%)
+                  </span>
+                ) : null}
+              </div>
             ) : null}
           </div>
 
