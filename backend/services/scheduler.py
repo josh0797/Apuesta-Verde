@@ -184,6 +184,36 @@ async def _job_recompute_feedback_weights(db):
         log.warning("recompute_feedback_weights failed: %s", exc)
 
 
+async def _job_auto_settle_mlb_evaluations(db):
+    """F6C auto-settle: resuelve documentos `pending` de
+    ``mlb_run_evaluations`` contra ``db.matches.final_score`` (que ya
+    fue escrito por ``settle_finished_baseball``).
+
+    Cada 20 min: lee evaluaciones pending de los últimos 3 días, busca
+    el final_score correspondiente y aplica ``_resolve_result`` →
+    ``update_run_evaluation_result``. Cierra el feedback loop sin
+    intervención manual del usuario.
+    """
+    log.info("Scheduler: auto_settle_mlb_evaluations starting")
+    started = datetime.now(timezone.utc)
+    try:
+        from .mlb_results_settler import auto_settle_pending_evaluations
+        stats = await auto_settle_pending_evaluations(db, days_back=3, max_docs=200)
+        _status["last_run"]["auto_settle_mlb_evaluations"] = {
+            "started_at":  started.isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            **stats,
+        }
+    except Exception as exc:
+        log.warning("auto_settle_mlb_evaluations failed: %s", exc)
+        _status["last_run"]["auto_settle_mlb_evaluations"] = {
+            "started_at":  started.isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "ok": False,
+            "error": str(exc),
+        }
+
+
 # ── Monthly StatBunker comp_id auto-discovery ───────────────────────────
 async def _job_discover_statbunker_comp_ids(db):
     """Scan StatBunker for the active comp_id per league code, persist
@@ -295,6 +325,17 @@ def start_scheduler(db) -> None:
         trigger=IntervalTrigger(minutes=30),
         id="recompute_feedback_weights",
         next_run_time=datetime.now(timezone.utc) + timedelta(minutes=5),
+        max_instances=1,
+        coalesce=True,
+    )
+    # F6C auto-settle every 20 min — resuelve mlb_run_evaluations pending
+    # contra el final_score escrito por settle_finished_baseball (15 min).
+    # Offset = +5 min para garantizar que el score ya esté persistido.
+    sch.add_job(
+        _job_auto_settle_mlb_evaluations, args=[db],
+        trigger=IntervalTrigger(minutes=20),
+        id="auto_settle_mlb_evaluations",
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=8),
         max_instances=1,
         coalesce=True,
     )

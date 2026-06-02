@@ -800,6 +800,84 @@ def analyze_pick(pick: dict, sport: str, stake: float = 10.0) -> dict:
     direction = str((line_mv.get("direction") if isinstance(line_mv, dict) else "") or "").lower()
     line_favourable = direction in ("shortening", "in", "drift_in", "tightening", "favourable", "favorable")
 
+    # ── Sport + market confidence floor ────────────────────────────────
+    # Baseball Under: calibración 0.78 (la más baja) + alta varianza de
+    # bullpen implican que conf < 75 no es suficiente para apostar.
+    # Si hay edge calculable y conf está bajo el floor, degradar a WATCHLIST
+    # antes de entrar al flujo de classify_pick.
+    # Cuando edge=None el downstream ya retorna NO_BET_VALUE — no interferir.
+    MLB_UNDER_CONF_FLOOR = int(
+        os.environ.get("MLB_UNDER_CONFIDENCE_FLOOR", "75")
+    )
+    if (
+        sport == "baseball"
+        and edge is not None
+        and int(conf or 0) < MLB_UNDER_CONF_FLOOR
+    ):
+        _market_lower = (rec.get("market") or "").lower()
+        _is_under_market = (
+            "under" in _market_lower
+            and "team total" not in _market_lower
+            and "nrfi" not in _market_lower
+        )
+        if _is_under_market:
+            cls = {
+                "classification": "WATCHLIST",
+                "reason": (
+                    f"MLB Under con confianza {int(conf or 0)}/100 "
+                    f"< floor {MLB_UNDER_CONF_FLOOR} para baseball "
+                    f"(calibración 0.78). Monitorear, no apostar hasta "
+                    f"conf ≥ {MLB_UNDER_CONF_FLOOR}."
+                ),
+                "tolerance_used": market_category,
+            }
+            # Saltar classify_pick y construir el payload directamente.
+            # El resto del flujo de analyze_pick sigue igual (traps, fragility, etc.)
+            # porque son informativos y útiles aunque no se recomiende.
+            why_can_fail: list[str] = []
+            why_can_fail.extend(frag["factors"])
+            why_can_fail.extend(traps)
+            why_can_fail.extend(list(pick.get("risks") or [])[:3])
+            seen_f: set = set()
+            why_can_fail = [x for x in why_can_fail if not (x in seen_f or seen_f.add(x))]
+            learning_tags = [
+                cls["classification"], f"sport:{sport}", f"bet_type:{bet_type}",
+                f"fragility:{frag['label']}", "mlb_under_conf_floor_triggered",
+            ]
+            moneyball = {
+                "classification":         cls["classification"],
+                "classification_reason":  cls["reason"],
+                "tolerance_used":         market_category,
+                "market_category":        market_category,
+                "expected_value":         ev_payload.get("expected_value"),
+                "roi_projection_pct":     ev_payload.get("roi_projection_pct"),
+                "stake_used":             ev_payload.get("stake"),
+                "net_profit_if_win":      ev_payload.get("net_profit_if_win"),
+                "fragility":              frag,
+                "public_overreaction":    over,
+                "market_trap_signals":    traps,
+                "trap_signals_structured": structured_traps,
+                "undervalued_reasons":    undervalued,
+                "why_this_can_fail":      why_can_fail,
+                "learning_tags":          learning_tags,
+                "line_movement_favourable": line_favourable,
+            }
+            market_edge = {
+                "verdict":               "NO_BET_VALUE",
+                "estimated_probability": est,
+                "implied_probability":   imp,
+                "edge":                  edge,
+                "edge_threshold":        threshold,
+                "bet_type":              bet_type,
+                "odds_used":             odds_used,
+                "calibration":           DEFAULT_CALIBRATION.get(sport, 0.85),
+                "reason":                cls["reason"],
+            }
+            # Flag explícito en el pick para que el orquestador / summary
+            # puedan exponer el bucket conf_floor_demoted sin re-evaluar.
+            pick["_conf_floor_demoted"] = True
+            return {"_market_edge": market_edge, "_moneyball": moneyball}
+
     cls = classify_pick(
         edge=edge, threshold=threshold, bet_type=bet_type,
         confidence=int(conf or 0),

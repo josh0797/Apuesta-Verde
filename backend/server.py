@@ -2153,6 +2153,7 @@ async def _run_recalibration_pipeline(
                 "blocked_picks": [],
                 "high_confidence":   [p for p in mlb_picks if (p.get("recommendation") or {}).get("confidence_score", 0) >= 75],
                 "medium_confidence": [p for p in mlb_picks if 50 <= (p.get("recommendation") or {}).get("confidence_score", 0) < 75],
+                "conf_floor_demoted": [p for p in mlb_watch if p.get("_conf_floor_demoted")],
                 "discarded_motivation": [],
                 "discarded_market":     mlb_disc,
                 "incomplete_data":      [],
