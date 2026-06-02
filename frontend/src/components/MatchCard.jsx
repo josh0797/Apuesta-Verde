@@ -360,6 +360,7 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           parlay={m._mlb_parlay_context || null}
           underFragilityWarning={m.under_fragility_warning || null}
           scriptPickMismatchNarrative={m.script_pick_mismatch_narrative || null}
+          scriptPickMismatchDetails={m.script_pick_mismatch_details || null}
           biasPenaltyMeta={m.bias_penalty_applied ? (m.bias_penalty_meta || { triggered: true }) : null}
           activeSeriesContext={m.active_series_context || null}
           seriesDegradation={m.series_degradation || null}

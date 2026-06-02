@@ -72,6 +72,7 @@ export function MLBScriptPanel({
   parlay,
   underFragilityWarning = null,
   scriptPickMismatchNarrative = null,
+  scriptPickMismatchDetails = null,   // FIX #4b — structured discrepancy list
   biasPenaltyMeta = null,
   activeSeriesContext = null,
   seriesDegradation = null,
@@ -188,13 +189,42 @@ export function MLBScriptPanel({
         </div>
       </button>
 
-      {/* FIX #4 — Script ↔ Pick mismatch warning ribbon */}
-      {scriptPickMismatchNarrative ? (
+      {/* FIX #4 — Script ↔ Pick mismatch warning ribbon, expanded with
+          structured details (label / value / interpretation / severity)
+          when the orchestrator attached `script_pick_mismatch_details`. */}
+      {(scriptPickMismatchNarrative || (Array.isArray(scriptPickMismatchDetails) && scriptPickMismatchDetails.length > 0)) ? (
         <div
-          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-200 leading-snug"
+          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[11.5px] leading-snug text-amber-100 space-y-1.5"
           data-testid={`${testId || 'mlb-script'}-script-pick-mismatch`}
         >
-          {scriptPickMismatchNarrative}
+          {scriptPickMismatchNarrative ? (
+            <div className="flex items-start gap-1.5 font-medium">
+              <span aria-hidden>⚠</span>
+              <span>{String(scriptPickMismatchNarrative).replace(/^⚠\s*/, '')}</span>
+            </div>
+          ) : null}
+          {Array.isArray(scriptPickMismatchDetails) && scriptPickMismatchDetails.length > 0 ? (
+            <ul className="space-y-1 pl-4 text-[10.5px]" data-testid={`${testId || 'mlb-script'}-discrepancy-details`}>
+              {scriptPickMismatchDetails.map((d, i) => {
+                const sevColor = d?.severity === 'high'
+                  ? 'text-rose-200'
+                  : d?.severity === 'medium'
+                    ? 'text-amber-200'
+                    : 'text-emerald-200';
+                return (
+                  <li key={i} className="flex flex-col gap-0.5">
+                    <div className="flex items-baseline gap-1.5 tabular-nums">
+                      <span className="font-semibold opacity-90">{d?.label}:</span>
+                      <span className={`font-bold ${sevColor}`}>{d?.value}</span>
+                    </div>
+                    {d?.interpretation ? (
+                      <div className="opacity-80 italic pl-0.5">{d.interpretation}</div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
         </div>
       ) : null}
 

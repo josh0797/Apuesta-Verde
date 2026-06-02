@@ -1334,14 +1334,22 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 pick_payload["market_lean"] = lean_payload
                 # OVERRIDE the historical heuristic so the panel renders
                 # the same lean as the pick.
-                hist_block = pick_payload.get("historical_profile") or {}
+                #
+                # CRITICAL FIX: el orquestador escribe el bloque histórico
+                # como ``baseballHistoricalProfile`` (camelCase, línea ~1281)
+                # — leer ``historical_profile`` siempre devolvía None y el
+                # override del lean_classifier nunca se aplicaba, dejando
+                # al panel mostrando el heurístico legacy ("LEAN OVER" en
+                # picks Under). Mantenemos la misma key para reflejar el
+                # cambio en el frontend.
+                hist_block = pick_payload.get("baseballHistoricalProfile") or {}
                 if hist_block:
-                    hist_block["overUnderLean"] = lean_payload["lean"]
-                    hist_block["overUnderLeanConfidence"] = lean_payload["confidence"]
-                    hist_block["overUnderLeanReason"] = lean_payload["reason"]
-                    hist_block["overUnderLeanDisplay"] = lean_payload["display_lean"]
+                    hist_block["overUnderLean"]            = lean_payload["lean"]
+                    hist_block["overUnderLeanConfidence"]  = lean_payload["confidence"]
+                    hist_block["overUnderLeanReason"]      = lean_payload["reason"]
+                    hist_block["overUnderLeanDisplay"]     = lean_payload["display_lean"]
                     hist_block["overUnderLeanConsistency"] = lean_payload["consistency"]
-                    pick_payload["historical_profile"] = hist_block
+                    pick_payload["baseballHistoricalProfile"] = hist_block
         except Exception as exc:
             log.debug("market_lean_classifier failed: %s", exc)
 
@@ -2470,9 +2478,118 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                     "elevado pero la recomendación es Under. Revisar "
                     "Cover probability vs estabilidad."
                 )
+
+                # Construir lista estructurada de discrepancias concretas
+                # para que el panel renderice los números, no solo el aviso.
+                # Usamos v2 (smart_totals) y v5 (survival/fragility) que ya
+                # se persistieron antes en este mismo loop.
+                _v2b = pick_payload.get("_mlb_script_v2") or {}
+                _v5b = pick_payload.get("_mlb_script_v5") or {}
+                _osm_offensive_explosion = (osm.get("offensive_explosion") or {}).get("score")
+                _osm_over_survival       = (osm.get("over_survival") or {}).get("score")
+                _v5_survival             = (_v5b.get("survival") or {}).get("score")
+                _v5_fragility            = (_v5b.get("fragility") or {}).get("score")
+                _v2_cover                = _v2b.get("coverProbability")
+                _v2_margin               = _v2b.get("marginProjection")
+                _v2_exp_runs             = _v2b.get("expectedRuns")
+                _v2_line                 = (
+                    _v2b.get("smartTotalsLine")
+                    or _v2b.get("recommendedLine")
+                )
+
+                _details: list[dict] = []
+                _details.append({
+                    "label":          "Script ofensivo",
+                    "value":          off_code,
+                    "interpretation": "Proyecta entorno de altas carreras",
+                    "severity":       "high",
+                })
+                if _osm_offensive_explosion is not None:
+                    try:
+                        _oe = float(_osm_offensive_explosion)
+                        _details.append({
+                            "label":          "Offensive Explosion",
+                            "value":          f"{_oe:.0f}/100",
+                            "interpretation": (
+                                "Indicador de capacidad ofensiva por encima del promedio"
+                                if _oe >= 55
+                                else "Indicador ofensivo en rango medio"
+                            ),
+                            "severity":       "high" if _oe >= 70 else "medium",
+                        })
+                    except (TypeError, ValueError):
+                        pass
+                if _osm_over_survival is not None:
+                    try:
+                        _os = float(_osm_over_survival)
+                        _details.append({
+                            "label":          "Over Survival",
+                            "value":          f"{_os:.0f}/100",
+                            "interpretation": (
+                                "El Over sobrevive a la mayoría de escenarios"
+                                if _os >= 70
+                                else "El Over no domina los escenarios"
+                            ),
+                            "severity":       "high" if _os >= 70 else "medium",
+                        })
+                    except (TypeError, ValueError):
+                        pass
+                if _v2_cover is not None and _v2_margin is not None:
+                    try:
+                        _cov = float(_v2_cover)
+                        _cover_pct = _cov * 100.0 if _cov <= 1.0 else _cov
+                        _mgn = float(_v2_margin)
+                        _details.append({
+                            "label":          "Cover Probability vs Margen",
+                            "value":          f"{_cover_pct:.1f}% cover · margen {_mgn:+.2f}",
+                            "interpretation": (
+                                "Cover alto pero margen pequeño — el Under cubre por poco"
+                                if _cover_pct >= 75 and abs(_mgn) < 1.0
+                                else "Cover y margen consistentes con la recomendación"
+                            ),
+                            "severity":       "medium" if _cover_pct >= 75 and abs(_mgn) < 1.0 else "low",
+                        })
+                    except (TypeError, ValueError):
+                        pass
+                if _v5_survival is not None and _v5_fragility is not None:
+                    try:
+                        _sv = int(_v5_survival)
+                        _fr = int(_v5_fragility)
+                        _details.append({
+                            "label":          "Survival vs Fragility",
+                            "value":          f"Survival {_sv}/100 · Fragility {_fr}/100",
+                            "interpretation": (
+                                "Script frágil — el Under es vulnerable a un inning explosivo"
+                                if _fr >= 50 or _sv <= 55
+                                else "Script estable"
+                            ),
+                            "severity":       "high" if _fr >= 50 else "medium",
+                        })
+                    except (TypeError, ValueError):
+                        pass
+                if _v2_exp_runs is not None and _v2_line is not None:
+                    try:
+                        _er   = float(_v2_exp_runs)
+                        _line = float(_v2_line)
+                        _gap  = _line - _er
+                        _details.append({
+                            "label":          "Gap proyección ↔ línea",
+                            "value":          f"ER {_er:.2f} vs línea {_line:.1f} (gap {_gap:+.2f})",
+                            "interpretation": (
+                                "Gap holgado a favor del Under"
+                                if _gap >= 2.5
+                                else "Gap ajustado — el Under tiene poco colchón"
+                            ),
+                            "severity":       "low" if _gap >= 2.5 else "high",
+                        })
+                    except (TypeError, ValueError):
+                        pass
+
+                osm["discrepancy_details"] = _details
                 pick_payload["_mlb_over_discovery"] = osm
                 pick_payload["script_pick_mismatch"] = True
                 pick_payload["script_pick_mismatch_narrative"] = osm["narrative_warning"]
+                pick_payload["script_pick_mismatch_details"]   = _details
 
             # FIX #5 — Under + high fragility warning. When the chosen
             # market is Under-like AND the unified Fragility exceeds 55,

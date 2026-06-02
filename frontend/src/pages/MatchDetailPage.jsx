@@ -295,6 +295,7 @@ export default function MatchDetailPage() {
                   parlay={llmPick._mlb_parlay_context || null}
                   underFragilityWarning={llmPick.under_fragility_warning || null}
                   scriptPickMismatchNarrative={llmPick.script_pick_mismatch_narrative || null}
+                  scriptPickMismatchDetails={llmPick.script_pick_mismatch_details || null}
                   biasPenaltyMeta={llmPick.bias_penalty_applied ? (llmPick.bias_penalty_meta || { triggered: true }) : null}
                   activeSeriesContext={llmPick.active_series_context || null}
                   seriesDegradation={llmPick.series_degradation || null}
