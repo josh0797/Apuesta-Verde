@@ -3023,6 +3023,38 @@ async def mlb_script_breaks_stats(
 # ════════════════════════════════════════════════════════════════════════════
 # V6 — Daily Market Audit + Bias Detection + Diversity Score
 # ════════════════════════════════════════════════════════════════════════════
+@api.get("/mlb/run-evaluations/summary")
+async def mlb_run_evaluations_summary(
+    user: dict = Depends(get_current_user),
+    days: int = 30,
+    user_id: Optional[str] = None,
+):
+    """Calibration view for ``mlb_run_evaluations`` — hit-rate breakdowns
+    by risk_tier, flip_triggered, market_scope, miss_type + counts of
+    Dynamic Park BLOCK and central Under veto activations.
+
+    Defaults to the ``_slate`` cohort (orchestrator pregame writes). Pass
+    ``user_id=...`` to scope to a specific user. Settled outcomes filter
+    is fixed to ``{won, lost, push}`` — ``void`` is treated as a legacy
+    backward-compat input only.
+    """
+    try:
+        from services.mlb_run_evaluations_summary import (
+            compute_run_evaluations_summary,
+        )
+        cohort = user_id or "_slate"
+        result = await compute_run_evaluations_summary(
+            db, days=days, user_id=cohort,
+        )
+        return result
+    except Exception as exc:
+        log.exception("mlb_run_evaluations_summary failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"mlb_run_evaluations_summary_failed: {exc}",
+        )
+
+
 @api.get("/mlb/daily_market_audit")
 async def mlb_daily_market_audit(
     user: dict = Depends(get_current_user),

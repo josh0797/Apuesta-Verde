@@ -2133,6 +2133,10 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                             "recommended_odds":       _rec_odds,
                             "recommended_side":       _rec_side,
                             "market_scope":           _market_scope,
+                            # Veto auditing — captures Dynamic Park BLOCK
+                            # and central Under veto so the summary endpoint
+                            # can count them without joining other collections.
+                            "under_veto_block":       pick_payload.get("under_veto_block"),
                             "confidence":             chosen_market.get("score") if chosen_market else 0,
                             "risk":                   _expl.get("risk_level"),
                             "reason_codes":           list(_expl.get("reasons") or []),

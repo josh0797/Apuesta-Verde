@@ -57,6 +57,11 @@ Documento (UUID PK, ISO-8601 UTC datetimes)::
         "should_recommend":         bool,
         "flip_triggered":           bool,
 
+        # Veto auditing (Dynamic Park BLOCK + central Under veto)
+        "under_veto_block":         dict | None,
+        "veto_source":              str | None,    # e.g. "DYNAMIC_PARK_OFFENSIVE"
+        "blocked_market":           str | None,
+
         # Calidad
         "confidence":               int (0..100),
         "risk":                     "LOW" | "MEDIUM" | "HIGH",
@@ -106,7 +111,12 @@ log = logging.getLogger("mlb_run_storage")
 # ---------------------------------------------------------------------------
 REFERENCE_MLB_POWER_BAT_EXPLOSIVE = "REFERENCE_MLB_POWER_BAT_EXPLOSIVE"
 
-VALID_RESULTS = {"won", "lost", "pending", "push"}
+VALID_RESULTS = {"won", "lost", "pending", "push", "void"}
+# "push" is the canonical outcome for ties. "void" is accepted for
+# backward-compat with legacy documents and manual updates, but new
+# settles MUST write "push" (see /api/picks/settle in server.py).
+# Reference profile tag activation and primary calibration metrics
+# continue to use ["won", "lost", "push"] only.
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +230,21 @@ def build_run_evaluation_document(*,
     final_total: Optional[int] = None
     if final_runs_home is not None and final_runs_away is not None:
         final_total = _safe_int(final_runs_home) + _safe_int(final_runs_away)
+
+    # ---- Veto auditing block ----------------------------------------
+    # Source priority: run_evaluation first, metrics as fallback.
+    under_veto_block = (
+        re_.get("under_veto_block")
+        or mx_.get("under_veto_block")
+    )
+    if not isinstance(under_veto_block, dict):
+        under_veto_block = None
+    if under_veto_block is not None:
+        veto_source    = _safe_str(under_veto_block.get("source"))
+        blocked_market = _safe_str(under_veto_block.get("blocked_market"))
+    else:
+        veto_source    = None
+        blocked_market = None
 
     # ---- Desglose del risk score ------------------------------------
     contribs = re_.get("score_contributions") or {}
@@ -339,6 +364,13 @@ def build_run_evaluation_document(*,
                                                   or mx_.get("market_scope")),
         "should_recommend":            bool(re_.get("should_recommend")),
         "flip_triggered":              bool(re_.get("flip_triggered")),
+
+        # Veto auditing — metadata-only. Does NOT alter result or
+        # reference_profile_tag activation. Used by the summary endpoint
+        # to count Dynamic Park BLOCK and central Under veto outcomes.
+        "under_veto_block":            under_veto_block,
+        "veto_source":                 veto_source,
+        "blocked_market":              blocked_market,
 
         # Calidad
         "confidence":                  _safe_int(re_.get("confidence"), 0),
