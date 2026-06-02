@@ -230,6 +230,47 @@
 
 ---
 
+## Phase MLB-FP1 — Final Pick Router + Manual Odds + Momentum (L5 vs L15)
+**Estado:** ✅ COMPLETADO (2026-06-02)
+
+### MLB-FP1.1 Conflict detector
+- Archivo: `services/mlb_script_conflict.py`
+- `detect_total_script_conflict(chosen_market, deep_script)` con severity ladder (`high` / `medium`).
+- Códigos: `UNDER_PICK_CONFLICTS_WITH_OVER_SCRIPT`, `OVER_PICK_CONFLICTS_WITH_UNDER_SCRIPT`, `UNDER_BELOW_PROJECTED_RUNS`, `UNDER_CLOSE_TO_PROJECTED_RUNS`, `OVER_ABOVE_PROJECTED_RUNS`, `F5_OVER_VS_FULLGAME_UNDER`.
+- Wireado en `services/mlb_day_orchestrator.py` (fail-soft): inyecta `pick_payload.script_conflict` y degrada/redirige a watchlist en severity `high`.
+
+### MLB-FP1.2 Manual odds helpers
+- En el mismo módulo: `parse_manual_odds()` (acepta `"1,85"`/`"1.85"`, guard ≥ 1.01) y `calculate_manual_edge()` (`VALUE` / `FAIR_VALUE` / `NO_VALUE` / `UNKNOWN` / `INVALID`).
+
+### MLB-FP1.3 Endpoint `POST /api/mlb/picks/{pick_id}/manual-odds`
+- Archivo: `server.py`
+- Lookup en `pick_runs` (buckets `picks`, `rescued`, `structural_lean_requires_odds`, `watchlist_manual_odds`).
+- Recalcula edge contra `estimated_probability` (con fallback a `_mlb_script_v2.coverProbability`).
+- Persiste `manual_odds*`, `manual_value_status`, `manual_can_recommend`, `manual_rationale`, `manual_odds_submitted_at` en el bucket correcto vía `arrayFilters`.
+- Promoción opcional a `RECOMMENDED_MANUAL_ODDS` si `promote_if_value && value_status == VALUE`.
+
+### MLB-FP1.4 Recent-form split (L5 vs L15)
+- Archivo: `services/mlb_recent_form_split.py`
+- `get_team_recent_form()` consulta MLB Stats API `lastXGames` con caché 12h.
+- `build_recent_form_payload()` genera `recent_run_split`, `recent_run_trend` (`RISING_RUN_ENVIRONMENT` / `STABLE` / `DECLINING` / `UNKNOWN`) y `on_base_profile` con sub-tendencias por equipo.
+- Integrado en orchestrator (fail-soft, gather paralelo home+away).
+
+### MLB-FP1.5 UI — `ManualOddsReviewPanel.jsx`
+- Acepta coma o punto como separador decimal.
+- Llama al endpoint con `api.post` y muestra `value_status` + `manual_edge_pct` + toast en español.
+- Render del conflict ribbon (`script_conflict`) con severity colors.
+- **Bugfix:** `import api from '@/lib/api'` → `import { api } from '@/lib/api'` (el módulo solo exporta named, no default — sin el fix el componente fallaba en runtime).
+
+### Validación
+- `pytest backend/tests/` → **276 tests PASS** (regresión completa).
+- Smoke endpoint:
+  - `POST /manual-odds {"manual_odds":"0,5"}` → 400 `"manual_odds inválida (debe ser ≥ 1.01, acepta '1.85' o '1,85')"`.
+  - `POST /manual-odds {"manual_odds":"1,85"}` → 404 `"pick not found in recent runs"` (esperado sin pick real).
+- `esbuild` sobre `ManualOddsReviewPanel.jsx` → 0 errors.
+- Dashboard carga limpio con demo user (screenshot validado).
+
+---
+
 ## Phase MLB-P0 — MLB Under Confidence Floor (Moneyball)
 **Estado:** ✅ COMPLETADO (2026-06-02)
 

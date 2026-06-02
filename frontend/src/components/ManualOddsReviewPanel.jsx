@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, AlertCircle, Activity, Target, Gauge, Calculator, Flame, ShieldAlert, ShieldCheck, AlertTriangle } from 'lucide-react';
-import api from '@/lib/api';
+import { api } from '@/lib/api';
 import { toast } from 'sonner';
 
 /**
