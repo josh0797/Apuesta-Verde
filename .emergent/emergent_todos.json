@@ -1,22 +1,30 @@
 [
   {
-    "content": "Re-include 'void' in VALID_RESULTS + add under_veto_block/veto_source/blocked_market schema fields",
+    "content": "Explorar endpoint /analysis/run y data_ingestion para Football",
     "status": "completed"
   },
   {
-    "content": "Update orchestrator persistence to pass under_veto_block into the document",
+    "content": "Backend: definir NATIONAL_TEAM_LEAGUES en api_sports.py",
     "status": "completed"
   },
   {
-    "content": "Create GET /api/mlb/run-evaluations/summary endpoint with hit-rate breakdowns",
+    "content": "Backend: crear POST /api/football/refresh-matches (ingest sin LLM)",
     "status": "completed"
   },
   {
-    "content": "Create tests/test_mlb_feedback_loop_f6c.py with all 7 sections",
+    "content": "Backend: añadir filtro national_teams_only en /analysis/run",
     "status": "completed"
   },
   {
-    "content": "Verify lint + run full test suite + smoke test summary endpoint",
+    "content": "Frontend: Botón 'Refrescar partidos' (Football only) en DashboardPage",
+    "status": "completed"
+  },
+  {
+    "content": "Frontend: Botón 'Selecciones nacionales' (Football only) en DashboardPage",
+    "status": "completed"
+  },
+  {
+    "content": "Tests + smoke validation",
     "status": "completed"
   }
 ]

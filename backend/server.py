@@ -361,6 +361,218 @@ async def matches_live(refresh: bool = False, sport: Optional[str] = None, user:
     }
 
 
+# ── Football: refresh-only endpoint (ingest fixtures + odds, no LLM) ─────────
+class FootballRefreshIn(BaseModel):
+    """Body for POST /api/football/refresh-matches.
+
+    Lightweight ingest endpoint: ejecuta priority discovery + ingest_upcoming
+    + ingest_live para football SIN disparar el análisis LLM (mucho más
+    barato y rápido que ``/analysis/run``). Devuelve un diff de cuántos
+    partidos hay ahora en la DB para que el dashboard re-fetchee y
+    re-pinte la lista visible.
+
+    `national_teams_only` filtra el ingest+conteo a competiciones de
+    selecciones (NATIONAL_TEAM_LEAGUES). Por defecto False.
+
+    `background=true` enqueua el refresh como job APScheduler y devuelve
+    inmediatamente con ``job_id`` (similar a /analysis/run con
+    background=true). Recomendado cuando el cliente sospecha que el
+    ingest puede pasar de 60s (priority_discovery + odds para 14 fixtures).
+    """
+    include_live: bool = True
+    national_teams_only: bool = False
+    background: bool = False
+
+
+async def _football_refresh_pool(national_teams_only: bool, include_live: bool) -> dict:
+    """Core de refresh-matches: idempotente, fail-soft.
+
+    Devuelve el mismo shape JSON que el endpoint, listo para serializar.
+    Llamable tanto inline (sync) como desde un background job.
+    """
+    sport = "football"
+    errors: list[str] = []
+    base_filter = _sport_filter(sport)
+
+    # Snapshot pre.
+    upcoming_before = await db.matches.count_documents({**base_filter, "is_live": False})
+    live_before     = await db.matches.count_documents({**base_filter, "is_live": True})
+
+    priority_leagues_hit: list[str] = []
+    started = datetime.now(timezone.utc)
+
+    async with httpx.AsyncClient() as client:
+        if not national_teams_only:
+            try:
+                priority_fixtures = await ingestion.discover_priority_fixtures(
+                    client, db, window_hours=48,
+                )
+                if priority_fixtures:
+                    priority_leagues_hit = sorted({
+                        (fx.get("league") or {}).get("name")
+                        for fx in priority_fixtures
+                        if (fx.get("league") or {}).get("name")
+                    })
+                    HYDRATE_CAP = 14
+                    sem = asyncio.Semaphore(6)
+
+                    async def _hydrate(fx):
+                        async with sem:
+                            try:
+                                return await ingestion.enrich_fixture(
+                                    client, db, fx,
+                                    is_live=False, sport=sport, deep=False,
+                                )
+                            except Exception as exc:
+                                log.warning("refresh-matches hydrate failed: %s", exc)
+                                return None
+
+                    await asyncio.gather(*[_hydrate(fx) for fx in priority_fixtures[:HYDRATE_CAP]])
+            except Exception as exc:
+                msg = f"priority discovery failed: {exc}"
+                log.warning(msg)
+                errors.append(msg)
+
+        try:
+            await ingestion.ingest_upcoming(client, db, sport=sport)
+        except Exception as exc:
+            msg = f"ingest_upcoming failed: {exc}"
+            log.warning(msg)
+            errors.append(msg)
+
+        if include_live:
+            try:
+                await ingestion.ingest_live(client, db, sport=sport)
+            except Exception as exc:
+                msg = f"ingest_live failed: {exc}"
+                log.warning(msg)
+                errors.append(msg)
+
+    # Snapshot post (filtrado por NATIONAL_TEAM_LEAGUES si aplica).
+    if national_teams_only:
+        from services.api_sports import NATIONAL_TEAM_LEAGUES
+        nt_filter_upcoming = {
+            **base_filter, "is_live": False,
+            "league_id": {"$in": list(NATIONAL_TEAM_LEAGUES)},
+        }
+        nt_filter_live = {
+            **base_filter, "is_live": True,
+            "league_id": {"$in": list(NATIONAL_TEAM_LEAGUES)},
+        }
+        upcoming_after = await db.matches.count_documents(nt_filter_upcoming)
+        live_after     = await db.matches.count_documents(nt_filter_live)
+        upcoming_before = await db.matches.count_documents({
+            **nt_filter_upcoming,
+            "updated_at": {"$lt": started.isoformat()},
+        })
+        live_before = await db.matches.count_documents({
+            **nt_filter_live,
+            "updated_at": {"$lt": started.isoformat()},
+        })
+    else:
+        upcoming_after = await db.matches.count_documents({**base_filter, "is_live": False})
+        live_after     = await db.matches.count_documents({**base_filter, "is_live": True})
+
+    finished = datetime.now(timezone.utc)
+    return {
+        "ok":                   len(errors) == 0,
+        "sport":                sport,
+        "before":               {"upcoming": upcoming_before, "live": live_before},
+        "after":                {"upcoming": upcoming_after,  "live": live_after},
+        "delta":                {
+            "upcoming": upcoming_after - upcoming_before,
+            "live":     live_after - live_before,
+        },
+        "priority_leagues_hit": priority_leagues_hit,
+        "national_teams_only":  national_teams_only,
+        "errors":               errors,
+        "started_at":           started.isoformat(),
+        "finished_at":          finished.isoformat(),
+        "duration_sec":         round((finished - started).total_seconds(), 2),
+    }
+
+
+@api.post("/football/refresh-matches")
+async def football_refresh_matches(
+    payload: FootballRefreshIn = FootballRefreshIn(),
+    user: dict = Depends(get_current_user),
+):
+    """Refresh la pool de partidos football (ingest + odds + live) sin
+    disparar el análisis LLM. Útil para el botón "Actualizar partidos"
+    del Dashboard.
+
+    Modes:
+        * SYNC (default): bloquea hasta que termine. Si demora >55s puede
+          ser cortado por Cloudflare/ingress — usa background en ese caso.
+        * BACKGROUND (`background=true`): devuelve ``job_id`` inmediato y
+          el cliente polea ``/api/analysis/jobs/{job_id}``.
+
+    Auto-promotion: si ``national_teams_only=False`` se promueve a
+    background porque el priority_discovery + ingest_upcoming completo
+    casi siempre supera 60s en producción.
+
+    Idempotencia / dedupe:
+        El upsert downstream usa ``match_id`` como clave única (ver
+        ``services/data_ingestion.py``), así que llamar este endpoint
+        varias veces seguidas NO genera duplicados — solo re-escribe
+        odds y context si vinieron datos frescos.
+    """
+    auto_promoted = False
+    effective_background = payload.background
+    if not effective_background and not payload.national_teams_only:
+        # full global refresh suele pasar de 60s en este entorno.
+        effective_background = True
+        auto_promoted = True
+        log.info("football_refresh_matches: auto-promoting SYNC→background (full pool refresh)")
+
+    if effective_background:
+        async def _job(job_id: str) -> None:
+            async def progress(stage: str, pct: int, msg: str):
+                await job_queue.update_progress(db, job_id, stage, pct, msg)
+            try:
+                await progress("ingesting", 5, "Ingesting football fixtures…")
+                result = await _football_refresh_pool(
+                    national_teams_only=payload.national_teams_only,
+                    include_live=payload.include_live,
+                )
+                await progress("done", 100, "Refresh complete")
+                await job_queue.finish(db, job_id, result)
+            except Exception as exc:
+                log.exception("football_refresh_matches background job failed")
+                await job_queue.fail(db, job_id, str(exc))
+
+        job_id = await job_queue.enqueue_async(
+            db,
+            _job,
+            user_id=user["id"],
+            kind="football_refresh_matches",
+            params={
+                "national_teams_only": payload.national_teams_only,
+                "include_live":        payload.include_live,
+            },
+        )
+        response = {
+            "job_id": job_id,
+            "status": "queued",
+            "sport":  "football",
+            "stage":  "queued",
+            "progress": 0,
+        }
+        if auto_promoted:
+            response["_auto_promoted"] = True
+            response["_auto_promoted_reason"] = (
+                "Full football refresh promoted to background to avoid the ingress timeout. "
+                "Poll /api/analysis/jobs/{job_id} for the result."
+            )
+        return response
+
+    # SYNC path — solo cuando national_teams_only (más rápido por el filtro DB final).
+    return await _football_refresh_pool(
+        national_teams_only=payload.national_teams_only,
+        include_live=payload.include_live,
+    )
+
+
 class LiveReevalRequest(BaseModel):
     """Body for POST /api/live/reevaluate.
 
@@ -975,6 +1187,10 @@ class AnalysisRunIn(BaseModel):
     # New: focused live analysis for football's Big Five leagues.
     live_only: bool = False         # if True, analyze only live matches (no upcoming)
     big_five_only: bool = False     # if True, keep only Premier/LaLiga/Serie A/Bundesliga/Ligue 1
+    # NEW: focused analysis on national-team competitions (mutually
+    # exclusive with big_five_only — both can't be True at once).
+    # See services.api_sports.NATIONAL_TEAM_LEAGUES.
+    national_teams_only: bool = False
 
 
 async def _run_analysis_pipeline(
@@ -986,6 +1202,7 @@ async def _run_analysis_pipeline(
     progress_cb=None,
     live_only: bool = False,
     big_five_only: bool = False,
+    national_teams_only: bool = False,
 ) -> dict:
     """Execute the full LLM analysis pipeline.
 
@@ -1051,7 +1268,13 @@ async def _run_analysis_pipeline(
     # competitions BEFORE looking at the global candidate pool. If we find
     # any Tier 1/2 matches in the next 48h they become the AUTHORITATIVE
     # candidate list — exotic leagues are bypassed completely.
-    if sport == "football" and not live_only:
+    #
+    # When `national_teams_only=True` we INTENTIONALLY skip this step:
+    # the priority leagues are club competitions (Premier, LaLiga, etc.),
+    # so locking the candidate pool to them would zero-out national-team
+    # fixtures. Instead, the global ingest (next block) + the explicit
+    # league_id filter further down handle the national-team scope.
+    if sport == "football" and not live_only and not national_teams_only:
         try:
             async with httpx.AsyncClient() as client:
                 priority_fixtures = await ingestion.discover_priority_fixtures(
@@ -1360,15 +1583,36 @@ async def _run_analysis_pipeline(
         from services.football_competitions import is_big_five  # local import to avoid cycle
         upcoming = [m for m in upcoming if is_big_five(m.get("league"), m.get("league_id"))]
 
+    # National-teams filter (football only) — keep only fixtures in
+    # NATIONAL_TEAM_LEAGUES (World Cup, Euro, Nations League, Copa America,
+    # CONCACAF Gold Cup, AFCON, Asian Cup, WC Qualifying, Int. Friendlies).
+    # Mutually exclusive with big_five_only in practice (both can be set
+    # but the intersection is empty, leaving zero candidates).
+    if national_teams_only and sport == "football":
+        from services.api_sports import is_national_team_league
+        before_nt = len(upcoming)
+        upcoming = [m for m in upcoming if is_national_team_league(m.get("league_id"))]
+        log.info(
+            "national_teams_only filter: %d → %d matches", before_nt, len(upcoming),
+        )
+        pipeline_meta["national_teams_only"] = True
+        pipeline_meta["national_teams_kept"] = len(upcoming)
+        pipeline_meta["national_teams_dropped"] = before_nt - len(upcoming)
+
     # Universal Football Quality Filter (Phase 8 — Dynamic Match Discovery).
     # Filters out Tier 4 / exotic leagues / low-liquidity matches BEFORE the
     # expensive LLM analysis. Cascades Tier 1 → 2 → 3 until we hit the target.
     # This eliminates the Belarus Reserve / Botswana / Daguestán problem AND
     # — thanks to the EXOTIC_FRAGMENTS hard-block — never lets a U17/U20/
     # Reserve match through even when priority_fixtures was empty.
+    #
+    # SKIPPED when `national_teams_only=True`: the quality filter is tuned
+    # to club football tiers (Premier/LaLiga/etc.) — national-team
+    # tournaments like World Cup Qualifying Asia don't always sit at
+    # Tier 1/2, but they ARE the exclusive target of this run by design.
     football_skipped: list[dict] = []
     football_stats: dict = {}
-    if sport == "football":
+    if sport == "football" and not national_teams_only:
         from services.football_quality import filter_and_prioritize  # local import
         target = max(3, min(20, max_matches if max_matches else 12))
         fq_result = filter_and_prioritize(
@@ -1451,6 +1695,9 @@ async def _run_analysis_pipeline(
         if big_five_only and sport == "football":
             from services.football_competitions import is_big_five  # noqa: F811
             live = [m for m in live if is_big_five(m.get("league"), m.get("league_id"))]
+        if national_teams_only and sport == "football":
+            from services.api_sports import is_national_team_league  # noqa: F811
+            live = [m for m in live if is_national_team_league(m.get("league_id"))]
         candidates.extend(live)
 
     candidates = candidates[: max_matches]
@@ -1462,7 +1709,12 @@ async def _run_analysis_pipeline(
         # Phase 8.1 — even the "last-resort" fallback path must pass through
         # filter_and_prioritize so U17/Reserves/Botswana never reach the LLM.
         any_recent = await db.matches.find(_sport_filter(sport)).sort("updated_at", -1).limit(max_matches * 3).to_list(length=max_matches * 3)
-        if sport == "football":
+        if sport == "football" and national_teams_only:
+            # Keep national-team scope on the fallback path too.
+            from services.api_sports import is_national_team_league  # noqa: F811
+            any_recent = [m for m in any_recent if is_national_team_league(m.get("league_id"))]
+            candidates = any_recent[:max_matches]
+        elif sport == "football":
             from services.football_quality import filter_and_prioritize  # noqa: F811
             fallback_result = filter_and_prioritize(any_recent, target_count=max_matches, enable_tier_4=False)
             candidates = fallback_result["selected"]
@@ -1992,6 +2244,7 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
                     progress_cb=progress,
                     live_only=payload.live_only,
                     big_five_only=payload.big_five_only,
+                    national_teams_only=payload.national_teams_only,
                 )
                 await job_queue.finish(db, job_id, result)
             except HTTPException as he:
@@ -2010,6 +2263,7 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
                 "refresh": payload.refresh,
                 "include_live": payload.include_live,
                 "max_matches": payload.max_matches,
+                "national_teams_only": payload.national_teams_only,
             },
         )
         response = {
@@ -2037,6 +2291,7 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
         progress_cb=None,
         live_only=payload.live_only,
         big_five_only=payload.big_five_only,
+        national_teams_only=payload.national_teams_only,
     )
 
 

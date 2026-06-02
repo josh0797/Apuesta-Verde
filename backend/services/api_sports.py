@@ -40,6 +40,49 @@ SPORT_CONFIG = {
     },
 }
 
+# ── National-team competitions (football only) ──────────────────────────────
+# API-Sports football v3 league IDs para torneos exclusivamente de
+# selecciones nacionales. Usado por:
+#   - POST /api/analysis/run con national_teams_only=true
+#   - Filtro server-side en _run_analysis_pipeline para descartar fixtures
+#     de clubes incluso cuando los Big-Five están vacíos.
+#
+# IDs verificados contra https://www.api-football.com/documentation-v3#tag/Leagues
+#   1   FIFA World Cup
+#   4   Euro Championship (UEFA Euro)
+#   5   UEFA Nations League
+#   6   Africa Cup of Nations
+#   7   AFC Asian Cup
+#   9   Copa America
+#  10   International Friendlies (amistosos internacionales de selecciones)
+#  22   CONCACAF Gold Cup
+#  32-37: Qualifying World Cup (Europe/South America/CONCACAF/Africa/Asia/Oceania)
+NATIONAL_TEAM_LEAGUES: set[int] = {
+    1,   # FIFA World Cup
+    4,   # Euro Championship
+    5,   # UEFA Nations League
+    6,   # Africa Cup of Nations
+    7,   # AFC Asian Cup
+    9,   # Copa America
+    10,  # International Friendlies (selecciones)
+    22,  # CONCACAF Gold Cup
+    32,  # World Cup - Qualification Europe
+    33,  # World Cup - Qualification South America
+    34,  # World Cup - Qualification CONCACAF
+    36,  # World Cup - Qualification Africa
+    37,  # World Cup - Qualification Asia/Oceania (intercontinental)
+}
+
+
+def is_national_team_league(league_id: Any) -> bool:
+    """Return True si ``league_id`` corresponde a un torneo de selecciones
+    nacionales (no clubes). Acepta int o string numérica.
+    """
+    try:
+        return int(league_id) in NATIONAL_TEAM_LEAGUES
+    except (TypeError, ValueError):
+        return False
+
 # Sentence-friendly labels
 SPORT_LABELS = {"football": "Fútbol", "basketball": "NBA / Basket", "baseball": "MLB / Béisbol"}
 

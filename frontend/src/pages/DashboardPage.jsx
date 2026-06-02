@@ -616,6 +616,145 @@ export default function DashboardPage() {
     loadLast();
   }, [loadLast, t.dashboard.title]);
 
+  // ── Football: refresh match pool WITHOUT firing LLM ──────────────────
+  // Hits POST /api/football/refresh-matches → re-ingests fixtures + odds
+  // and tells us the delta. The backend AUTO-PROMOTES the full pool
+  // refresh to background to avoid the 60s ingress timeout, so the
+  // response can be either:
+  //   - sync result   (ok, before/after/delta, errors[])
+  //   - job submission (job_id, status="queued") → we poll until done.
+  // Dedupe key:  match_id (upsert) — the backend never duplicates rows.
+  // Only enabled on the Football tab.
+  const [refreshingMatches, setRefreshingMatches] = useState(false);
+  const refreshMatches = async () => {
+    if (sport !== 'football') return;
+    const requestSport = sport;
+    setRefreshingMatches(true);
+    try {
+      const r = await api.post('/football/refresh-matches', {
+        include_live: true,
+        national_teams_only: false,
+      });
+      if (sportRef.current !== requestSport) return;
+      // Branch A: backend returned a job (background mode).
+      if (r.data?.job_id) {
+        // Poll the job until it finishes (≤ ~90s) and then surface the
+        // delta to the user. Fail-soft: if polling times out, we just
+        // re-fetch loadLast() so the dashboard still picks up whatever
+        // landed in the DB.
+        const jobId = r.data.job_id;
+        const start = Date.now();
+        const TIMEOUT_MS = 90_000;
+        let final = null;
+        while (Date.now() - start < TIMEOUT_MS) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          if (sportRef.current !== requestSport) break;
+          try {
+            const jr = await api.get(`/analysis/jobs/${jobId}`);
+            const stage = jr.data?.stage;
+            if (stage === 'done')   { final = jr.data?.result; break; }
+            if (stage === 'failed') { throw new Error(jr.data?.error || 'job failed'); }
+          } catch (poll_err) {
+            // continue polling; if it's a 404/500 it'll naturally time out.
+            // eslint-disable-next-line no-console
+            console.warn('[FOOTBALL_REFRESH_POLL]', poll_err?.message || poll_err);
+          }
+        }
+        if (sportRef.current !== requestSport) return;
+        if (final) {
+          const after = final?.after?.upcoming ?? 0;
+          const delta = final?.delta?.upcoming ?? 0;
+          const errors = final?.errors || [];
+          if (errors.length > 0) {
+            toast.warning(
+              (lang === 'es'
+                ? `Refrescados con ${errors.length} advertencia(s): `
+                : `Refreshed with ${errors.length} warning(s): `) + errors[0]
+            );
+          } else {
+            toast.success(
+              t.dashboard.refreshMatchesDone
+                .replace('{delta}', String(delta))
+                .replace('{total}', String(after))
+            );
+          }
+        } else {
+          // Timed-out polling — still useful to refresh the snapshot.
+          toast.info(lang === 'es'
+            ? 'Refresco aún en curso en background. Volveré a cargar el snapshot.'
+            : 'Refresh still running in background. Reloading snapshot.');
+        }
+        loadLast();
+        return;
+      }
+      // Branch B: SYNC response (national_teams_only=false rarely hits this,
+      // but national_teams_only=true does).
+      const after = r.data?.after?.upcoming ?? 0;
+      const delta = r.data?.delta?.upcoming ?? 0;
+      const errors = r.data?.errors || [];
+      if (errors.length > 0) {
+        toast.warning(
+          (lang === 'es'
+            ? `Refrescados con ${errors.length} advertencia(s): `
+            : `Refreshed with ${errors.length} warning(s): `) + errors[0]
+        );
+      } else {
+        toast.success(
+          t.dashboard.refreshMatchesDone
+            .replace('{delta}', String(delta))
+            .replace('{total}', String(after))
+        );
+      }
+      loadLast();
+    } catch (err) {
+      const detail = err?.response?.data?.detail || err?.message || '';
+      toast.error(t.dashboard.refreshMatchesError + (detail ? ` — ${detail}` : ''));
+      // eslint-disable-next-line no-console
+      console.error('[FOOTBALL_REFRESH_ERROR]', err);
+    } finally {
+      if (sportRef.current === requestSport) setRefreshingMatches(false);
+    }
+  };
+
+  // ── Football: National-team-only analysis ────────────────────────────
+  // Hits POST /api/analysis/run with `national_teams_only=true` so the
+  // pipeline keeps only fixtures with league_id ∈ NATIONAL_TEAM_LEAGUES.
+  const analyzeNationalTeams = async () => {
+    if (sport !== 'football') return;
+    const requestSport = sport;
+    setRunning(true);
+    try {
+      const r = await api.post('/analysis/run', {
+        refresh: true,
+        include_live: true,
+        max_matches: 10,
+        sport,
+        background: true,
+        national_teams_only: true,
+      });
+      if (sportRef.current !== requestSport) {
+        // eslint-disable-next-line no-console
+        console.log('[SPORT_SWITCH] discarded stale national-teams run for', requestSport);
+        return;
+      }
+      if (r.data?.job_id) {
+        setActiveJobId(r.data.job_id);
+      } else if (r.data?.result) {
+        setRun({
+          id: r.data.pick_run_id,
+          sport: r.data.sport,
+          generated_at: r.data.generated_at,
+          payload: r.data.result,
+        });
+        toast.success(t.dashboard.title + ' ✓');
+      }
+    } catch (err) {
+      reportGenerationError(err, 'analysis/run · national_teams');
+    } finally {
+      if (sportRef.current === requestSport) setRunning(false);
+    }
+  };
+
   const closeProgressModal = useCallback(() => {
     setActiveJobId(null);
   }, []);
@@ -746,6 +885,42 @@ export default function DashboardPage() {
                 <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t.dashboard.recalibrating}</>
               ) : (
                 <><RefreshCcw className="h-4 w-4 mr-2" />{t.dashboard.recalibrateBtn}</>
+              )}
+            </Button>
+          )}
+          {/* Football-only: Refresh matches pool (no LLM run). Cheap
+              ingest of fresh fixtures + odds + live data. */}
+          {sport === 'football' && (
+            <Button
+              onClick={refreshMatches}
+              disabled={refreshingMatches || running || !!activeJobId}
+              data-testid="football-refresh-matches-button"
+              variant="outline"
+              title={t.dashboard.refreshMatchesHint}
+              className="w-full sm:w-auto border-cyan-500/30 text-cyan-200 hover:bg-cyan-500/10 hover:text-cyan-100 transition-colors"
+            >
+              {refreshingMatches ? (
+                <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t.dashboard.refreshingMatches}</>
+              ) : (
+                <><RefreshCcw className="h-4 w-4 mr-2" />{t.dashboard.refreshMatchesBtn}</>
+              )}
+            </Button>
+          )}
+          {/* Football-only: National-teams analysis (World Cup, Euros,
+              Copa America, Nations League, qualifiers, friendlies). */}
+          {sport === 'football' && (
+            <Button
+              onClick={analyzeNationalTeams}
+              disabled={running || !!activeJobId || refreshingMatches}
+              data-testid="football-national-teams-button"
+              variant="outline"
+              title={t.dashboard.nationalTeamsHint}
+              className="w-full sm:w-auto border-amber-500/40 text-amber-200 hover:bg-amber-500/10 hover:text-amber-100 transition-colors"
+            >
+              {running ? (
+                <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t.dashboard.running}</>
+              ) : (
+                <><Flag className="h-4 w-4 mr-2" />{t.dashboard.nationalTeamsBtn}</>
               )}
             </Button>
           )}

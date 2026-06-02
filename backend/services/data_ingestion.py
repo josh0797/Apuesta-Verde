@@ -277,28 +277,52 @@ async def ingest_upcoming(
     # Drops 95%+ of global lower-division noise BEFORE any hydration/LLM work.
     # Non-football sports keep the legacy top_leagues behavior.
     if sport == "football":
+        # Late import to avoid cycles.
+        from .api_sports import NATIONAL_TEAM_LEAGUES, is_national_team_league
         before = len(upcoming_raw)
         kept: list[dict] = []
-        tier_counts = {"tier_1": 0, "tier_2": 0, "tier_3": 0}
+        tier_counts = {"tier_1": 0, "tier_2": 0, "tier_3": 0, "national_team": 0}
         removed_leagues: dict[str, int] = {}
         for f in upcoming_raw:
-            league_name = (_fx_league(sport, f).get("name") or "").strip()
+            league_obj = _fx_league(sport, f)
+            league_name = (league_obj.get("name") or "").strip()
+            league_id_raw = league_obj.get("id")
             meta = fc.get_competition_meta(league_name)
+            # 1) Standard tier allowlist for club competitions.
             if meta and meta["tier"] in fc.ALLOWED_TIERS:
                 tier_counts[meta["tier"]] = tier_counts.get(meta["tier"], 0) + 1
-                # Attach metadata to the raw payload for later annotation.
                 f["_competition_meta"] = meta
                 kept.append(f)
-            else:
-                removed_leagues[league_name or "?"] = removed_leagues.get(league_name or "?", 0) + 1
+                continue
+            # 2) National-team leagues that the alias matcher missed
+            #    (e.g. "World Cup - Qualification Europe", "International
+            #    Friendlies", "UEFA Nations League") get a synthetic
+            #    Tier-2 meta so the new "Selecciones Nacionales" button
+            #    has something to analyze. They sit BELOW Big-Five but
+            #    ABOVE Tier-3 cups for priority sorting.
+            if is_national_team_league(league_id_raw):
+                synthetic_meta = {
+                    "tier":           "tier_2",
+                    "priority":       72,   # just below real Tier-2 (70-100)
+                    "canonical_name": league_name or "National Team Competition",
+                    "type":           "international",
+                    "region":         league_obj.get("country") or "World",
+                    "_synthetic_national_team": True,
+                }
+                tier_counts["national_team"] = tier_counts.get("national_team", 0) + 1
+                f["_competition_meta"] = synthetic_meta
+                kept.append(f)
+                continue
+            removed_leagues[league_name or "?"] = removed_leagues.get(league_name or "?", 0) + 1
         log.info(
             "Scraper fetched %d football events. Allowed competition filter kept %d matches. "
             "Removed %d matches from non-priority leagues.",
             before, len(kept), before - len(kept),
         )
         log.info(
-            "Tier 1: %d  Tier 2: %d  Tier 3: %d  (allowed_tiers=%s)",
+            "Tier 1: %d  Tier 2: %d  Tier 3: %d  National-team: %d  (allowed_tiers=%s)",
             tier_counts["tier_1"], tier_counts["tier_2"], tier_counts["tier_3"],
+            tier_counts.get("national_team", 0),
             sorted(fc.ALLOWED_TIERS),
         )
 
