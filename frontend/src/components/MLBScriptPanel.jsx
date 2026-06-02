@@ -339,8 +339,18 @@ export function MLBScriptPanel({
         );
       })()}
 
-      {/* GAP #1 — IL impact ribbon (only when at least one key bat is out). */}
-      {ilPenalty && (ilPenalty.home_key_il_count + ilPenalty.away_key_il_count) > 0 && (
+      {/* GAP #1 — IL impact ribbon. Refactor 2026-06-02:
+            * Solo renderiza cuando hay >0 APLICADOS (no detected raw).
+              Esto previene el bug histórico HOME 4 · AWAY 4 que aparecía
+              en todos los partidos por culpa del cap saturado contando
+              jugadores de 60-day IL y minor-league.
+            * Muestra "applied de detected" cuando el cap se aplicó.
+            * Texto direccional según impact_direction:
+                negative_for_pick → "reduce ofensiva, castiga Over/RL/TT"
+                positive_for_pick → "favorece lectura Under"
+                neutral           → "ER ajustado; sin penalización"
+      */}
+      {ilPenalty && ((ilPenalty.home_key_il_count_applied ?? ilPenalty.home_key_il_count ?? 0) + (ilPenalty.away_key_il_count_applied ?? ilPenalty.away_key_il_count ?? 0)) > 0 && (
         <div
           className={`rounded-md border px-2.5 py-1.5 text-[11px] leading-snug space-y-0.5 ${
             ilPenalty.il_impact_label === 'ALTO'
@@ -360,13 +370,44 @@ export function MLBScriptPanel({
               Impacto {ilPenalty.il_impact_label}
             </span>
           </div>
-          <div className="text-[10.5px] tabular-nums">
-            HOME {ilPenalty.home_key_il_count} · AWAY {ilPenalty.away_key_il_count} · ER ajuste{' '}
-            <span className="font-semibold">{Number(ilPenalty.er_adjustment || 0).toFixed(2)}</span>
-            {ilPenalty.confidence_penalty > 0 && (
-              <span className="ml-1">· Conf −{ilPenalty.confidence_penalty}</span>
-            )}
-          </div>
+          {(() => {
+            // Compute applied vs raw with safe fallbacks for legacy payloads.
+            const homeApplied = ilPenalty.home_key_il_count_applied ?? ilPenalty.home_key_il_count ?? 0;
+            const awayApplied = ilPenalty.away_key_il_count_applied ?? ilPenalty.away_key_il_count ?? 0;
+            const homeRaw     = ilPenalty.home_key_il_count_raw ?? homeApplied;
+            const awayRaw     = ilPenalty.away_key_il_count_raw ?? awayApplied;
+            const capApplied  = Boolean(ilPenalty.cap_applied) || homeRaw > homeApplied || awayRaw > awayApplied;
+            const homeStr     = capApplied && homeRaw > homeApplied
+              ? `${homeApplied} aplicados de ${homeRaw} detectados`
+              : String(homeApplied);
+            const awayStr     = capApplied && awayRaw > awayApplied
+              ? `${awayApplied} aplicados de ${awayRaw} detectados`
+              : String(awayApplied);
+            const confApplied = ilPenalty.confidence_penalty_applied ?? ilPenalty.confidence_penalty ?? 0;
+            return (
+              <div className="text-[10.5px] tabular-nums" data-testid={`${testId || 'mlb-script'}-il-counts`}>
+                HOME {homeStr} · AWAY {awayStr} · ER ajuste{' '}
+                <span className="font-semibold">{Number(ilPenalty.er_adjustment || 0).toFixed(2)}</span>
+                {confApplied > 0 && (
+                  <span className="ml-1">· Conf −{confApplied}</span>
+                )}
+              </div>
+            );
+          })()}
+          {ilPenalty.impact_narrative ? (
+            <div
+              className={`text-[10.5px] italic opacity-95 ${
+                ilPenalty.impact_direction === 'positive_for_pick'
+                  ? 'text-emerald-200'
+                  : ilPenalty.impact_direction === 'negative_for_pick'
+                    ? 'text-rose-200'
+                    : 'text-amber-200/90'
+              }`}
+              data-testid={`${testId || 'mlb-script'}-il-narrative`}
+            >
+              {ilPenalty.impact_narrative}
+            </div>
+          ) : null}
           {(ilPenalty.home_missing_key?.length || ilPenalty.away_missing_key?.length) ? (
             <div className="text-[10px] opacity-90 truncate">
               {ilPenalty.home_missing_key?.length > 0 && (

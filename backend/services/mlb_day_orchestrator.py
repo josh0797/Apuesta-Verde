@@ -625,8 +625,10 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             _await_or_none(h_bp_real_task),
             _await_or_none(a_bp_real_task),
         )
-        if h_stats_e: h_stats = h_stats_e
-        if a_stats_e: a_stats = a_stats_e
+        if h_stats_e:
+            h_stats = h_stats_e
+        if a_stats_e:
+            a_stats = a_stats_e
         h_team_stats     = h_team_stats     or {}
         a_team_stats     = a_team_stats     or {}
         h_bullpen_usage  = h_bullpen_usage  or {}
@@ -1020,8 +1022,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 scoring_ctx,
                 v2_payload or {},
                 over_lines=over_lines_input,
-                fragility_payload=(v5_payload or {}).get("fragility")
-                                  if 'v5_payload' in locals() else None,
+                fragility_payload=(locals().get("v5_payload") or {}).get("fragility"),
             )
 
             # Build the under_candidate dict from current chosen_market.
@@ -1329,7 +1330,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                     recommended_market=chosen_market_label,
                     p_under=p_under,
                     p_over=p_over,
-                    game_id=str(pick_payload.get("match_id") or game_id),
+                    game_id=str(pick_payload.get("match_id") or locals().get("game_id") or ""),
                 )
                 pick_payload["market_lean"] = lean_payload
                 # OVERRIDE the historical heuristic so the panel renders
@@ -1483,13 +1484,30 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         # Before M3 adjusts ER, deflate it for missing key bats and shave
         # confidence off offensive chosen_markets. This was the Brandon-Lowe
         # gap (key bat on IL but engine treating PIT offence as healthy).
+        #
+        # Rewritten 2026-06-02 to be CONTEXT-AWARE:
+        #   * Offensive picks (Over / RL / TT / F5 Over): ER deflation +
+        #     confidence penalty as before.
+        #   * Defensive picks (Under / F5 Under / NRFI Yes): NO penalty;
+        #     instead surface a positive narrative — missing key bats
+        #     reinforces the Under read. ER deflation still applies (it
+        #     pulls the projected total DOWN, which is consistent with
+        #     the Under recommendation anyway).
         try:
-            from .mlb_il_penalty import apply_il_penalty, market_is_offensive
+            from .mlb_il_penalty import (
+                apply_il_penalty,
+                market_is_offensive,
+                market_is_defensive,
+            )
             il_pen = apply_il_penalty(scoring_ctx)
             pick_payload["il_penalty"] = il_pen
-            # Apply ER deflation only when there is a v2 expectedRuns to
-            # adjust — otherwise the downstream layers will read it from
-            # the baseline historical profile.
+            chosen_market_label = (chosen_market or {}).get("market") if chosen_market else None
+            is_offensive_chosen = market_is_offensive(chosen_market_label)
+            is_defensive_chosen = market_is_defensive(chosen_market_label)
+
+            # ER deflation: applied regardless of pick direction because
+            # it just makes the projection more accurate. When there are
+            # zero applied key-IL bats, er_adjustment is 0.0 → no-op.
             v2_block_il = pick_payload.get("_mlb_script_v2") or {}
             base_er_il  = v2_block_il.get("expectedRuns")
             if (base_er_il is not None) and il_pen.get("er_adjustment", 0):
@@ -1498,10 +1516,15 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 v2_block_il["expectedRuns"] = round(new_er, 2)
                 v2_block_il["expectedRunsIlAdjusted"] = True
                 pick_payload["_mlb_script_v2"] = v2_block_il
-            # Apply confidence penalty only on offensive markets.
+
+            applied_total = int(il_pen.get("home_key_il_count", 0)) + int(il_pen.get("away_key_il_count", 0))
+
+            # Confidence penalty ONLY for offensive picks AND only if
+            # there are actually applied bats (not just raw detected).
             if (chosen_market
+                    and applied_total > 0
                     and il_pen.get("confidence_penalty", 0)
-                    and market_is_offensive(chosen_market.get("market"))
+                    and is_offensive_chosen
                     and isinstance(chosen_market.get("score"), (int, float))):
                 penalty = int(il_pen["confidence_penalty"])
                 new_score = max(0, float(chosen_market["score"]) - penalty)
@@ -1513,6 +1536,35 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                     + f"{il_pen.get('home_key_il_count', 0)} HOME + "
                     + f"{il_pen.get('away_key_il_count', 0)} AWAY bates clave en IL"
                 ).strip(" |")
+                # Annotate direction for the UI.
+                il_pen["impact_direction"] = "negative_for_pick"
+                il_pen["impact_narrative"] = (
+                    "Bateadores clave fuera: reduce proyección ofensiva "
+                    "y castiga mercados Over/Run Line/Team Total."
+                )
+            elif applied_total > 0 and is_defensive_chosen:
+                # Flip narrative — missing bats helps the Under read.
+                il_pen["impact_direction"] = "positive_for_pick"
+                il_pen["impact_narrative"] = (
+                    "Bateadores clave fuera: favorece lectura Under; "
+                    "no se aplica penalización a la confianza."
+                )
+                il_pen["confidence_penalty_applied"] = 0
+            elif applied_total > 0:
+                # Some other market (e.g., moneyline) — no auto-direction.
+                il_pen["impact_direction"] = "neutral"
+                il_pen["impact_narrative"] = (
+                    "Bateadores clave fuera: ER ajustado; "
+                    "no se aplica penalización a este mercado."
+                )
+                il_pen["confidence_penalty_applied"] = 0
+            else:
+                # applied_total == 0 → no data or all IL were 60-day /
+                # minor / Day-To-Day non-key positions. Surface BAJO
+                # impact so the UI hides the strip.
+                il_pen["impact_direction"] = "none"
+                il_pen["impact_narrative"] = ""
+                il_pen["confidence_penalty_applied"] = 0
         except Exception as exc:
             log.debug("IL penalty layer failed (fail-soft): %s", exc)
 

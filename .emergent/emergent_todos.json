@@ -1,22 +1,18 @@
 [
   {
-    "content": "Fix bug pre-existente: NS/TBD en FINISHED_STATUSES (live_lifecycle.py)",
+    "content": "Backend: refactor mlb_il_penalty con filtro 10-day IL + raw/applied",
     "status": "completed"
   },
   {
-    "content": "Backend: aplicar synthetic-tier para national_team en ingest_live",
+    "content": "Backend: integración contextual offensive vs defensive en orchestrator",
     "status": "completed"
   },
   {
-    "content": "Frontend: lib/competitions.js - helper isNationalTeam(match)",
+    "content": "Frontend: render condicional + texto direccional en MLBScriptPanel",
     "status": "completed"
   },
   {
-    "content": "Frontend: LivePage 3-modo filter (5 grandes/Selecciones/Todos)",
-    "status": "completed"
-  },
-  {
-    "content": "Frontend: actualizar CTA label según filtro activo",
+    "content": "Corregir 4 errores lint pre-existentes en orchestrator",
     "status": "completed"
   },
   {
