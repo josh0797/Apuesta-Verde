@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Loader2, RefreshCcw, Brain, Trophy, Trophy as TrophyIcon, Archive } from 'lucide-react';
+import { Loader2, RefreshCcw, Brain, Trophy, Trophy as TrophyIcon, Archive, Flag } from 'lucide-react';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n';
 import { useSport } from '@/lib/sport';
@@ -15,7 +15,7 @@ import { LiveStateBadge, LiveFreshnessBadge } from '@/components/LiveStateBadges
 import { LiveAnalysisStrip } from '@/components/LiveAnalysisStrip';
 import { LiveCopilotCard } from '@/components/LiveCopilotCard';
 import { ProvenanceBadge } from '@/components/ProvenancePanel';
-import { isBigFive } from '@/lib/competitions';
+import { isBigFive, isNationalTeam } from '@/lib/competitions';
 import { isPriorityBaseball } from '@/lib/baseballPriority';
 import { partitionLive, LIVE_CACHE_TTL_SEC, validLiveMatch } from '@/lib/liveValidation';
 
@@ -44,11 +44,15 @@ export default function LivePage() {
   const [liveRunGeneratedAt, setLiveRunGeneratedAt] = useState(null);
   const [liveRunMatchesAnalyzed, setLiveRunMatchesAnalyzed] = useState(0);
 
-  // Big Five filter — ON by default for football to keep the page focused on
-  // the same league universe used by the "Analyze live" button. The user can
-  // opt out with the "Show all" toggle if they want to see lower-tier games.
-  // For baseball, the same UX applies but filters to MLB only by default.
-  const [bigFiveOnly, setBigFiveOnly] = useState(true);
+  // Football priority filter — tri-state ('big_five' | 'national_teams' | 'all').
+  // Replaces the old binary bigFiveOnly toggle so the user can also focus
+  // exclusively on national-team competitions (World Cup, Euros, Copa
+  // América, Nations League, qualifiers, international friendlies).
+  const [footballFilter, setFootballFilter] = useState('big_five');
+  // Backwards-compat alias used by existing CSS/state branches below.
+  const bigFiveOnly = footballFilter === 'big_five';
+  const nationalTeamsOnly = footballFilter === 'national_teams';
+  // Baseball: MLB-only filter remains binary.
   const [mlbOnly, setMlbOnly] = useState(true);
 
   // Bug-2 fix (sport-scoped requests, same pattern as DashboardPage): ref to
@@ -152,12 +156,16 @@ export default function LivePage() {
   // For baseball, apply the MLB-only filter unless disabled. For NBA we
   // currently show everything (no equivalent allowlist yet).
   const visibleItems = useMemo(() => {
-    if (isFootball && bigFiveOnly) return items.filter((m) => isBigFive(m));
-    if (isBaseball && mlbOnly)     return items.filter((m) => isPriorityBaseball(m));
+    if (isFootball) {
+      if (footballFilter === 'big_five')       return items.filter((m) => isBigFive(m));
+      if (footballFilter === 'national_teams') return items.filter((m) => isNationalTeam(m));
+      return items; // 'all'
+    }
+    if (isBaseball && mlbOnly) return items.filter((m) => isPriorityBaseball(m));
     return items;
-  }, [items, isFootball, isBaseball, bigFiveOnly, mlbOnly]);
+  }, [items, isFootball, isBaseball, footballFilter, mlbOnly]);
   const hiddenCount = (
-    (isFootball && bigFiveOnly) || (isBaseball && mlbOnly)
+    (isFootball && footballFilter !== 'all') || (isBaseball && mlbOnly)
   ) ? items.length - visibleItems.length : 0;
 
   const runLiveAnalysis = async () => {
@@ -170,8 +178,9 @@ export default function LivePage() {
         refresh: false,
         include_live: true,
         live_only: true,
-        big_five_only: isFootball && bigFiveOnly,
-        priority_mlb_only: isBaseball && mlbOnly,
+        big_five_only:       isFootball && footballFilter === 'big_five',
+        national_teams_only: isFootball && footballFilter === 'national_teams',
+        priority_mlb_only:   isBaseball && mlbOnly,
         max_matches: 10,
         sport,
         background: true,
@@ -214,7 +223,16 @@ export default function LivePage() {
   };
 
   const ctaLabel = isFootball
-    ? (lang === 'en' ? 'Analyze live — Big Five only' : 'Analizar en vivo — solo 5 grandes')
+    ? (() => {
+        const base = lang === 'en' ? 'Analyze live' : 'Analizar en vivo';
+        const filterLabel =
+          footballFilter === 'big_five'
+            ? (lang === 'en' ? 'Big Five' : '5 grandes')
+            : footballFilter === 'national_teams'
+              ? (lang === 'en' ? 'national teams' : 'selecciones')
+              : (lang === 'en' ? 'all leagues' : 'todas las ligas');
+        return `${base} — ${filterLabel}`;
+      })()
     : isBaseball
       ? (lang === 'en' ? 'Analyze live — MLB only' : 'Analizar en vivo — solo MLB')
       : (lang === 'en' ? 'Analyze live matches' : 'Analizar partidos en vivo');
@@ -291,21 +309,67 @@ export default function LivePage() {
             {visibleItems.length}{hiddenCount > 0 ? `/${items.length}` : ''}
           </span>
 
-          {/* Priority filter toggle — applies to football (Big Five) and
-              baseball (MLB-only). Other sports show all live matches. */}
-          {(isFootball || isBaseball) && items.length > 0 && (() => {
-            const priorityActive = isFootball ? bigFiveOnly : mlbOnly;
-            const setPriority    = isFootball ? setBigFiveOnly : setMlbOnly;
-            const priorityLabel  = isFootball ? t.live.bigFiveOnly : t.live.mlbOnly;
+          {/* Priority filter toggle — football has 3 modes (Big Five /
+              National Teams / All); baseball keeps the binary MLB-only;
+              other sports show all live matches. */}
+          {isFootball && items.length > 0 && (
+            <div className="ml-auto flex items-center gap-2" data-testid="live-football-filter-group">
+              <Button
+                type="button" size="sm"
+                variant={footballFilter === 'big_five' ? 'secondary' : 'ghost'}
+                onClick={() => setFootballFilter('big_five')}
+                disabled={footballFilter === 'big_five'}
+                data-testid="live-big-five-toggle"
+                className={
+                  footballFilter === 'big_five'
+                    ? 'h-7 px-2 text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/15'
+                    : 'h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground'
+                }
+              >
+                <TrophyIcon className="h-3.5 w-3.5 mr-1" />
+                {t.live.bigFiveOnly}
+              </Button>
+              <Button
+                type="button" size="sm"
+                variant={footballFilter === 'national_teams' ? 'secondary' : 'ghost'}
+                onClick={() => setFootballFilter('national_teams')}
+                disabled={footballFilter === 'national_teams'}
+                data-testid="live-national-teams-toggle"
+                className={
+                  footballFilter === 'national_teams'
+                    ? 'h-7 px-2 text-[11px] text-emerald-200 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/15'
+                    : 'h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground'
+                }
+              >
+                <Flag className="h-3.5 w-3.5 mr-1" />
+                {t.live.nationalTeamsOnly}
+              </Button>
+              <Button
+                type="button" size="sm"
+                variant={footballFilter === 'all' ? 'secondary' : 'ghost'}
+                onClick={() => setFootballFilter('all')}
+                disabled={footballFilter === 'all'}
+                data-testid="live-show-all-toggle"
+                className={
+                  footballFilter === 'all'
+                    ? 'h-7 px-2 text-[11px] text-cyan-200 bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/15'
+                    : 'h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground'
+                }
+              >
+                {t.live.showAll}
+              </Button>
+            </div>
+          )}
+          {isBaseball && items.length > 0 && (() => {
+            const priorityActive = mlbOnly;
             return (
               <div className="ml-auto flex items-center gap-2">
                 <Button
-                  type="button"
-                  size="sm"
+                  type="button" size="sm"
                   variant={priorityActive ? 'secondary' : 'ghost'}
-                  onClick={() => setPriority(true)}
+                  onClick={() => setMlbOnly(true)}
                   disabled={priorityActive}
-                  data-testid={isFootball ? 'live-big-five-toggle' : 'live-mlb-only-toggle'}
+                  data-testid="live-mlb-only-toggle"
                   className={
                     priorityActive
                       ? 'h-7 px-2 text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/15'
@@ -313,13 +377,12 @@ export default function LivePage() {
                   }
                 >
                   <TrophyIcon className="h-3.5 w-3.5 mr-1" />
-                  {priorityLabel}
+                  {t.live.mlbOnly}
                 </Button>
                 <Button
-                  type="button"
-                  size="sm"
+                  type="button" size="sm"
                   variant={!priorityActive ? 'secondary' : 'ghost'}
-                  onClick={() => setPriority(false)}
+                  onClick={() => setMlbOnly(false)}
                   disabled={!priorityActive}
                   data-testid="live-show-all-toggle"
                   className={
@@ -336,9 +399,14 @@ export default function LivePage() {
         </div>
 
         {/* Hint when filter is hiding matches */}
-        {(isFootball && bigFiveOnly && hiddenCount > 0 && visibleItems.length > 0) && (
+        {(isFootball && footballFilter === 'big_five' && hiddenCount > 0 && visibleItems.length > 0) && (
           <p className="text-[11px] text-muted-foreground italic" data-testid="live-filter-hint">
             {t.live.filteredHint.replace('{hidden}', String(hiddenCount))}
+          </p>
+        )}
+        {(isFootball && footballFilter === 'national_teams' && hiddenCount > 0 && visibleItems.length > 0) && (
+          <p className="text-[11px] text-muted-foreground italic" data-testid="live-filter-hint-nt">
+            {t.live.filteredHintNT.replace('{hidden}', String(hiddenCount))}
           </p>
         )}
         {(isBaseball && mlbOnly && hiddenCount > 0 && visibleItems.length > 0) && (
@@ -355,9 +423,15 @@ export default function LivePage() {
           </div>
         )}
 
-        {!loading && items.length > 0 && visibleItems.length === 0 && isFootball && bigFiveOnly && (
+        {!loading && items.length > 0 && visibleItems.length === 0 && isFootball && footballFilter === 'big_five' && (
           <div className="rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 p-6 text-center" data-testid="live-big-five-empty">
             <p className="text-sm text-amber-200">{t.live.noLiveBigFive}</p>
+          </div>
+        )}
+
+        {!loading && items.length > 0 && visibleItems.length === 0 && isFootball && footballFilter === 'national_teams' && (
+          <div className="rounded-xl border border-dashed border-emerald-500/30 bg-emerald-500/5 p-6 text-center" data-testid="live-national-teams-empty">
+            <p className="text-sm text-emerald-200">{t.live.noLiveNT}</p>
           </div>
         )}
 

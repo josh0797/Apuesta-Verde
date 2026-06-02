@@ -157,3 +157,63 @@ export function bigFiveCanonical(leagueName) {
   }
   return null;
 }
+
+// ── National-team competitions (mirror of backend NATIONAL_TEAM_LEAGUES) ──
+// Source of truth: services/api_sports.py::NATIONAL_TEAM_LEAGUES
+//   1   FIFA World Cup
+//   4   Euro Championship
+//   5   UEFA Nations League
+//   6   Africa Cup of Nations
+//   7   AFC Asian Cup
+//   9   Copa America
+//  10   International Friendlies
+//  22   CONCACAF Gold Cup
+//  32-37: World Cup Qualifying (Europe/SA/CONCACAF/Africa/Asia)
+export const NATIONAL_TEAM_LEAGUE_IDS = new Set([1, 4, 5, 6, 7, 9, 10, 22, 32, 33, 34, 36, 37]);
+
+// Fallback alias matching when league_id is missing.
+const NATIONAL_TEAM_ALIASES = [
+  'fifa world cup', 'world cup',
+  'uefa euro', 'euro championship', 'european championship', 'eurocopa',
+  'uefa nations league', 'nations league',
+  'copa america', 'copa américa',
+  'concacaf gold cup', 'gold cup', 'copa de oro',
+  'africa cup of nations', 'afcon',
+  'afc asian cup', 'asian cup',
+  'world cup qualification', 'wc qualification',
+  'world cup qualifying',
+  'european championship qualification',
+  'international friendlies', 'friendlies', 'friendly international',
+];
+
+/**
+ * True iff the match is a national-team competition (Mundial, Euro, Copa
+ * América, Gold Cup, Nations League, qualifiers, international friendlies).
+ *
+ * Accepts EITHER a match object (preferred — uses `league_id`) OR a raw
+ * league name string. Mirrors backend `is_national_team_league`.
+ */
+export function isNationalTeam(matchOrName) {
+  if (matchOrName && typeof matchOrName === 'object') {
+    const id = matchOrName.league_id;
+    if (id != null) {
+      const n = Number(id);
+      if (Number.isFinite(n)) return NATIONAL_TEAM_LEAGUE_IDS.has(n);
+    }
+    return isNationalTeamByName(matchOrName.league);
+  }
+  return isNationalTeamByName(matchOrName);
+}
+
+function isNationalTeamByName(leagueName) {
+  const norm = _normalize(leagueName);
+  if (!norm) return false;
+  // Exclude club international tournaments explicitly
+  if (norm.includes('club world cup') || norm === 'fifa club world cup') return false;
+  if (norm.includes('libertadores') || norm.includes('champions league')) return false;
+  if (norm.includes('europa league') || norm.includes('conference league')) return false;
+  for (const alias of NATIONAL_TEAM_ALIASES) {
+    if (norm === alias || norm.includes(alias)) return true;
+  }
+  return false;
+}

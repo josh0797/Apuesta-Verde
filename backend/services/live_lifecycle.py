@@ -52,7 +52,11 @@ LIVE_STATUSES: dict[str, set[str]] = {
 }
 
 FINISHED_STATUSES: dict[str, set[str]] = {
-    "football": {"FT", "AET", "PEN", "PST", "CANC", "ABD", "AWD", "WO", "NS", "TBD", "SUSP", "INT"},
+    # Football terminal statuses. NS/TBD intentionally excluded:
+    # those are PRE-GAME (Not Started / Time To Be Defined), not finished.
+    # Including them here caused live matches that briefly resurfaced
+    # with status=NS (transient API hiccup) to be permanently archived.
+    "football": {"FT", "AET", "PEN", "PST", "CANC", "ABD", "AWD", "WO", "SUSP", "INT"},
     "basketball": {"FT", "FINAL", "Final", "ENDED", "POST", "CANC", "AOT", "AWD"},
     "baseball": {"FT", "FINAL", "Final", "ENDED", "POST", "CANC", "AWD", "SUSP", "Completed"},
 }

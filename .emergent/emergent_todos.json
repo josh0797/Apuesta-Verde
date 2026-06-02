@@ -1,26 +1,22 @@
 [
   {
-    "content": "Explorar endpoint /analysis/run y data_ingestion para Football",
+    "content": "Fix bug pre-existente: NS/TBD en FINISHED_STATUSES (live_lifecycle.py)",
     "status": "completed"
   },
   {
-    "content": "Backend: definir NATIONAL_TEAM_LEAGUES en api_sports.py",
+    "content": "Backend: aplicar synthetic-tier para national_team en ingest_live",
     "status": "completed"
   },
   {
-    "content": "Backend: crear POST /api/football/refresh-matches (ingest sin LLM)",
+    "content": "Frontend: lib/competitions.js - helper isNationalTeam(match)",
     "status": "completed"
   },
   {
-    "content": "Backend: añadir filtro national_teams_only en /analysis/run",
+    "content": "Frontend: LivePage 3-modo filter (5 grandes/Selecciones/Todos)",
     "status": "completed"
   },
   {
-    "content": "Frontend: Botón 'Refrescar partidos' (Football only) en DashboardPage",
-    "status": "completed"
-  },
-  {
-    "content": "Frontend: Botón 'Selecciones nacionales' (Football only) en DashboardPage",
+    "content": "Frontend: actualizar CTA label según filtro activo",
     "status": "completed"
   },
   {

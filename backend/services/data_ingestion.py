@@ -413,19 +413,42 @@ async def ingest_live(client: httpx.AsyncClient, db, sport: str = "football", ma
         return []
 
     if sport == "football":
+        # Late import to avoid cycles.
+        from .api_sports import NATIONAL_TEAM_LEAGUES, is_national_team_league
         before = len(live_raw)
         kept: list[dict] = []
+        nt_kept = 0
         for f in live_raw:
-            league_name = (_fx_league(sport, f).get("name") or "").strip()
+            league_obj = _fx_league(sport, f)
+            league_name = (league_obj.get("name") or "").strip()
+            league_id_raw = league_obj.get("id")
             meta = fc.get_competition_meta(league_name)
+            # 1) Standard club-tier allowlist
             if meta and meta["tier"] in fc.ALLOWED_TIERS:
                 f["_competition_meta"] = meta
                 kept.append(f)
+                continue
+            # 2) National-team leagues (World Cup, Euros, Nations League,
+            #    Copa America, Gold Cup, AFCON, Asian Cup, WC Qualifying,
+            #    International Friendlies). Mirror of the patch in
+            #    ingest_upcoming: assigns synthetic Tier-2 priority 72 so
+            #    these live fixtures actually reach the frontend.
+            if is_national_team_league(league_id_raw):
+                f["_competition_meta"] = {
+                    "tier":           "tier_2",
+                    "priority":       72,
+                    "canonical_name": league_name or "National Team Competition",
+                    "type":           "international",
+                    "region":         league_obj.get("country") or "World",
+                    "_synthetic_national_team": True,
+                }
+                kept.append(f)
+                nt_kept += 1
         kept.sort(key=lambda f: -((f.get("_competition_meta") or {}).get("priority", 0)))
         selected = kept[:max_total]
         log.info(
-            "Live scraper: %d events -> %d kept after tier filter (allowed_tiers=%s)",
-            before, len(selected), sorted(fc.ALLOWED_TIERS),
+            "Live scraper: %d events -> %d kept after tier filter (incl. %d national-team; allowed_tiers=%s)",
+            before, len(selected), nt_kept, sorted(fc.ALLOWED_TIERS),
         )
     else:
         top_set = _top_leagues_for(sport)
