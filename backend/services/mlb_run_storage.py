@@ -77,7 +77,7 @@ Documento (UUID PK, ISO-8601 UTC datetimes)::
         "final_runs_home":          int | None,
         "final_runs_away":          int | None,
         "final_total":              int | None,
-        "result":                   "won" | "lost" | "pending" | "void",
+        "result":                   "won" | "lost" | "pending" | "push",
         "miss_type":                str | None,
         "reference_profile_tag":    str | None,
 
@@ -106,7 +106,7 @@ log = logging.getLogger("mlb_run_storage")
 # ---------------------------------------------------------------------------
 REFERENCE_MLB_POWER_BAT_EXPLOSIVE = "REFERENCE_MLB_POWER_BAT_EXPLOSIVE"
 
-VALID_RESULTS = {"won", "lost", "pending", "void"}
+VALID_RESULTS = {"won", "lost", "pending", "push"}
 
 
 # ---------------------------------------------------------------------------
@@ -505,7 +505,7 @@ async def query_run_evaluations(db, *,
     state : optional
         Filtra por estado v2 (e.g. "BULLPEN_EXPLOSION_RISK").
     result : optional
-        Filtra por resultado ("won" | "lost" | "pending" | "void").
+        Filtra por resultado ("won" | "lost" | "pending" | "push").
     limit : int
         Cap duro en 100.
     """

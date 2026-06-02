@@ -223,8 +223,10 @@ def build_live_metrics(pregame_pick: Optional[dict],
     metrics = {
         # ── context ───────────────────────────────────────────────
         "inning":                       inning,
-        "half_inning":                  "top" if ls.get("is_top_half") else (
-            "bottom" if ls.get("is_top_half") is False else None
+        "half_inning":                  (
+            "top" if ls.get("is_top_half") is True else
+            "bottom" if ls.get("is_top_half") is False else
+            (ls.get("inning_half") or ls.get("half") or None)
         ),
         "home_team":                    home_team,
         "away_team":                    away_team,
