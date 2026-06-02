@@ -21,6 +21,7 @@ import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
 import { MLBScriptPanel } from './MLBScriptPanel';
 import { MLBScriptV3Panel, MLBDiversityBadge, MLBBullpenSwapBadge, MLBOverSwapBadge, MLBFalseCompetitiveUnderdogBadge } from './MLBScriptV3Panel';
+import { InlineManualOddsInput } from './InlineManualOddsInput';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -169,6 +170,23 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
               />
             )}
           </div>
+          {/* Inline manual-odds entry — surfaces inside the recommendation
+              row whenever an MLB pick was produced WITHOUT automatic odds
+              (`odds_range` empty / "—") so the user can paste a bookie
+              price on the spot instead of routing to the batch review
+              panel. Baseball-only. */}
+          {sport === 'baseball'
+            && !m.recommendation?.odds_range
+            && (m.id || m.match_id)
+            ? (
+              <div className="mt-2">
+                <InlineManualOddsInput
+                  pickId={m.id || m.match_id}
+                  lang={lang}
+                  testId={`pick-inline-manual-odds-${m.match_id}`}
+                />
+              </div>
+            ) : null}
         </div>
         <ConfidenceMeter score={m.recommendation?.confidence_score || 0} size="inline" testId={`pick-conf-${m.match_id}`} />
       </div>

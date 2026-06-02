@@ -1328,6 +1328,15 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                     pick_payload["recent_run_split"]  = recent_form_payload["recent_run_split"]
                     pick_payload["recent_run_trend"]  = recent_form_payload["recent_run_trend"]
                     pick_payload["on_base_profile"]   = recent_form_payload["on_base_profile"]
+                    # Mirror into baseballHistoricalProfile so the
+                    # HistoricalProfilePanel can render the L5-vs-L15
+                    # comparison alongside the existing 15-game block.
+                    _hb = pick_payload.get("baseballHistoricalProfile") or {}
+                    if _hb:
+                        _hb["recentRunSplit"]   = recent_form_payload["recent_run_split"]
+                        _hb["recentRunTrend"]   = recent_form_payload["recent_run_trend"]
+                        _hb["onBaseProfileL5"]  = recent_form_payload["on_base_profile"]
+                        pick_payload["baseballHistoricalProfile"] = _hb
         except Exception as _exc_rf:
             log.debug("recent_form_split fetch failed (fail-soft): %s", _exc_rf)
 
@@ -1369,15 +1378,75 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 # OVERRIDE the historical heuristic so the panel renders
                 # the same lean as the pick.
                 #
-                # CRITICAL FIX: el orquestador escribe el bloque histórico
-                # como ``baseballHistoricalProfile`` (camelCase, línea ~1281)
-                # — leer ``historical_profile`` siempre devolvía None y el
-                # override del lean_classifier nunca se aplicaba, dejando
-                # al panel mostrando el heurístico legacy ("LEAN OVER" en
-                # picks Under). Mantenemos la misma key para reflejar el
-                # cambio en el frontend.
+                # CRITICAL FIX 2026-06: the UI (HistoricalProfilePanel.jsx)
+                # reads ``baseballHistoricalProfile.combined.overUnderLean``
+                # — writing the override at the ROOT of `hist_block` left
+                # the legacy heuristic untouched inside `combined.*`, so the
+                # badge kept rendering "LEAN OVER" even when the
+                # market_lean_classifier said UNDER. We now write into
+                # `combined.*` (the actual key the UI reads) AND keep the
+                # legacy mirror at root for any consumer that still reads
+                # it. The mixed_signals payload is exposed so the panel can
+                # show "señales mixtas detectadas" when the historical
+                # heuristic disagrees with the final lean.
                 hist_block = pick_payload.get("baseballHistoricalProfile") or {}
                 if hist_block:
+                    hist_combined = hist_block.get("combined") or {}
+                    # Preserve the legacy heuristic before overriding so we
+                    # can surface mixed-signals when the two disagree.
+                    legacy_lean = hist_combined.get("overUnderLean")
+                    hist_combined["overUnderLean"]            = lean_payload["lean"]
+                    hist_combined["overUnderLeanConfidence"]  = lean_payload["confidence"]
+                    hist_combined["overUnderLeanReason"]      = lean_payload["reason"]
+                    hist_combined["overUnderLeanDisplay"]     = lean_payload["display_lean"]
+                    hist_combined["overUnderLeanConsistency"] = lean_payload["consistency"]
+                    hist_combined["historicalLeanLegacy"]     = legacy_lean
+                    # Mixed-signals payload: shown by the UI when the
+                    # historical heuristic (legacy_lean) disagrees with
+                    # the consolidated final lean. The recent_run_split
+                    # and on_base_profile (set a few blocks above) are
+                    # already on `pick_payload` so the panel can pick the
+                    # specific Over signals from there.
+                    final_lean = lean_payload.get("lean") or "NONE"
+                    if legacy_lean and legacy_lean != final_lean and legacy_lean in ("OVER", "UNDER"):
+                        rrt = pick_payload.get("recent_run_trend")
+                        obp_home = (
+                            (pick_payload.get("on_base_profile") or {})
+                            .get("home", {}).get("trend")
+                        )
+                        obp_away = (
+                            (pick_payload.get("on_base_profile") or {})
+                            .get("away", {}).get("trend")
+                        )
+                        over_signals = []
+                        under_signals = []
+                        if legacy_lean == "OVER":
+                            over_signals.append("HISTORICAL_HEURISTIC_LEAN_OVER")
+                        elif legacy_lean == "UNDER":
+                            under_signals.append("HISTORICAL_HEURISTIC_LEAN_UNDER")
+                        if rrt == "RISING_RUN_ENVIRONMENT":
+                            over_signals.append("RISING_RUN_ENVIRONMENT")
+                        elif rrt == "DECLINING_RUN_ENVIRONMENT":
+                            under_signals.append("DECLINING_RUN_ENVIRONMENT")
+                        if obp_home == "RISING_ON_BASE_PRESSURE" or obp_away == "RISING_ON_BASE_PRESSURE":
+                            over_signals.append("RISING_ON_BASE_PRESSURE")
+                        if obp_home == "DECLINING_ON_BASE_PRESSURE" or obp_away == "DECLINING_ON_BASE_PRESSURE":
+                            under_signals.append("DECLINING_ON_BASE_PRESSURE")
+                        # Add the consolidated rationale on the final-lean side.
+                        if final_lean == "UNDER":
+                            under_signals.append("EXPECTED_RUNS_BELOW_LINE")
+                        elif final_lean == "OVER":
+                            over_signals.append("EXPECTED_RUNS_ABOVE_LINE")
+                        hist_combined["mixedSignals"] = {
+                            "has_mixed_signals": True,
+                            "over_signals":      over_signals,
+                            "under_signals":     under_signals,
+                            "final_resolution":  f"LEAN_{final_lean}" if final_lean != "NONE" else "NEUTRAL",
+                            "legacy_lean":       legacy_lean,
+                        }
+                    hist_block["combined"] = hist_combined
+                    # Legacy mirror at root (kept for any consumer that
+                    # reads it directly — script_conflict, runs_rescue).
                     hist_block["overUnderLean"]            = lean_payload["lean"]
                     hist_block["overUnderLeanConfidence"]  = lean_payload["confidence"]
                     hist_block["overUnderLeanReason"]      = lean_payload["reason"]

@@ -230,6 +230,54 @@
 
 ---
 
+## Phase MLB-FP2 — Deep Script UI: lean visual + L5/L15 + Manual Odds inline
+**Estado:** ✅ COMPLETADO (2026-06-02)
+
+### MLB-FP2.1 Fix override del lean histórico (root cause del "LEAN OVER CARRERAS" en pick UNDER)
+- Archivo: `services/mlb_day_orchestrator.py` (~líneas 1379-1455).
+- **Bug**: el `market_lean_classifier.classify_and_validate()` se ejecutaba bien y producía `lean=UNDER` para casos como Detroit @ Rays (ER 7.1 vs línea 9.5), pero el override escribía en `baseballHistoricalProfile["overUnderLean"]` (raíz). La UI (`HistoricalProfilePanel.jsx`) lee `combined.overUnderLean` → el override nunca llegaba al header y se mostraba el heurístico legacy (`projected_total_runs > league_avg` → OVER).
+- **Fix**: el override ahora escribe primero en `baseballHistoricalProfile.combined.overUnderLean / overUnderLeanDisplay / overUnderLeanConfidence / overUnderLeanReason / overUnderLeanConsistency`. Conserva mirror en la raíz para consumidores legacy (`baseball_runs_rescue`, `script_conflict`).
+- Adicional: el override guarda `combined.historicalLeanLegacy` para auditoría.
+
+### MLB-FP2.2 Mixed Signals payload (señales mixtas)
+- Cuando `legacy_lean` ≠ `final_lean`, el orquestador genera `combined.mixedSignals`:
+  ```python
+  {
+    "has_mixed_signals": True,
+    "over_signals":      ["HISTORICAL_HEURISTIC_LEAN_OVER", "RISING_RUN_ENVIRONMENT", "RISING_ON_BASE_PRESSURE", ...],
+    "under_signals":     ["EXPECTED_RUNS_BELOW_LINE", ...],
+    "final_resolution":  "LEAN_UNDER",
+    "legacy_lean":       "OVER",
+  }
+  ```
+- UI render: `MixedSignalsBlock` en `HistoricalProfilePanel.jsx` con dos columnas (apuntan a Over / Under) + ribbon de resolución final.
+
+### MLB-FP2.3 Mirror recent_run_split + on_base_profile en `baseballHistoricalProfile`
+- Los campos `recent_run_split`, `recent_run_trend`, `on_base_profile` que ya se calculaban en pick_payload ahora también se copian en `baseballHistoricalProfile.recentRunSplit / recentRunTrend / onBaseProfileL5`.
+- Permite al panel renderizar el bloque sin tocar la API de la card.
+
+### MLB-FP2.4 UI: bloque L5 vs L15
+- Archivo: `frontend/src/components/HistoricalProfilePanel.jsx` (`RecentFormSplitBlock`, `RunTrendCell`, `OnBaseTrendCell`).
+- Grid 3 columnas (Local / Visitante / Combinado) para `runs_scored_avg_last_15 / last_5 / delta` con chip de trend (Subiendo / Bajando / Estable) — umbral L5-L15 ≥ ±1.25 carreras.
+- Grid 2 columnas (Local / Visitante) para `times_on_base_avg_last_15 / last_5 / delta` con OBP opcional — umbral ±1.0.
+- Trends consolidados consumidos directos del backend (`RISING_RUN_ENVIRONMENT` / `RISING_ON_BASE_PRESSURE` / etc.).
+- Sólo renderiza cuando al menos un valor L5 está presente; fail-soft si MLB Stats API no responde.
+
+### MLB-FP2.5 UI: input inline "Agregar cuota manual"
+- Nuevo componente: `frontend/src/components/InlineManualOddsInput.jsx`.
+- Surfacea inside la card `MatchCard.jsx` justo debajo de `Cuota aprox.: —` cuando:
+  - `sport === "baseball"` AND `recommendation.odds_range` está vacío.
+- POST al endpoint existente `/api/mlb/picks/{pickId}/manual-odds` (acepta `"1.85"` y `"1,85"`).
+- Toast en español con `value_status` + edge%.
+
+### Validación
+- `pytest backend/tests/` → **276 PASS** (sin regresiones).
+- `esbuild` + ESLint sobre `HistoricalProfilePanel.jsx`, `MatchCard.jsx`, `InlineManualOddsInput.jsx` → 0 errors.
+- Backend reiniciado limpio (todos los APScheduler jobs activos).
+- Smoke screenshot: dashboard carga sin runtime errors.
+
+---
+
 ## Phase MLB-FP1 — Final Pick Router + Manual Odds + Momentum (L5 vs L15)
 **Estado:** ✅ COMPLETADO (2026-06-02)
 

@@ -1,34 +1,22 @@
 [
   {
-    "content": "FASE A: helper detect_total_script_conflict + módulo dedicado",
+    "content": "FIX 1: override del lean ahora escribe en combined.* + mixedSignals + mirror del recent_form en baseballHistoricalProfile",
     "status": "completed"
   },
   {
-    "content": "FASE A: enriquecer payload structural_lean con manual_odds_* fields",
+    "content": "FIX 2: bloque L5 vs L15 (carreras + on-base) renderizado en HistoricalProfilePanel.jsx",
     "status": "completed"
   },
   {
-    "content": "FASE A: endpoint POST /api/mlb/picks/{pick_id}/manual-odds",
+    "content": "FIX 3: render del bloque 'Señales mixtas' cuando mixedSignals.has_mixed_signals",
     "status": "completed"
   },
   {
-    "content": "FASE A: integrar conflict detector en final pick router",
+    "content": "FIX 4: añadir input inline 'Agregar cuota manual' en MatchCard cuando odds_range está vacío para MLB",
     "status": "completed"
   },
   {
-    "content": "FASE B: helper get_team_recent_runs_split (L5/L15) + cache",
-    "status": "completed"
-  },
-  {
-    "content": "FASE B: on_base_pressure profile + recent_run_trend",
-    "status": "completed"
-  },
-  {
-    "content": "FASE C: UI input \"Agregar cuota manual\" + render conflict warning",
-    "status": "completed"
-  },
-  {
-    "content": "Tests + smoke validation",
+    "content": "Validar con pytest + esbuild + screenshot",
     "status": "completed"
   }
 ]

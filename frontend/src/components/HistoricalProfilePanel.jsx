@@ -217,6 +217,31 @@ export function HistoricalProfilePanel({ profile, sport = 'basketball', testId =
             />
           )}
 
+          {/* Recent form split — Últimos 5 vs Últimos 15 juegos. Reads
+              the `recentRunSplit`, `recentRunTrend` and `onBaseProfileL5`
+              fields mirrored on the profile by the orchestrator. Only
+              renders when at least one of the L5 averages is present. */}
+          {isBaseball && (profile.recentRunSplit || profile.onBaseProfileL5) ? (
+            <RecentFormSplitBlock
+              runSplit={profile.recentRunSplit}
+              runTrend={profile.recentRunTrend}
+              onBase={profile.onBaseProfileL5}
+              testId={`${testId}-recent-form`}
+            />
+          ) : null}
+
+          {/* Mixed signals ribbon — when the legacy heuristic (15-game
+              total runs vs league average) disagrees with the
+              consolidated final lean (expected_runs vs market line).
+              Shows the user WHY the header now says LEAN UNDER even
+              though some sub-signals point Over. */}
+          {isBaseball && combined.mixedSignals?.has_mixed_signals ? (
+            <MixedSignalsBlock
+              mixed={combined.mixedSignals}
+              testId={`${testId}-mixed-signals`}
+            />
+          ) : null}
+
           {/* Trend phrases */}
           {patternAlignment ? (
             <PatternAlignmentSection
@@ -765,6 +790,329 @@ function fmtNum(v, digits = 1) {
 function fmtPct(v) {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return '—';
   return `${Math.round(Number(v) * 100)}%`;
+}
+
+function fmtDelta(v, digits = 1) {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return '—';
+  const n = Number(v);
+  return `${n >= 0 ? '+' : ''}${n.toFixed(digits)}`;
+}
+
+const RUN_TREND_META_ES = {
+  RISING_RUN_ENVIRONMENT:    { label: 'Subiendo',   tone: 'emerald', icon: TrendingUp },
+  DECLINING_RUN_ENVIRONMENT: { label: 'Bajando',    tone: 'rose',    icon: TrendingDown },
+  STABLE_RUN_ENVIRONMENT:    { label: 'Estable',    tone: 'slate',   icon: Minus },
+  UNKNOWN_RUN_ENVIRONMENT:   { label: 'Sin datos',  tone: 'slate',   icon: Minus },
+};
+
+const OB_TREND_META_ES = {
+  RISING_ON_BASE_PRESSURE:    { label: 'Subiendo',  tone: 'emerald', icon: TrendingUp },
+  DECLINING_ON_BASE_PRESSURE: { label: 'Bajando',   tone: 'rose',    icon: TrendingDown },
+  STABLE_ON_BASE_PRESSURE:    { label: 'Estable',   tone: 'slate',   icon: Minus },
+  UNKNOWN_ON_BASE_PRESSURE:   { label: 'Sin datos', tone: 'slate',   icon: Minus },
+};
+
+const TREND_TONE_CLS = {
+  emerald: 'text-emerald-300',
+  rose:    'text-rose-300',
+  slate:   'text-slate-400',
+};
+
+/**
+ * RecentFormSplitBlock
+ * --------------------
+ * Compares Últimos 5 vs Últimos 15 juegos for both run-environment and
+ * on-base pressure. The data already lives on
+ * ``baseballHistoricalProfile`` as ``recentRunSplit`` (totals) and
+ * ``onBaseProfileL5`` (hits + walks + HBP + OBP) when the orchestrator
+ * was able to reach MLB Stats API (12h cache).
+ *
+ * Renders three columns for the run block (Local / Visitante /
+ * Combinado) and two columns for the on-base block (Local / Visitante),
+ * each with L15, L5, Δ and a trend chip.
+ */
+function RecentFormSplitBlock({ runSplit, runTrend, onBase, testId }) {
+  const rs   = runSplit || {};
+  const home = onBase?.home || {};
+  const away = onBase?.away || {};
+  const homeTrendCode = home.trend || 'UNKNOWN_ON_BASE_PRESSURE';
+  const awayTrendCode = away.trend || 'UNKNOWN_ON_BASE_PRESSURE';
+  const combinedRunTrendCode = runTrend || 'UNKNOWN_RUN_ENVIRONMENT';
+
+  // Derive per-side run trend from delta (RISING_RUN_THRESHOLD = 1.25 in backend).
+  const sideRunTrend = (delta) => {
+    if (delta === null || delta === undefined || Number.isNaN(Number(delta))) {
+      return 'UNKNOWN_RUN_ENVIRONMENT';
+    }
+    const d = Number(delta);
+    if (d >= 1.25)  return 'RISING_RUN_ENVIRONMENT';
+    if (d <= -1.25) return 'DECLINING_RUN_ENVIRONMENT';
+    return 'STABLE_RUN_ENVIRONMENT';
+  };
+
+  const homeDelta = rs.runs_scored_delta_5_vs_15_home;
+  const awayDelta = rs.runs_scored_delta_5_vs_15_away;
+  const homeRunTrend = sideRunTrend(homeDelta);
+  const awayRunTrend = sideRunTrend(awayDelta);
+
+  // Hide the entire block when nothing meaningful is available.
+  const anyRun = rs.runs_scored_avg_last_5_home != null
+              || rs.runs_scored_avg_last_15_home != null
+              || rs.runs_scored_avg_last_5_away != null;
+  const anyOb  = home.times_on_base_avg_last_5 != null
+              || away.times_on_base_avg_last_5 != null;
+  if (!anyRun && !anyOb) return null;
+
+  return (
+    <div
+      className="rounded-md border border-slate-700/40 bg-slate-900/30 p-2.5 space-y-2.5"
+      data-testid={testId}
+    >
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-300 font-semibold">
+        <TrendingUp className="w-3 h-3 text-cyan-300" />
+        Tendencia carreras 5 vs 15 juegos
+      </div>
+
+      {anyRun ? (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+          <RunTrendCell
+            label="Local"
+            l15={rs.runs_scored_avg_last_15_home}
+            l5={rs.runs_scored_avg_last_5_home}
+            delta={homeDelta}
+            trendCode={homeRunTrend}
+            unit="anotó / juego"
+            testId={`${testId}-runs-home`}
+          />
+          <RunTrendCell
+            label="Visitante"
+            l15={rs.runs_scored_avg_last_15_away}
+            l5={rs.runs_scored_avg_last_5_away}
+            delta={awayDelta}
+            trendCode={awayRunTrend}
+            unit="anotó / juego"
+            testId={`${testId}-runs-away`}
+          />
+          <RunTrendCell
+            label="Combinado"
+            l15={rs.total_runs_avg_last_15}
+            l5={rs.total_runs_avg_last_5}
+            delta={rs.total_runs_delta_5_vs_15}
+            trendCode={combinedRunTrendCode}
+            unit="total / juego"
+            testId={`${testId}-runs-combined`}
+            emphasis
+          />
+        </div>
+      ) : (
+        <div className="text-[10px] text-slate-500 italic">
+          Sin datos de L5/L15 para este partido.
+        </div>
+      )}
+
+      {anyOb ? (
+        <>
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-300 font-semibold pt-1">
+            <Activity className="w-3 h-3 text-cyan-300" />
+            Presión en base 5 vs 15 juegos
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+            <OnBaseTrendCell
+              label="Local"
+              data={home}
+              trendCode={homeTrendCode}
+              testId={`${testId}-ob-home`}
+            />
+            <OnBaseTrendCell
+              label="Visitante"
+              data={away}
+              trendCode={awayTrendCode}
+              testId={`${testId}-ob-away`}
+            />
+          </div>
+        </>
+      ) : null}
+
+      <div className="text-[10px] text-slate-500 italic pt-0.5">
+        Fuente: MLB Stats API · lastXGames. Caché 12h.
+      </div>
+    </div>
+  );
+}
+
+function RunTrendCell({ label, l15, l5, delta, trendCode, unit, testId, emphasis }) {
+  const meta = RUN_TREND_META_ES[trendCode] || RUN_TREND_META_ES.UNKNOWN_RUN_ENVIRONMENT;
+  const Icon = meta.icon;
+  const toneCls = TREND_TONE_CLS[meta.tone] || TREND_TONE_CLS.slate;
+  return (
+    <div
+      className={`rounded-md ${emphasis ? 'bg-cyan-500/[0.06] border border-cyan-500/25' : 'bg-black/30 border border-slate-700/30'} p-2 space-y-0.5`}
+      data-testid={testId}
+    >
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+          {label}
+        </span>
+        <span className={`inline-flex items-center gap-1 text-[10px] ${toneCls}`}>
+          <Icon className="w-3 h-3" />
+          {meta.label}
+        </span>
+      </div>
+      <div className="text-[10.5px] text-slate-300 leading-tight">
+        L15: <span className="text-slate-100 font-medium tabular-nums">{fmtNum(l15)}</span>
+        <span className="text-slate-500"> · </span>
+        L5: <span className="text-slate-100 font-medium tabular-nums">{fmtNum(l5)}</span>
+      </div>
+      <div className={`text-[10.5px] tabular-nums ${toneCls}`}>
+        Δ {fmtDelta(delta)} <span className="text-slate-500">({unit})</span>
+      </div>
+    </div>
+  );
+}
+
+function OnBaseTrendCell({ label, data, trendCode, testId }) {
+  const meta = OB_TREND_META_ES[trendCode] || OB_TREND_META_ES.UNKNOWN_ON_BASE_PRESSURE;
+  const Icon = meta.icon;
+  const toneCls = TREND_TONE_CLS[meta.tone] || TREND_TONE_CLS.slate;
+  const l15 = data?.times_on_base_avg_last_15;
+  const l5  = data?.times_on_base_avg_last_5;
+  const delta = data?.times_on_base_delta_5_vs_15;
+  return (
+    <div
+      className="rounded-md bg-black/30 border border-slate-700/30 p-2 space-y-0.5"
+      data-testid={testId}
+    >
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+          {label}
+        </span>
+        <span className={`inline-flex items-center gap-1 text-[10px] ${toneCls}`}>
+          <Icon className="w-3 h-3" />
+          {meta.label}
+        </span>
+      </div>
+      <div className="text-[10.5px] text-slate-300 leading-tight">
+        L15: <span className="text-slate-100 font-medium tabular-nums">{fmtNum(l15)}</span>
+        <span className="text-slate-500"> · </span>
+        L5: <span className="text-slate-100 font-medium tabular-nums">{fmtNum(l5)}</span>
+      </div>
+      <div className={`text-[10.5px] tabular-nums ${toneCls}`}>
+        Δ {fmtDelta(delta)} <span className="text-slate-500">(veces en base / juego)</span>
+      </div>
+      {(data?.obp_last_5 != null || data?.obp_last_15 != null) ? (
+        <div className="text-[10px] text-slate-400 tabular-nums">
+          OBP L15: <span className="text-slate-200">{fmtNum(data.obp_last_15, 3)}</span>
+          <span className="text-slate-500"> · </span>
+          L5: <span className="text-slate-200">{fmtNum(data.obp_last_5, 3)}</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * MixedSignalsBlock
+ * -----------------
+ * Renders when the consolidated final lean (expected_runs vs market line)
+ * disagrees with the legacy historical heuristic OR with the
+ * recent_run_trend / on_base_pressure_trend. Lists each side's signals
+ * so the user can audit the resolution.
+ */
+const MIXED_SIGNAL_LABELS_ES = {
+  HISTORICAL_HEURISTIC_LEAN_OVER:  'Heurística histórica 15j: Lean Over',
+  HISTORICAL_HEURISTIC_LEAN_UNDER: 'Heurística histórica 15j: Lean Under',
+  RISING_RUN_ENVIRONMENT:          'Tendencia reciente subiendo (L5 > L15)',
+  DECLINING_RUN_ENVIRONMENT:       'Tendencia reciente bajando (L5 < L15)',
+  RISING_ON_BASE_PRESSURE:         'Presión en base subiendo',
+  DECLINING_ON_BASE_PRESSURE:      'Presión en base bajando',
+  EXPECTED_RUNS_BELOW_LINE:        'Expected runs por debajo de la línea',
+  EXPECTED_RUNS_ABOVE_LINE:        'Expected runs por encima de la línea',
+  LOW_VARIANCE_GAME:               'Juego de baja varianza',
+  OVER_SURVIVAL_LOW:               'Over Survival bajo',
+};
+
+function MixedSignalsBlock({ mixed, testId }) {
+  const over  = Array.isArray(mixed?.over_signals)  ? mixed.over_signals  : [];
+  const under = Array.isArray(mixed?.under_signals) ? mixed.under_signals : [];
+  const resolution = mixed?.final_resolution || 'NEUTRAL';
+  const resolutionLabel = {
+    LEAN_UNDER: 'Lean Under',
+    LEAN_OVER:  'Lean Over',
+    NEUTRAL:    'Sin lean claro',
+  }[resolution] || resolution;
+  const resolutionTone = resolution === 'LEAN_UNDER'
+    ? 'border-sky-500/40 bg-sky-500/10 text-sky-100'
+    : resolution === 'LEAN_OVER'
+      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100'
+      : 'border-slate-500/40 bg-slate-500/10 text-slate-100';
+
+  return (
+    <div
+      className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] p-2.5 space-y-2"
+      data-testid={testId}
+    >
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-amber-200 font-semibold">
+        <AlertTriangle className="w-3 h-3" />
+        Señales mixtas detectadas
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+        <SignalColumn
+          title="Apuntan a Over"
+          tone="emerald"
+          icon={<TrendingUp className="w-3 h-3 text-emerald-300" />}
+          items={over}
+          testId={`${testId}-over`}
+        />
+        <SignalColumn
+          title="Apuntan a Under"
+          tone="sky"
+          icon={<TrendingDown className="w-3 h-3 text-sky-300" />}
+          items={under}
+          testId={`${testId}-under`}
+        />
+      </div>
+      <div
+        className={`rounded-md border px-2 py-1.5 text-[11px] ${resolutionTone}`}
+        data-testid={`${testId}-resolution`}
+      >
+        <span className="opacity-80 mr-1.5">Resolución final del engine:</span>
+        <span className="font-semibold">{resolutionLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+function SignalColumn({ title, tone, icon, items, testId }) {
+  const safeItems = Array.isArray(items) ? items : [];
+  const bg = {
+    emerald: 'bg-emerald-500/[0.04] border-emerald-500/25',
+    sky:     'bg-sky-500/[0.04] border-sky-500/25',
+  }[tone] || 'bg-slate-500/[0.04] border-slate-500/25';
+  return (
+    <div className={`rounded-md border ${bg} p-2`} data-testid={testId}>
+      <div className="flex items-center gap-1 mb-1 text-[10px] uppercase tracking-wide text-slate-300 font-semibold">
+        {icon}
+        {title}
+        <span className="ml-1 normal-case text-slate-500">({safeItems.length})</span>
+      </div>
+      {safeItems.length === 0 ? (
+        <div className="text-[10px] text-slate-500 italic">Sin señales activas</div>
+      ) : (
+        <ul className="space-y-0.5">
+          {safeItems.map((code, i) => (
+            <li
+              key={`${code}-${i}`}
+              className="flex gap-1.5 text-[10.5px] text-slate-100 leading-tight"
+              data-testid={`${testId}-item-${i}`}
+            >
+              <span className="text-slate-500 shrink-0">•</span>
+              <span>{MIXED_SIGNAL_LABELS_ES[code] || code}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export default HistoricalProfilePanel;
