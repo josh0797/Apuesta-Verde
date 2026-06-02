@@ -1,18 +1,18 @@
 [
   {
-    "content": "D) TEAM_ALIASES dict + improved _best_match() in statbunker.py + soccerstats.py",
+    "content": "Inspect /mlb/recalibrate endpoint to understand the duplicate pick_id_base bug",
     "status": "completed"
   },
   {
-    "content": "E) Find MLB live hydration route + wire evaluate_explosive_inning into it + persist via store_run_evaluation",
+    "content": "Fix the duplicate pick problem (upsert by match_id+date instead of generating new pick_id each call)",
     "status": "completed"
   },
   {
-    "content": "F) Extend ExplosiveInningRiskPanel.jsx to render v2 state, trap_signals, market_candidates",
+    "content": "Fix 9 pre-existing server.py lint errors",
     "status": "completed"
   },
   {
-    "content": "Final verification: lint + tests + smoke test all 3 changes",
+    "content": "Verify lint + tests + service status",
     "status": "completed"
   }
 ]

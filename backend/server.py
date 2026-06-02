@@ -2659,7 +2659,7 @@ async def mlb_day(date: Optional[str] = None, user: dict = Depends(get_current_u
         from services.mlb_day_orchestrator import analyze_mlb_day
         result = await analyze_mlb_day(date, db=db)
     except Exception as exc:
-        logger.exception("mlb_day failed")
+        log.exception("mlb_day failed")
         raise HTTPException(status_code=500, detail=f"mlb_day_failed: {exc}")
     return {"date": date, "engine": "mlb_pregame_analytics_v1", **result}
 
@@ -2714,27 +2714,63 @@ class TrackIn(BaseModel):
 
 @api.post("/picks/track")
 async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
-    pick_uid = f"{payload.run_id}-{payload.match_id}"
-    # Validate sport (best-effort — accept anything but default to football)
+    # Validate sport first (best-effort — accept anything but default to football)
     sport = (payload.sport or "football").lower()
     if sport not in SUPPORTED_SPORTS:
         sport = "football"
+
+    # ── Deterministic pick_uid ──────────────────────────────────────
+    # Bug fix: previously `pick_uid = f"{run_id}-{match_id}"`, but the
+    # /analysis/recalibrate endpoint mints a fresh run_id on every call.
+    # The unique index `(user_id, match_id, pick_id)` therefore did NOT
+    # collide and the same match got persisted with multiple pick_uids
+    # → duplicated rows in the history view, distorted win-rate maths.
+    # Anchoring pick_uid to (sport, date, match_id) makes it idempotent
+    # across recalibrations on the same day.
+    now = datetime.now(timezone.utc)
+    tracked_date = now.strftime("%Y-%m-%d")
+    pick_uid = f"{sport}-{tracked_date}-{payload.match_id}"
+
     doc = {
-        "user_id": user["id"],
-        "pick_id": pick_uid,
-        "run_id": payload.run_id,
-        "match_id": str(payload.match_id),
-        "match_label": payload.match_label,
-        "league": payload.league,
-        "market": payload.market,
-        "selection": payload.selection,
-        "confidence_score": payload.confidence_score,
-        "outcome": payload.outcome,
-        "odds": payload.odds,
-        "notes": payload.notes,
-        "sport": sport,
-        "tracked_at": datetime.now(timezone.utc).isoformat(),
+        "user_id":           user["id"],
+        "pick_id":           pick_uid,
+        "run_id":            payload.run_id,
+        "match_id":          str(payload.match_id),
+        "match_label":       payload.match_label,
+        "league":            payload.league,
+        "market":            payload.market,
+        "selection":         payload.selection,
+        "confidence_score":  payload.confidence_score,
+        "outcome":           payload.outcome,
+        "odds":              payload.odds,
+        "notes":             payload.notes,
+        "sport":             sport,
+        "tracked_date":      tracked_date,
+        "tracked_at":        now.isoformat(),
     }
+
+    # ── One-time dedup of stale rows from prior recalibrations ──────
+    # Pre-fix rows have heterogeneous pick_ids (e.g. "abc123-778900"
+    # then "def456-778900" on the second recalibration). Remove every
+    # match-same-day row that does NOT carry the new deterministic uid
+    # so the upsert below leaves a single canonical document.
+    try:
+        old_filter = {
+            "user_id":    user["id"],
+            "match_id":   str(payload.match_id),
+            "sport":      sport,
+            "tracked_at": {"$regex": f"^{tracked_date}"},
+            "pick_id":    {"$ne": pick_uid},
+        }
+        stale = await db.pick_tracking.delete_many(old_filter)
+        if stale.deleted_count:
+            log.info(
+                "pick_tracking dedup: removed %d stale row(s) for match=%s sport=%s date=%s",
+                stale.deleted_count, payload.match_id, sport, tracked_date,
+            )
+    except Exception as _exc_dedup:
+        log.warning("pick_tracking dedup failed (non-fatal): %s", _exc_dedup)
+
     await db.pick_tracking.update_one(
         {"user_id": user["id"], "match_id": str(payload.match_id), "pick_id": pick_uid},
         {"$set": doc},
@@ -3675,8 +3711,10 @@ def _bucket_match_state(pick_payload: dict) -> str:
     mot = pick_payload.get("motivation") or {}
     h = (mot.get("home") or {}).get("level") or 3
     a = (mot.get("away") or {}).get("level") or 3
-    if h >= 4 and a >= 4: return "HIGH_MOTIVATION"
-    if h <= 2 and a <= 2: return "LOW_URGENCY"
+    if h >= 4 and a >= 4:
+        return "HIGH_MOTIVATION"
+    if h <= 2 and a <= 2:
+        return "LOW_URGENCY"
     return "CONTROLLED_MATCH"
 
 
@@ -3741,9 +3779,12 @@ async def learning_stats(
         b["samples"] += 1
         settled_total += 1
         res = t.get("result")
-        if res == "win": b["wins"] += 1
-        elif res == "lose": b["losses"] += 1
-        elif res == "void": b["voids"] += 1
+        if res == "win":
+            b["wins"] += 1
+        elif res == "lose":
+            b["losses"] += 1
+        elif res == "void":
+            b["voids"] += 1
 
     # Compute derived fields
     patterns = []
@@ -3793,7 +3834,8 @@ async def learning_stats(
 async def picks_today_export(sport: Optional[str] = None, user: dict = Depends(get_current_user)):
     """Export today's picks as CSV."""
     from fastapi.responses import Response
-    import csv, io
+    import csv
+    import io
     s = _norm_sport(sport)
     query = {"user_id": user["id"], **({"sport": s} if s != "football" else {"$or": [{"sport": "football"}, {"sport": {"$exists": False}}]})}
     doc = await db.picks.find_one(query, sort=[("generated_at", -1)])
@@ -3824,7 +3866,8 @@ async def picks_today_export(sport: Optional[str] = None, user: dict = Depends(g
 @api.get("/picks/tracked/export.csv")
 async def picks_tracked_export(user: dict = Depends(get_current_user)):
     from fastapi.responses import Response
-    import csv, io
+    import csv
+    import io
     docs = await db.pick_tracking.find({"user_id": user["id"]}).sort("tracked_at", -1).to_list(length=2000)
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -3904,7 +3947,7 @@ async def meta_leagues(sport: Optional[str] = None, user: dict = Depends(get_cur
         leagues = await db.matches.distinct("league", flt)
     else:
         leagues = await db.matches.distinct("league")
-    return {"leagues": sorted([l for l in leagues if l])}
+    return {"leagues": sorted([lg for lg in leagues if lg])}
 
 
 # ── Knowledge Base — Learning Cases ──────────────────────────────────────────
