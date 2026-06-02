@@ -26,10 +26,12 @@ class TestStatusClassification:
     @pytest.mark.parametrize("status,expected", [
         ("On the 10-day Injured List", "active_10d"),
         ("On the 10-Day Injured List", "active_10d"),
-        ("On the 15-day Injured List", "active_10d"),
+        # 15-day IL → pitcher_15d (NOT active_10d). Round-2 fix.
+        ("On the 15-day Injured List", "pitcher_15d"),
         ("On the 60-day Injured List", "long_term_60d"),
         ("On the 7-day Injured List",  "minors"),
         ("Restricted List",            "long_term_60d"),
+        ("Bereavement List",           "bereavement"),
         ("Day-To-Day",                 "day_to_day"),
         ("Day To Day",                 "day_to_day"),
         ("",                           "unknown"),
@@ -269,7 +271,15 @@ class TestUserBugRegression:
         # Raw vs applied diferencian.
         assert out["home_key_il_count_raw"] == 7  # 2 + 5
         assert out["away_key_il_count_raw"] == 7  # 1 + 6
-        assert out["cap_applied"] is True
+        # cap_applied debe ser False — no llegamos al MAX_KEY_BATS=4 en
+        # ninguno de los dos equipos. Lo que pasó fue filtro por status,
+        # NO cap real. Round-2 fix: cap_applied no se infla con status.
+        assert out["cap_applied"] is False
+        # status_filter_excluded sí refleja los 60-day/minor excluidos.
+        assert out["status_filter_excluded"]["home"] == 5
+        assert out["status_filter_excluded"]["away"] == 6
+        # il_filter contract surfaced.
+        assert out["il_filter"] == "active_10day_only"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -300,3 +310,198 @@ class TestContextualHelpers:
     ])
     def test_defensive_classification(self, label, expected):
         assert market_is_defensive(label) is expected
+
+
+# ──────────────────────────────────────────────────────────────────
+# Round-2 refinements (this round of fixes)
+# ──────────────────────────────────────────────────────────────────
+class TestDayToDayDoesNotPenalize:
+    """Round 2 fix #1: DTD must be informational only."""
+
+    def test_dtd_does_not_drive_penalty(self):
+        ctx = {
+            "home_il_players": [
+                {"name": "DTD1", "position": "SS", "status": "Day-To-Day"},
+                {"name": "DTD2", "position": "C",  "status": "Day-To-Day"},
+            ],
+            "away_il_players": [],
+        }
+        out = apply_il_penalty(ctx)
+        # NO penalty.
+        assert out["home_key_il_count_applied"] == 0
+        assert out["er_adjustment"] == 0.0
+        assert out["confidence_penalty"] == 0
+        # But the breakdown still surfaces them.
+        assert out["_status_breakdown"]["home"]["day_to_day"] == 2
+
+    def test_only_10d_penalizes(self):
+        ctx = {
+            "home_il_players": [
+                {"name": "Active", "position": "2B",
+                 "status": "On the 10-day Injured List"},
+                {"name": "DTD",    "position": "SS", "status": "Day-To-Day"},
+            ],
+            "away_il_players": [],
+        }
+        out = apply_il_penalty(ctx)
+        # Solo el active 10-day penaliza, DTD se queda fuera.
+        assert out["home_key_il_count_applied"] == 1
+        assert out["er_adjustment"] == -0.3
+        assert out["_status_breakdown"]["home"]["active_10d"] == 1
+        assert out["_status_breakdown"]["home"]["day_to_day"] == 1
+
+
+class TestPitcher15DaySeparation:
+    """Round 2 fix #2: 15-day IL is pitcher-only and does NOT feed
+    key batter penalty, but DOES feed home/away_pitcher_il_count."""
+
+    def test_15day_pitcher_only_in_pitcher_counter(self):
+        ctx = {
+            "home_il_players": [
+                {"name": "SP1", "position": "SP",
+                 "status": "On the 15-day Injured List"},
+                {"name": "P2",  "position": "P",
+                 "status": "On the 15-day Injured List"},
+            ],
+            "away_il_players": [],
+        }
+        out = apply_il_penalty(ctx)
+        # Zero offensive penalty.
+        assert out["home_key_il_count_applied"] == 0
+        assert out["er_adjustment"] == 0.0
+        # But the pitcher counter does see them.
+        assert out["home_pitcher_il_count"] == 2
+        # And the breakdown labels them as pitcher_15d.
+        assert out["_status_breakdown"]["home"]["pitcher_15d"] == 2
+
+    def test_15day_bat_position_not_counted(self):
+        # If MLB API mis-tags a bat as 15-day IL (rare but possible) we
+        # do NOT promote it back to active_10d for the offensive penalty.
+        ctx = {
+            "home_il_players": [
+                {"name": "BatBug", "position": "SS",
+                 "status": "On the 15-day Injured List"},
+            ],
+            "away_il_players": [],
+        }
+        out = apply_il_penalty(ctx)
+        assert out["home_key_il_count_applied"] == 0
+        assert out["home_pitcher_il_count"] == 0  # not a pitcher pos
+
+
+class TestCapAppliedSemantics:
+    """Round 2 fix #3: cap_applied=True only when MAX_KEY_BATS_PER_SIDE
+    actually rejected a candidate (not when status filter did)."""
+
+    def test_only_status_filter_means_cap_false(self):
+        # 2 active + 3 long-term key bats → applied=2, raw=5.
+        # cap_applied must be FALSE (we didn't hit MAX_KEY_BATS=4).
+        ctx = {
+            "home_il_players": [
+                {"name": "A", "position": "C",
+                 "status": "On the 10-day Injured List"},
+                {"name": "B", "position": "SS",
+                 "status": "On the 10-day Injured List"},
+                {"name": "C", "position": "1B",
+                 "status": "On the 60-day Injured List"},
+                {"name": "D", "position": "OF",
+                 "status": "On the 60-day Injured List"},
+                {"name": "E", "position": "3B",
+                 "status": "On the 7-day Injured List"},
+            ],
+            "away_il_players": [],
+        }
+        out = apply_il_penalty(ctx)
+        assert out["home_key_il_count_applied"] == 2
+        assert out["home_key_il_count_raw"]     == 5
+        assert out["cap_applied"] is False, "Filtro de status NO es cap real"
+        assert out["over_cap_excluded"]["home"] == 0
+        assert out["status_filter_excluded"]["home"] == 3
+
+    def test_real_cap_means_cap_true(self):
+        # 5 active 10-day key bats → applied=4 (cap), 1 over_cap_excluded.
+        ctx = {
+            "home_il_players": [
+                {"name": f"P{i}", "position": pos,
+                 "status": "On the 10-day Injured List"}
+                for i, pos in enumerate(["C", "SS", "CF", "2B", "1B"])
+            ],
+            "away_il_players": [],
+        }
+        out = apply_il_penalty(ctx)
+        assert out["home_key_il_count_applied"] == 4
+        assert out["home_key_il_count_raw"]     == 5
+        assert out["cap_applied"] is True, "5>4 IS a cap event"
+        assert out["over_cap_excluded"]["home"] == 1
+
+
+class TestUnknownStatusHandling:
+    """Round 2 fix #4: unknown status must NOT penalize and MUST be
+    counted in home/away_unknown_il_type_count."""
+
+    def test_unknown_status_does_not_penalize(self):
+        ctx = {
+            "home_il_players": [
+                {"name": "Mystery1", "position": "SS",
+                 "status": "Some Future MLB Status That We Don't Know"},
+                {"name": "Mystery2", "position": "C",  "status": None},
+                {"name": "Mystery3", "position": "1B", "status": ""},
+            ],
+            "away_il_players": [],
+        }
+        out = apply_il_penalty(ctx)
+        assert out["home_key_il_count_applied"] == 0
+        assert out["er_adjustment"] == 0.0
+        assert out["confidence_penalty"] == 0
+        # But the unknown counter surfaces them.
+        assert out["home_unknown_il_type_count"] == 3
+        assert out["_status_breakdown"]["home"]["unknown"] == 3
+
+
+class TestDataQualityLabel:
+    """Round 2 fix #4: data_quality must reflect input trustworthiness."""
+
+    def test_missing_when_zero_il(self):
+        out = apply_il_penalty({"home_il_players": [], "away_il_players": []})
+        assert out["data_quality"] == "missing"
+
+    def test_strong_when_all_recognized(self):
+        ctx = {
+            "home_il_players": [
+                {"name": "X", "position": "SS",
+                 "status": "On the 10-day Injured List"},
+                {"name": "Y", "position": "1B",
+                 "status": "On the 60-day Injured List"},
+            ],
+            "away_il_players": [
+                {"name": "Z", "position": "C", "status": "Day-To-Day"},
+            ],
+        }
+        out = apply_il_penalty(ctx)
+        assert out["data_quality"] == "strong"
+
+    def test_thin_when_more_than_half_unknown(self):
+        ctx = {
+            "home_il_players": [
+                {"name": "Known",   "position": "SS",
+                 "status": "On the 10-day Injured List"},
+                {"name": "Unknown1", "position": "C",  "status": "???"},
+                {"name": "Unknown2", "position": "1B", "status": "weird"},
+                {"name": "Unknown3", "position": "OF", "status": None},
+            ],
+            "away_il_players": [],
+        }
+        out = apply_il_penalty(ctx)
+        # 3 of 4 are unknown (>50%) → thin.
+        assert out["data_quality"] == "thin"
+        assert out["home_unknown_il_type_count"] == 3
+
+
+class TestILFilterContract:
+    """Round 2 fix #4: il_filter top-level field must announce the
+    classifier in use for downstream consumers/audit-trail."""
+
+    def test_filter_contract_present(self):
+        ctx = {"home_il_players": [], "away_il_players": []}
+        out = apply_il_penalty(ctx)
+        assert out["il_filter"] == "active_10day_only"

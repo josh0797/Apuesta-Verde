@@ -126,45 +126,67 @@ CONF_PER_KEY_BAT       = 5
 #
 # We classify them so the UI/audit trail can show the breakdown without
 # corrupting the offensive penalty.
-_ACTIVE_IL_PATTERNS = (
-    re.compile(r"10[- ]?day\s+injured\s+list", re.I),
-    re.compile(r"15[- ]?day\s+injured\s+list", re.I),
-    re.compile(r"\bday[- ]to[- ]day\b",          re.I),
-)
-_LONG_TERM_PATTERNS = (
-    re.compile(r"60[- ]?day\s+injured\s+list",   re.I),
-    re.compile(r"restricted\s+list",             re.I),
-)
-_MINORS_PATTERNS = (
-    re.compile(r"7[- ]?day\s+injured\s+list",    re.I),
-    re.compile(r"\bminor[- ]?league",            re.I),
-)
+# Pattern taxonomy (rewritten 2026-06-02 round 2).
+# Each pattern targets a SINGLE category — no shared regex between buckets.
+# Ordering matters: most specific first so "15-day" does not get captured
+# by a generic "day" regex.
+_PATTERN_15DAY  = re.compile(r"15[- ]?day\s+injured\s+list", re.I)
+_PATTERN_10DAY  = re.compile(r"10[- ]?day\s+injured\s+list", re.I)
+_PATTERN_DTD    = re.compile(r"\bday[- ]to[- ]day\b",         re.I)
+_PATTERN_60DAY  = re.compile(r"60[- ]?day\s+injured\s+list",  re.I)
+_PATTERN_REST   = re.compile(r"restricted\s+list",            re.I)
+_PATTERN_7DAY   = re.compile(r"7[- ]?day\s+injured\s+list",   re.I)
+_PATTERN_MINOR  = re.compile(r"\bminor[- ]?league",           re.I)
+_PATTERN_BEREAV = re.compile(r"bereavement\s+list",           re.I)
 
 
 def _classify_status(status_raw: Optional[str]) -> str:
-    """Return ``'active_10d' | 'long_term_60d' | 'day_to_day' | 'minors' | 'unknown'``.
+    """Return one of::
 
-    Only ``active_10d`` and ``day_to_day`` reach the penalty in this
-    refactor — Day-To-Day is included because a player listed as DTD on
-    game-day is generally OUT of the lineup as well.
+        'active_10d'       — 10-day IL (active 26-man impact)
+        'pitcher_15d'      — 15-day IL (pitcher-only roster slot)
+        'day_to_day'       — DTD (informational; no penalty)
+        'long_term_60d'    — 60-day IL or Restricted (long absence)
+        'minors'           — 7-day minor-league IL
+        'bereavement'      — Bereavement / Family List
+        'unknown'          — unrecognized string
+
+    Only ``active_10d`` reaches the offensive penalty. ``pitcher_15d``
+    feeds the separate pitcher_depth counter. DTD, 60-day, minors and
+    bereavement are surfaced in ``_status_breakdown`` for diagnostics
+    but never modify the score.
     """
     if not status_raw:
         return "unknown"
     s = str(status_raw)
-    for pat in _ACTIVE_IL_PATTERNS:
-        if pat.search(s):
-            return "day_to_day" if "day-to-day" in s.lower() or "day to day" in s.lower() else "active_10d"
-    for pat in _LONG_TERM_PATTERNS:
-        if pat.search(s):
-            return "long_term_60d"
-    for pat in _MINORS_PATTERNS:
-        if pat.search(s):
-            return "minors"
+    # Order matters: 15-day BEFORE 10-day so "15-Day" never falls through
+    # the 10-day regex (which would match "5-day").
+    if _PATTERN_15DAY.search(s):
+        return "pitcher_15d"
+    if _PATTERN_10DAY.search(s):
+        return "active_10d"
+    if _PATTERN_DTD.search(s):
+        return "day_to_day"
+    if _PATTERN_60DAY.search(s):
+        return "long_term_60d"
+    if _PATTERN_REST.search(s):
+        return "long_term_60d"
+    if _PATTERN_BEREAV.search(s):
+        return "bereavement"
+    if _PATTERN_7DAY.search(s):
+        return "minors"
+    if _PATTERN_MINOR.search(s):
+        return "minors"
     return "unknown"
 
 
-# Statuses that actually remove the player from tonight's 26-man.
-_PENALTY_ELIGIBLE_STATUSES = {"active_10d", "day_to_day"}
+# ── PENALTY-ELIGIBLE STATUSES ──────────────────────────────────────────────
+# IMPORTANT: only 10-day IL hits the offensive penalty. Day-To-Day is
+# informational only — a DTD player frequently plays anyway, and even
+# when they don't the lineup card already accounts for it elsewhere.
+# Including DTD here would create the same kind of false-positive
+# inflation that the original 60-day bug produced.
+_PENALTY_ELIGIBLE_STATUSES = {"active_10d"}
 
 
 def _short_pos(raw: Optional[str]) -> str:
@@ -201,18 +223,46 @@ def _rank_by_position_priority(p: dict) -> tuple[int, str]:
 
 
 def _split_by_status(il_list: list[dict]) -> dict[str, list[dict]]:
-    """Group IL players by classified status."""
+    """Group IL players by classified status. All known buckets are
+    pre-populated so downstream code can read counts safely."""
     out: dict[str, list[dict]] = {
         "active_10d":    [],
+        "pitcher_15d":   [],
         "day_to_day":    [],
         "long_term_60d": [],
         "minors":        [],
+        "bereavement":   [],
         "unknown":       [],
     }
     for p in il_list:
         cat = _classify_status(p.get("status"))
         out.setdefault(cat, []).append(p)
     return out
+
+
+def _data_quality_label(
+    home_total: int,
+    away_total: int,
+    home_unknown: int,
+    away_unknown: int,
+) -> str:
+    """Quick heuristic to flag the trustworthiness of the IL signal.
+
+    * ``missing``: zero IL players surfaced on either side — most likely
+      the API call failed or we cached an empty roster. Downstream UI
+      should show "Datos de IL no disponibles" and NOT penalize.
+    * ``thin``: at least one side has >50% players in ``unknown`` status
+      → the regex taxonomy didn't recognize their state, so any
+      derived penalty would be guesswork.
+    * ``strong``: every classified player landed in a known bucket.
+    """
+    grand_total = home_total + away_total
+    if grand_total == 0:
+        return "missing"
+    grand_unknown = home_unknown + away_unknown
+    if grand_total > 0 and (grand_unknown / grand_total) > 0.50:
+        return "thin"
+    return "strong"
 
 
 def apply_il_penalty(scoring_ctx: dict) -> dict:
@@ -228,16 +278,22 @@ def apply_il_penalty(scoring_ctx: dict) -> dict:
         away_il = scoring_ctx.get("away_il_players") or []
 
         def _select_key(il_list: list) -> tuple[list, int, dict]:
-            """Return (kept_after_cap, excluded_count, status_breakdown).
+            """Return (kept_after_cap, cap_excluded_count, status_breakdown).
 
             Pipeline:
                 1) Split by IL status type.
                 2) Keep ONLY ``_PENALTY_ELIGIBLE_STATUSES`` (active 10-day
-                   + Day-To-Day). 60-day IL and minor-league IL are
-                   counted in the breakdown but never penalized.
+                   only — 15-day pitcher IL, 60-day, minor-league, DTD,
+                   bereavement are surfaced in breakdown but NEVER drive
+                   the offensive penalty).
                 3) Keep only KEY_POSITIONS (filters pitchers).
                 4) Sort by position priority (spine first).
                 5) Cap at ``MAX_KEY_BATS_PER_SIDE``.
+
+            ``cap_excluded_count`` is strictly the players we threw away
+            BECAUSE of MAX_KEY_BATS_PER_SIDE — never because of status
+            filtering. That's why ``cap_applied`` further down does NOT
+            count long-term IL as a cap event.
             """
             breakdown = _split_by_status(il_list)
             penalty_pool: list[dict] = []
@@ -246,21 +302,22 @@ def apply_il_penalty(scoring_ctx: dict) -> dict:
             key_only = [p for p in penalty_pool if _is_key_position(p.get("position"))]
             key_only.sort(key=_rank_by_position_priority)
             kept = key_only[:MAX_KEY_BATS_PER_SIDE]
-            excluded = max(0, len(key_only) - len(kept))
+            cap_excluded = max(0, len(key_only) - len(kept))
             counts = {k: len(v) for k, v in breakdown.items()}
             counts["active_eligible_key"] = len(key_only)
-            return kept, excluded, counts
+            return kept, cap_excluded, counts
 
-        home_kept, home_excl, home_brk = _select_key(home_il)
-        away_kept, away_excl, away_brk = _select_key(away_il)
+        home_kept, home_cap_excl, home_brk = _select_key(home_il)
+        away_kept, away_cap_excl, away_brk = _select_key(away_il)
         home_key_missing = [_name_with_pos(p) for p in home_kept]
         away_key_missing = [_name_with_pos(p) for p in away_kept]
         home_key_il = len(home_key_missing)
         away_key_il = len(away_key_missing)
         total_key   = home_key_il + away_key_il
 
-        # Raw counts (all key positions including those that didn't pass
-        # the active-IL filter). Exposes the "detected vs applied" gap.
+        # Raw counts (all key positions, IGNORING status) — used to show
+        # "N aplicados de M detectados" when our filter excluded long-term
+        # or unknown-status entries.
         home_raw_key = sum(
             1 for p in home_il if _is_key_position(p.get("position"))
         )
@@ -268,22 +325,43 @@ def apply_il_penalty(scoring_ctx: dict) -> dict:
             1 for p in away_il if _is_key_position(p.get("position"))
         )
 
-        # Pitcher IL counters — feed pitcher_depth signal, NOT this one.
+        # Pitcher IL counters. Includes BOTH active 10-day AND 15-day
+        # pitcher IL — those feed bullpen-fatigue / pitcher-depth, not
+        # this offensive module. 60-day pitcher IL is again excluded as
+        # too distant to model day-of impact.
+        _pitcher_eligible = _PENALTY_ELIGIBLE_STATUSES | {"pitcher_15d"}
         home_pitcher_il = sum(
             1 for p in home_il
             if _is_pitcher_position(p.get("position"))
-            and _classify_status(p.get("status")) in _PENALTY_ELIGIBLE_STATUSES
+            and _classify_status(p.get("status")) in _pitcher_eligible
         )
         away_pitcher_il = sum(
             1 for p in away_il
             if _is_pitcher_position(p.get("position"))
-            and _classify_status(p.get("status")) in _PENALTY_ELIGIBLE_STATUSES
+            and _classify_status(p.get("status")) in _pitcher_eligible
         )
+
+        # status_filter_excluded = key-position players who LOOK like
+        # candidates from the roster but were dropped because their
+        # status did NOT match _PENALTY_ELIGIBLE_STATUSES (i.e. 60-day,
+        # minors, DTD, bereavement, unknown). Reported per-side so the
+        # UI can render "5 excluidos por status".
+        home_status_excl = max(0, home_raw_key - home_key_il - home_cap_excl)
+        away_status_excl = max(0, away_raw_key - away_key_il - away_cap_excl)
+
+        # cap_applied = TRUE only when MAX_KEY_BATS_PER_SIDE actually
+        # rejected someone. Status-filtering is NOT a "cap event".
+        cap_applied = (home_cap_excl > 0) or (away_cap_excl > 0)
+
+        # Unknown-status counts (any position) — surfaces taxonomy gaps
+        # that would otherwise silently swallow real injuries.
+        # NOTE: home_brk values are already int counts (see _select_key),
+        # so read directly — NEVER call len() on them.
+        home_unknown = int(home_brk.get("unknown", 0) or 0)
+        away_unknown = int(away_brk.get("unknown", 0) or 0)
 
         er_adjustment      = -round(min(MAX_ER_REDUCTION, total_key * ER_PER_KEY_BAT), 2)
         confidence_penalty = int(min(MAX_CONFIDENCE_PENALTY, total_key * CONF_PER_KEY_BAT))
-
-        cap_applied = (home_raw_key > home_key_il) or (away_raw_key > away_key_il)
 
         if total_key >= 3:
             label = "ALTO"
@@ -293,28 +371,48 @@ def apply_il_penalty(scoring_ctx: dict) -> dict:
             label = "BAJO"
 
         return {
-            "er_adjustment":         er_adjustment,
-            "confidence_penalty":    confidence_penalty,
-            # Applied counts (used for the actual math). Aliases for
-            # backwards compat with existing UI/orchestrator code.
+            "er_adjustment":             er_adjustment,
+            "confidence_penalty":        confidence_penalty,
+            # Applied (post-filter, post-cap). Aliases for backward compat.
             "home_key_il_count":         home_key_il,
             "away_key_il_count":         away_key_il,
             "home_key_il_count_applied": home_key_il,
             "away_key_il_count_applied": away_key_il,
-            # Raw counts (Patrón D: separar raw vs applied).
+            # Raw (all key positions, no status filter).
             "home_key_il_count_raw":     home_raw_key,
             "away_key_il_count_raw":     away_raw_key,
+            # Cap-only (Patrón D, corrected): only TRUE when MAX_KEY_BATS
+            # actually rejected a candidate, NOT when status filter did.
             "cap_applied":               cap_applied,
+            "over_cap_excluded":         {
+                "home": home_cap_excl,
+                "away": away_cap_excl,
+            },
+            # NEW top-level: how many key-position players were dropped
+            # solely because of status (60-day / minors / DTD / unknown).
+            "status_filter_excluded":    {
+                "home": home_status_excl,
+                "away": away_status_excl,
+            },
+            # NEW top-level: explicit filter contract so consumers know
+            # which classifier the numbers come from.
+            "il_filter":                 "active_10day_only",
             "il_impact_label":           label,
             "home_missing_key":          home_key_missing,
             "away_missing_key":          away_key_missing,
             "applies_to_markets":        list(OFFENSIVE_MARKETS),
-            "over_cap_excluded":         {"home": home_excl, "away": away_excl},
             # Pitcher IL fed to pitcher_depth signal (NOT to this penalty).
             "home_pitcher_il_count":     home_pitcher_il,
             "away_pitcher_il_count":     away_pitcher_il,
+            # NEW top-level: unknown-status counts surface taxonomy gaps.
+            "home_unknown_il_type_count": home_unknown,
+            "away_unknown_il_type_count": away_unknown,
+            # NEW top-level: data trustworthiness flag.
+            "data_quality": _data_quality_label(
+                len(home_il), len(away_il), home_unknown, away_unknown,
+            ),
             "_status_breakdown":         {
-                "home": home_brk,
+                "home": home_brk,    # already int counts (see _select_key)
                 "away": away_brk,
             },
         }
@@ -335,8 +433,13 @@ def apply_il_penalty(scoring_ctx: dict) -> dict:
             "away_missing_key":          [],
             "applies_to_markets":        list(OFFENSIVE_MARKETS),
             "over_cap_excluded":         {"home": 0, "away": 0},
+            "status_filter_excluded":    {"home": 0, "away": 0},
+            "il_filter":                 "active_10day_only",
             "home_pitcher_il_count":     0,
             "away_pitcher_il_count":     0,
+            "home_unknown_il_type_count": 0,
+            "away_unknown_il_type_count": 0,
+            "data_quality":              "missing",
             "_error":                    str(exc),
         }
 
