@@ -2809,6 +2809,105 @@ async def settle_mlb_pick(pick_id: str, payload: MLBSettleIn,
             log.warning("F6B script-break storage failed for pick %s: %s",
                         payload.pick_id, sb_exc)
             result["script_break"] = {"ok": False, "error": str(sb_exc)}
+
+        # F6C — Cerrar el feedback loop de mlb_run_evaluations.
+        # Busca el evaluation_id en pick_doc (pregame) o v2_snapshot (live)
+        # y llama a update_run_evaluation_result para resolver el documento
+        # de "pending" a won/lost/push. Sin esto el reference_profile_tag
+        # nunca se activa y el feedback loop explosivo no aprende.
+        # Fail-soft: nunca bloquea la respuesta del settle.
+        try:
+            if payload.outcome in ("won", "lost", "push") \
+                    and payload.final_home_runs is not None \
+                    and payload.final_away_runs is not None:
+
+                from services.mlb_run_storage import (
+                    update_run_evaluation_result,
+                    query_run_evaluations,
+                )
+
+                _pd  = payload.pick_doc  or {}
+                _v2  = payload.v2_snapshot or {}
+
+                # Resolver evaluation_id — pick_doc es la fuente principal
+                # (el orquestador lo escribe como pick_payload["mlb_run_evaluation_id"]).
+                # v2_snapshot["explosive_v2"] es el fallback para picks live.
+                _eval_id = (
+                    _pd.get("mlb_run_evaluation_id")
+                    or (_v2.get("explosive_v2") or {}).get("mlb_run_evaluation_id")
+                    or _pd.get("run_evaluation_id")
+                )
+
+                # Fallback: si no hay id explícito, buscar el documento
+                # pending más reciente para este match_id.
+                if not _eval_id:
+                    _candidates = await query_run_evaluations(
+                        db,
+                        user_id="_slate",
+                        match_id=str(payload.match_id),
+                        result="pending",  # solo los sin resolver
+                        limit=1,
+                    )
+                    if not _candidates:
+                        # Intentar también con el user_id real del settle
+                        _candidates = await query_run_evaluations(
+                            db,
+                            user_id=user["id"],
+                            match_id=str(payload.match_id),
+                            result="pending",
+                            limit=1,
+                        )
+                    if _candidates:
+                        _eval_id = _candidates[0].get("id")
+
+                if _eval_id:
+                    # Derivar miss_type a partir del outcome y el mercado.
+                    _miss_type = None
+                    if payload.outcome == "lost":
+                        _mkt = (
+                            _pd.get("market")
+                            or (_pd.get("recommendation") or {}).get("market")
+                            or ""
+                        ).lower()
+                        if "under" in _mkt:
+                            _miss_type = "OVER_BEAT_UNDER"
+                        elif "over" in _mkt:
+                            _miss_type = "UNDER_BEAT_OVER"
+                    elif payload.outcome == "push":
+                        _miss_type = "PUSH"
+
+                    _updated = await update_run_evaluation_result(
+                        db,
+                        evaluation_id=_eval_id,
+                        final_runs_home=payload.final_home_runs,
+                        final_runs_away=payload.final_away_runs,
+                        result=payload.outcome,
+                        miss_type=_miss_type,
+                    )
+                    result["run_evaluation_updated"] = _updated
+                    result["run_evaluation_id"]      = _eval_id
+                    if _updated:
+                        log.info(
+                            "F6C run_evaluation resolved pick=%s eval=%s outcome=%s miss=%s",
+                            payload.pick_id, _eval_id[:8], payload.outcome, _miss_type,
+                        )
+                    else:
+                        log.warning(
+                            "F6C run_evaluation not found or failed pick=%s eval=%s",
+                            payload.pick_id, _eval_id,
+                        )
+                else:
+                    result["run_evaluation_updated"] = False
+                    result["run_evaluation_id"]      = None
+                    log.debug(
+                        "F6C no evaluation_id found for pick=%s match=%s — skipping",
+                        payload.pick_id, payload.match_id,
+                    )
+        except Exception as _exc_f6c:
+            log.warning("F6C run_evaluation update failed (non-fatal) pick=%s: %s",
+                        payload.pick_id, _exc_f6c)
+            result["run_evaluation_updated"] = False
+
         return {"ok": True, **result}
     except Exception as exc:
         log.exception("mlb settle failed: %s", exc)

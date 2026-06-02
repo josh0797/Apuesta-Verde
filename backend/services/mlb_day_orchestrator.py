@@ -1734,6 +1734,19 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                             ),
                         }
                         pick_payload["under_veto"] = veto_central
+                        # Functional parity with the central Under veto BLOCK
+                        # path: stamp the blocked-market metadata and null
+                        # the chosen market so the parlay/UI treats the pick
+                        # as fully vetoed.
+                        pick_payload["under_veto_block"] = {
+                            "blocked_market":    chosen_market.get("market"),
+                            "blocked_score":     chosen_market.get("score"),
+                            "blocked_rationale": chosen_market.get("rationale"),
+                            "veto":              veto_central,
+                            "source":            "DYNAMIC_PARK_OFFENSIVE",
+                        }
+                        chosen_market = None
+                        best_score = 0
                         log.warning(
                             "DYNAMIC_PARK_BLOCK game=%s dynamic_factor=%.3f Under bloqueado.",
                             conf.get("game_pk"), _park_dynamic_val,
