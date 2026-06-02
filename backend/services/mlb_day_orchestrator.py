@@ -1702,6 +1702,58 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                         except Exception:
                             pass
 
+                # ── Park Factor dinámico — veto suplementario ────────────
+                # Si el park factor DINÁMICO (blend histórico + RPG reciente)
+                # clasifica como OFFENSIVE (dynamic ≥ 1.08) y el veto central
+                # aún no bloqueó, forzar un bloqueo del Under con severity
+                # WARNING o BLOCK según la magnitud.
+                # Esto captura parques como Angel Stadium donde la combinación
+                # de factor histórico + tendencia reciente de runs supera el
+                # umbral aunque ninguna señal individual lo haga.
+                _park_dyn = pick_payload.get("park_factor_live") or {}
+                _park_code = _park_dyn.get("code")
+                _park_dynamic_val = _park_dyn.get("dynamic", 1.0)
+
+                if (
+                    _park_code == "OFFENSIVE"
+                    and not veto_central.get("veto")
+                ):
+                    # dynamic ≥ 1.12 → BLOCK directo
+                    # dynamic 1.08..1.12 → WARNING con penalty -15 conf
+                    if _park_dynamic_val >= 1.12:
+                        veto_central = {
+                            **veto_central,
+                            "veto":         True,
+                            "severity":     "BLOCK",
+                            "veto_reasons": (veto_central.get("veto_reasons") or [])
+                                             + [f"DYNAMIC_PARK_OFFENSIVE_BLOCK (factor={_park_dynamic_val:.3f})"],
+                            "explanation":  (
+                                f"Park factor dinámico {_park_dynamic_val:.3f} ≥ 1.12 "
+                                f"(blend histórico + RPG recientes). Parque muy ofensivo "
+                                f"invalida el Under."
+                            ),
+                        }
+                        pick_payload["under_veto"] = veto_central
+                        log.warning(
+                            "DYNAMIC_PARK_BLOCK game=%s dynamic_factor=%.3f Under bloqueado.",
+                            conf.get("game_pk"), _park_dynamic_val,
+                        )
+                    else:
+                        # 1.08 ≤ dynamic < 1.12 → WARNING
+                        _park_penalty = 15
+                        veto_central = {
+                            **veto_central,
+                            "severity":   "WARNING",
+                            "confidence_penalty": (veto_central.get("confidence_penalty") or 0) + _park_penalty,
+                            "veto_reasons": (veto_central.get("veto_reasons") or [])
+                                             + [f"DYNAMIC_PARK_OFFENSIVE_WARNING (factor={_park_dynamic_val:.3f}, -{_park_penalty}pts)"],
+                        }
+                        pick_payload["under_veto"] = veto_central
+                        log.info(
+                            "DYNAMIC_PARK_WARNING game=%s dynamic_factor=%.3f -%d conf.",
+                            conf.get("game_pk"), _park_dynamic_val, _park_penalty,
+                        )
+
                 # FIX #5 — Learning-cases pattern match.
                 # Side-channel block based on prior MLB Under losses.
                 # Runs even when the veto returns PASS so the system can
@@ -2628,6 +2680,114 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 p.setdefault("pitcher_home_id", conf.get("home_pitcher_id"))
                 p.setdefault("pitcher_away_id", conf.get("away_pitcher_id"))
                 p.setdefault("sport", "baseball")
+
+        # ════════════════════════════════════════════════════════════
+        # MONEYBALL LAYER (MLB-aware variant)
+        # ════════════════════════════════════════════════════════════
+        # The universal `apply_moneyball_layer` reroutes every pick where
+        # `_market_edge.edge is None` to NO_BET_VALUE, which would wipe out
+        # essentially all MLB picks (MLB picks rarely carry explicit odds).
+        # Instead we run a non-destructive variant:
+        #     • run analyze_pick for every pick + every rescued pick
+        #     • ALWAYS attach `_market_edge` + `_moneyball` metadata
+        #       (auditor visibility, even when edge is uncomputable)
+        #     • ONLY reclassify (move to discarded_market / watchlist)
+        #       when `edge is not None` AND the verdict is in
+        #       REROUTE_CLASSIFICATIONS / WATCHLIST_CLASSIFICATIONS.
+        _mb_market_watchlist: list[dict] = []
+        try:
+            from .moneyball_layer import (
+                analyze_pick as _mb_analyze_pick,
+                REROUTE_CLASSIFICATIONS as _MB_REROUTE,
+                WATCHLIST_CLASSIFICATIONS as _MB_WATCH,
+                PROTECTED_ACCEPTABLE_CLASSIFICATIONS as _MB_PROT,
+            )
+            _mb_evaluated   = 0
+            _mb_rerouted    = 0
+            _mb_watchlisted = 0
+            _mb_protected   = 0
+            _mb_no_odds     = 0
+            _mb_counts: dict[str, int] = {}
+            _mb_kept_picks: list[dict] = []
+            _mb_kept_rescued: list[dict] = []
+            _mb_market_watchlist: list[dict] = []
+
+            def _moneyball_run(bucket_in: list[dict], bucket_out: list[dict]) -> None:
+                nonlocal _mb_evaluated, _mb_rerouted, _mb_watchlisted
+                nonlocal _mb_protected, _mb_no_odds
+                for _p in bucket_in:
+                    try:
+                        _res = _mb_analyze_pick(_p, sport="baseball", stake=10.0)
+                    except Exception as _exc_one:
+                        log.debug("moneyball analyze_pick failed: %s", _exc_one)
+                        bucket_out.append(_p)
+                        continue
+                    _p["_market_edge"] = _res.get("_market_edge")
+                    _p["_moneyball"]   = _res.get("_moneyball")
+                    _mb_evaluated += 1
+                    _mb_edge = (_res.get("_market_edge") or {}).get("edge")
+                    _cls = (_res.get("_moneyball") or {}).get("classification") \
+                            or "UNKNOWN"
+                    _mb_counts[_cls] = _mb_counts.get(_cls, 0) + 1
+
+                    # SAFEGUARD: when edge is uncomputable (no odds available),
+                    # NEVER reroute the pick. Attach metadata only and keep.
+                    if _mb_edge is None:
+                        _p["_bucket"] = "picks_no_odds"
+                        _mb_no_odds += 1
+                        bucket_out.append(_p)
+                        continue
+
+                    # Edge is calculable — apply the universal classification policy.
+                    if _cls in _MB_REROUTE:
+                        # Reroute to discarded_market with full context.
+                        discarded.append({
+                            "match_id":    _p.get("match_id"),
+                            "match_label": _p.get("match_label"),
+                            "reason":      (_res.get("_moneyball") or {}).get("classification_reason"),
+                            "_moneyball_classification": _cls,
+                            "_market_guardrail_reroute": True,
+                            "_market_edge": _res.get("_market_edge"),
+                            "_moneyball":   _res.get("_moneyball"),
+                        })
+                        _mb_rerouted += 1
+                    elif _cls in _MB_WATCH:
+                        _p["_bucket"] = "watchlist_market"
+                        _mb_market_watchlist.append(_p)
+                        _mb_watchlisted += 1
+                    elif _cls in _MB_PROT:
+                        _p["_bucket"] = "protected_acceptable"
+                        _mb_protected += 1
+                        bucket_out.append(_p)
+                    else:
+                        _p["_bucket"] = "picks"
+                        bucket_out.append(_p)
+
+            _moneyball_run(picks, _mb_kept_picks)
+            _moneyball_run(rescued, _mb_kept_rescued)
+            picks = _mb_kept_picks
+            rescued = _mb_kept_rescued
+            pipeline_meta["moneyball_mlb"] = {
+                "evaluated":         _mb_evaluated,
+                "kept_picks":        len(picks),
+                "kept_rescued":      len(rescued),
+                "rerouted_market":   _mb_rerouted,
+                "watchlisted_market": _mb_watchlisted,
+                "protected":         _mb_protected,
+                "no_odds_kept":      _mb_no_odds,
+                "by_classification": _mb_counts,
+                "policy":            "non_destructive (edge=None → keep + attach metadata only)",
+            }
+            if _mb_evaluated:
+                log.info(
+                    "moneyball[baseball MLB-aware]: %d eval → %d picks + %d rescued kept | "
+                    "%d no_odds_kept | %d rerouted_market | %d watchlisted_market | %s",
+                    _mb_evaluated, len(picks), len(rescued), _mb_no_odds,
+                    _mb_rerouted, _mb_watchlisted, _mb_counts,
+                )
+        except Exception as _exc_mb:
+            log.warning("moneyball MLB integration failed (non-fatal): %s", _exc_mb)
+
         parlay = _v2_mlb_parlay_builder(picks + rescued, max_size=4, min_correlation=60,
                                          weights=active_weights or None)
         pipeline_meta["parlay_built"] = bool(parlay.get("picks"))
@@ -2651,6 +2811,10 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         # frágil" with the misleading "motivación normal" copy.
         "structural_lean_requires_odds": structural_lean_requires_odds,
         "watchlist_manual_odds":         watchlist_manual_odds,
+        # Moneyball — picks que se quedaron en seguimiento por edge marginal
+        # / negativo en mercado pero con cuotas disponibles (a diferencia de
+        # watchlist_manual_odds que es por falta de cuotas).
+        "watchlist_market":              _mb_market_watchlist,
         "discarded_after_full_analysis": discarded_after_full_analysis,
         "discarded_picks":  discarded,    # legacy alias kept for backward-compat
         "fragility_scores": {str(k): v for k, v in frag_by_pk.items()},
@@ -2666,6 +2830,7 @@ def _empty_payload(pipeline_meta: dict) -> dict:
         "rescued_picks":    [],
         "structural_lean_requires_odds": [],
         "watchlist_manual_odds":         [],
+        "watchlist_market":              [],
         "discarded_after_full_analysis": [],
         "discarded_picks":  [],
         "fragility_scores": {},
