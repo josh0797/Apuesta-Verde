@@ -200,7 +200,9 @@ class TestRecentFormTrends:
         assert _classify_on_base_trend(1.5) == "RISING_ON_BASE_PRESSURE"
 
     def test_on_base_trend_declining(self):
-        assert _classify_on_base_trend(-1.2) == "DECLINING_ON_BASE_PRESSURE"
+        # Threshold updated 2026-06 to ±1.5 (user spec); -1.2 is now STABLE.
+        assert _classify_on_base_trend(-1.6) == "DECLINING_ON_BASE_PRESSURE"
+        assert _classify_on_base_trend(-1.2) == "STABLE_ON_BASE_PRESSURE"
 
     def test_on_base_trend_stable(self):
         assert _classify_on_base_trend(0.4) == "STABLE_ON_BASE_PRESSURE"

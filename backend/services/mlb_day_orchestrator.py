@@ -1337,6 +1337,65 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                         _hb["recentRunTrend"]   = recent_form_payload["recent_run_trend"]
                         _hb["onBaseProfileL5"]  = recent_form_payload["on_base_profile"]
                         pick_payload["baseballHistoricalProfile"] = _hb
+
+                    # ── TREND INTERPRETER ────────────────────────────────────
+                    # Turn the raw L5/L15 splits into an actionable layer
+                    # that adjusts confidence + score and surfaces a
+                    # human-readable explanation. Wired right here so the
+                    # pick payload carries the interpretation BEFORE the
+                    # market_lean_classifier overrides anything.
+                    try:
+                        from .mlb_trend_interpreter import combine_trend_signals
+                        _selected_market = (
+                            (chosen_market or {}).get("market")
+                            or (pick_payload.get("recommendation") or {}).get("market")
+                        )
+                        # Heuristic for runline +1.5 underdog detection:
+                        # if home moneyline odds > away → home is underdog.
+                        _underdog_side = None
+                        _odds = (pick_payload.get("odds") or {}).get("moneyline") or {}
+                        _h_ml = _odds.get("home")
+                        _a_ml = _odds.get("away")
+                        if isinstance(_h_ml, (int, float)) and isinstance(_a_ml, (int, float)):
+                            _underdog_side = "home" if _h_ml > _a_ml else "away"
+                        _trend_interp = combine_trend_signals(
+                            recent_run_split=recent_form_payload["recent_run_split"],
+                            on_base_profile=recent_form_payload["on_base_profile"],
+                            selected_market=_selected_market,
+                            runline_context={"underdog_side": _underdog_side} if _underdog_side else None,
+                        )
+                        if _trend_interp:
+                            pick_payload["trend_interpretation"] = _trend_interp
+                            # Mirror inside baseballHistoricalProfile so the
+                            # UI panel can render the block alongside L5/L15.
+                            _hb2 = pick_payload.get("baseballHistoricalProfile") or {}
+                            if _hb2:
+                                _hb2["trendInterpretation"] = _trend_interp
+                                pick_payload["baseballHistoricalProfile"] = _hb2
+
+                            # Apply confidence/score adjustments (clamped).
+                            _conf_delta  = int(_trend_interp.get("confidence_adjustment") or 0)
+                            _score_delta = int(_trend_interp.get("score_adjustment") or 0)
+                            _rec = pick_payload.get("recommendation") or {}
+                            _cur_conf = float(_rec.get("confidence_score") or 0)
+                            _new_conf = max(0.0, min(100.0, _cur_conf + _conf_delta))
+                            _rec["confidence_score"] = round(_new_conf, 2)
+                            _rec["confidence_trend_adjustment"] = _conf_delta
+                            pick_payload["recommendation"] = _rec
+                            # Persist reason codes alongside the existing list.
+                            _existing_reasons = pick_payload.get("reason_codes") or []
+                            for _rc in _trend_interp.get("reason_codes") or []:
+                                if _rc not in _existing_reasons:
+                                    _existing_reasons.append(_rc)
+                            pick_payload["reason_codes"] = _existing_reasons
+                            log.debug(
+                                "trend_interpreter applied: market=%s decision=%s conf_delta=%s score_delta=%s",
+                                _selected_market,
+                                _trend_interp.get("trend_decision"),
+                                _conf_delta, _score_delta,
+                            )
+                    except Exception as _exc_ti:
+                        log.debug("trend_interpreter failed (fail-soft): %s", _exc_ti)
         except Exception as _exc_rf:
             log.debug("recent_form_split fetch failed (fail-soft): %s", _exc_rf)
 

@@ -1,26 +1,30 @@
 [
   {
-    "content": "Backend: live engine NO devolver insufficient_data en juego FINAL si validator resolvió; agregar live_verdict",
+    "content": "Fix 1a: reescribir mlb_recent_form_split.py para usar /schedule + /boxscore (L5 ≠ L15 garantizado)",
     "status": "completed"
   },
   {
-    "content": "Backend: añadir HR + deltas explicitos (hits/BB/HBP/HR) a mlb_recent_form_split.py",
+    "content": "Fix 1b: tests del scraper schedule+boxscore (8 tests PASS)",
     "status": "completed"
   },
   {
-    "content": "Frontend LivePreMatchComparisonPanel: no early-return insufficient + render live_verdict chips + box-score table",
+    "content": "Fix 2a: crear services/mlb_trend_interpreter.py",
     "status": "completed"
   },
   {
-    "content": "Frontend MatchDetailPage: diferenciar already_won / already_lost / not_actionable",
+    "content": "Fix 2b: cablear trend interpreter en mlb_day_orchestrator (confidence_score + reason_codes)",
     "status": "completed"
   },
   {
-    "content": "Frontend HistoricalProfilePanel: añadir filas hits / BB / HR en OnBaseTrendCell",
+    "content": "Fix 2c: tests del trend interpreter (15 tests PASS)",
     "status": "completed"
   },
   {
-    "content": "Tests + esbuild + screenshot",
+    "content": "Fix 2d: render del bloque interpretado en HistoricalProfilePanel",
+    "status": "completed"
+  },
+  {
+    "content": "Validar 312 pytest + esbuild OK",
     "status": "completed"
   }
 ]

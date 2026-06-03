@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Activity, ChevronDown, TrendingUp, TrendingDown, Minus, Calendar, Wind, HeartPulse, AlertTriangle, CheckCircle2, XCircle, Info } from 'lucide-react';
+import { Activity, ChevronDown, TrendingUp, TrendingDown, Minus, Calendar, Wind, HeartPulse, AlertTriangle, CheckCircle2, XCircle, Info, Sparkles } from 'lucide-react';
 
 /**
  * HistoricalProfilePanel — Renders the "Historial profundo" block for
@@ -227,6 +227,17 @@ export function HistoricalProfilePanel({ profile, sport = 'basketball', testId =
               runTrend={profile.recentRunTrend}
               onBase={profile.onBaseProfileL5}
               testId={`${testId}-recent-form`}
+            />
+          ) : null}
+
+          {/* Trend interpretation — turns the raw L5/L15 numbers above
+              into an actionable layer (decision + score Δ + human
+              explanations). Rendered immediately under the data so the
+              user can read the numbers and the meaning side-by-side. */}
+          {isBaseball && profile.trendInterpretation?.trend_decision ? (
+            <TrendInterpretationBlock
+              interpretation={profile.trendInterpretation}
+              testId={`${testId}-trend-interp`}
             />
           ) : null}
 
@@ -1144,6 +1155,210 @@ function SignalColumn({ title, tone, icon, items, testId }) {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+/**
+ * TrendInterpretationBlock
+ * ------------------------
+ * Consumes the ``trendInterpretation`` payload (produced by
+ * ``services/mlb_trend_interpreter.combine_trend_signals``) and renders
+ * a 3-tier UI:
+ *   1.  Top ribbon: decision + score/confidence adjustments.
+ *   2.  Mid grid: over_support / under_support bars + per-side trends.
+ *   3.  Bottom: human explanations + decision notes + impact phrase.
+ *
+ * The block is purely informational — the orchestrator has already
+ * applied the score adjustment to the pick. This is the user-facing
+ * "why".
+ */
+const DECISION_META = {
+  SUPPORTS_OVER: {
+    label: 'Apoya Over',
+    tone:  'border-emerald-500/40 bg-emerald-500/[0.06] text-emerald-100',
+    chip:  'bg-emerald-500/20 text-emerald-100 border-emerald-500/50',
+  },
+  SUPPORTS_UNDER: {
+    label: 'Apoya Under',
+    tone:  'border-sky-500/40 bg-sky-500/[0.06] text-sky-100',
+    chip:  'bg-sky-500/20 text-sky-100 border-sky-500/50',
+  },
+  MIXED: {
+    label: 'Señales mixtas',
+    tone:  'border-amber-500/40 bg-amber-500/[0.06] text-amber-100',
+    chip:  'bg-amber-500/20 text-amber-100 border-amber-500/50',
+  },
+  NEUTRAL: {
+    label: 'Neutral',
+    tone:  'border-slate-500/30 bg-slate-500/[0.05] text-slate-200',
+    chip:  'bg-slate-500/20 text-slate-200 border-slate-500/40',
+  },
+};
+
+function TrendInterpretationBlock({ interpretation, testId }) {
+  const i = interpretation || {};
+  const decision = i.trend_decision || 'NEUTRAL';
+  const meta = DECISION_META[decision] || DECISION_META.NEUTRAL;
+  const scoreAdj = Number(i.score_adjustment ?? 0);
+  const confAdj  = Number(i.confidence_adjustment ?? 0);
+  const overScore  = Number(i.over_support_score ?? 0);
+  const underScore = Number(i.under_support_score ?? 0);
+  const explosiveBoost = Number(i.explosive_risk_boost ?? 0);
+  const volatilityWarning = i.volatility_warning;
+  const explanations = Array.isArray(i.human_explanations) ? i.human_explanations : [];
+  const decisionNotes = Array.isArray(i.decision_notes) ? i.decision_notes : [];
+
+  return (
+    <div
+      className={`rounded-md border ${meta.tone} p-2.5 space-y-2`}
+      data-testid={testId}
+    >
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide font-semibold">
+          <Sparkles className="w-3 h-3" />
+          Interpretación L5 vs L15
+        </div>
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-semibold ${meta.chip}`}
+          data-testid={`${testId}-decision`}
+        >
+          {meta.label}
+        </span>
+      </div>
+
+      {i.human_summary ? (
+        <p className="text-[11.5px] leading-snug text-slate-100/95" data-testid={`${testId}-summary`}>
+          {i.human_summary}
+        </p>
+      ) : null}
+
+      {/* Score + confidence adjustments */}
+      <div className="grid grid-cols-2 gap-2 text-[11px]">
+        <AdjustmentCell
+          label="Δ Score"
+          value={scoreAdj}
+          testId={`${testId}-score-adj`}
+        />
+        <AdjustmentCell
+          label="Δ Confianza"
+          value={confAdj}
+          testId={`${testId}-conf-adj`}
+        />
+      </div>
+
+      {/* Support meters */}
+      <div className="grid grid-cols-2 gap-2 text-[10.5px]">
+        <SupportMeter
+          label="Apoyo Over"
+          value={overScore}
+          max={16}
+          tone="emerald"
+          testId={`${testId}-over-support`}
+        />
+        <SupportMeter
+          label="Apoyo Under"
+          value={underScore}
+          max={16}
+          tone="sky"
+          testId={`${testId}-under-support`}
+        />
+      </div>
+
+      {explosiveBoost > 0 ? (
+        <div
+          className="text-[10.5px] text-orange-200 flex items-center gap-1.5"
+          data-testid={`${testId}-explosive-boost`}
+        >
+          <AlertTriangle className="w-3 h-3" />
+          Riesgo explosivo +{explosiveBoost} — vigila Overs y Runlines del favorito.
+        </div>
+      ) : null}
+
+      {volatilityWarning ? (
+        <div className="text-[10.5px] text-amber-200" data-testid={`${testId}-volatility`}>
+          {volatilityWarning}
+        </div>
+      ) : null}
+
+      {explanations.length > 0 ? (
+        <ul className="space-y-0.5" data-testid={`${testId}-explanations`}>
+          {explanations.map((e, idx) => (
+            <li
+              key={`exp-${idx}`}
+              className="flex gap-1.5 text-[11px] leading-snug text-slate-100/90"
+              data-testid={`${testId}-explanation-${idx}`}
+            >
+              <span className="text-slate-400 shrink-0">•</span>
+              <span>{e}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {decisionNotes.length > 0 ? (
+        <div className="pt-1 border-t border-slate-500/20 space-y-0.5" data-testid={`${testId}-notes`}>
+          {decisionNotes.map((n, idx) => (
+            <div
+              key={`note-${idx}`}
+              className="flex gap-1.5 text-[10.5px] leading-snug text-slate-200/90"
+              data-testid={`${testId}-note-${idx}`}
+            >
+              <span className="text-slate-500 shrink-0">↳</span>
+              <span>{n}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {i.impact_on_final_pick ? (
+        <div
+          className="text-[10.5px] italic text-slate-300/80 pt-1 border-t border-slate-500/20"
+          data-testid={`${testId}-impact`}
+        >
+          {i.impact_on_final_pick}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AdjustmentCell({ label, value, testId }) {
+  const n = Number(value || 0);
+  const tone = n > 0 ? 'text-emerald-300' : n < 0 ? 'text-rose-300' : 'text-slate-300';
+  return (
+    <div
+      className="rounded-md bg-black/30 border border-slate-700/30 p-2"
+      data-testid={testId}
+    >
+      <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-0.5">
+        {label}
+      </div>
+      <div className={`text-base tabular-nums font-semibold ${tone}`}>
+        {n > 0 ? '+' : ''}{n}
+      </div>
+    </div>
+  );
+}
+
+function SupportMeter({ label, value, max, tone, testId }) {
+  const pct = Math.max(0, Math.min(100, (Number(value || 0) / Math.max(1, max)) * 100));
+  const barCls = {
+    emerald: 'bg-emerald-500/70',
+    sky:     'bg-sky-500/70',
+  }[tone] || 'bg-slate-500/70';
+  return (
+    <div className="space-y-1" data-testid={testId}>
+      <div className="flex items-center justify-between text-[10px] text-slate-300">
+        <span>{label}</span>
+        <span className="tabular-nums text-slate-100 font-medium">{value}/{max}</span>
+      </div>
+      <div className="h-1.5 bg-slate-700/40 rounded-full overflow-hidden">
+        <div
+          className={`h-full ${barCls} transition-[width] duration-300`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }

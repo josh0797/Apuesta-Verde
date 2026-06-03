@@ -230,6 +230,53 @@
 
 ---
 
+## Phase MLB-FP4 — Recent Form v2 (schedule+boxscore) + Trend Interpreter
+**Estado:** ✅ COMPLETADO (2026-06-03)
+
+### MLB-FP4.1 Root-cause fix: L5 = L15 (Δ=0.0)
+- **Bug confirmado por screenshot del usuario**: el panel "Tendencia carreras 5 vs 15" mostraba valores idénticos para L5 y L15 (4.3/4.3, 12.0/12.0, etc.) porque el endpoint `/teams/{id}/stats?stats=lastXGames&limit=N` IGNORA el parámetro `limit` y devuelve el mismo agregado season-to-date para cualquier N.
+- **Fix**: rescritura completa de `services/mlb_recent_form_split.py` con `/schedule` + `/boxscore`:
+  1. `GET /api/v1/schedule?sportId=1&teamId={teamId}&startDate=-35d&endDate=today&gameType=R` → partidos FINAL.
+  2. Para cada `gamePk` (top-15 más recientes) → `GET /api/v1/game/{gamePk}/boxscore` → batting line del equipo.
+  3. Aggregate L15 y L5 separadamente; Δ_5_vs_15 calculado correctamente.
+- Cache de 12h (`_SCHEDULE_CACHE` + `_BOX_CACHE`), fail-soft total, paralelo con `asyncio.gather`.
+
+### MLB-FP4.2 Trend Interpreter — `services/mlb_trend_interpreter.py` (nuevo)
+- Capa de interpretación que consume `recent_run_split` + `on_base_profile` y produce señales accionables.
+- Reglas: TOB Δ ≥ +2.0 → strong_rising (over +16, explosive +12); ≥+1.5 → moderate (+10); ≤-2.0 → strong_declining (under +16); HR rising → over +4 + explosive +4.
+- Decisión `SUPPORTS_OVER / SUPPORTS_UNDER / MIXED / NEUTRAL` por diff ≥ 8.
+- Ajustes por mercado: Under + SUPPORTS_UNDER → +6/+6; Under + SUPPORTS_OVER → -12/-12; Mixed → -4/-4.
+- Runline +1.5 con lógica separada underdog vs favorite (UNDERDOG_OFFENSE_CAN_COMPETE, FAVORITE_OFFENSE_SURGING_AGAINST_RUNLINE, FAVORITE_POWER_SPIKE_RUNLINE_RISK).
+- Clamps: score ∈ [-15, +12], confidence ∈ [-12, +6].
+- Outputs incluyen `human_summary`, `human_explanations` (ES), `decision_notes`, `mixed_signals`, `impact_on_final_pick`, `per_side` breakdown.
+
+### MLB-FP4.3 Integración orchestrator
+- Tras computar `recent_form_payload`, se llama a `combine_trend_signals()` y se aplica:
+  - `pick_payload["trend_interpretation"]` (payload completo para UI + audit).
+  - `recommendation.confidence_score` += `confidence_adjustment` (clamped 0-100).
+  - `recommendation.confidence_trend_adjustment` (auditoría).
+  - `reason_codes` extendidos con los del interpreter.
+  - `underdog_side` derivado desde moneyline odds (home_ml > away_ml → home underdog).
+
+### MLB-FP4.4 UI — `TrendInterpretationBlock` (nuevo subcomponente)
+- Render justo debajo del bloque L5 vs L15 en `HistoricalProfilePanel.jsx`.
+- Decision chip (emerald/sky/amber/slate), human summary, grid 2× Δ Score + Δ Confianza con signo.
+- Barras de Apoyo Over / Apoyo Under (0-16).
+- Chip riesgo explosivo cuando `explosive_risk_boost > 0`.
+- Listas de `human_explanations` + `decision_notes`.
+- `impact_on_final_pick` italic al pie.
+
+### Validación
+- **312 tests PASS** (297 previos + 15 nuevos del interpreter + 8 nuevos del schedule scraper).
+- Cobertura: aggregate, scheduling mocked → L5 ≠ L15, empty/error fail-soft, strength bands, market-direction adjustments, mixed signals, runline +1.5, clamps.
+- ESLint + esbuild limpio. Backend reiniciado limpio.
+
+### Despliegue
+Cambios en **PREVIEW**. Para `https://low-volatility-plays.emergent.host` se necesita **redeploy** del usuario.
+
+---
+
+
 ## Phase MLB-FP3 — Live Engine v2 + Recent Form Split BB/HR/Hits
 **Estado:** ✅ COMPLETADO (2026-06-03)
 
