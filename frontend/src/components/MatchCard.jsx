@@ -21,6 +21,7 @@ import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
 import { MLBScriptPanel } from './MLBScriptPanel';
 import { MLBScriptV3Panel, MLBDiversityBadge, MLBBullpenSwapBadge, MLBOverSwapBadge, MLBFalseCompetitiveUnderdogBadge } from './MLBScriptV3Panel';
+import { MLBAdvancedStatsPanel } from './MLBAdvancedStatsPanel';
 import { InlineManualOddsInput } from './InlineManualOddsInput';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -432,6 +433,14 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           ilPenalty={m.il_penalty || null}
           testId={`mlb-script-${m.match_id}`}
         />
+      ) : null}
+
+      {/* MLB Advanced Stats + Sabermetrics + Market Selection (Phase 13.2).
+          Collapsible block surfacing the Statcast snapshot, WAR/OPS/FIP
+          sabermetrics summary and the final protected market selection.
+          Baseball-only and fail-soft: renders nothing if no data. */}
+      {sport === 'baseball' ? (
+        <MLBAdvancedStatsPanel pick={m} lang={lang} />
       ) : null}
 
       {/* Inline drivers preview + expand */}

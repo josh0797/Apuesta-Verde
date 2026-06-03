@@ -1,30 +1,26 @@
 [
   {
-    "content": "Explorar mlb_real_stats_verifier.py y advanced_stats_snapshot shape para entender campos disponibles (era, xera, ops, fip, war)",
+    "content": "Crear services/mlb_market_selection.py: select_protected_market(pick_payload) consume pressure_base, statcast, sabermetrics, ghost-edges, fragility, script survival, odds",
     "status": "completed"
   },
   {
-    "content": "Crear services/mlb_sabermetrics_layer.py con calculate_ops_profile / calculate_fip_profile / calculate_war_impact / calculate_sabermetric_context",
+    "content": "Cablear market_selection en mlb_day_orchestrator.py (post-fase 9.6, antes de market_lean_classifier)",
     "status": "completed"
   },
   {
-    "content": "Cablear sabermetrics_layer en mlb_day_orchestrator.py (peso 60/35/0 por data_quality, fail-soft, MLB-only)",
+    "content": "Tests pytest test_mlb_market_selection.py: F5 Under preferido / Run Line bloqueado / ML safer / Over no forzado / ghost-edge / hit pressure / missing odds / fail-soft / sport isolation",
     "status": "completed"
   },
   {
-    "content": "Fase 11: actualizar mlb_real_stats_verifier.py con detección de ghost-edges xERA/xwOBA + flag ERA_UNDERSTATES_RISK",
+    "content": "Fase 13.2 UI: MatchCard collapsible 'MLB Advanced Stats' + 'Sabermetría' + badges por fuente con data-testid",
     "status": "completed"
   },
   {
-    "content": "Crear tests pytest: test_mlb_sabermetrics_layer.py y test_mlb_real_stats_verifier_phase11.py",
-    "status": "completed"
+    "content": "Verificar pytest 661+ + lint Python + esbuild frontend",
+    "status": "in_progress"
   },
   {
-    "content": "Correr pytest completo (target 604+ tests) + lint Python",
-    "status": "completed"
-  },
-  {
-    "content": "Llamar testing_agent backend para regresión",
-    "status": "completed"
+    "content": "testing_agent backend + frontend para validación final",
+    "status": "pending"
   }
 ]

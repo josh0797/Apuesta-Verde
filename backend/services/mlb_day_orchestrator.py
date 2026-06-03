@@ -1770,6 +1770,33 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as _exc_sb:
             log.debug("mlb_sabermetrics_layer failed (fail-soft): %s", _exc_sb)
 
+        # ── MLB MARKET SELECTION INTELLIGENCE (Phase 13.1) ───────────────
+        # Final protective selection layer: picks the most defensible
+        # market given pressure_base + statcast + sabermetrics +
+        # ghost-edges + fragility + survival + odds availability.
+        # Fail-soft; never overrides moneyball guardrails.
+        try:
+            from .mlb_market_selection import select_protected_market
+            _ms_out = select_protected_market(pick_payload)
+            _ms = _ms_out.get("market_selection") or {}
+            pick_payload["market_selection"] = _ms
+            # Propagate reason codes
+            _existing_ms = pick_payload.get("reason_codes") or []
+            for _rc in (_ms.get("reason_codes") or []):
+                if _rc not in _existing_ms:
+                    _existing_ms.append(_rc)
+            pick_payload["reason_codes"] = _existing_ms
+            log.debug(
+                "[Phase13.1] market_selection: recommended=%s alt=%s conf=%s frag=%s watchlist=%s",
+                _ms.get("recommended_market"),
+                _ms.get("protected_alternative"),
+                _ms.get("market_confidence"),
+                _ms.get("fragility"),
+                _ms.get("watchlist"),
+            )
+        except Exception as _exc_ms:
+            log.debug("mlb_market_selection failed (fail-soft): %s", _exc_ms)
+
         # ── MLB MARKET LEAN — SINGLE SOURCE OF TRUTH ─────────────────────────
         # Fixes the UX contradiction reported by the user where the
         # "Historial profundo" badge showed LEAN OVER while the final
