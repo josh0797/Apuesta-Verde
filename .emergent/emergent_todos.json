@@ -1,30 +1,26 @@
 [
   {
-    "content": "Fix 1: Seed expandido THESTATSAPI_COMPETITION_MAP",
-    "status": "completed"
+    "content": "Create mlb_advanced_stats_helpers.py (extract_mlb_advanced_context + 4 scoring adjusters)",
+    "status": "in_progress"
   },
   {
-    "content": "Fix 2 Phase 1-7: Create mlb_statcast_adapter.py",
-    "status": "completed"
+    "content": "Create mlb_pressure_base.py (Objetivo 2 standalone module)",
+    "status": "pending"
   },
   {
-    "content": "Fix 2 Phase 2: Feature flags in .env",
-    "status": "completed"
+    "content": "Add explosive_inning reason codes (Fase 10)",
+    "status": "pending"
   },
   {
-    "content": "Fix 2 Phase 8: Wire into mlb_day_orchestrator + pipeline_meta",
-    "status": "completed"
+    "content": "Wire helpers + pressure into mlb_day_orchestrator (post-scoring adjustment)",
+    "status": "pending"
   },
   {
-    "content": "Fix 2 Phase 12: Storage hook (advanced_stats_snapshot persisted on pick_payload)",
-    "status": "completed"
-  },
-  {
-    "content": "Fix 2 Phase 14: Tests with mocks",
-    "status": "completed"
+    "content": "Tests for helpers + pressure module + reason codes",
+    "status": "pending"
   },
   {
     "content": "Run full pytest + lint + restart",
-    "status": "completed"
+    "status": "pending"
   }
 ]
