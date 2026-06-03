@@ -1336,12 +1336,29 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                     # Mirror into baseballHistoricalProfile so the
                     # HistoricalProfilePanel can render the L5-vs-L15
                     # comparison alongside the existing 15-game block.
+                    #
+                    # BUGFIX MLB-FIX3 — previously this block was guarded by
+                    # `if _hb:` which meant the camelCase mirrors (the only
+                    # form the UI panel reads) were never populated when
+                    # the baseballHistoricalProfile dict had not been
+                    # built yet by an earlier stage (small slates, missing
+                    # team_form fetch, etc.). We now ALWAYS initialise
+                    # the profile dict and mirror the three keys
+                    # unconditionally, then merge back. The UI rendering
+                    # contract (HistoricalProfilePanel) keys off these
+                    # exact field names; without the mirror they stay
+                    # `null` and the L5-vs-L15 block disappears.
                     _hb = pick_payload.get("baseballHistoricalProfile") or {}
-                    if _hb:
-                        _hb["recentRunSplit"]   = recent_form_payload["recent_run_split"]
-                        _hb["recentRunTrend"]   = recent_form_payload["recent_run_trend"]
-                        _hb["onBaseProfileL5"]  = recent_form_payload["on_base_profile"]
-                        pick_payload["baseballHistoricalProfile"] = _hb
+                    _hb["recentRunSplit"]   = recent_form_payload["recent_run_split"]
+                    _hb["recentRunTrend"]   = recent_form_payload["recent_run_trend"]
+                    _hb["onBaseProfileL5"]  = recent_form_payload["on_base_profile"]
+                    # 2026-06 — also expose F5 / first-inning so the
+                    # NRFI/YRFI markets have something to render.
+                    if recent_form_payload.get("f5_split"):
+                        _hb["f5Split"]          = recent_form_payload["f5_split"]
+                    if recent_form_payload.get("first_inning_split"):
+                        _hb["firstInningSplit"] = recent_form_payload["first_inning_split"]
+                    pick_payload["baseballHistoricalProfile"] = _hb
 
                     # ── TREND INTERPRETER ────────────────────────────────────
                     # Turn the raw L5/L15 splits into an actionable layer

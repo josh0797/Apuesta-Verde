@@ -853,6 +853,50 @@ async def _enrich_generic(client: httpx.AsyncClient, db, fx_raw: dict, is_live: 
             context_available=bool(ctx_home.get("position") or ctx_home.get("wins_total")),
             live_available=bool(live_stats),
         )
+
+        # MLB-TS1 Batch 3.5 — Pre-match enrichment via TheStatsAPI also
+        # for basketball + baseball. Symmetrical with the football path
+        # in `_enrich_football`. Only triggers when:
+        #   * the integration is enabled (env flag + key)
+        #   * the fixture has a TheStatsAPI raw id (rare on these sports
+        #     for now — typically only when API-Sports failed and we
+        #     fell back to a TheStatsAPI-only fixture), OR
+        #   * the fixture is pre-game (`is_live=False`) AND we have
+        #     team ids that look TheStatsAPI-shaped.
+        # Fully additive — failure is logged and discarded.
+        try:
+            from .external_sources import thestatsapi_client as _ts_client
+            from .external_sources import thestatsapi_enrichment as _ts_enrich
+            if _ts_client.is_enabled() and not is_live:
+                ts_raw_id = fx_raw.get("_thestatsapi_raw_id") or (
+                    fx_raw.get("_external_source_id")
+                    if fx_raw.get("_external_source") == "thestatsapi"
+                    else None
+                )
+                # For sports where we don't yet have per-fixture mapping
+                # we still attempt the team_stats fetches (the enrichment
+                # helper safely skips any branch with a missing id).
+                _ts_home_id = (fx_raw.get("teams", {}).get("home") or {}).get("_thestatsapi_id")
+                _ts_away_id = (fx_raw.get("teams", {}).get("away") or {}).get("_thestatsapi_id")
+                if ts_raw_id or _ts_home_id or _ts_away_id:
+                    ts_payload = await _ts_enrich.enrich_pre_match(
+                        client, db,
+                        sport=sport,
+                        match_raw_id=ts_raw_id,
+                        home_team_id=_ts_home_id,
+                        away_team_id=_ts_away_id,
+                        season=season,
+                        competition_id=fx_raw.get("league", {}).get("_thestatsapi_id"),
+                    )
+                    if ts_payload:
+                        match_doc["_thestatsapi_enrichment"] = ts_payload
+                        log.info(
+                            "[ts_enrichment] %s fixture %s enriched with TheStatsAPI (%s)",
+                            sport, fid, list(ts_payload.keys()),
+                        )
+        except Exception as exc:
+            log.warning("[ts_enrichment] %s fixture %s enrichment failed: %s", sport, fid, exc)
+
         await db.matches.update_one({"match_id": fid}, {"$set": match_doc}, upsert=True)
         if norm_odds.get("available"):
             await db.odds_snapshots.insert_one({"match_id": fid, "sport": sport, **norm_odds})

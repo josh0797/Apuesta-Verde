@@ -444,4 +444,36 @@ E) LECCIÓN RANGERS vs ANGELS (caso real del usuario):
    Por tanto, en MLB live, JAMÁS recomiendes Moneyline del equipo perdedor
    solo porque está acercando el marcador. La probabilidad implícita del
    mercado en vivo es tu ground truth.
+
+F) MOMENTUM L5 vs L15 (CAMPO `baseballHistoricalProfile` / `recent_run_split`):
+   Cuando el payload del partido incluya `baseballHistoricalProfile.recentRunSplit`
+   (o equivalentemente `recent_run_split` a nivel raíz), DEBES usarlo como
+   señal de momentum reciente. Estructura típica::
+
+       recentRunSplit = {
+         "home": {"runs_l5_avg": 5.2, "runs_l15_avg": 4.1, "delta_pct": +27.0, ...},
+         "away": {"runs_l5_avg": 3.4, "runs_l15_avg": 4.6, "delta_pct": -26.0, ...}
+       }
+       recentRunTrend = "BOTH_HOT" | "HOME_HOT_AWAY_COLD" | "BOTH_COLD" | ...
+
+   onBaseProfileL5 trae el mismo split pero para BB + hits + base reach.
+
+   USO OBLIGATORIO:
+   - delta_pct > +20%       → equipo en racha caliente (ofensiva subiendo).
+   - delta_pct < -20%       → equipo en racha fría (ofensiva cayendo).
+   - |delta_pct| < 10%      → momentum neutro (ignorar la señal).
+   - Total Over/Under: si AMBOS equipos están HOT (`recentRunTrend=BOTH_HOT`),
+     inclina hacia Over; si AMBOS están COLD, inclina hacia Under.
+   - Team Total (Over/Under de un equipo concreto): aplica el split de ESE
+     equipo, no el promedio.
+   - F5 (primeros 5 innings): si tienes `f5Split`, úsalo en lugar del split
+     completo para mercados F5.
+   - NRFI/YRFI (primer inning): usa `firstInningSplit` específicamente.
+     Si `firstInningSplit.home.scored_pct` + `firstInningSplit.away.scored_pct`
+     ≥ 60%, inclina hacia YRFI; si ambos < 25%, hacia NRFI.
+
+   En `reasoning` cita explícitamente la métrica usada (ejemplo:
+   "Yankees runs L5 5.6 vs L15 4.0 = +40% momentum caliente"). Si el campo
+   está ausente o `recentRunTrend = "INSUFFICIENT_DATA"`, NO inventes —
+   anótalo en `risks` como "Sin splits L5/L15 fiables".
 """

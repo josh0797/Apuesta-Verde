@@ -230,6 +230,60 @@
 
 ---
 
+## Phase MLB-FIX3 — Batch 3.5 + Allowlist TheStatsAPI IDs + MLB Prompt L5/L15
+**Estado:** ✅ COMPLETADO (2026-06-03)
+
+### Fix 1 (Batch 3.5) — TheStatsAPI enrichment also for basketball/baseball
+- `data_ingestion._enrich_generic`: añadido bloque simétrico al de fútbol que cablea `thestatsapi_enrichment.enrich_pre_match()` para basketball + baseball.
+- Trigger: `is_enabled()` AND `not is_live` AND (hay `_thestatsapi_raw_id` OR ids de teams TheStatsAPI). Fail-soft total.
+- Resultado: `match_doc._thestatsapi_enrichment` con la misma forma que en fútbol.
+
+### Fix 2 — Allowlist competitions con TheStatsAPI IDs
+- `football_competitions.py`:
+  - Nueva constante `THESTATSAPI_COMPETITION_MAP: dict[str, list[str]]` mapeando cada `canonical_name` → lista de raw IDs (`comp_NNNN`).
+  - Múltiples IDs por liga (acomoda quali, playoffs, women, etc.).
+  - **Seed verificado live**: `FIFA World Cup → ["comp_6107"]` (confirmado por el live response del 2026-06-03).
+  - Las otras Tier-1/Tier-2 quedan como `[]` esperando observación.
+- Nuevo helper `get_thestatsapi_competition_ids(canonical_name) -> list[str]`.
+- `get_competition_meta()` ahora incluye `thestatsapi_ids` en el descriptor devuelto. Los downstream consumers (aggregator/enrichment) pueden filtrar por comp_id sin hardcodear nada.
+- La lista devuelta es una **copia** (no live reference) — mutarla no corrompe el mapping global.
+
+### Fix 3 — Prompt MLB + populate L5/L15 fields
+- **Bug raíz**: `mlb_day_orchestrator.py:1340` guardaba el mirror con `if _hb:` — sólo poblaba `recentRunSplit/recentRunTrend/onBaseProfileL5` si `baseballHistoricalProfile` ya existía. Cuando estaba ausente (caso común en partidos con team_form parcial), los 3 campos **nunca llegaban al UI**.
+- **Fix orchestrator**: bloque incondicional — siempre inicializa `_hb = pick_payload.get("baseballHistoricalProfile") or {}` y persiste de vuelta. También expone `f5Split` + `firstInningSplit` cuando estén disponibles.
+- **Fix prompt**: nueva sección **F) MOMENTUM L5 vs L15** en `MLB_INTELLIGENCE_RULES` (`mlb_intelligence.py`):
+  - Documenta la estructura `baseballHistoricalProfile.recentRunSplit` (home/away, delta_pct).
+  - Reglas concretas: `delta_pct > +20%` = HOT, `< -20%` = COLD, `|·| < 10%` = neutro.
+  - Total Over/Under: BOTH_HOT → Over, BOTH_COLD → Under.
+  - Team Total: aplicar split del equipo en cuestión.
+  - F5: usar `f5Split` para mercados de primeros 5 innings.
+  - NRFI/YRFI: usar `firstInningSplit` (umbrales 60% / 25%).
+  - Obligación: citar la métrica usada en `reasoning` (ej: "Yankees L5 5.6 vs L15 4.0 = +40%").
+  - Anti-alucinación: si `recentRunTrend = INSUFFICIENT_DATA`, anotar en `risks`.
+
+### Validación
+- **520 tests PASS** (508 previos + 12 nuevos en `test_batch3_5_and_prompt_fixes.py`).
+- Cobertura:
+  - `get_thestatsapi_competition_ids` (known seed, unknown league, None, empty mapping, list es copia mutable-safe).
+  - `get_competition_meta` expone `thestatsapi_ids`.
+  - `MLB_INTELLIGENCE_RULES` contiene los keywords requeridos: `baseballHistoricalProfile`, `L5`, `L15`, `delta_pct`, `20%`, `F5`, `NRFI`, `YRFI`.
+  - Orchestrator mirror block — empty profile case y existing fields preservation.
+  - Smoke test del import path en `_enrich_generic`.
+- Lint Python: `football_competitions.py` clean. Errores residuales en `mlb_intelligence.py` son pre-existentes (no nuestros — el código original usa `if cond: stmt` en una línea).
+- Backend reiniciado limpio (todos los jobs APScheduler activos).
+
+### Despliegue
+Cambios en **PREVIEW**. Producción requiere redeploy del usuario.
+
+### Próximas iteraciones pendientes
+- Seed más completo de `THESTATSAPI_COMPETITION_MAP` conforme se observen IDs en la live response.
+- Re-correr análisis MLB con la nueva sección F del prompt para validar que el LLM cita los splits.
+- Batch B (P1): `mlb_statcast_adapter` (Bright Data + pybaseball fallback).
+- Batch C (P2): `football_territorial_intelligence` (xT proxy).
+
+---
+
+
 ## Phase MLB-FIX2 + MLB-TS1 (Batch 3) — Bugfix MLB lookup + Batch 3 enrichment/sources/UI
 **Estado:** ✅ COMPLETADO (2026-06-03)
 

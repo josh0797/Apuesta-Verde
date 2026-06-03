@@ -312,7 +312,72 @@ def get_competition_meta(league_name: Optional[str]) -> Optional[dict]:
         "priority": tier_cfg["priority"],
         "type": comp.get("type"),
         "region": comp.get("region"),
+        # MLB-TS1 Batch 3.5 / Fix 2 — surface TheStatsAPI raw competition
+        # ids (if seeded for this league). The aggregator + enrichment
+        # consume this to filter / hydrate per-competition queries
+        # without hardcoding ids further down the stack.
+        "thestatsapi_ids": get_thestatsapi_competition_ids(comp["name"]),
     }
+
+
+# ── TheStatsAPI competition-id mapping ───────────────────────────────────────
+# Maps each canonical competition name to a list of raw TheStatsAPI ids
+# (``comp_NNNN`` strings). Multiple ids per league are allowed because
+# TheStatsAPI sometimes splits qualifying campaigns / women / playoffs into
+# separate comp documents (e.g. ``comp_6107`` for FIFA World Cup 2026 vs
+# ``comp_6201`` for FIFA WC Qualifying CONMEBOL). The list is intentionally
+# **seeded conservatively** — only ids we've verified via the live API
+# response. Add new mappings as they're observed:
+#
+#   1. Hit ``GET /football/competitions`` (cached 24h).
+#   2. Locate the entry whose ``name`` matches one of our canonical names.
+#   3. Append ``raw_id`` to the list below.
+#
+# Empty list = no mapping known yet (consumers must NOT pass
+# ``competition_id`` to TheStatsAPI in that case).
+THESTATSAPI_COMPETITION_MAP: dict[str, list[str]] = {
+    # ── Tier 1 internationals ────────────────────────────────────────
+    "FIFA World Cup":                 ["comp_6107"],   # verified 2026-06-03 live response
+    "UEFA Champions League":          [],
+    "UEFA Europa League":             [],
+    "UEFA Conference League":         [],
+    "UEFA European Championship":     [],
+    "Copa América":                   [],
+    "Copa Libertadores":              [],
+    "CONCACAF Gold Cup":              [],
+    "FIFA Club World Cup":            [],
+    # ── Tier 1 domestic ──────────────────────────────────────────────
+    "Premier League":                 [],
+    "LaLiga":                         [],
+    "Serie A":                        [],
+    "Bundesliga":                     [],
+    "Ligue 1":                        [],
+    "Liga MX":                        [],
+    # ── Tier 2 cups / nat. teams qualifying ──────────────────────────
+    "FA Cup":                         [],
+    "EFL Cup":                        [],
+    "Copa del Rey":                   [],
+    "Coppa Italia":                   [],
+    "DFB-Pokal":                      [],
+    "Coupe de France":                [],
+    # Add more as we observe their ids in the wild.
+}
+
+
+def get_thestatsapi_competition_ids(canonical_name: str | None) -> list[str]:
+    """Return the list of TheStatsAPI raw competition ids for a league.
+
+    Returns ``[]`` when:
+      * ``canonical_name`` is None / empty
+      * the canonical name is not in the mapping
+      * the mapping exists but is empty (id unknown yet)
+
+    Callers that need to pass a ``competition_id`` to TheStatsAPI MUST
+    branch on a non-empty list — never blindly index the first element.
+    """
+    if not canonical_name:
+        return []
+    return list(THESTATSAPI_COMPETITION_MAP.get(canonical_name) or [])
 
 
 # Country/qualifier hints that, when present in the raw league name, signal
