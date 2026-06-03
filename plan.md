@@ -230,6 +230,55 @@
 
 ---
 
+## Phase MLB-FP6 — Batch A: Odds Value Engine + Ghost-Edge L5/L15
+**Estado:** ✅ COMPLETADO (2026-06-03)
+
+### Auditoría previa
+- `moneyball_layer.py` ya tenía `implied_probability` + `compute_expected_value` + `classify_pick`.
+- `market_guardrail.py` ya tenía `evaluate_pick` + `estimated_probability_from_confidence`.
+- `mlb_script_conflict.py` ya tenía `parse_manual_odds` + `calculate_manual_edge`.
+- **Faltaba**: consolidar todo en un value-layer puro + agregar `detect_line_movement` + `compare_bookmaker_odds` + `evaluate_market` con `market_status`.
+
+### MLB-FP6.1 `services/odds_value_engine.py` (nuevo)
+- `normalize_decimal_odds()` — acepta decimal (`1.85`/`1,85`), American (`-110`/`+150`), fractional (`9/4`).
+- `parse_midpoint_odds()` — extrae midpoint de rangos `"1.80-1.95"` o `"1,80 / 1,95"`.
+- `implied_probability()` — 1/odds.
+- `calculate_edge()` — verdict `VALUE`/`FAIR_VALUE`/`NO_VALUE`/`UNKNOWN` con threshold ±3%.
+- `calculate_expected_value()` — EV unit-stake + ROI%.
+- `detect_line_movement()` — line+odds deltas, `direction` (toward_over/under/favorite/underdog/stable), `steam_detected` heurístico.
+- `compare_bookmaker_odds()` — pick best price + spread% + avg/median.
+- `evaluate_market()` — payload canónico unificado con `market_status`: `priced` / `manual_odds_required` / `no_odds`.
+
+### MLB-FP6.2 Ghost-edge L5/L15 en `mlb_real_stats_verifier.py`
+- Nuevos kwargs: `recent_run_split`, `on_base_profile`, `f5_split`.
+- 4 nuevos checks de ghost-edge:
+  - `GHOST_EDGE_UNDER_VS_L5_HIGH_SCORING` — L5 ≥ ER+2.5 con pick Under → +18 penalty.
+  - `GHOST_EDGE_OVER_VS_L5_LOW_SCORING` — L5 ≤ ER−2.5 con pick Over → +14 penalty.
+  - `RECENT_RUN_TREND_CONTRADICTS_UNDER/OVER` — L5 vs L15 contradice el pick por ≥2.0 → +8.
+  - `GHOST_EDGE_F5_UNDER_VS_L5` — F5 markets con divergencia ≥1.2 runs → +12.
+  - `GHOST_EDGE_RISING_ON_BASE_VS_UNDER` — TOB Δ ≥ +2.5 vs Under → +10.
+- Penalty cap subido de 35 a 45 (más checks).
+
+### MLB-FP6.3 Cableado en orchestrator
+- `verify_model_inputs()` ahora recibe `recent_run_split`/`on_base_profile`/`f5_split` desde el `pick_payload`.
+- Tras `moneyball_layer.analyze_pick`, también se attacha `_odds_value` (de `evaluate_market`) en cada pick — additive, no rompe la clasificación moneyball.
+
+### Validación
+- **398 tests PASS** (351 previos + 47 nuevos: 35 sobre odds_value_engine y 12 sobre ghost-edge L5/L15).
+- Cobertura: 8 formatos de odds parametrizados (decimal/American/fractional/comma), edge VALUE/FAIR/NO_VALUE/UNKNOWN, EV positivo/negativo, line movement con steam, compare_bookmaker con entries inválidos, evaluate_market en 4 escenarios (`priced`, `manual_odds_required`, `no_odds`, best-of-N), 6 escenarios ghost-edge incluyendo cap=45.
+- Backend reinició limpio.
+
+### Despliegue
+Cambios en **PREVIEW**. Para `https://low-volatility-plays.emergent.host` se necesita **redeploy** del usuario.
+
+### Pendiente para próximas iteraciones
+- **Batch B**: `mlb_statcast_adapter` con Bright Data scraper como fuente principal + `pybaseball` como fallback. Output: xERA/xwOBA/hard_hit_pct/barrel_pct/whiff_pct para pitchers y batting.
+- **Batch C**: mejorar `live_territorial_control` con xT proxy (xG + shots + posesión + corners + entradas al área) y adapter stub para socceraction.
+- **Arbitrage finder**: separado, cuando haya multi-bookmaker data.
+
+---
+
+
 ## Phase MLB-FP5 — StatMuse Fallback + F5 / Team Total / NRFI-YRFI
 **Estado:** ✅ COMPLETADO (2026-06-03)
 

@@ -1829,6 +1829,12 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 verification = await verify_model_inputs(
                     db, scoring_ctx_for_verify, base_er,
                     chosen_market.get("market") if chosen_market else None,
+                    # 2026-06: ghost-edge L5/L15 layer. Reads the
+                    # recent_form payload we attached earlier in this
+                    # function; fail-soft when not present.
+                    recent_run_split=pick_payload.get("recent_run_split"),
+                    on_base_profile=pick_payload.get("on_base_profile"),
+                    f5_split=pick_payload.get("f5_split"),
                 )
                 pick_payload["model_verification"] = verification
                 # Apply confidence penalty to chosen_market score.
@@ -3200,6 +3206,31 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                         continue
                     _p["_market_edge"] = _res.get("_market_edge")
                     _p["_moneyball"]   = _res.get("_moneyball")
+                    # 2026-06 — Odds Value Engine: richer line_movement +
+                    # multi-bookmaker comparison payload. Additive; the
+                    # moneyball classification still drives routing.
+                    try:
+                        from .odds_value_engine import evaluate_market as _ove_eval
+                        _rec = _p.get("recommendation") or {}
+                        _model_p = None
+                        _conf = _rec.get("confidence_score")
+                        if isinstance(_conf, (int, float)):
+                            _model_p = max(0.0, min(1.0, float(_conf) / 100.0))
+                        _odds_value = _ove_eval(
+                            odds_range=_rec.get("odds_range"),
+                            decimal_odds=_rec.get("recommended_odds"),
+                            bookmaker_quotes=_p.get("bookmaker_quotes"),
+                            model_probability=_model_p,
+                            opening_line=(_p.get("opening_odds") or {}).get("line"),
+                            current_line=(_p.get("current_odds") or {}).get("line"),
+                            opening_odds=(_p.get("opening_odds") or {}).get("odds"),
+                            current_odds=(_p.get("current_odds") or {}).get("odds"),
+                            market_side=_rec.get("market_side"),
+                            stake=10.0,
+                        )
+                        _p["_odds_value"] = _odds_value
+                    except Exception as _exc_ove:
+                        log.debug("odds_value_engine attach failed: %s", _exc_ove)
                     _mb_evaluated += 1
                     _mb_edge = (_res.get("_market_edge") or {}).get("edge")
                     _cls = (_res.get("_moneyball") or {}).get("classification") \
