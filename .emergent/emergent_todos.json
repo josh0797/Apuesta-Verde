@@ -1,26 +1,30 @@
 [
   {
-    "content": "Create mlb_advanced_stats_helpers.py (extract_mlb_advanced_context + 4 scoring adjusters)",
+    "content": "Crear services/mlb_pressure_base.py con calculate_team_pressure_base + calculate_match_pressure_context (umbrales del usuario)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 9: cablear compute_all_advanced_adjustments en mlb_day_orchestrator con ponderación 60/35/0 según data_quality y guardar raw+weighted en metadata",
+    "status": "completed"
+  },
+  {
+    "content": "Cablear pressure_base en orchestrator (Under fragility upgrade cuando HIGH_PRESSURE, etc.)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 10: añadir detector statcast-contact en mlb_explosive_inning_engine.py (fail-soft, capped, nuevos reason codes)",
+    "status": "completed"
+  },
+  {
+    "content": "Crear tests pytest: test_mlb_pressure_base.py + test_mlb_advanced_stats_wiring.py + test_explosive_statcast.py",
+    "status": "completed"
+  },
+  {
+    "content": "Correr pytest suite completa (target >550 PASS) + lint Python",
+    "status": "completed"
+  },
+  {
+    "content": "Llamar testing_agent backend para regresión",
     "status": "in_progress"
-  },
-  {
-    "content": "Create mlb_pressure_base.py (Objetivo 2 standalone module)",
-    "status": "pending"
-  },
-  {
-    "content": "Add explosive_inning reason codes (Fase 10)",
-    "status": "pending"
-  },
-  {
-    "content": "Wire helpers + pressure into mlb_day_orchestrator (post-scoring adjustment)",
-    "status": "pending"
-  },
-  {
-    "content": "Tests for helpers + pressure module + reason codes",
-    "status": "pending"
-  },
-  {
-    "content": "Run full pytest + lint + restart",
-    "status": "pending"
   }
 ]

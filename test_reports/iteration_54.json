@@ -1,0 +1,112 @@
+{
+  "summary": "Completed comprehensive testing of Phase 9 (Advanced Stats Adjustments), Phase 10 (Statcast Contact Context), and Objetivo 2 (Offensive Pressure Base) implementation. All 604 pytest tests pass (550 previous + 54 new), backend boots cleanly, all API endpoints respond correctly, module imports work, and fail-soft behavior verified.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [],
+    "notes": "Zero backend issues found. All systems operational."
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "notes": "Frontend testing not required per testing_type: 'backend only'"
+  },
+  "passed_tests": [
+    "Backend boot without errors - supervisor logs clean",
+    "Module imports: mlb_pressure_base (calculate_match_pressure_context, derive_pressure_impact_for_under_pick)",
+    "Module imports: mlb_explosive_inning_engine (_detect_statcast_contact_context, evaluate_explosive_inning)",
+    "Pytest suite: 604/604 tests passed (100% success rate)",
+    "New test files: test_mlb_pressure_base_objetivo2.py (18 tests)",
+    "New test files: test_mlb_explosive_inning_statcast_phase10.py (12 tests)",
+    "New test files: test_mlb_advanced_stats_phase9_wiring.py (16 tests)",
+    "Fail-soft behavior: evaluate_explosive_inning({}) returns valid dict with statcast_contact=0",
+    "API endpoint: POST /api/auth/login (200 OK, token obtained)",
+    "API endpoint: GET /api/picks/today?sport=baseball (200 OK, empty list valid)",
+    "API endpoint: GET /api/picks/today?sport=football (200 OK)",
+    "API endpoint: GET /api/debug/thestatsapi/health?probe=true (200 OK, enabled=true)",
+    "API endpoint: GET /api/analysis/jobs (200 OK)",
+    "API endpoint: GET /api/meta/sports (200 OK, sports: football, basketball, baseball)",
+    "Phase 9 wiring verified in mlb_day_orchestrator.py (lines 1519-1632)",
+    "Phase 9: Data quality weighting implemented (strong=60%, partial=35%, missing=0%)",
+    "Phase 9: Metadata persistence in pick_payload['advanced_adjustments'] with raw_breakdown and weighted_adjustment",
+    "Objetivo 2 wiring verified in mlb_day_orchestrator.py (lines 1633-1689)",
+    "Objetivo 2: Uses baseballHistoricalProfile.recentRunSplit as input (per user spec)",
+    "Objetivo 2: Thresholds match specification (HIGH: hits≥9.0 AND runs≤3.5, MODERATE: hits≥8.0 AND runs≤4.0, LOW: hits≤6.5 AND runs≤3.5)",
+    "Phase 10: _detect_statcast_contact_context() integrated in mlb_explosive_inning_engine.py",
+    "Phase 10: statcast_contact bucket added to score_contributions (capped at ±8)",
+    "Phase 10: Fail-soft behavior for missing advanced_stats_snapshot"
+  ],
+  "test_report_links": [
+    "/app/backend_test.py",
+    "/app/backend/tests/test_mlb_pressure_base_objetivo2.py",
+    "/app/backend/tests/test_mlb_explosive_inning_statcast_phase10.py",
+    "/app/backend/tests/test_mlb_advanced_stats_phase9_wiring.py"
+  ],
+  "success_percentage": {
+    "backend": "100% (604/604 pytest tests + 6/6 API endpoints + 2/2 module imports + 1/1 fail-soft test)",
+    "frontend": "N/A (not tested per testing_type: backend only)"
+  },
+  "updated_files": [
+    "/app/backend_test.py"
+  ],
+  "action_item_for_main_agent": "",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  "detailed_verification": {
+    "phase_9_advanced_stats": {
+      "status": "VERIFIED",
+      "location": "/app/backend/services/mlb_day_orchestrator.py lines 1519-1632",
+      "key_features": [
+        "compute_all_advanced_adjustments() called after advanced_stats_snapshot persistence",
+        "Data quality weighting: strong=60%, partial=35%, thin=35%, missing=0%",
+        "Adjustments capped at ±15 per helper internally",
+        "Weighted confidence delta applied to recommendation.confidence_score",
+        "Metadata saved in pick_payload['advanced_adjustments'] with raw_breakdown and weighted_adjustment",
+        "Reason codes propagated to pick_payload['reason_codes']",
+        "Fail-soft: exceptions caught and logged without breaking orchestrator"
+      ],
+      "test_coverage": "16 tests in test_mlb_advanced_stats_phase9_wiring.py"
+    },
+    "phase_10_statcast_contact": {
+      "status": "VERIFIED",
+      "location": "/app/backend/services/mlb_explosive_inning_engine.py lines 708-833",
+      "key_features": [
+        "_detect_statcast_contact_context() function added",
+        "Reads metrics['advanced_stats_snapshot'] (canonical shape from mlb_statcast_adapter)",
+        "Adjusts pressure score based on pitcher barrel_pct_allowed, hard_hit_pct_allowed, xwoba_allowed",
+        "Considers batting team power profile (team_barrel_pct, team_xwoba)",
+        "Cooling factor for both pitchers with low contact metrics",
+        "Capped at ±8 points (single helper budget)",
+        "Integrated into evaluate_explosive_inning() with statcast_contact bucket in score_contributions",
+        "Fail-soft: missing snapshot returns (0, [], [], {})"
+      ],
+      "test_coverage": "12 tests in test_mlb_explosive_inning_statcast_phase10.py"
+    },
+    "objetivo_2_pressure_base": {
+      "status": "VERIFIED",
+      "location": "/app/backend/services/mlb_pressure_base.py + mlb_day_orchestrator.py lines 1633-1689",
+      "key_features": [
+        "calculate_match_pressure_context() builds full pressure_base payload",
+        "Uses baseballHistoricalProfile.recentRunSplit as input (per user spec)",
+        "Thresholds: HIGH (hits≥9.0 AND runs≤3.5), MODERATE (hits≥8.0 AND runs≤4.0), LOW (hits≤6.5 AND runs≤3.5), NEUTRAL (otherwise)",
+        "Combined tier classification (sum of home + away)",
+        "Live hits acceleration override (delta ≥3 promotes tier)",
+        "derive_pressure_impact_for_under_pick() applies confidence and fragility deltas",
+        "Under picks at HIGH pressure: fragility_delta=+8, confidence_delta=-7",
+        "Under picks at MODERATE pressure: fragility_delta=+5, confidence_delta=-4",
+        "Under picks at LOW pressure: fragility_delta=-3, confidence_delta=+2",
+        "Reason codes: RC_UNDER_PICK_HIGH_PRESSURE, RC_UNDER_PICK_MODERATE_PRESSURE, RC_LOW_PRESSURE_CONTROLLED",
+        "Fail-soft: missing data returns {available: False, ...}"
+      ],
+      "test_coverage": "18 tests in test_mlb_pressure_base_objetivo2.py"
+    }
+  },
+  "regression_check": {
+    "status": "PASSED",
+    "previous_tests": 550,
+    "new_tests": 54,
+    "total_tests": 604,
+    "all_passed": true,
+    "notes": "Zero regressions detected. All previous functionality intact."
+  }
+}

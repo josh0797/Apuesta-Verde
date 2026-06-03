@@ -703,6 +703,136 @@ def _build_avoid_markets(state: str,
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Phase 10 — Statcast contact detector (pregame Statcast context)
+# ─────────────────────────────────────────────────────────────────────
+def _detect_statcast_contact_context(
+    metrics: dict,
+    pitching_side: Optional[str],
+    batting_side: Optional[str],
+) -> tuple[int, list[str], list[str], dict]:
+    """Adjust the inning pressure with pregame Statcast contact context.
+
+    Reads ``metrics["advanced_stats_snapshot"]`` (canonical shape from
+    ``mlb_statcast_adapter``). Fail-soft: returns ``(0, [], [], {})`` if
+    snapshot missing or incomplete.
+
+    Sign convention (additive to pressure score, capped at ±8):
+      * pitcher serving (pitching side) high barrel/hard-hit/xwOBA
+        allowed → +pressure (explosive risk).
+      * batting side team_barrel_pct & team_xwoba elevated → +pressure.
+      * Both starters with low hard-contact + low xwOBA allowed
+        → -pressure (cooling factor).
+    """
+    snap = metrics.get("advanced_stats_snapshot")
+    if not isinstance(snap, dict):
+        return 0, [], [], {}
+
+    def _pitcher(side: str) -> dict:
+        blk = snap.get(f"{side}_pitcher_advanced") or {}
+        return (blk.get("pitcher") or {}) if isinstance(blk, dict) else {}
+
+    def _team(side: str) -> dict:
+        blk = snap.get(f"{side}_team_advanced") or {}
+        return (blk.get("team") or {}) if isinstance(blk, dict) else {}
+
+    home_p = _pitcher("home")
+    away_p = _pitcher("away")
+    home_t = _team("home")
+    away_t = _team("away")
+
+    # Resolve which pitcher is currently serving + which team is batting.
+    # If the caller does not supply sides, fall back to "either" worst-case
+    # (we only react to the most fragile pitcher on the mound).
+    serving_p: dict = {}
+    batting_t: dict = {}
+    if pitching_side == "home":
+        serving_p = home_p
+        batting_t = away_t  # away bats when home pitches
+    elif pitching_side == "away":
+        serving_p = away_p
+        batting_t = home_t
+    else:
+        # Use the more fragile of the two as a conservative fallback.
+        bar_h = home_p.get("barrel_pct_allowed") or 0
+        bar_a = away_p.get("barrel_pct_allowed") or 0
+        serving_p = home_p if bar_h >= bar_a else away_p
+        if batting_side == "home":
+            batting_t = home_t
+        elif batting_side == "away":
+            batting_t = away_t
+
+    pts = 0
+    codes: list[str] = []
+    humans: list[str] = []
+    flags: dict[str, Any] = {}
+
+    # Pitcher fragility — Barrel %
+    bar = serving_p.get("barrel_pct_allowed")
+    if bar is not None and bar >= 9.0:
+        pts += 4
+        codes.append("BARREL_RISK_ELEVATED")
+        humans.append(
+            f"Lanzador permite barrel% ≥9% (actual {bar:.1f}%) — riesgo elevado de inning explosivo."
+        )
+        flags["pitcher_barrel_high"] = True
+
+    # Pitcher fragility — Hard hit %
+    har = serving_p.get("hard_hit_pct_allowed")
+    if har is not None and har >= 42.0:
+        pts += 3
+        if "STATCAST_HARD_CONTACT_SUPPORT" not in codes:
+            codes.append("STATCAST_HARD_CONTACT_SUPPORT")
+        humans.append(
+            f"Lanzador permite hard-hit% ≥42% (actual {har:.1f}%) — bombardeo probable."
+        )
+        flags["pitcher_hard_hit_high"] = True
+
+    # Pitcher xwOBA allowed
+    xw_p = serving_p.get("xwoba_allowed")
+    if xw_p is not None and xw_p >= 0.345:
+        pts += 3
+        if "PITCHER_XWOBA_WARNING" not in codes:
+            codes.append("PITCHER_XWOBA_WARNING")
+        humans.append(
+            f"xwOBA permitida ≥0.345 (actual {xw_p:.3f}) — calidad de contacto contra el abridor es alta."
+        )
+        flags["pitcher_xwoba_high"] = True
+
+    # Batting team power profile (only when we know who's at bat)
+    if batting_t:
+        t_bar = batting_t.get("team_barrel_pct")
+        t_xw = batting_t.get("team_xwoba")
+        if t_bar is not None and t_bar >= 9.0 and t_xw is not None and t_xw >= 0.330:
+            pts += 3
+            codes.append("POWER_BAT_STATCAST_SUPPORT")
+            humans.append(
+                f"Equipo al bate con perfil power (barrel% {t_bar:.1f}, xwOBA {t_xw:.3f})."
+            )
+            flags["batting_power_profile"] = True
+
+    # Cooling factor — both pitchers strong (rare but useful)
+    if home_p and away_p:
+        h_xw = home_p.get("xwoba_allowed")
+        a_xw = away_p.get("xwoba_allowed")
+        h_bar = home_p.get("barrel_pct_allowed")
+        a_bar = away_p.get("barrel_pct_allowed")
+        if (h_xw is not None and h_xw <= 0.305
+                and a_xw is not None and a_xw <= 0.305
+                and (h_bar is None or h_bar <= 6.5)
+                and (a_bar is None or a_bar <= 6.5)):
+            pts -= 4
+            codes.append("LOW_HARD_CONTACT_ENVIRONMENT")
+            humans.append(
+                "Ambos abridores con xwOBA permitida ≤0.305 y barrel% ≤6.5 — ambiente cooled."
+            )
+            flags["env_cooled"] = True
+
+    # Clamp at ±8 (single helper budget)
+    pts = max(-8, min(8, pts))
+    return pts, codes, humans, flags
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Main entry point
 # ─────────────────────────────────────────────────────────────────────
 def evaluate_explosive_inning(metrics: dict,
@@ -736,6 +866,13 @@ def evaluate_explosive_inning(metrics: dict,
     # two-out rally needs base flags
     pts_2o, codes_2o, hum_2o = _detect_two_out_rally(metrics, base_flags_full)
 
+    # Phase 10 — Statcast contact context (pregame snapshot adjustment).
+    pts_sc, codes_sc, hum_sc, flags_sc = _detect_statcast_contact_context(
+        metrics,
+        pitching_side=(_safe_str(metrics.get("pitching_team")) or "").lower() or None,
+        batting_side=batting_side,
+    )
+
     contribs = {
         "base_traffic":   pts_base,
         "command":        pts_cmd,
@@ -743,6 +880,7 @@ def evaluate_explosive_inning(metrics: dict,
         "lineup":         pts_lin,
         "bullpen":        pts_bp,
         "two_out_rally":  pts_2o,
+        "statcast_contact": pts_sc,
     }
     pressure_score = float(sum(contribs.values()))
     pressure_score = max(0.0, min(100.0, pressure_score))
@@ -753,9 +891,9 @@ def evaluate_explosive_inning(metrics: dict,
 
     # ── reason codes / human reasons ──────────────────────────────
     reason_codes = (codes_base + codes_cmd + codes_hc + codes_lin
-                    + codes_bp + codes_2o)
+                    + codes_bp + codes_2o + codes_sc)
     human_reasons = (hum_base + hum_cmd + hum_hc + hum_lin
-                      + hum_bp + hum_2o)
+                      + hum_bp + hum_2o + hum_sc)
 
     # ── state classification ──────────────────────────────────────
     state_flags = {
