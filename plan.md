@@ -230,6 +230,96 @@
 
 ---
 
+## Phase MLB-TS1 — TheStatsAPI Integration (Football national teams + internacionales)
+**Estado:** ✅ COMPLETADO (2026-06-03)
+
+### Decisiones de diseño (alineadas con usuario)
+- TheStatsAPI actúa como **provider aditivo + fallback** para fútbol. No reemplaza API-Sports.
+- API key en `/app/backend/.env` (`THESTATSAPI_KEY`, `THESTATSAPI_BASE_URL`, `ENABLE_THE_STATS_API=true`).
+- Fail-soft total: cualquier 4xx/5xx/timeout/llave faltante → orchestrator sigue con API-Sports.
+- Tests usan `httpx.MockTransport` — CI no llama nunca a la API real.
+
+### MLB-TS1.1 `services/external_sources/thestatsapi_client.py` (nuevo)
+- `httpx.AsyncClient` con rate-limit interno (60 req/min default vía `THESTATSAPI_RATE_LIMIT`).
+- Retry idempotente (1) en 429/5xx con backoff (0.6s × attempt). Sin retry en 4xx no-auth.
+- `is_enabled()` requiere flag ON **y** key presente.
+- 4 endpoints públicos: `fetch_competitions`, `fetch_live_matches`, `fetch_fixtures`, `fetch_match_stats`.
+- `health_check()` para el endpoint de diagnóstico.
+- Helper `_extract_list()` para parsear los 4 wrappers conocidos (`matches`, `data`, `response`, `results`).
+
+### MLB-TS1.2 `services/external_sources/thestatsapi_normalizer.py` (nuevo)
+- Convierte payloads TheStatsAPI → shape API-Sports (`fixture/league/teams/goals`).
+- IDs string (`mt_370102627`, `tm_28025`, `comp_6107`) → namespaced int (`900_000_000 + N`):
+  - Prefijo alpha stripeado y parseado.
+  - Strings sin dígitos → hash determinístico blake2b 4-byte (idempotente para dedupe).
+  - Sin colisión con IDs de API-Sports (rango 1..~1.5M).
+- Status map: 14 variantes TheStatsAPI → códigos cortos API-Sports (`NS/1H/HT/2H/FT/ET/P`).
+- Soporta `utc_date`, `utcDate`, `date`, `kickoff`, unix int/float (ms o s).
+- `build_competitions_index(raw_list)` → `{raw_id: meta}` para enriquecer matches que sólo traen `competition_id`.
+- Drop graceful de payloads malformados (sin teams, sin id, sin kickoff).
+
+### MLB-TS1.3 `services/external_sources/thestatsapi_cache.py` (nuevo)
+- Colección `external_source_cache` con clave `(source, endpoint, key)`.
+- TTLs configurados (per spec usuario): `competitions=24h`, `live_matches=40s`, `fixtures=5min`, `match_stats=3min`.
+- `cache_get/set/clear` totalmente fail-soft (db=None ok, write fail ok).
+
+### MLB-TS1.4 `services/football_live_aggregator.py` (nuevo)
+- `fetch_live_football_fixtures(client, db)`:
+  - Lanza en paralelo API-Sports + TheStatsAPI (`asyncio.gather`).
+  - Si TheStatsAPI deshabilitado o falla → behavior idéntico al baseline `af.fixtures_live(client)`.
+  - Si API-Sports falla → retorna sólo los de TheStatsAPI (mejor que nada).
+- `merge_and_deduplicate(primary, secondary)`:
+  - Dedupe key: `(normalized_home, normalized_away)` + ventana de 60min en kickoff_ts.
+  - Normalización de nombres: strip accents + remove suffixes (FC, CF, AC, SC, etc.) + lowercase.
+  - Primary gana; al detectar duplicado, mergea `_external_sources_covered` (`["api_sports", "thestatsapi"]`).
+- Precarga competitions index en paralelo a live_matches (1 round-trip) para enriquecer league.name + is_international.
+
+### MLB-TS1.5 Cableado en pipeline
+- `data_ingestion.ingest_live(sport="football")` → llama al aggregator en lugar de `af.fixtures_live` directo.
+- `_enrich_football` ahora propaga `external_source`, `external_sources_covered`, `is_national_team`, `is_international` al `match_doc`.
+- `services/provenance.py::SOURCE_LABELS` añade `thestatsapi → "TheStatsAPI"`.
+- `server.py` propaga estos campos en el bucle de candidates→picks (junto a `_provenance` y `_football_quality`).
+
+### MLB-TS1.6 Endpoint de diagnóstico
+- `GET /api/debug/thestatsapi/health?probe=true` (autenticado):
+  - `enabled`, `key_present`, `base_url`, `now`.
+  - Si `probe=true` y enabled → `reachable`, `competitions_count`.
+  - Nunca devuelve la API key.
+- **Validado en vivo**: response `{"enabled": true, "reachable": true, "competitions_count": 20}`.
+
+### MLB-TS1.7 UI badges en `MatchCard.jsx`
+- Badge violeta **"TheStatsAPI"** (sólo fútbol) cuando `external_source === "thestatsapi"` o lista `external_sources_covered` lo incluye.
+- Badge ámbar **"Selecciones"** (sólo fútbol) cuando `is_national_team` o `is_international`.
+- Tooltips i18n EN/ES.
+- `data-testid="pick-thestatsapi-badge-{match_id}"`, `data-testid="pick-national-team-badge-{match_id}"`.
+
+### Validación
+- **441 tests PASS** (398 previos + 43 nuevos en `test_thestatsapi_integration.py`).
+- Cobertura:
+  - Client env flags (enabled/disabled/missing key).
+  - `fetch_competitions` parsing de 2 wrappers + 404 + 500 con retry + 401 sin retry + disabled short-circuit.
+  - `fetch_live_matches` con params.
+  - `health_check` enabled/disabled.
+  - Normalizer 11 casos: shape completo, missing team/id/kickoff, unix timestamps, bulk skip invalid, `_ns_id` (int/str/prefixed/non-numeric/empty), real string-ID payload, competitions_index enrichment.
+  - Cache 5 casos: fresh, stale (TTL), unknown endpoint, db=None fail-soft, endpoint-scoped clear.
+  - Aggregator 11 casos: dedupe (close ts + accents/suffixes), distinct matches, far kickoffs, empty inputs, only secondary, disabled skip, secondary failure, primary failure, both merge.
+- ESLint + esbuild limpio en `MatchCard.jsx`.
+- Backend reinició limpio (APScheduler con todos los jobs).
+- **Validación en vivo (API real, no mock)**:
+  - `competitions_count: 20`.
+  - `fetch_live_football_fixtures` → primary=26, secondary=2, **dropped_dupes=1**, **secondary_added=1** (Renaissance Zemamra vs Union Sportive Yacoub El Mansour — partido marroquí que API-Sports no devolvía).
+
+### Despliegue
+Cambios en **PREVIEW**. Para `https://low-volatility-plays.emergent.host` se necesita **redeploy** del usuario.
+
+### Pendiente para próximas iteraciones
+- **Batch B (P1)**: `mlb_statcast_adapter` (Bright Data + pybaseball fallback) para xERA/xwOBA/barrel_pct.
+- **Batch C (P2)**: `football_territorial_intelligence` (xT proxy).
+- **TheStatsAPI extensiones**: integrar `fetch_match_stats` en `_enrich_football` (xG, posesión, shots) para nat-teams donde API-Sports no devuelve stats.
+
+---
+
+
 ## Phase MLB-FP6 — Batch A: Odds Value Engine + Ghost-Edge L5/L15
 **Estado:** ✅ COMPLETADO (2026-06-03)
 

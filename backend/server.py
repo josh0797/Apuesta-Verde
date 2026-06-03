@@ -1973,13 +1973,36 @@ async def _run_analysis_pipeline(
             pv = c.get("_provenance")
             if pv:
                 prov_by_match[sid] = pv
-        if fq_by_match or prov_by_match:
+        # MLB-TS1: propagate external_source / national-team flags so the
+        # MatchCard can render the "TheStatsAPI" and "Selecciones" badges
+        # without an extra DB lookup per pick.
+        ext_by_match: dict[str, dict] = {}
+        for c in candidates:
+            mid = c.get("match_id")
+            if mid is None:
+                continue
+            sid = str(mid)
+            ext_entry: dict = {}
+            if c.get("external_source"):
+                ext_entry["external_source"] = c.get("external_source")
+            if c.get("external_sources_covered"):
+                ext_entry["external_sources_covered"] = c.get("external_sources_covered")
+            if c.get("is_national_team"):
+                ext_entry["is_national_team"] = True
+            if c.get("is_international"):
+                ext_entry["is_international"] = True
+            if ext_entry:
+                ext_by_match[sid] = ext_entry
+        if fq_by_match or prov_by_match or ext_by_match:
             for p in (result.get("picks") or []):
                 sid = str(p.get("match_id"))
                 if sid in fq_by_match and not p.get("_football_quality"):
                     p["_football_quality"] = fq_by_match[sid]
                 if sid in prov_by_match and not p.get("_provenance"):
                     p["_provenance"] = prov_by_match[sid]
+                if sid in ext_by_match:
+                    for _k, _v in ext_by_match[sid].items():
+                        p.setdefault(_k, _v)
             summary = result.setdefault("summary", {})
             for bucket in ("high_confidence", "medium_confidence"):
                 for e in (summary.get(bucket) or []):
@@ -1988,6 +2011,9 @@ async def _run_analysis_pipeline(
                         e["_football_quality"] = fq_by_match[sid]
                     if sid in prov_by_match and not e.get("_provenance"):
                         e["_provenance"] = prov_by_match[sid]
+                    if sid in ext_by_match:
+                        for _k, _v in ext_by_match[sid].items():
+                            e.setdefault(_k, _v)
     else:
         # Non-football sports also carry _provenance — propagate it too.
         prov_by_match: dict[str, dict] = {}
@@ -3957,6 +3983,53 @@ async def admin_brightdata_health(
             probe_result = {"ok": False, "reason": str(exc)}
         payload["probe"] = probe_result
     return payload
+
+
+@api.get("/debug/thestatsapi/health")
+async def debug_thestatsapi_health(
+    probe: bool = True,
+    user: dict = Depends(get_current_user),
+):
+    """Health check for the TheStatsAPI integration (MLB-TS1).
+
+    Returns:
+      • `enabled`            — env flag + key present
+      • `base_url`           — configured base URL
+      • `key_present`        — bool (never returns the key itself)
+      • `reachable`          — when `probe=true`, attempts a live GET on
+                               `/football/competitions` and reports.
+      • `competitions_count` — how many competitions came back.
+    """
+    try:
+        from services.external_sources import thestatsapi_client as ts_client
+    except Exception as exc:
+        log.exception("thestatsapi_client import failed")
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": f"import failed: {exc}"})
+
+    key_present = bool(ts_client.get_api_key())
+    enabled = ts_client.is_enabled()
+    payload: dict = {
+        "ok":             enabled,
+        "enabled":        enabled,
+        "key_present":    key_present,
+        "base_url":       ts_client.get_base_url(),
+        "now":            datetime.now(timezone.utc).isoformat(),
+    }
+    if probe and enabled:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                health = await asyncio.wait_for(ts_client.health_check(client), timeout=12.0)
+            payload.update(health)
+        except asyncio.TimeoutError:
+            payload["reachable"] = False
+            payload["reason"]    = "timeout"
+        except Exception as exc:  # noqa: BLE001
+            payload["reachable"] = False
+            payload["reason"]    = str(exc)
+    return payload
+
+
 
 
 

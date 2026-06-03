@@ -44,6 +44,7 @@ SOURCE_LABELS: dict[str, str] = {
     "sofascore_crawlee":  "Sofascore",
     "sofascore_pw":       "Sofascore",
     "sportytrader":       "Sportytrader",
+    "thestatsapi":        "TheStatsAPI",
 }
 
 

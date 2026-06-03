@@ -125,6 +125,34 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
                 testId={`pick-quality-badge-${m.match_id}`}
               />
             )}
+            {/* MLB-TS1 — TheStatsAPI provider badge. Surfaces when the live
+                football aggregator found this fixture via TheStatsAPI
+                (typically national-team / international matches that
+                API-Sports missed). Tooltip in Spanish per user spec. */}
+            {sport === 'football' && (
+              m.external_source === 'thestatsapi' ||
+              (Array.isArray(m.external_sources_covered) && m.external_sources_covered.includes('thestatsapi'))
+            ) && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-violet-500/15 text-violet-200 border border-violet-500/30"
+                data-testid={`pick-thestatsapi-badge-${m.match_id}`}
+                title={lang === 'en' ? 'Match data from TheStatsAPI' : 'Datos del partido vía TheStatsAPI'}
+              >
+                TheStatsAPI
+              </span>
+            )}
+            {/* MLB-TS1 — National-team badge. Highlights international /
+                national-team fixtures so users instantly identify e.g.
+                World Cup qualifiers vs club competitions. */}
+            {sport === 'football' && (m.is_national_team || m.is_international) && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-amber-500/15 text-amber-200 border border-amber-500/30"
+                data-testid={`pick-national-team-badge-${m.match_id}`}
+                title={lang === 'en' ? 'International / national-team competition' : 'Selecciones / competición internacional'}
+              >
+                {lang === 'en' ? 'Internacional' : 'Selecciones'}
+              </span>
+            )}
             <span className="text-[11px] text-muted-foreground">·</span>
             <span className="text-[11px] text-muted-foreground mono font-mono-tabular">{formatDateTime(m.kickoff_iso, lang)}</span>
           </div>

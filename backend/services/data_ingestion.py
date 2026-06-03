@@ -405,7 +405,17 @@ async def ingest_live(client: httpx.AsyncClient, db, sport: str = "football", ma
 
     try:
         if sport == "football":
-            live_raw = await af.fixtures_live(client)
+            # MLB-TS1: Use the football aggregator which transparently merges
+            # API-Sports + TheStatsAPI (national teams / internacionales).
+            # Fail-soft: if TheStatsAPI is disabled or fails, behaves like
+            # the legacy `af.fixtures_live(client)` call.
+            try:
+                from .football_live_aggregator import fetch_live_football_fixtures
+                live_raw, _agg_meta = await fetch_live_football_fixtures(client, db)
+                log.info("[ingest_live] aggregator meta: %s", _agg_meta)
+            except Exception as exc:
+                log.warning("[ingest_live] aggregator failed, falling back to API-Sports: %s", exc)
+                live_raw = await af.fixtures_live(client)
         else:
             live_raw = await aps.fixtures_live(sport, client)
     except Exception as exc:
@@ -606,11 +616,22 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             "fallback_used": False,
             "updated_at": nz.now_iso(),
         }
+        # MLB-TS1: propagate TheStatsAPI provenance + national-team flag onto
+        # the match_doc so the frontend can surface badges ("TheStatsAPI" /
+        # "Selecciones") next to the match card.
+        _ext_src = fx_raw.get("_external_source") or "api_sports"
+        _ext_covered = fx_raw.get("_external_sources_covered") or [_ext_src]
+        match_doc["external_source"] = _ext_src
+        match_doc["external_sources_covered"] = sorted(set(_ext_covered))
+        if fx_raw.get("_is_national_team"):
+            match_doc["is_national_team"] = True
+        if fx_raw.get("_is_international"):
+            match_doc["is_international"] = True
         # Phase P2 — provenance: API-Sports is authoritative for the football
         # path; every section here was fetched from the same provider.
         prov.attach_to_match(
             match_doc,
-            primary_source="api_sports",
+            primary_source=_ext_src,
             odds_available=bool(norm_odds.get("available")),
             stats_available=bool(stats_h or stats_a),
             h2h_available=bool(h2h_clean),
