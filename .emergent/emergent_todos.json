@@ -17,10 +17,10 @@
   },
   {
     "content": "Verificar pytest 661+ + lint Python + esbuild frontend",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "testing_agent backend + frontend para validación final",
-    "status": "pending"
+    "status": "completed"
   }
 ]

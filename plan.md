@@ -1,4 +1,4 @@
-# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening + P3 Editorial Context + P4 Playwright + **Bright Data Unlocker** + **Historical Detail Enrichment (Basketball→Baseball)** + **MLB Margin & Total Script Engine v2** + **MLB-V3 Histórico Baseball** + **MLB-V4 Feedback Loop** + **MLB-V5 Bucketing Estructural / Manual Odds** + **MLB-V6 Totals Prob Fix + Visible Picks + Over Discovery** + **MLB-V7 Explainability/Game Script/Diversificación** + **MLB Under Confidence Floor (P0)** + **F6C Auto-Settle (P1)** + **MLB Statcast Deep Integration (Phase 9/10) + Offensive Pressure Base (Objetivo 2) + Sabermetrics Layer (Phase 9.6) + Ghost-Edges Statcast (Phase 11)** (ACTUALIZADO)
+# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening + P3 Editorial Context + P4 Playwright + **Bright Data Unlocker** + **Historical Detail Enrichment (Basketball→Baseball)** + **MLB Margin & Total Script Engine v2** + **MLB-V3 Histórico Baseball** + **MLB-V4 Feedback Loop** + **MLB-V5 Bucketing Estructural / Manual Odds** + **MLB-V6 Totals Prob Fix + Visible Picks + Over Discovery** + **MLB-V7 Explainability/Game Script/Diversificación** + **MLB Under Confidence Floor (P0)** + **F6C Auto-Settle (P1)** + **MLB Statcast Deep Integration (Phase 9/10) + Offensive Pressure Base (Objetivo 2) + Sabermetrics Layer (Phase 9.6) + Ghost-Edges Statcast (Phase 11) + Market Selection Intelligence (Phase 13.1) + UI Advanced Stats/Sabermetrics (Phase 13.2)** (ACTUALIZADO)
 
 ## 1) Objectives
 - Reducir **falsos descartes**: no tratar igual todo edge negativo; permitir **tolerancia contextual** en mercados protegidos.
@@ -126,22 +126,42 @@
     - `reason_codes` y `summary`
   - Integración en `mlb_day_orchestrator.py`:
     - Aplica delta ponderado por `data_quality` (60/35/0) a `recommendation.confidence_score`.
-    - Guardado de auditoría en `pick_payload["sabermetrics_audit"]`:
-      `sabermetrics_used`, `sabermetrics_data_quality`, `sabermetrics_adjustment_weight`,
-      `sabermetrics_raw_adjustment`, `sabermetrics_weighted_adjustment`, `sabermetrics_reason_codes`.
+    - Guardado de auditoría en `pick_payload["sabermetrics_audit"]`.
   - Guardrail: `weighted_conf_delta` capado a ±15; sabermetría **no** convierte picks débiles en fuertes por sí sola.
 
 - **(✅ COMPLETADO — NUEVO P1)** **Fase 11 — Ghost-Edges con xERA/xwOBA (Verifier)**:
   - `services/mlb_real_stats_verifier.py`:
     - Nuevo kwarg `advanced_stats_snapshot` (backwards compatible).
-    - Nuevos flags:
-      - `ERA_UNDERSTATES_RISK` (ERA  xERA: ERA “muy buena” vs xERA peor → riesgo oculto, penaliza Under)
-      - `ERA_OVERSTATES_RISK` (ERA “muy mala” vs xERA mejor → ghost-edge para Over)
+    - Flags:
+      - `ERA_UNDERSTATES_RISK` (ERA muy baja vs xERA alta → riesgo oculto, penaliza Under)
+      - `ERA_OVERSTATES_RISK` (ERA alta vs xERA baja → ghost-edge para Over)
       - `PITCHER_XWOBA_WARNING` (xwOBA allowed elevada contra Under)
       - `GHOST_EDGE_HARD_CONTACT_VS_UNDER` (barrel/hard-hit elevada contra Under)
       - `GHOST_EDGE_TEAM_XWOBA_VS_UNDER` (ambos equipos con xwOBA alta contra Under)
-    - Cap de `confidence_penalty` actualizado a **55** (test actualizado).
-  - `mlb_day_orchestrator.py` ahora pasa `advanced_stats_snapshot` al verifier.
+    - Cap de `confidence_penalty` actualizado a **55**.
+  - `mlb_day_orchestrator.py` pasa `advanced_stats_snapshot` al verifier.
+
+- **(✅ COMPLETADO — NUEVO P1)** **Phase 13.1 — MLB Market Selection Intelligence**:
+  - Nuevo módulo `services/mlb_market_selection.py` (pure/fail-soft) con `select_protected_market(pick_payload)`.
+  - Selección final del mercado más protegido usando:
+    - `pressure_base`, `advanced_adjustments`, `sabermetrics/sabermetrics_audit`, `model_verification.discrepancies` (ghost edges), `pitcher_quality_score`, `fragility`, `script_survival`, `bullpen_risk`, `odds_range`.
+  - Guardrails Moneyball:
+    - Bloquea Run Line -1.5 si `marginProjection < 2.0` o `runLineCoverProb < 0.50` → prefiere Moneyline.
+    - Over sin odds → `Manual Odds Review`.
+    - Under con `HIGH_PRESSURE` → swap a F5 Under si abridores sostienen, si no → watchlist.
+    - Ghost-edge contra el lado → watchlist o swap a alternativa protegida.
+  - Output canónico persistido en `pick_payload["market_selection"]` y reason codes propagados.
+
+- **(✅ COMPLETADO — NUEVO P1)** **Phase 13.2 — UI colapsable “MLB Advanced Stats” + “Sabermetría” + “Selección de mercado”**:
+  - Nuevo componente frontend `frontend/src/components/MLBAdvancedStatsPanel.jsx`.
+  - Integrado en `MatchCard.jsx` (gated por `sport === 'baseball'`).
+  - Muestra:
+    - Presión ofensiva (tier + hits/runs L5).
+    - Deltas auditados Statcast/Sabermetría.
+    - Bloque de selección de mercado (`market_selection`): recomendado, alternativa protegida, por qué, por qué no, reason codes.
+    - 4 bloques Statcast: pitchers + teams con métricas y badges de `sources_consulted` y `data_quality`.
+    - Bloque Sabermetría: OPS/FIP/WAR por equipo + edges + summary.
+  - `data-testid` añadidos para testing y estabilidad.
 
 ---
 
@@ -183,7 +203,7 @@
 ---
 
 ## Phase MLB-BatchB — Statcast Adapter (pybaseball + Bright Data + TheStatsAPI)
-**Estado:** ✅ CORE + Phase 9/10/9.6 + Phase 11 COMPLETADAS (2026-06-03). Fase 13 pendiente.
+**Estado:** ✅ CORE + Phase 9/10/9.6 + Phase 11 + Phase 13.1/13.2 COMPLETADAS (2026-06-03).
 
 ### Fix 2 — Batch B: MLB Statcast Adapter (Fases 1-8 + 12 + 14)
 **Estado:** ✅ COMPLETADO
@@ -202,6 +222,12 @@
 ### Phase 11 — Real Stats Verifier (Ghost-Edges con xERA/xwOBA)
 **Estado:** ✅ COMPLETADO (P1)
 
+### Phase 13.1 — MLB Market Selection Intelligence
+**Estado:** ✅ COMPLETADO (P1)
+
+### Phase 13.2 — UI “MLB Advanced Stats” + “Sabermetría” + “Selección de mercado”
+**Estado:** ✅ COMPLETADO (P1)
+
 ---
 
 ## Objetivo 2 — `services/mlb_pressure_base.py` (Presión ofensiva base)
@@ -211,25 +237,18 @@
 
 ## 3) Next Actions
 
-### A) Iteración UI MLB — Fase 13 (P1)
-**Estado:** 🟨 PENDIENTE
-- Frontend:
-  - Sección colapsable “MLB Advanced Stats” mostrando los 4 bloques del snapshot.
-  - Badges por fuente (`pybaseball` / `thestatsapi` / `brightdata`) y `data_quality`.
-  - (Opcional) Panel “Sabermetría” mostrando OPS/FIP/WAR + edges + resumen.
-
-### B) Bright Data Unlocker (P0 bloqueado)
+### A) Bright Data Unlocker (P0 bloqueado)
 **Estado:** 🟨 PENDIENTE / BLOQUEADO
 - Requiere `BRIGHTDATA_API_KEY` + `BRIGHTDATA_ZONE`.
 
-### C) Basketball Historical Detail (P1)
+### B) Basketball Historical Detail (P1)
 **Estado:** 🟨 PENDIENTE
 - Implementar perfil histórico y rescue layer equivalentes a MLB.
 
-### D) Fix 2C (P2) — Persistencia live como async
+### C) Fix 2C (P2) — Persistencia live como async
 **Estado:** 🟨 PENDIENTE
 
-### E) Football deep-live parity (P3)
+### D) Football deep-live parity (P3)
 **Estado:** 🟨 PENDIENTE
 
 ---
@@ -265,6 +284,16 @@
   - `mlb_real_stats_verifier` detecta discrepancias xERA/xwOBA y penaliza picks conflictivos.
   - Cap de penalty actualizado a 55.
 
+- **Fase 13.1 Market Selection Intelligence — ✅ cumplido**
+  - El engine no solo predice: selecciona mercado protegido basado en presión/ghost-edges/odds.
+  - Picks agresivos quedan bloqueados cuando no hay soporte estructural.
+  - Salida explicable: por qué este mercado y por qué no otros.
+
+- **Fase 13.2 UI MLB Advanced Stats/Sabermetría/Selección — ✅ cumplido**
+  - Panel colapsable MLB con badges de fuentes y calidad.
+  - Fail-soft: si no hay datos en el pick, el panel no aparece.
+  - Aislamiento: football/basketball no cambian.
+
 - **MLB Under Confidence Floor — ✅ cumplido**
   - Un pick MLB Under no puede quedar recomendado si `confidence_score < 75` con odds.
 
@@ -272,5 +301,5 @@
   - Evaluaciones pending se resuelven automáticamente cuando hay `final_score`.
 
 ### Testing status
-- **Suite actual:** 661 tests PASS.
-- **Validación adicional:** `testing_agent_v3` backend OK (endpoints OK, boot limpio, fail-soft confirmado).
+- **Suite actual:** 678 tests PASS.
+- **Validación adicional:** `testing_agent_v3` backend+frontend OK (endpoints OK, boot limpio, fail-soft confirmado, UI MLB colapsable verificada).
