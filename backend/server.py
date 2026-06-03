@@ -785,6 +785,11 @@ async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
                 # without a second round-trip to Mongo.
                 doc["is_live"]    = live["is_live"]
                 doc["status"]     = live["status"] or doc.get("status")
+                # BUGFIX MLB-2b — surface the canonical game_pk at the doc
+                # root so the pregame-pick lookup below can match picks
+                # that store the identifier as `game_pk` rather than
+                # `match_id`. Idempotent overwrite (always the same value).
+                doc["game_pk"]    = live["game_pk"]
                 doc["live_stats"] = {
                     **(doc.get("live_stats") or {}),
                     "score":           live["score"],
@@ -797,6 +802,7 @@ async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
                     "current_pitcher": live.get("current_pitcher"),
                     "abstract_state":  live.get("abstract_state"),
                     "detailed_state":  live.get("detailed_state"),
+                    "box_score":       live.get("box_score"),
                     "fetched_at":      live["fetched_at"],
                 }
                 doc["_live_state"] = live["state"]   # for the UI banner.
@@ -834,8 +840,41 @@ async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
                 (last_run["payload"].get("structural_lean_requires_odds") or []) +
                 (last_run["payload"].get("watchlist_manual_odds") or [])
             )
+            # BUGFIX MLB-2b — build a set of every possible identifier this
+            # doc can be referenced by. For baseball, picks may use
+            # `game_pk` (from MLB Stats API) while the doc's `match_id`
+            # comes from a different ingestion path (rare but observed).
+            # We accept either side so the lookup never silently misses.
+            doc_id_candidates: set[str] = set()
+            mid = doc.get("match_id")
+            if mid is not None:
+                doc_id_candidates.add(str(mid))
+                try:
+                    doc_id_candidates.add(str(int(mid)))
+                except (TypeError, ValueError):
+                    pass
+            if doc.get("sport") == "baseball":
+                # Also accept by gamePk (doc-level or nested under live_stats)
+                gp = doc.get("game_pk")
+                if gp is None:
+                    gp = (doc.get("live_stats") or {}).get("game_pk")
+                if gp is not None:
+                    doc_id_candidates.add(str(gp))
+                    try:
+                        doc_id_candidates.add(str(int(gp)))
+                    except (TypeError, ValueError):
+                        pass
             for p in buckets:
-                if str(p.get("match_id")) == str(doc.get("match_id")):
+                pick_id_candidates: set[str] = set()
+                for fld in ("match_id", "game_pk"):
+                    v = p.get(fld)
+                    if v is not None:
+                        pick_id_candidates.add(str(v))
+                        try:
+                            pick_id_candidates.add(str(int(v)))
+                        except (TypeError, ValueError):
+                            pass
+                if pick_id_candidates & doc_id_candidates:
                     pregame_pick = p
                     break
         live_state_for_cmp = doc.get("live_stats") or {}
@@ -2187,6 +2226,22 @@ async def _run_analysis_pipeline(
         "matches_analyzed": len(candidates),
         "payload": result,
     }
+    # Batch 3 (P3) — surface the list of external sources actually
+    # consulted on this run into `result.summary` so the frontend
+    # EmptyState ("Hoy no hay valor") can list them transparently:
+    # "Hemos consultado API-Sports, TheStatsAPI, MLB Stats API…".
+    try:
+        sources_seen = pipeline_meta.get("external_sources_consulted") or []
+        if sources_seen:
+            summary_obj = result.setdefault("summary", {})
+            # Already-de-duplicated upstream; we just ensure JSON-safe shape.
+            summary_obj["external_sources_consulted"] = sources_seen
+            # Also include a flat label set for quick rendering.
+            labels = sorted({(s.get("label") or s.get("source") or "")
+                              for s in sources_seen if isinstance(s, dict)})
+            summary_obj["external_sources_labels"] = [x for x in labels if x]
+    except Exception as _exc:
+        log.debug("external_sources_consulted propagation failed: %s", _exc)
     # Defense-in-depth: any numeric keys sneaking in from football_quality
     # stats / LLM JSON / scraped feeds would crash BSON with
     # "documents must have only string keys, key was 1". Normalize before

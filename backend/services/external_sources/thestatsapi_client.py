@@ -212,6 +212,73 @@ async def fetch_match_stats(client: httpx.AsyncClient, match_id: int | str) -> d
     return data
 
 
+async def fetch_match_details(
+    client: httpx.AsyncClient,
+    match_id: int | str,
+    *,
+    sport: str = "football",
+) -> dict:
+    """Return rich match-level details (lineups, venue, referees, ...).
+
+    Used by Batch 3 pre-match enrichment. Sport-aware path:
+      * football   → ``/football/matches/{id}``
+      * basketball → ``/basketball/matches/{id}``
+      * baseball   → ``/baseball/games/{id}``
+    """
+    sport = (sport or "football").lower()
+    if sport in {"basketball", "baseball"}:
+        prefix = f"/{sport}/matches" if sport == "basketball" else "/baseball/games"
+    else:
+        prefix = "/football/matches"
+    data = await _request(client, "GET", f"{prefix}/{match_id}")
+    if not isinstance(data, dict):
+        return {}
+    if "data" in data and isinstance(data["data"], dict):
+        return data["data"]
+    return data
+
+
+async def fetch_team_stats(
+    client: httpx.AsyncClient,
+    team_id: int | str,
+    *,
+    sport: str = "football",
+    season: int | str | None = None,
+    competition_id: int | str | None = None,
+) -> dict:
+    """Return aggregate season stats for a team (form, xG/match, etc.)."""
+    sport = (sport or "football").lower()
+    params: dict[str, Any] = {}
+    if season is not None:
+        params["season"] = season
+    if competition_id is not None:
+        params["competition_id"] = competition_id
+    data = await _request(client, "GET", f"/{sport}/teams/{team_id}/stats", params=params or None)
+    if not isinstance(data, dict):
+        return {}
+    if "data" in data and isinstance(data["data"], dict):
+        return data["data"]
+    return data
+
+
+async def fetch_player_stats(
+    client: httpx.AsyncClient,
+    player_id: int | str,
+    *,
+    sport: str = "football",
+    season: int | str | None = None,
+) -> dict:
+    """Return per-player season stats (goals, xG, minutes, etc.)."""
+    sport = (sport or "football").lower()
+    params: dict[str, Any] = {"season": season} if season is not None else None
+    data = await _request(client, "GET", f"/{sport}/players/{player_id}/stats", params=params)
+    if not isinstance(data, dict):
+        return {}
+    if "data" in data and isinstance(data["data"], dict):
+        return data["data"]
+    return data
+
+
 async def health_check(client: httpx.AsyncClient) -> dict:
     """Lightweight ping for the `/api/debug/thestatsapi/health` endpoint.
 

@@ -755,6 +755,48 @@ export default function DashboardPage() {
     }
   };
 
+  // Batch 3 (P3) — Live-only analysis: triggers a normal run but with
+  // `live_only=true` so the orchestrator restricts the candidate pool
+  // to matches currently in progress. Useful when the user wants to
+  // hunt live-edge bets without re-running the full pre-match pipeline.
+  // Falls back to a regular `refresh=true` run if the server doesn't
+  // know the flag yet (older deployments) — pipeline_meta will simply
+  // not contain a `live_only` marker.
+  const analyzeLive = async () => {
+    const requestSport = sport;
+    setRunning(true);
+    try {
+      const r = await api.post('/analysis/run', {
+        refresh: true,
+        include_live: true,
+        max_matches: 10,
+        sport,
+        background: true,
+        live_only: true,
+      });
+      if (sportRef.current !== requestSport) {
+        // eslint-disable-next-line no-console
+        console.log('[SPORT_SWITCH] discarded stale live-only run for', requestSport);
+        return;
+      }
+      if (r.data?.job_id) {
+        setActiveJobId(r.data.job_id);
+      } else if (r.data?.result) {
+        setRun({
+          id: r.data.pick_run_id,
+          sport: r.data.sport,
+          generated_at: r.data.generated_at,
+          payload: r.data.result,
+        });
+        toast.success(t.dashboard.title + ' ✓');
+      }
+    } catch (err) {
+      reportGenerationError(err, 'analysis/run · live_only');
+    } finally {
+      if (sportRef.current === requestSport) setRunning(false);
+    }
+  };
+
   const closeProgressModal = useCallback(() => {
     setActiveJobId(null);
   }, []);
@@ -924,6 +966,26 @@ export default function DashboardPage() {
               )}
             </Button>
           )}
+          {/* Batch 3 (P3) — Live-only analysis. Same pipeline as the
+              regular run but restricted to fixtures currently in
+              progress. Available for all 3 sports — handy when the
+              user wants to hunt momentum / live-edge bets. */}
+          <Button
+            onClick={analyzeLive}
+            disabled={running || !!activeJobId || refreshingMatches}
+            data-testid="analyze-live-button"
+            variant="outline"
+            title={lang === 'en'
+              ? 'Analyze only matches currently in progress'
+              : 'Analizar solo partidos actualmente en vivo'}
+            className="w-full sm:w-auto border-rose-500/40 text-rose-200 hover:bg-rose-500/10 hover:text-rose-100 transition-colors"
+          >
+            {running ? (
+              <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t.dashboard.running}</>
+            ) : (
+              <><Activity className="h-4 w-4 mr-2" />{lang === 'en' ? 'Analyze live' : 'Analizar en vivo'}</>
+            )}
+          </Button>
         </div>
       </motion.div>
 

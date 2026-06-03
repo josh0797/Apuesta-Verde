@@ -32,6 +32,7 @@ Design
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -42,6 +43,7 @@ log = logging.getLogger(__name__)
 
 _LINESCORE_URL = "https://statsapi.mlb.com/api/v1/game/{game_pk}/linescore"
 _SCHEDULE_URL  = "https://statsapi.mlb.com/api/v1/schedule?gamePk={game_pk}&sportId=1"
+_BOXSCORE_URL  = "https://statsapi.mlb.com/api/v1/game/{game_pk}/boxscore"
 
 
 def _coerce_game_pk(match_id: Any) -> Optional[int]:
@@ -75,6 +77,125 @@ def _shape_state(
     if has_score:
         return "live-data-partial"
     return "no-live-data"
+
+
+def _extract_box_score(box_payload: dict) -> dict:
+    """Convert MLB Stats API ``/boxscore`` payload to our flat shape.
+
+    The MLB Stats API returns::
+
+        {
+          "teams": {
+            "home": {
+              "teamStats": {
+                "batting":  {"hits": 8, "homeRuns": 2, "baseOnBalls": 3, "strikeOuts": 7, ...},
+                "pitching": {"baseOnBalls": 2, "strikeOuts": 10, "numberOfPitches": 95, ...},
+                "fielding": {"errors": 1, ...},
+              }, ...
+            },
+            "away": {...}
+          }
+        }
+
+    We expose the offensive (batting) stats per team + errors (fielding)
+    + pitches thrown (pitching). The shape mirrors what
+    ``services.live_pre_match_comparison`` already expects when reading
+    ``live_stats.box_score``::
+
+        {
+          "hits":        {"home": int, "away": int},
+          "walks":       {"home": int, "away": int},
+          "home_runs":   {"home": int, "away": int},
+          "errors":      {"home": int, "away": int},
+          "strikeouts":  {"home": int, "away": int},
+          "pitches_home": int, "pitches_away": int,
+        }
+
+    Returns ``{}`` (not None) if no usable data — callers can `.get(k)` safely.
+    """
+    if not isinstance(box_payload, dict):
+        return {}
+    teams = box_payload.get("teams") or {}
+    home  = teams.get("home") or {}
+    away  = teams.get("away") or {}
+    if not (isinstance(home, dict) and isinstance(away, dict)):
+        return {}
+
+    def _bat(side: dict) -> dict:
+        s = ((side.get("teamStats") or {}).get("batting") or {})
+        return s if isinstance(s, dict) else {}
+
+    def _pit(side: dict) -> dict:
+        s = ((side.get("teamStats") or {}).get("pitching") or {})
+        return s if isinstance(s, dict) else {}
+
+    def _fld(side: dict) -> dict:
+        s = ((side.get("teamStats") or {}).get("fielding") or {})
+        return s if isinstance(s, dict) else {}
+
+    h_bat, a_bat = _bat(home), _bat(away)
+    h_pit, a_pit = _pit(home), _pit(away)
+    h_fld, a_fld = _fld(home), _fld(away)
+
+    if not (h_bat or a_bat or h_fld or a_fld):
+        return {}
+
+    def _get_int(d: dict, *keys: str) -> Optional[int]:
+        for k in keys:
+            v = d.get(k)
+            if v is None or v == "":
+                continue
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    out: dict[str, Any] = {
+        "hits": {
+            "home": _get_int(h_bat, "hits"),
+            "away": _get_int(a_bat, "hits"),
+        },
+        "walks": {
+            "home": _get_int(h_bat, "baseOnBalls"),
+            "away": _get_int(a_bat, "baseOnBalls"),
+        },
+        "home_runs": {
+            "home": _get_int(h_bat, "homeRuns"),
+            "away": _get_int(a_bat, "homeRuns"),
+        },
+        "errors": {
+            "home": _get_int(h_fld, "errors"),
+            "away": _get_int(a_fld, "errors"),
+        },
+        "strikeouts": {
+            # batting strikeouts = times this team's batters were struck out.
+            "home": _get_int(h_bat, "strikeOuts"),
+            "away": _get_int(a_bat, "strikeOuts"),
+        },
+        # `pitches_home` = pitches thrown BY the home pitcher(s).
+        "pitches_home": _get_int(h_pit, "numberOfPitches", "pitchesThrown"),
+        "pitches_away": _get_int(a_pit, "numberOfPitches", "pitchesThrown"),
+        # also useful for downstream consumers
+        "at_bats": {
+            "home": _get_int(h_bat, "atBats"),
+            "away": _get_int(a_bat, "atBats"),
+        },
+        "left_on_base": {
+            "home": _get_int(h_bat, "leftOnBase"),
+            "away": _get_int(a_bat, "leftOnBase"),
+        },
+    }
+    # Drop fully-empty nested dicts (both None) so downstream `if box.get("hits"):` works.
+    cleaned: dict[str, Any] = {}
+    for k, v in out.items():
+        if isinstance(v, dict):
+            if any(x is not None for x in v.values()):
+                cleaned[k] = v
+        else:
+            if v is not None:
+                cleaned[k] = v
+    return cleaned
 
 
 async def fetch_live_state(match_id: Any) -> dict:
@@ -127,14 +248,34 @@ async def fetch_live_state(match_id: Any) -> dict:
         "runners_on":     {"first": False, "second": False, "third": False},
         "current_batter":  None,
         "current_pitcher": None,
+        "box_score":      {},   # populated below from /boxscore
         "fetched_at":     datetime.now(timezone.utc).isoformat(),
     }
     try:
         async with httpx.AsyncClient(timeout=6.0) as client:
-            r_line = await client.get(_LINESCORE_URL.format(game_pk=game_pk))
-            r_sched = await client.get(_SCHEDULE_URL.format(game_pk=game_pk))
-        ls = r_line.json() if r_line.status_code == 200 else {}
-        sched = r_sched.json() if r_sched.status_code == 200 else {}
+            # BUGFIX MLB-2a — parallel fetch of linescore + schedule +
+            # boxscore. The boxscore is needed so the UI can render
+            # hits / BB / HR / errors / strikeouts / pitches per side.
+            # `live_pre_match_comparison.py` reads these from
+            # `live_stats.box_score`. We use `gather` so the third
+            # call doesn't add latency (all hit the same MLB Stats API
+            # host, HTTP/2 multiplexed by httpx).
+            r_line, r_sched, r_box = await asyncio.gather(
+                client.get(_LINESCORE_URL.format(game_pk=game_pk)),
+                client.get(_SCHEDULE_URL.format(game_pk=game_pk)),
+                client.get(_BOXSCORE_URL.format(game_pk=game_pk)),
+                return_exceptions=True,
+            )
+        def _maybe_json(resp):
+            if isinstance(resp, Exception):
+                return {}
+            try:
+                return resp.json() if resp.status_code == 200 else {}
+            except Exception:
+                return {}
+        ls    = _maybe_json(r_line)
+        sched = _maybe_json(r_sched)
+        box   = _maybe_json(r_box)
     except Exception as exc:
         log.debug("MLB live fetch failed for %s: %s", game_pk, exc)
         out["_reason"] = f"http_error: {exc}"
@@ -195,6 +336,14 @@ async def fetch_live_state(match_id: Any) -> dict:
         linescore=ls,
     )
     out["is_live"] = out["state"] in ("live-data-ready", "live-data-partial")
+
+    # BUGFIX MLB-2a — surface the boxscore so the live-pre-match comparison
+    # engine can show hits / BB / HR / errors / strikeouts / pitches.
+    try:
+        out["box_score"] = _extract_box_score(box) or {}
+    except Exception as exc:
+        log.debug("boxscore extraction failed for %s: %s", game_pk, exc)
+        out["box_score"] = {}
     return out
 
 
@@ -217,6 +366,9 @@ async def fetch_and_persist_live_state(db, match_id: Any) -> dict:
     update = {
         "is_live": snap["is_live"],
         "status":  snap["status"] or "",
+        # BUGFIX MLB-2b — also persist game_pk at doc root so the
+        # pregame-pick lookup can match picks that store it as `game_pk`.
+        "game_pk": snap["game_pk"],
         "live_stats": {
             "score":           snap["score"],
             "inning":          snap.get("inning"),
@@ -228,6 +380,9 @@ async def fetch_and_persist_live_state(db, match_id: Any) -> dict:
             "current_pitcher": snap.get("current_pitcher"),
             "abstract_state":  snap.get("abstract_state"),
             "detailed_state":  snap.get("detailed_state"),
+            # BUGFIX MLB-2a — box_score with hits/BB/HR/errors/etc. so
+            # live_pre_match_comparison.py can read it back.
+            "box_score":       snap.get("box_score") or {},
             "fetched_at":      snap["fetched_at"],
         },
     }

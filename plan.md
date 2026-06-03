@@ -230,6 +230,67 @@
 
 ---
 
+## Phase MLB-FIX2 + MLB-TS1 (Batch 3) — Bugfix MLB lookup + Batch 3 enrichment/sources/UI
+**Estado:** ✅ COMPLETADO (2026-06-03)
+
+### FIX 2a — `mlb_live_state.py` boxscore fetch
+- Añadido `_BOXSCORE_URL = "https://statsapi.mlb.com/api/v1/game/{game_pk}/boxscore"`.
+- `_extract_box_score(payload)`: convierte el shape MLB Stats API a la forma plana que `live_pre_match_comparison.py` ya leía:
+  `{hits, walks, home_runs, errors, strikeouts, pitches_home, pitches_away, at_bats, left_on_base}` (cada uno como `{home, away}` cuando aplica).
+  - Drop graceful de bloques fully-None.
+  - Coerce strings → int (MLB API ocasionalmente envía counters como strings).
+- `fetch_live_state` ahora ejecuta los 3 endpoints en paralelo (`linescore` + `schedule` + `boxscore`) vía `asyncio.gather(..., return_exceptions=True)` — el boxscore que falle no rompe el snap.
+- `fetch_and_persist_live_state` persiste `live_stats.box_score` con el shape correcto.
+
+### FIX 2b — `server.py` pregame pick lookup robusto
+- En el bloque `script_comparison` de `match_detail`, la comparación previa
+  `str(p.get("match_id")) == str(doc.get("match_id"))` fallaba cuando los
+  picks usan `game_pk` (MLB Stats API) y el doc usa otro identificador.
+- Nuevo helper inline construye dos sets de candidates por doc y por pick (incluyendo `match_id`, `game_pk`, `live_stats.game_pk`, int/str variants) y matchea por intersección.
+- Adicionalmente, propaga `live.game_pk` → `doc.game_pk` cuando el live snapshot lo trae, para que la búsqueda sea idempotente sin requerir re-fetch.
+
+### MLB-TS1 Batch 3.1 — Pre-match enrichment via TheStatsAPI
+- `thestatsapi_client.py`: 3 endpoints nuevos:
+  - `fetch_match_details(client, id, sport)` — sport-aware (`/football/matches`, `/basketball/matches`, `/baseball/games`).
+  - `fetch_team_stats(client, team_id, sport, season, competition_id)`.
+  - `fetch_player_stats(client, player_id, sport, season)`.
+- `services/external_sources/thestatsapi_enrichment.py` (nuevo):
+  - `enrich_pre_match(client, db, sport, match_raw_id, home_team_id, away_team_id, season, competition_id)`:
+    - 3 calls en paralelo (`match_details` + `home_team_stats` + `away_team_stats`).
+    - Cache integrado (`_CACHE_TEAM_STATS=6h`, `_CACHE_MATCH_DETAILS=2h`, `_CACHE_PLAYER_STATS=6h`).
+    - Top-N (cap 5) player_stats per side si hay lineup en `match_details`.
+    - Devuelve `{}` si nada útil llegó (consumers usan `if match_doc.get("_thestatsapi_enrichment")`).
+- Cableado en `data_ingestion._enrich_football`: cuando el fixture tiene `_thestatsapi_raw_id` AND no es live → llama `enrich_pre_match()` y guarda en `match_doc._thestatsapi_enrichment`.
+
+### MLB-TS1 Batch 3.2 — Sources consulted en summary
+- En `server.py` antes del `insert_one`, copia `pipeline_meta.external_sources_consulted` → `result.summary.external_sources_consulted` + `external_sources_labels` (flat list ordenada).
+
+### MLB-TS1 Batch 3.3 — UI: botón "Analizar en vivo"
+- En `DashboardPage.jsx`, nuevo handler `analyzeLive()` que llama `POST /api/analysis/run` con `live_only: true`.
+- Botón rose-tinted con icono `Activity` (todos los deportes). `data-testid="analyze-live-button"`. Tooltip i18n.
+- Suite de 3 botones de fútbol completa: "Refrescar partidos" (cyan) · "Selecciones nacionales" (amber) · "Analizar en vivo" (rose).
+
+### MLB-TS1 Batch 3.4 — UI: Empty state listando fuentes consultadas
+- `EmptyStateNoValue.jsx` ahora lee `summary.external_sources_consulted` + `external_sources_labels`.
+- Renderiza un bloque "FUENTES CONSULTADAS" con chips cyan, cada uno con `data-testid="empty-state-source-chip-{i}"`.
+- Mensaje explicativo: "Cruzamos estas fuentes; ningún partido superó el listón del analista hoy."
+
+### Validación
+- **508 tests PASS** (497 previos + 14 nuevos MLB-FIX2 + 11 Batch 3 = 25 nuevos).
+  - `tests/test_mlb_live_boxscore_and_pregame_lookup.py` — 14 tests (boxscore parsing, fetch_live_state paralelo, pregame lookup robustness con baseball vs football).
+  - `tests/test_thestatsapi_batch3_enrichment.py` — 11 tests (client endpoints, enrich_pre_match aggregator, cache hit, partial failure, sources propagation).
+- ESLint + esbuild limpio en `MatchCard.jsx`, `EmptyStateNoValue.jsx`, `DashboardPage.jsx`.
+- Backend reiniciado limpio.
+- **Validación en UI live (screenshot)**:
+  - 3 botones visibles con `data-testid` correctos.
+  - Empty state renderizando engine reasoning + sources block (cuando hay datos).
+
+### Despliegue
+Cambios en **PREVIEW**. Producción requiere redeploy del usuario.
+
+---
+
+
 ## Phase MLB-TS1 (Batch 2) — National-team detector + stats enrichment + multi-source badge
 **Estado:** ✅ COMPLETADO (2026-06-03)
 

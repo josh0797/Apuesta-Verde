@@ -1,38 +1,42 @@
 [
   {
-    "content": "Create national_team_detector.py (FIFA list + ES↔EN aliases + comp keywords)",
+    "content": "Fix 2b: Robust pregame pick lookup in server.py (match_id + game_pk + doc.game_pk)",
     "status": "completed"
   },
   {
-    "content": "Wire detector into thestatsapi_normalizer for is_national_team auto-detection",
+    "content": "Fix 2a: Add boxscore fetch in mlb_live_state.py (hits/walks/HR/errors)",
     "status": "completed"
   },
   {
-    "content": "Update aggregator dedupe to use country aliases (Belgica↔Belgium)",
+    "content": "Persist box_score field in live_stats so live_pre_match_comparison.py reads it",
     "status": "completed"
   },
   {
-    "content": "Extend ingest_live allowlist for TheStatsAPI nat-team fixtures (synthetic Tier-2)",
+    "content": "Tests for mlb_live_state boxscore + pregame pick lookup robustness",
     "status": "completed"
   },
   {
-    "content": "Add TheStatsAPI stats normalizer (xG/shots/possession → API-Sports shape)",
+    "content": "Fix 1 (Batch 3): Pre-match enrichment all 3 sports via TheStatsAPI",
     "status": "completed"
   },
   {
-    "content": "Wire stats fetch+merge in _enrich_football for nat-team fixtures missing stats",
+    "content": "Fix 1 (Batch 3): Competitions allowlist with thestatsapi_ids",
     "status": "completed"
   },
   {
-    "content": "Add 'Fuentes: API-Sports + TheStatsAPI' badge in MatchCard",
+    "content": "Fix 1 (Batch 3): UI buttons Refrescar Football / Analizar Selecciones / Analizar Live",
     "status": "completed"
   },
   {
-    "content": "Tests: nat-team detection, Belgica/Croacia case, stats merge, dedupe with aliases",
+    "content": "Fix 1 (Batch 3): Empty state listing consulted sources",
     "status": "completed"
   },
   {
-    "content": "Run full pytest suite (target 441+ tests pass)",
+    "content": "Tests for Batch 3 enrichment + allowlist",
+    "status": "completed"
+  },
+  {
+    "content": "Run full pytest suite + lint + restart backend",
     "status": "completed"
   }
 ]

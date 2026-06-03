@@ -707,6 +707,40 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             match_doc["is_national_team"] = True
         if fx_raw.get("_is_international"):
             match_doc["is_international"] = True
+
+        # MLB-TS1 Batch 3 — Pre-match enrichment via TheStatsAPI.
+        # When the fixture has a TheStatsAPI raw id (either originated
+        # from TheStatsAPI or matched in the dedupe step) AND we're
+        # NOT live (live stats already enriched separately), pull
+        # season-level team stats + match details. The block is fully
+        # additive — if enrichment returns {}, no field is written.
+        ts_raw_id = fx_raw.get("_thestatsapi_raw_id") or (
+            fx_raw.get("_external_source_id")
+            if fx_raw.get("_external_source") == "thestatsapi"
+            else None
+        )
+        if ts_raw_id and not is_live:
+            try:
+                from .external_sources import thestatsapi_enrichment as _ts_enrich
+                _ts_home_raw = (fx_raw.get("teams", {}).get("home") or {}).get("_thestatsapi_id")
+                _ts_away_raw = (fx_raw.get("teams", {}).get("away") or {}).get("_thestatsapi_id")
+                ts_payload = await _ts_enrich.enrich_pre_match(
+                    client, db,
+                    sport="football",
+                    match_raw_id=ts_raw_id,
+                    home_team_id=_ts_home_raw,
+                    away_team_id=_ts_away_raw,
+                    season=season,
+                    competition_id=fx_raw.get("league", {}).get("_thestatsapi_id"),
+                )
+                if ts_payload:
+                    match_doc["_thestatsapi_enrichment"] = ts_payload
+                    log.info(
+                        "[ts_enrichment] football fixture %s enriched with TheStatsAPI (%s)",
+                        fid, list(ts_payload.keys()),
+                    )
+            except Exception as exc:
+                log.warning("[ts_enrichment] football fixture %s enrichment failed: %s", fid, exc)
         # Phase P2 — provenance: API-Sports is authoritative for the football
         # path; every section here was fetched from the same provider.
         prov.attach_to_match(
