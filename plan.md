@@ -64,7 +64,7 @@
     - `discarded_after_full_analysis`
   - UI: sección **“Revisión manual — falta cuota”** (solo MLB) vía `ManualOddsReviewPanel.jsx`.
 
-- **(✅ COMPLETADO)** **MLB-V6 — Totals Probability Fix + Visible Picks + Over Discovery / Market Audit (V6 UI + Backend)**:
+- **(✅ COMPLETADO)** **MLB-V6 — Totals Prob Fix + Visible Picks + Over Discovery / Market Audit (V6 UI + Backend)**:
   - Fix Totals (Poisson) + UI Edge vs Línea + picks visibles.
   - **Over Discovery Engine (V6)** para eliminar sesgo hacia Unders:
     - Offensive Explosion Score (0–100)
@@ -85,27 +85,34 @@
   - Survival score 0–100 + fragility score 0–100 con clasificación de estabilidad.
   - UI: summary + detail panels.
 
-- **(✅ COMPLETADO — NUEVO P0)** **MLB Under Confidence Floor (Moneyball guardrail)**:
+- **(✅ COMPLETADO — P0)** **MLB Under Confidence Floor (Moneyball guardrail)**:
   - Regla:
     - Solo para `sport == "baseball"`, **market Under (no team total, no NRFI)**.
     - Solo cuando `edge is not None`.
     - Si `confidence_score < MLB_UNDER_CONFIDENCE_FLOOR` (default 75) → degrada a `WATCHLIST`.
     - Marca el pick con `pick["_conf_floor_demoted"] = True`.
 
-- **(✅ COMPLETADO — NUEVO)** **UI/summary: bucket de democión por floor**:
+- **(✅ COMPLETADO)** **UI/summary: bucket de democión por floor**:
   - `server.py` expone `summary.conf_floor_demoted`.
 
-- **(✅ COMPLETADO — NUEVO P1)** **F6C Auto-Settle MLB (sin intervención del usuario)**:
+- **(✅ COMPLETADO — P1)** **F6C Auto-Settle MLB (sin intervención del usuario)**:
   - Nuevo módulo `services/mlb_results_settler.py` + wiring APScheduler.
 
-- **(🟨 NUEVO P0)** **MLB Statcast como “capa de confirmación/riesgo” (Phase 9/10)**:
-  - Statcast NO debe ser motor principal; ajustes ponderados por `data_quality`.
-  - Guardar metadata: `raw_adjustment` y `weighted_adjustment`.
-  - Añadir reason codes nuevos al pick payload para explicabilidad.
+- **(✅ COMPLETADO — NUEVO P0)** **MLB Statcast como “capa de confirmación/riesgo” (Phase 9/10)**:
+  - Ajustes **ponderados** por `data_quality` (Statcast no es motor principal):
+    - `strong` → 60%
+    - `partial/thin` → 35%
+    - `missing` → 0%
+  - Persistencia de auditoría: `pick_payload["advanced_adjustments"]` incluye `raw_conf_delta`, `weighted_conf_delta`, `weight_factor_used`, breakdown y reason_codes.
+  - Integración live: `mlb_explosive_inning_engine` añade contribución `statcast_contact` (cap ±8) + reason codes.
 
-- **(🟨 NUEVO P0)** **MLB Offensive Pressure Base (Objetivo 2)**:
-  - Detectar “Under frágil” cuando hay **muchos hits pero pocas carreras**.
-  - Basado en `baseballHistoricalProfile.recentRunSplit` + (cuando exista) live hits.
+- **(✅ COMPLETADO — NUEVO P0)** **MLB Offensive Pressure Base (Objetivo 2)**:
+  - Nuevo módulo `services/mlb_pressure_base.py`.
+  - Detecta Under frágil cuando hay **muchos hits pero pocas carreras**.
+  - Basado en `baseballHistoricalProfile.recentRunSplit`/`onBaseProfileL5` (mirror) + (si existe) hits live.
+  - Wiring en orchestrator:
+    - `pick_payload["pressure_base"]` + `pick_payload["pressure_base_impact"]`
+    - Ajustes conservadores sobre `recommendation.confidence_score` y `fragility.score`.
 
 ---
 
@@ -147,7 +154,7 @@
 ---
 
 ## Phase MLB-BatchB — Statcast Adapter (pybaseball + Bright Data + TheStatsAPI)
-**Estado:** ✅ FASE CORE COMPLETADA (2026-06-03). **Fase 9/10 pendientes**, Fase 11/13 pendientes.
+**Estado:** ✅ CORE + Phase 9/10 COMPLETADAS (2026-06-03). Fase 11/13 pendientes.
 
 ### Fix 2 — Batch B: MLB Statcast Adapter (Fases 1-8 + 12 + 14)
 **Estado:** ✅ COMPLETADO
@@ -155,165 +162,83 @@
 - Fuentes y cache hit/miss reportados en `pipeline_meta.external_sources.mlb_advanced_stats`.
 
 ### Phase 9 — Deep integration en scorers (Statcast → ajustes ponderados)
-**Estado:** 🟨 PENDIENTE (P0)
+**Estado:** ✅ COMPLETADO (P0)
 
-**Contexto actual del repo:**
-- Ya existe `services/mlb_advanced_stats_helpers.py` con:
-  - `extract_mlb_advanced_context()`
-  - `pitcher_quality_advanced_adjustment()`
-  - `over_under_advanced_adjustment()`
-  - `fragility_advanced_adjustment()`
-  - `starter_under_advanced_adjustment()`
-  - `compute_all_advanced_adjustments()`
+**Implementación real (backend):**
+- Archivo: `services/mlb_day_orchestrator.py`
+  - Tras persistir `advanced_stats_snapshot`, ejecuta `compute_all_advanced_adjustments(pick_payload)`.
+  - Aplica ajuste **ponderado** al `recommendation.confidence_score` según `data_quality`:
+    - strong=0.60, partial/thin=0.35, missing=0.0.
+  - Guarda auditoría completa en `pick_payload["advanced_adjustments"]`:
+    - `data_quality`, `weight_factor_used`, `raw_conf_delta`, `weighted_conf_delta`, `raw_breakdown`, `reason_codes`, `summary`.
+  - Propaga reason codes al `pick_payload.reason_codes`.
+  - Fail-soft: si no hay snapshot útil, no altera el score.
 
-**Objetivo técnico:** aplicar Statcast como capa de confirmación/riesgo sobre:
-- `pitcher_quality` (impacto en calidad de abridores)
-- `over_under` (apoyo a Over/Under)
-- `fragility` (fragilidad global)
-- `starter_under` (perfil Under de abridores)
-
-**Regla de ponderación (especificación del usuario):**
-- `data_quality == "strong"` → **60%** del adjustment
-- `data_quality in ("partial", "thin")` → **35%**
-- `data_quality == "missing"` → **0%**
-
-**Metadatos obligatorios por pick:**
-- `pick_payload["advanced_adjustments"] = { ... }` (salida de `compute_all_advanced_adjustments`)
-- Dentro:
-  - `raw_adjustment` (por sub-bloque)
-  - `weighted_adjustment` (aplicado al score/conf)
-  - `weight_factor_used`
-
-**Cambios concretos (backend):**
-1. `services/mlb_day_orchestrator.py`
-   - Tras construir `advanced_stats_snapshot`, ejecutar `compute_all_advanced_adjustments(pick_payload)`.
-   - Aplicar los ajustes ponderados de forma **conservadora** a:
-     - `recommendation.confidence_score` (principal)
-     - y/o campos auxiliares como `fragility.score` / `script_survival` cuando aplique.
-   - Propagar `reason_codes` nuevos al `pick_payload.reason_codes`.
-   - Fail-soft total: si falta snapshot, no cambia nada.
-
-2. Integración en módulos “standalone” (si existen funciones separadas en el repo):
-   - Si la arquitectura actual no expone `pitcher_quality_score.py` etc., mantener la integración en orchestrator usando helpers.
-   - Si existen bloques equivalentes en `mlb_pregame_analytics*.py` o `mlb_pregame_analytics_v3.py`, ajustar ahí de forma additive (sin romper API).
-
-**Criterios de éxito Phase 9:**
-- Ningún pick cambia drásticamente por Statcast (cap + ponderación).
-- `advanced_stats_reason_codes` aparecen y son auditables.
-- Si `data_quality=missing` → impacto 0.
+**Criterios de éxito logrados:**
+- Ajustes conservadores (Statcast como confirmación/riesgo, no motor principal).
+- Persistencia de metadata para UI/explicabilidad y auditoría.
+- 0 crashes si faltan datos.
 
 ---
 
 ### Phase 10 — Statcast en `mlb_explosive_inning_engine.py`
-**Estado:** 🟨 PENDIENTE (P0)
+**Estado:** ✅ COMPLETADO (P0)
 
-**Objetivo:** mejorar la presión explosiva con señales pregame de contacto duro:
-- Reforzar/penalizar la presión cuando Statcast indica:
-  - alto barrel/hard-hit (riesgo de inning explosivo)
-  - xwOBA elevada (warning)
-  - perfil Under (low hard-contact) como amortiguador
-
-**Diseño (fail-soft + pure functions):**
-- Extender `evaluate_explosive_inning(metrics)` para aceptar opcionalmente:
-  - `advanced_stats_snapshot` o `advanced_ctx` (preferible pasar snapshot completo)
-- Agregar reason codes (canónicos ya definidos en `mlb_advanced_stats_helpers.py`):
-  - `STATCAST_HARD_CONTACT_SUPPORT`, `BARREL_RISK_ELEVATED`, `PITCHER_XWOBA_WARNING`, etc.
-- Ajuste pequeño y capado (ej. ±0..8 puntos) sobre `pressure_score`.
-
-**Implementación sugerida:**
-- Nuevo sub-detector interno en `mlb_explosive_inning_engine.py`:
-  - `_detect_statcast_contact_context(metrics) -> (pts, reason_codes, human_reasons, flags)`
-- Consumir:
-  - `pitcher.barrel_pct_allowed`, `pitcher.hard_hit_pct_allowed`, `pitcher.xwoba_allowed`
-  - `team.team_barrel_pct`, `team.team_xwoba`
-- Integrar en `contribs` y en `reason_codes`.
-
-**Criterios de éxito Phase 10:**
-- Engine sigue siendo 100% puro (sin IO) y fail-soft.
-- Cuando el snapshot no existe → no cambia outputs.
+**Implementación real:**
+- Archivo: `services/mlb_explosive_inning_engine.py`
+  - Nuevo detector puro: `_detect_statcast_contact_context(metrics, pitching_side, batting_side)`.
+  - Lee `metrics["advanced_stats_snapshot"]` (opcional) y añade contribución `statcast_contact` a `score_contributions`.
+  - Ajuste capado a ±8; reason codes añadidos a `reason_codes`.
+  - Fail-soft: snapshot ausente → contribución 0 sin alterar outputs.
 
 ---
 
 ## Objetivo 2 — `services/mlb_pressure_base.py` (Presión ofensiva base)
-**Estado:** 🟨 PENDIENTE (P0)
+**Estado:** ✅ COMPLETADO (P0)
 
-**Motivación:** evitar recomendación Under “controlada” cuando en realidad hay:
-- alto volumen de hits + bajo run conversion (señal de “ticking time bomb”).
+**Implementación real:**
+- Nuevo archivo: `services/mlb_pressure_base.py`
+  - `calculate_team_pressure_base()` y `calculate_match_pressure_context()`.
+  - Umbrales:
+    - HIGH: hits_L5 ≥ 9.0 y runs_L5 ≤ 3.5
+    - MOD:  hits_L5 ≥ 8.0 y runs_L5 ≤ 4.0
+    - LOW:  hits_L5 ≤ 6.5 y runs_L5 ≤ 3.5
+    - si no cumple → NEUTRAL
+  - Considera hits live cuando existen (`RC_LIVE_HIT_ACCELERATION`).
+  - Helper: `derive_pressure_impact_for_under_pick()` devuelve deltas conservadores para Under/Over.
 
-**Inputs (requisito del usuario):**
-- Reusar `baseballHistoricalProfile.recentRunSplit` (fail-soft).
-- Considerar `combined_hits` y (si existe) live hits.
-
-**Clasificación (umbrales finales del usuario):**
-- `HIGH_PRESSURE` si `hits_avg_L5 >= 9.0` y `runs_avg_L5 <= 3.5`
-- `MODERATE_PRESSURE` si `hits_avg_L5 >= 8.0` y `runs_avg_L5 <= 4.0`
-- `LOW_PRESSURE` si `hits_avg_L5 <= 6.5` y `runs_avg_L5 <= 3.5`
-- si no cumple → `NEUTRAL_PRESSURE`
-
-**API del módulo:**
-- `calculate_team_pressure_base(recent_run_split_side: dict, *, live_hits: int | None = None) -> dict`
-- `calculate_match_pressure_context(pick_payload_or_match_doc: dict) -> dict`
-
-**Salida canónica:**
-```python
-{
-  "available": bool,
-  "home": {"pressure_tier": str, "score": int, "inputs": {...}, "reasons": [...]},
-  "away": { ... },
-  "combined": {"pressure_tier": str, "score": int, "flags": {...}, "reasons": [...]},
-}
-```
-
-**Integración:**
-1. `services/mlb_day_orchestrator.py`
-   - Después de `baseballHistoricalProfile` + `recentRunSplit` mirror, calcular `pressure_base` y adjuntar:
-     - `pick_payload["pressure_base"] = ...`
-   - Impacto sugerido:
-     - Si pick es Under y `combined.pressure_tier == HIGH_PRESSURE` → subir fragility / bajar confidence.
-     - Si `LOW_PRESSURE` → leve reducción de fragilidad.
-
-2. Downstream scorers (cuando exista bloque dedicado):
-   - `mlb_fragility_score` / `script_survival` / `live analysis` consumen `pressure_base` como “riesgo de conversión tardía”.
-
-**Criterios de éxito Objetivo 2:**
-- Detecta escenarios hits altos / runs bajos y los marca.
-- Fail-soft: si no hay `recentRunSplit`, retorna `available=False`.
+**Wiring real:**
+- `services/mlb_day_orchestrator.py`:
+  - Adjunta `pick_payload["pressure_base"]`.
+  - Aplica `pressure_base_impact` a `recommendation.confidence_score` y `fragility.score` (si están presentes).
+  - Propaga reason codes.
 
 ---
 
 ## 3) Next Actions
 
-### A) Implementación P0 inmediata — Phase 9 + Phase 10 + Objetivo 2
-**Estado:** 🟨 PENDIENTE (nuevo top priority)
-1) Phase 9 (orchestrator):
-   - Aplicar `compute_all_advanced_adjustments`.
-   - Ponderación por `data_quality` (60/35/0).
-   - Guardar `raw_adjustment` + `weighted_adjustment`.
+### A) Iteración MLB Statcast — Fase 11 y Fase 13 (P1)
+**Estado:** 🟨 PENDIENTE
+1) **Fase 11** — `mlb_real_stats_verifier.py`:
+   - Detectar Ghost Edges con discrepancias xERA vs ERA / xwOBA vs wOBA.
+   - Flags tipo `ERA_UNDERSTATES_RISK` y payload `pitcher_era_vs_xera`.
+2) **Fase 13** — UI:
+   - Sección colapsable “MLB Advanced Stats” mostrando los 4 bloques del snapshot.
+   - Badges por fuente (`pybaseball` / `thestatsapi` / `brightdata`) y `data_quality`.
 
-2) Phase 10 (explosive inning):
-   - Añadir detector statcast-contact.
-   - Nuevos reason codes / human reasons.
+### B) Bright Data Unlocker (P0 bloqueado)
+**Estado:** 🟨 PENDIENTE / BLOQUEADO
+- Requiere `BRIGHTDATA_API_KEY` + `BRIGHTDATA_ZONE`.
 
-3) Objetivo 2 (pressure_base):
-   - Crear módulo + wiring en orchestrator.
-   - Ajustes conservadores a fragility/conf cuando Under.
+### C) Basketball Historical Detail (P1)
+**Estado:** 🟨 PENDIENTE
+- Implementar perfil histórico y rescue layer equivalentes a MLB.
 
-### B) Testing (obligatorio)
-**Estado:** 🟨 PENDIENTE (actualizado)
-1) `pytest backend/tests/` (suite completa; mocks para cualquier IO).
-2) Ejecutar `testing_agent` (backend) para validación de regresión y sanity de pipeline.
+### D) Fix 2C (P2) — Persistencia live como async
+**Estado:** 🟨 PENDIENTE
 
-### C) Bright Data Unlocker (P0 bloqueado)
-(Sin cambios)
-
-### D) Basketball Historical Detail (P1)
-(Sin cambios)
-
-### E) Fix 2C (P2) — Persistencia live como async
-(Sin cambios)
-
-### F) Football deep-live parity (P3)
-(Sin cambios)
+### E) Football deep-live parity (P3)
+**Estado:** 🟨 PENDIENTE
 
 ---
 
@@ -331,26 +256,24 @@
   - Se detectan oportunidades en **totales/team totals/F5/run line** con razonamiento humano.
   - Moneyball guardrail siempre manda: sin edge → no recomendación.
 
-- **MLB Statcast Deep Integration (Phase 9/10) — NUEVO**
+- **MLB Statcast Deep Integration (Phase 9/10) — ✅ cumplido**
   - Statcast actúa como **capa de confirmación/riesgo** (no motor principal).
-  - Ajustes ponderados por `data_quality`:
-    - strong=60%, partial/thin=35%, missing=0%.
-  - Se guardan `raw_adjustment` y `weighted_adjustment` por pick.
-  - Nuevos reason codes visibles (auditoría + explicabilidad).
+  - Ajustes ponderados por `data_quality` (60/35/0).
+  - Se guardan `raw_conf_delta` y `weighted_conf_delta` en `pick_payload["advanced_adjustments"]`.
+  - `mlb_explosive_inning_engine` incorpora `statcast_contact` (±8) sin IO.
   - Cero crash si faltan datos / provider falló.
 
-- **MLB Offensive Pressure Base (Objetivo 2) — NUEVO**
-  - `pressure_base` presente cuando hay `recentRunSplit`.
-  - Clasificación correcta:
-    - HIGH/MODERATE/LOW/NEUTRAL según umbrales.
-  - Under picks “muchos hits / pocas carreras” aumentan fragility y se degradan con prudencia.
+- **MLB Offensive Pressure Base (Objetivo 2) — ✅ cumplido**
+  - `pressure_base` presente cuando hay `recentRunSplit/onBaseProfile` (o mirror en `baseballHistoricalProfile`).
+  - Clasificación HIGH/MODERATE/LOW/NEUTRAL según umbrales.
+  - Under picks con “muchos hits / pocas carreras” aumentan fragility y degradan confidence de forma conservadora.
 
-- **MLB Under Confidence Floor (✅ cumplido)**
+- **MLB Under Confidence Floor — ✅ cumplido**
   - Un pick MLB Under no puede quedar recomendado si `confidence_score < 75` con odds.
 
-- **F6C Auto-Settle (✅ cumplido)**
+- **F6C Auto-Settle — ✅ cumplido**
   - Evaluaciones pending se resuelven automáticamente cuando hay `final_score`.
 
 ### Testing status
-- Suite histórica: 550+ tests PASS previo.
-- **Nuevo objetivo:** mantener 0 regresiones tras Phase 9/10/Objetivo 2 con `pytest` + `testing_agent` backend.
+- **Suite actual:** 604 tests PASS.
+- **Validación adicional:** `testing_agent_v3` backend OK (endpoints OK, boot limpio, fail-soft confirmado).
