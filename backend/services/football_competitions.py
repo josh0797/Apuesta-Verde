@@ -336,31 +336,80 @@ def get_competition_meta(league_name: Optional[str]) -> Optional[dict]:
 # Empty list = no mapping known yet (consumers must NOT pass
 # ``competition_id`` to TheStatsAPI in that case).
 THESTATSAPI_COMPETITION_MAP: dict[str, list[str]] = {
-    # ── Tier 1 internationals ────────────────────────────────────────
+    # ── Tier 1 internationals (verified or high-priority discovery) ──
     "FIFA World Cup":                 ["comp_6107"],   # verified 2026-06-03 live response
+    "FIFA Club World Cup":            [],
     "UEFA Champions League":          [],
     "UEFA Europa League":             [],
     "UEFA Conference League":         [],
     "UEFA European Championship":     [],
+    "UEFA Nations League":            [],
+    "UEFA Super Cup":                 [],
+    "UEFA Women's European Championship": [],
     "Copa América":                   [],
     "Copa Libertadores":              [],
+    "Copa Sudamericana":              [],
     "CONCACAF Gold Cup":              [],
-    "FIFA Club World Cup":            [],
-    # ── Tier 1 domestic ──────────────────────────────────────────────
+    "CONCACAF Champions League":      ["comp_8649"],   # CONCACAF Champions Cup
+    "CONCACAF Nations League":        [],
+    "Africa Cup of Nations":          ["comp_1554"],
+    "AFC Asian Cup":                  [],
+    "AFC Champions League":           ["comp_5432", "comp_8833"],
+    # ── Tier 1 European domestic ─────────────────────────────────────
     "Premier League":                 [],
     "LaLiga":                         [],
+    "LaLiga 2":                       [],
     "Serie A":                        [],
-    "Bundesliga":                     [],
+    "Serie B":                        [],
+    "Bundesliga":                     ["comp_4643"],
+    "2. Bundesliga":                  ["comp_0406"],
     "Ligue 1":                        [],
+    "Ligue 2":                        [],
+    "Eredivisie":                     [],
+    "Primeira Liga":                  [],
+    "Belgian Pro League":             [],
+    "Scottish Premiership":           [],
+    "Süper Lig":                      [],
+    "Swiss Super League":             [],
+    "Austrian Bundesliga":            ["comp_4893"],
+    "Russian Premier League":         [],
+    "Ukrainian Premier League":       [],
+    "Greek Super League":             [],
+    "Polish Ekstraklasa":             [],
+    # ── Tier 1 American domestic ────────────────────────────────────
+    "Major League Soccer":            [],
+    "MLS":                            [],
     "Liga MX":                        [],
-    # ── Tier 2 cups / nat. teams qualifying ──────────────────────────
+    "Brasileirão Série A":            ["comp_4795"],
+    "Brasileirão Série B":            ["comp_1085"],
+    "Argentine Primera División":     [],
+    "Liga Profesional Argentina":     [],
+    # ── Tier 1 Asia / Oceania ───────────────────────────────────────
+    "J1 League":                      [],
+    "K League 1":                     [],
+    "Saudi Pro League":               [],
+    "A-League":                       ["comp_6151"],
+    "A-League Men":                   ["comp_6151"],
+    "Chinese Super League":           ["comp_7712"],
+    # ── Tier 2 cups ─────────────────────────────────────────────────
     "FA Cup":                         [],
     "EFL Cup":                        [],
+    "EFL Championship":               [],
     "Copa del Rey":                   [],
     "Coppa Italia":                   [],
     "DFB-Pokal":                      [],
     "Coupe de France":                [],
-    # Add more as we observe their ids in the wild.
+    "Taça de Portugal":               [],
+    "KNVB Beker":                     [],
+    "Belgian Cup":                    [],
+    "Scottish Cup":                   [],
+    "Türkiye Kupası":                 [],
+    "DFL-Supercup":                   [],
+    "Trophée des Champions":          [],
+    "Supercopa de España":            [],
+    "Supercoppa Italiana":            [],
+    "Community Shield":               [],
+    # Add more as they're discovered through live `/football/competitions`.
 }
 
 

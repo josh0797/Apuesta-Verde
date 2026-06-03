@@ -1,42 +1,30 @@
 [
   {
-    "content": "Fix 2b: Robust pregame pick lookup in server.py (match_id + game_pk + doc.game_pk)",
+    "content": "Fix 1: Seed expandido THESTATSAPI_COMPETITION_MAP",
     "status": "completed"
   },
   {
-    "content": "Fix 2a: Add boxscore fetch in mlb_live_state.py (hits/walks/HR/errors)",
+    "content": "Fix 2 Phase 1-7: Create mlb_statcast_adapter.py",
     "status": "completed"
   },
   {
-    "content": "Persist box_score field in live_stats so live_pre_match_comparison.py reads it",
+    "content": "Fix 2 Phase 2: Feature flags in .env",
     "status": "completed"
   },
   {
-    "content": "Tests for mlb_live_state boxscore + pregame pick lookup robustness",
+    "content": "Fix 2 Phase 8: Wire into mlb_day_orchestrator + pipeline_meta",
     "status": "completed"
   },
   {
-    "content": "Fix 1 (Batch 3): Pre-match enrichment all 3 sports via TheStatsAPI",
+    "content": "Fix 2 Phase 12: Storage hook (advanced_stats_snapshot persisted on pick_payload)",
     "status": "completed"
   },
   {
-    "content": "Fix 1 (Batch 3): Competitions allowlist with thestatsapi_ids",
+    "content": "Fix 2 Phase 14: Tests with mocks",
     "status": "completed"
   },
   {
-    "content": "Fix 1 (Batch 3): UI buttons Refrescar Football / Analizar Selecciones / Analizar Live",
-    "status": "completed"
-  },
-  {
-    "content": "Fix 1 (Batch 3): Empty state listing consulted sources",
-    "status": "completed"
-  },
-  {
-    "content": "Tests for Batch 3 enrichment + allowlist",
-    "status": "completed"
-  },
-  {
-    "content": "Run full pytest suite + lint + restart backend",
+    "content": "Run full pytest + lint + restart",
     "status": "completed"
   }
 ]

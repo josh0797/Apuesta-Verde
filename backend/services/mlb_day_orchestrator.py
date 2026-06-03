@@ -1436,6 +1436,88 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as _exc_rf:
             log.debug("recent_form_split fetch failed (fail-soft): %s", _exc_rf)
 
+        # ── MLB ADVANCED STATCAST PROFILE (Batch B) ─────────────────────
+        # Hybrid pybaseball + Bright Data + TheStatsAPI. The adapter
+        # is internally fail-soft: any provider can be missing, broken,
+        # or disabled, and the function returns a normalized payload
+        # we can attach as-is. The whole block is itself wrapped in
+        # try/except so even an import error doesn't break the pick.
+        try:
+            from .mlb_statcast_adapter import (
+                get_mlb_advanced_profile,
+                is_adapter_enabled,
+            )
+            if is_adapter_enabled():
+                _adv_season = int(date_str.split("-")[0]) if date_str and "-" in date_str else None
+                _home_p_name = conf.get("home_pitcher_name") or conf.get("home_pitcher")
+                _away_p_name = conf.get("away_pitcher_name") or conf.get("away_pitcher")
+                _home_p_id   = conf.get("home_pitcher_id") or conf.get("home_pitcher_mlbam")
+                _away_p_id   = conf.get("away_pitcher_id") or conf.get("away_pitcher_mlbam")
+                # 4 parallel adapter calls — each one runs its own 3-source
+                # fan-out internally. With cache hits this collapses to ~0ms.
+                _adv_hp, _adv_ap, _adv_ht, _adv_at = await asyncio.gather(
+                    get_mlb_advanced_profile(
+                        db=db, player_id=_home_p_id, player_name=_home_p_name,
+                        season=_adv_season, role="pitcher",
+                    ),
+                    get_mlb_advanced_profile(
+                        db=db, player_id=_away_p_id, player_name=_away_p_name,
+                        season=_adv_season, role="pitcher",
+                    ),
+                    get_mlb_advanced_profile(
+                        db=db, team_id=conf.get("home_team_id"),
+                        team_name=conf.get("home_team_name") or home_team_name,
+                        season=_adv_season, role="team",
+                    ),
+                    get_mlb_advanced_profile(
+                        db=db, team_id=conf.get("away_team_id"),
+                        team_name=conf.get("away_team_name") or away_team_name,
+                        season=_adv_season, role="team",
+                    ),
+                    return_exceptions=True,
+                )
+                def _safe_adv(r): return r if isinstance(r, dict) else {}
+                advanced_snapshot = {
+                    "home_pitcher_advanced": _safe_adv(_adv_hp),
+                    "away_pitcher_advanced": _safe_adv(_adv_ap),
+                    "home_team_advanced":    _safe_adv(_adv_ht),
+                    "away_team_advanced":    _safe_adv(_adv_at),
+                }
+                # Phase 12 — persist snapshot on the pick_payload so it
+                # survives DB upserts and reaches the feedback loop.
+                pick_payload["advanced_stats_snapshot"] = advanced_snapshot
+                # Mirror into pipeline_meta for the "Fuentes consultadas"
+                # panel and for downstream telemetry.
+                _cache_hits = sum(
+                    1 for v in advanced_snapshot.values()
+                    if (v.get("source_status") or {}).get("cache") == "hit"
+                )
+                _cache_misses = sum(
+                    1 for v in advanced_snapshot.values()
+                    if (v.get("source_status") or {}).get("cache") == "miss"
+                )
+                _statuses = [v.get("data_quality") for v in advanced_snapshot.values()]
+                if "strong" in _statuses:
+                    _overall = "success" if all(s != "missing" for s in _statuses) else "partial"
+                elif "partial" in _statuses:
+                    _overall = "partial"
+                else:
+                    _overall = "failed"
+                pipeline_meta.setdefault("external_sources", {})
+                pipeline_meta["external_sources"]["mlb_advanced_stats"] = {
+                    "enabled":      True,
+                    "source":       "pybaseball+brightdata+thestatsapi",
+                    "status":       _overall,
+                    "cache_hits":   _cache_hits,
+                    "cache_misses": _cache_misses,
+                }
+        except Exception as _exc_adv:
+            log.debug("mlb_advanced_stats fetch failed (fail-soft): %s", _exc_adv)
+            pipeline_meta.setdefault("external_sources", {})
+            pipeline_meta["external_sources"]["mlb_advanced_stats"] = {
+                "enabled": True, "status": "failed", "reason": str(_exc_adv),
+            }
+
         # ── MLB MARKET LEAN — SINGLE SOURCE OF TRUTH ─────────────────────────
         # Fixes the UX contradiction reported by the user where the
         # "Historial profundo" badge showed LEAN OVER while the final

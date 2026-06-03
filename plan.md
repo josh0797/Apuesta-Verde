@@ -230,6 +230,93 @@
 
 ---
 
+## Phase MLB-BatchB — Statcast Adapter (pybaseball + Bright Data + TheStatsAPI)
+**Estado:** ✅ FASE CORE COMPLETADA (2026-06-03). Fases 9-11 (integración profunda en scorers) + Fase 13 (UI) PENDIENTES.
+
+### Fix 1 — Seed expandido `THESTATSAPI_COMPETITION_MAP`
+- Ampliado de 16 a 50+ entradas en `football_competitions.py`.
+- IDs auto-poblados via probe live API (`comp_6107` World Cup, `comp_0406` 2.Bundesliga, `comp_4893` Austrian Bundesliga, `comp_8649` CONCACAF Champions Cup, `comp_1554` AFCON, `comp_5432`/`comp_8833` AFC CL, `comp_4643` Bundesliga, `comp_4795` Brasileirão, `comp_1085` Brasileirão B, `comp_6151` A-League, `comp_7712` Chinese SL).
+- Resto Tier-1/Tier-2 con `[]` (placeholder seguro para futuros lookups).
+
+### Fix 2 — Batch B: MLB Statcast Adapter (Fases 1-8 + 12 + 14)
+
+**Arquitectura híbrida** documentada en docstring del adapter:
+```
+caller → get_mlb_advanced_profile()
+       → 1. Cache (Mongo external_source_cache)
+       → 2. fetch_with_pybaseball()    [lazy import, ENABLE_PYBASEBALL_ENRICHMENT]
+       → 3. fetch_with_brightdata()    [stub, ENABLE_BRIGHTDATA_STATCAST_FALLBACK]
+       → 4. fetch_with_thestatsapi()   [reusa cliente, ENABLE_THE_STATS_API_BASEBALL]
+       → 5. merge_advanced_sources()   [priority-aware]
+       → write cache → return
+```
+
+**Archivos creados:**
+- `services/mlb_statcast_adapter.py` (790+ líneas):
+  - `get_mlb_advanced_profile()` — entry point público, 4 calls en paralelo internamente.
+  - `normalize_mlb_advanced_payload()` — shape canónico con auto-detect de `data_quality` (≥60% coverage = strong).
+  - `is_pybaseball_available()` — runtime check sin caché.
+  - `fetch_with_pybaseball()` — lazy import + `asyncio.to_thread` + timeout. Extrae xERA/xwOBA/barrel/hard-hit/whiff/chase/K%/BB% para pitchers; OPS/wRC+/xwOBA/barrel para batters; team_ops/team_wrc+/RPG para teams.
+  - `fetch_with_brightdata()` — wrapper async sobre módulo opcional.
+  - `fetch_with_thestatsapi()` — sport-aware (`sport="baseball"`). Mapea respuesta → `_ts_team_to_block` / `_ts_player_to_pitcher_block` / `_ts_player_to_batter_block`.
+  - `merge_advanced_sources()` — prioridad por campo:
+    - Statcast-puros: pybaseball > brightdata > thestatsapi.
+    - Convencionales (ERA/OPS/wRC+): thestatsapi > pybaseball > brightdata.
+    - `field_sources` traza cada valor a su fuente.
+  - `read_mlb_advanced_cache` / `write_mlb_advanced_cache` con TTL custom por role (pitcher/batter 24h, team 12h, live 5min).
+- `services/external_sources/mlb_statcast_brightdata.py` (scaffold fail-soft):
+  - `fetch_advanced()` retorna `skipped` mientras no haya parser real (zero side-effects).
+
+**Feature flags añadidos a `.env`:**
+```
+ENABLE_MLB_STATCAST_ADAPTER=true
+ENABLE_PYBASEBALL_ENRICHMENT=true
+ENABLE_BRIGHTDATA_STATCAST_FALLBACK=true
+ENABLE_THE_STATS_API_BASEBALL=true
+MLB_ADVANCED_STATS_CACHE_HOURS=24
+MLB_ADVANCED_STATS_TIMEOUT_SECONDS=12
+```
+
+**Phase 8 — Orchestrator wiring** (`mlb_day_orchestrator.py`):
+- Tras el bloque `recent_form_split`, llama `get_mlb_advanced_profile()` para 4 sujetos en paralelo (home_pitcher, away_pitcher, home_team, away_team).
+- Adjunta `pick_payload["advanced_stats_snapshot"]` con los 4 payloads.
+- `pipeline_meta["external_sources"]["mlb_advanced_stats"]` con `enabled`, `source`, `status`, `cache_hits`, `cache_misses`.
+
+**Phase 12 — Storage hook:**
+- El snapshot se persiste como parte del `pick_payload` (sobrevive el ciclo storage → feedback loop).
+- Schema: `advanced_stats_snapshot.{home_pitcher_advanced,away_pitcher_advanced,home_team_advanced,away_team_advanced}` con la forma canónica del adapter.
+
+### Validación
+- **550 tests PASS** (520 → 550, +30 nuevos en `test_mlb_statcast_adapter.py`).
+  - Feature flags (5 casos).
+  - `normalize_mlb_advanced_payload` (4 casos: missing, strong, partial, team-only).
+  - `fetch_with_pybaseball` skipped paths (flag off, not installed).
+  - `fetch_with_brightdata` skipped paths (flag off, no config).
+  - `fetch_with_thestatsapi` skipped path (flag off).
+  - Cache (write+read fresh, stale TTL, db=None fail-soft).
+  - Merge (5 casos: priority Statcast, priority convencionales, merged label, single source, partial quality, missing).
+  - `get_mlb_advanced_profile` end-to-end (disabled, aggregates+caches, force_refresh, all sources failed).
+  - Normalizers (`_normalise_float` handles NaN/strings/None; `_pct_from_ratio` converts fractions).
+- Lint Python clean en ambos archivos nuevos.
+- Backend reiniciado limpio.
+- **Validación en vivo (sin pybaseball instalado)**:
+  - `is_adapter_enabled()=True`, `is_pybaseball_available()=False` (esperado).
+  - Adapter ejecuta los 3 fetchers; `pybaseball:skipped, brightdata:skipped, thestatsapi:success`.
+  - Sin pybaseball, devuelve `available=False, data_quality=missing` correctamente — el engine MLB sigue ejecutándose sin esta data (fail-soft completo).
+
+### Despliegue
+Cambios en **PREVIEW**. Producción requiere redeploy del usuario.
+Para activar pybaseball en runtime: `pip install pybaseball && pip freeze > requirements.txt`.
+
+### Pendiente para próximas iteraciones (explícitamente diferido)
+- **Fase 9**: Integración profunda en `pitcher_quality_score()`, `over_under_predictor()`, `mlb_fragility_score()`, `mlb_starter_lineup_under_profile()` (consumir `advanced_stats_snapshot` para ajustar boosts/downgrades).
+- **Fase 10**: `mlb_explosive_inning_engine.py` consume xwOBA/barrel/hard-hit para ajustar `explosive_inning_pressure_score` y `script_survival_score`. Nuevos reason codes (`STATCAST_HARD_CONTACT_SUPPORT`, `BARREL_RISK_ELEVATED`, etc.).
+- **Fase 11**: `mlb_real_stats_verifier.py` detecta ghost-edge con discrepancias xERA vs ERA (campo `pitcher_era_vs_xera` con flag `ERA_UNDERSTATES_RISK`).
+- **Fase 13**: UI collapsible "MLB Advanced Stats" en MLB MatchCard mostrando los 4 payloads con badges de fuente.
+
+---
+
+
 ## Phase MLB-FIX3 — Batch 3.5 + Allowlist TheStatsAPI IDs + MLB Prompt L5/L15
 **Estado:** ✅ COMPLETADO (2026-06-03)
 
