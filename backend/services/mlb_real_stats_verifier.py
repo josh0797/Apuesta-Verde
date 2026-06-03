@@ -32,6 +32,7 @@ async def verify_model_inputs(
     recent_run_split: Optional[dict] = None,
     on_base_profile:  Optional[dict] = None,
     f5_split:         Optional[dict] = None,
+    advanced_stats_snapshot: Optional[dict] = None,
 ) -> dict:
     discrepancies: list[dict] = []
     penalty = 0
@@ -175,6 +176,94 @@ async def verify_model_inputs(
         })
         penalty += 10
 
+    # 7. Statcast ghost-edge — xERA / xwOBA vs ERA / wOBA gap (Phase 11).
+    # When ERA "looks" different from xERA, the engine should weight the
+    # pick accordingly. ``advanced_stats_snapshot`` carries home_pitcher /
+    # away_pitcher blocks with statcast metrics.
+    snap = advanced_stats_snapshot or {}
+    if isinstance(snap, dict) and snap:
+        for side in ("home", "away"):
+            block = snap.get(f"{side}_pitcher_advanced") or {}
+            pdata = (block.get("pitcher") or {}) if isinstance(block, dict) else {}
+            p_era  = _num(pdata.get("era"))
+            p_xera = _num(pdata.get("xera"))
+            p_xwoba = _num(pdata.get("xwoba_allowed"))
+            p_barrel = _num(pdata.get("barrel_pct_allowed"))
+            p_hard   = _num(pdata.get("hard_hit_pct_allowed"))
+
+            # 7a. xERA much WORSE than ERA → pitcher running hot/lucky.
+            #     ERA looks good (low) but true skill is worse (high xERA).
+            #     "ERA UNDERSTATES the real RISK" → ``ERA_UNDERSTATES_RISK``.
+            #     Under pick is at risk because skill says more runs are coming.
+            if p_era is not None and p_xera is not None:
+                era_xera_gap = round(p_era - p_xera, 2)
+                if era_xera_gap <= -0.60:
+                    discrepancies.append({
+                        "field":  f"{side}_pitcher_era_vs_xera",
+                        "model":  p_era,
+                        "real":   p_xera,
+                        "delta":  era_xera_gap,
+                        "flag":   "ERA_UNDERSTATES_RISK",
+                    })
+                    if is_under:
+                        penalty += 12
+                # 7b. xERA much BETTER than ERA → pitcher running unlucky.
+                #     ERA looks bad (high) but xERA says skill is great.
+                #     For OVER picks this is a ghost-edge: Over is fighting
+                #     underlying skill.
+                elif era_xera_gap >= 0.60:
+                    discrepancies.append({
+                        "field":  f"{side}_pitcher_era_vs_xera",
+                        "model":  p_era,
+                        "real":   p_xera,
+                        "delta":  era_xera_gap,
+                        "flag":   "ERA_OVERSTATES_RISK",
+                    })
+                    if is_over:
+                        penalty += 10
+
+            # 7c. xwoba_allowed elevated — explosive contact risk for Under.
+            if p_xwoba is not None and p_xwoba >= 0.345 and is_under:
+                discrepancies.append({
+                    "field":  f"{side}_pitcher_xwoba_allowed",
+                    "model":  None,
+                    "real":   p_xwoba,
+                    "delta":  None,
+                    "flag":   "PITCHER_XWOBA_WARNING",
+                })
+                penalty += 8
+
+            # 7d. Hard contact / barrel elevated — under penalty.
+            if (
+                (p_barrel is not None and p_barrel >= 9.0)
+                or (p_hard is not None and p_hard >= 42.0)
+            ) and is_under:
+                discrepancies.append({
+                    "field":  f"{side}_pitcher_hard_contact",
+                    "model":  None,
+                    "real":   p_barrel if p_barrel is not None else p_hard,
+                    "delta":  None,
+                    "flag":   "GHOST_EDGE_HARD_CONTACT_VS_UNDER",
+                })
+                penalty += 8
+
+        # 7e. Team xwOBA — both teams elevated → over support / under risk.
+        h_team = (snap.get("home_team_advanced") or {}).get("team") or {}
+        a_team = (snap.get("away_team_advanced") or {}).get("team") or {}
+        if isinstance(h_team, dict) and isinstance(a_team, dict):
+            h_xw = _num(h_team.get("team_xwoba"))
+            a_xw = _num(a_team.get("team_xwoba"))
+            if (h_xw is not None and a_xw is not None
+                    and h_xw >= 0.330 and a_xw >= 0.330 and is_under):
+                discrepancies.append({
+                    "field":  "combined_team_xwoba",
+                    "model":  None,
+                    "real":   round((h_xw + a_xw) / 2.0, 3),
+                    "delta":  None,
+                    "flag":   "GHOST_EDGE_TEAM_XWOBA_VS_UNDER",
+                })
+                penalty += 8
+
     # Aggregate.
     flag = "OK"
     if model_vs_reality_delta is not None:
@@ -186,7 +275,7 @@ async def verify_model_inputs(
     return {
         "inputs_verified":    len(discrepancies) == 0,
         "discrepancies":      discrepancies,
-        "confidence_penalty": min(penalty, 45),
+        "confidence_penalty": min(penalty, 55),
         "model_vs_reality": {
             "model_er":       round(er, 2) if er is not None else None,
             "reality_er_h2h": round(h2h_avg, 2) if h2h_avg is not None else None,

@@ -1,30 +1,30 @@
 [
   {
-    "content": "Crear services/mlb_pressure_base.py con calculate_team_pressure_base + calculate_match_pressure_context (umbrales del usuario)",
+    "content": "Explorar mlb_real_stats_verifier.py y advanced_stats_snapshot shape para entender campos disponibles (era, xera, ops, fip, war)",
     "status": "completed"
   },
   {
-    "content": "Phase 9: cablear compute_all_advanced_adjustments en mlb_day_orchestrator con ponderación 60/35/0 según data_quality y guardar raw+weighted en metadata",
+    "content": "Crear services/mlb_sabermetrics_layer.py con calculate_ops_profile / calculate_fip_profile / calculate_war_impact / calculate_sabermetric_context",
     "status": "completed"
   },
   {
-    "content": "Cablear pressure_base en orchestrator (Under fragility upgrade cuando HIGH_PRESSURE, etc.)",
+    "content": "Cablear sabermetrics_layer en mlb_day_orchestrator.py (peso 60/35/0 por data_quality, fail-soft, MLB-only)",
     "status": "completed"
   },
   {
-    "content": "Phase 10: añadir detector statcast-contact en mlb_explosive_inning_engine.py (fail-soft, capped, nuevos reason codes)",
+    "content": "Fase 11: actualizar mlb_real_stats_verifier.py con detección de ghost-edges xERA/xwOBA + flag ERA_UNDERSTATES_RISK",
     "status": "completed"
   },
   {
-    "content": "Crear tests pytest: test_mlb_pressure_base.py + test_mlb_advanced_stats_wiring.py + test_explosive_statcast.py",
+    "content": "Crear tests pytest: test_mlb_sabermetrics_layer.py y test_mlb_real_stats_verifier_phase11.py",
     "status": "completed"
   },
   {
-    "content": "Correr pytest suite completa (target >550 PASS) + lint Python",
+    "content": "Correr pytest completo (target 604+ tests) + lint Python",
     "status": "completed"
   },
   {
     "content": "Llamar testing_agent backend para regresión",
-    "status": "completed"
+    "status": "in_progress"
   }
 ]

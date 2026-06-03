@@ -269,8 +269,10 @@ class TestGhostEdgeVerifier:
         assert "GHOST_EDGE_F5_UNDER_VS_L5" in flags
 
     @pytest.mark.asyncio
-    async def test_penalty_capped_at_45(self):
+    async def test_penalty_capped_at_55(self):
         # Stack every ghost-edge flag and confirm cap holds.
+        # Phase 11 raised the cap from 45 → 55 to accommodate new
+        # Statcast-driven ghost edges.
         ctx = {
             "active_series_context": {"total_runs_avg": 14, "games_in_series": 3},
             "home_runs_per_game_model": 3.0,
@@ -285,4 +287,4 @@ class TestGhostEdgeVerifier:
             recent_run_split=rrs,
             on_base_profile=ob,
         )
-        assert out["confidence_penalty"] == 45  # cap
+        assert out["confidence_penalty"] == 55  # cap (raised in Phase 11)

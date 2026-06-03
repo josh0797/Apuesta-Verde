@@ -1688,6 +1688,88 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as _exc_pb:
             log.debug("mlb_pressure_base failed (fail-soft): %s", _exc_pb)
 
+        # ── MLB SABERMETRICS LAYER (Phase 9.6 — WAR/OPS/FIP) ─────────────
+        # Adds confirmation/risk layer on top of Statcast snapshot.
+        # Strictly conservative: weight by data_quality (60/35/0), capped
+        # at ±15 weighted. Never converts a weak pick into a strong one.
+        try:
+            from .mlb_sabermetrics_layer import (
+                calculate_sabermetric_context,
+                derive_sabermetric_recommendation_delta,
+            )
+            _saber_ctx = calculate_sabermetric_context(pick_payload)
+            pick_payload["sabermetrics"] = _saber_ctx.get("sabermetrics") or {}
+            _saber_inner = pick_payload["sabermetrics"]
+            if _saber_inner.get("available"):
+                _mkt_label_sb = (
+                    (pick_payload.get("recommendation") or {}).get("market")
+                    or (chosen_market or {}).get("market")
+                    or ""
+                )
+                _saber_delta = derive_sabermetric_recommendation_delta(
+                    _saber_inner, pick_market=_mkt_label_sb,
+                )
+                # Apply weighted confidence delta
+                if _saber_delta.get("used"):
+                    _rec_sb = pick_payload.get("recommendation") or {}
+                    _cur_conf_sb = float(_rec_sb.get("confidence_score") or 0)
+                    _w_delta = float(_saber_delta.get("weighted_conf_delta") or 0)
+                    _new_conf_sb = max(0.0, min(100.0, _cur_conf_sb + _w_delta))
+                    _rec_sb["confidence_score"] = round(_new_conf_sb, 2)
+                    _rec_sb["sabermetrics_confidence_delta"] = _w_delta
+                    pick_payload["recommendation"] = _rec_sb
+
+                    # Optional fragility / survival hooks
+                    _adj_sb = _saber_inner.get("adjustments") or {}
+                    _frag_block_sb = pick_payload.get("fragility") if isinstance(pick_payload.get("fragility"), dict) else None
+                    if _frag_block_sb is not None:
+                        _frag_delta_sb = round(
+                            float(_adj_sb.get("fragility_adjustment") or 0)
+                            * float(_saber_delta.get("weight") or 0), 2,
+                        )
+                        if _frag_delta_sb:
+                            _cur_fs_sb = float(_frag_block_sb.get("score") or 0)
+                            _frag_block_sb["score"] = round(
+                                max(0.0, min(100.0, _cur_fs_sb + _frag_delta_sb)), 2,
+                            )
+                            _frag_block_sb["sabermetrics_delta"] = _frag_delta_sb
+                            pick_payload["fragility"] = _frag_block_sb
+
+                    # Persist reason codes + audit metadata
+                    _existing_sb = pick_payload.get("reason_codes") or []
+                    for _rc in (_saber_delta.get("reason_codes") or []):
+                        if _rc not in _existing_sb:
+                            _existing_sb.append(_rc)
+                    pick_payload["reason_codes"] = _existing_sb
+                    pick_payload["sabermetrics_audit"] = {
+                        "sabermetrics_used":                True,
+                        "sabermetrics_data_quality":        _saber_delta.get("data_quality"),
+                        "sabermetrics_adjustment_weight":   _saber_delta.get("weight"),
+                        "sabermetrics_raw_adjustment":      _saber_delta.get("raw_conf_delta"),
+                        "sabermetrics_weighted_adjustment": _w_delta,
+                        "sabermetrics_raw_breakdown":       _saber_delta.get("raw_breakdown"),
+                        "sabermetrics_reason_codes":        _saber_delta.get("reason_codes"),
+                    }
+                    log.debug(
+                        "[Phase9.6] sabermetrics delta applied dq=%s weight=%.2f raw=%.2f weighted=%.2f",
+                        _saber_delta.get("data_quality"),
+                        _saber_delta.get("weight"),
+                        _saber_delta.get("raw_conf_delta"),
+                        _w_delta,
+                    )
+            else:
+                pick_payload.setdefault("sabermetrics_audit", {
+                    "sabermetrics_used":                False,
+                    "sabermetrics_data_quality":        "missing",
+                    "sabermetrics_adjustment_weight":   0.0,
+                    "sabermetrics_raw_adjustment":      0.0,
+                    "sabermetrics_weighted_adjustment": 0.0,
+                    "sabermetrics_raw_breakdown":       {},
+                    "sabermetrics_reason_codes":        [],
+                })
+        except Exception as _exc_sb:
+            log.debug("mlb_sabermetrics_layer failed (fail-soft): %s", _exc_sb)
+
         # ── MLB MARKET LEAN — SINGLE SOURCE OF TRUTH ─────────────────────────
         # Fixes the UX contradiction reported by the user where the
         # "Historial profundo" badge showed LEAN OVER while the final
@@ -2104,6 +2186,9 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                     recent_run_split=pick_payload.get("recent_run_split"),
                     on_base_profile=pick_payload.get("on_base_profile"),
                     f5_split=pick_payload.get("f5_split"),
+                    # Phase 11 (2026-06): Statcast ghost-edge detection
+                    # (xERA / xwOBA gap, hard contact vs Under).
+                    advanced_stats_snapshot=pick_payload.get("advanced_stats_snapshot"),
                 )
                 pick_payload["model_verification"] = verification
                 # Apply confidence penalty to chosen_market score.
