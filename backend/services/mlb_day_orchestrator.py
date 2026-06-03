@@ -1841,6 +1841,20 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as _exc_wh:
             log.debug("mlb_intelligence_warehouse failed (fail-soft): %s", _exc_wh)
 
+        # ── MLB PIPELINE PAYLOAD CONTRACT (Moneyball alignment) ─────────────
+        # Seal the per-game pick_payload with the canonical Moneyball
+        # contract: every required field is stamped (with available:false
+        # when the upstream layer didn't run), plus computed audit blocks
+        # (ghost_edges, pattern_memory_audit, manual_odds_review).  This
+        # decouples the UI from the orchestrator's internal layer order
+        # and guarantees fail-soft rendering for any consumer.
+        try:
+            from .mlb_pipeline_payload_contract import seal_pick_payload
+            seal_pick_payload(pick_payload)
+        except Exception as _exc_seal:
+            log.debug("mlb_pipeline_payload_contract seal failed (fail-soft): %s",
+                      _exc_seal)
+
         # ── MLB MARKET LEAN — SINGLE SOURCE OF TRUTH ─────────────────────────
         # Fixes the UX contradiction reported by the user where the
         # "Historial profundo" badge showed LEAN OVER while the final
@@ -3734,6 +3748,26 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                   "riskLevel": "HIGH", "whyThisParlayWorks": [],
                   "whyThisParlayCanFail": [f"parlay_builder_error: {exc}"],
                   "rejected_reasons": []}
+
+    # ── FINAL PAYLOAD CONTRACT — external_sources aggregation ──────────
+    # Stamp pipeline_meta.external_sources with the canonical sub-block
+    # so the UI always has a uniform source-status panel. Fail-soft.
+    try:
+        from .mlb_pipeline_payload_contract import merge_pipeline_external_sources
+        # Detect editorial usage by checking if any pick has editorial signals.
+        _editorial_used = bool(signals_by_pk)
+        _editorial_count = sum(len(v or []) for v in signals_by_pk.values())
+        merge_pipeline_external_sources(
+            pipeline_meta,
+            editorial_status={
+                "used":           _editorial_used,
+                "status":         "ok" if _editorial_used else "missing",
+                "sources_count":  _editorial_count,
+            },
+        )
+    except Exception as _exc_ext:
+        log.debug("merge_pipeline_external_sources failed (fail-soft): %s",
+                  _exc_ext)
 
     return {
         "picks":            picks,

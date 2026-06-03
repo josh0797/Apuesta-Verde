@@ -11,7 +11,7 @@
  * Source badges per block (pybaseball / TheStatsAPI / Bright Data).
  */
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Activity, Brain, Layers, Shield } from 'lucide-react';
+import { ChevronDown, ChevronUp, Activity, Brain, Layers, Shield, AlertTriangle, History, FileWarning, Sparkles } from 'lucide-react';
 
 const SOURCE_LABELS = {
   pybaseball:  { label: 'pybaseball',  className: 'bg-emerald-500/10 text-emerald-200 border-emerald-500/30' },
@@ -269,6 +269,243 @@ function MarketSelectionBlock({ selection, lang = 'es' }) {
   );
 }
 
+function GhostEdgesBlock({ ghost, lang = 'es' }) {
+  if (!ghost || ghost.available === false || !ghost.flags?.length) return null;
+  const titleEs = 'Señales fantasma (ghost-edges)';
+  const titleEn = 'Ghost edges';
+  return (
+    <div
+      className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 space-y-2"
+      data-testid="mlb-ghost-edges-block"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs font-semibold text-rose-200">
+          <AlertTriangle className="w-3.5 h-3.5 text-rose-300" />
+          {lang === 'es' ? titleEs : titleEn}
+        </div>
+        {ghost.blocked_pick ? (
+          <span
+            className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-rose-400/50 bg-rose-500/20 text-rose-100"
+            data-testid="mlb-ghost-edges-blocked"
+          >
+            {lang === 'es' ? 'Pick bloqueado' : 'Pick blocked'}
+          </span>
+        ) : null}
+      </div>
+      {ghost.narrative ? (
+        <div className="text-[11px] text-rose-100/90 italic" data-testid="mlb-ghost-edges-narrative">
+          {ghost.narrative}
+        </div>
+      ) : null}
+      <div className="flex flex-wrap gap-1.5">
+        {ghost.flags.map((f, i) => (
+          <span
+            key={`${f}-${i}`}
+            className="text-[10px] px-2 py-0.5 rounded-full border bg-rose-500/15 text-rose-100 border-rose-500/40"
+            data-testid={`mlb-ghost-edge-flag-${f}`}
+          >
+            {f}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FragilitySurvivalBlock({ fragility, survival, lang = 'es' }) {
+  // Render only when at least one block has data.
+  const hasFragility = fragility?.available && typeof fragility?.score === 'number';
+  const hasSurvival  = survival?.available && typeof survival?.score === 'number';
+  if (!hasFragility && !hasSurvival) return null;
+
+  const tierLabelES = {
+    LOW: 'Baja', MEDIUM: 'Media', HIGH: 'Alta',
+    HIGH_SURVIVAL: 'Supervivencia alta',
+    MEDIUM_SURVIVAL: 'Supervivencia media',
+    LOW_SURVIVAL: 'Supervivencia baja',
+  };
+  const tierClass = (tier) => {
+    if (tier === 'HIGH' || tier === 'LOW_SURVIVAL') {
+      return 'bg-rose-500/10 text-rose-200 border-rose-500/30';
+    }
+    if (tier === 'MEDIUM' || tier === 'MEDIUM_SURVIVAL') {
+      return 'bg-amber-500/10 text-amber-200 border-amber-500/30';
+    }
+    return 'bg-emerald-500/10 text-emerald-200 border-emerald-500/30';
+  };
+  return (
+    <div
+      className="rounded-lg border border-slate-700/60 bg-slate-900/40 p-3 space-y-2"
+      data-testid="mlb-fragility-survival-block"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs font-semibold text-slate-100">
+          <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+          {lang === 'es' ? 'Supervivencia del guion · Fragilidad' : 'Script survival · Fragility'}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-[11px]">
+        {hasSurvival ? (
+          <div data-testid="mlb-survival-stat">
+            <span className="text-[10px] uppercase tracking-wide text-slate-500">
+              {lang === 'es' ? 'Supervivencia' : 'Survival'}
+            </span>
+            <div className="text-slate-100 font-medium flex items-center gap-2">
+              <span data-testid="mlb-survival-score">{survival.score.toFixed(0)}/100</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${tierClass(survival.tier)}`}
+                data-testid={`mlb-survival-tier-${survival.tier}`}>
+                {lang === 'es' ? (tierLabelES[survival.tier] || survival.tier) : survival.tier}
+              </span>
+            </div>
+          </div>
+        ) : null}
+        {hasFragility ? (
+          <div data-testid="mlb-fragility-stat">
+            <span className="text-[10px] uppercase tracking-wide text-slate-500">
+              {lang === 'es' ? 'Fragilidad' : 'Fragility'}
+            </span>
+            <div className="text-slate-100 font-medium flex items-center gap-2">
+              <span data-testid="mlb-fragility-score">{fragility.score.toFixed(0)}/100</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${tierClass(fragility.tier)}`}
+                data-testid={`mlb-fragility-tier-${fragility.tier}`}>
+                {lang === 'es' ? (tierLabelES[fragility.tier] || fragility.tier) : fragility.tier}
+              </span>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PatternMemoryBlock({ pattern, lang = 'es' }) {
+  if (!pattern || pattern.sample_size === 0) return null;
+
+  const sampleTier = pattern.sample_tier;
+  const tierLabel = {
+    NONE:       lang === 'es' ? 'Sin muestra'         : 'No sample',
+    LOW_SAMPLE: lang === 'es' ? 'Muestra pequeña'     : 'Low sample',
+    USEFUL:     lang === 'es' ? 'Patrón útil'         : 'Useful pattern',
+    VALIDATED:  lang === 'es' ? 'Patrón validado'     : 'Validated pattern',
+  }[sampleTier] || sampleTier;
+
+  const tierClass = {
+    LOW_SAMPLE: 'bg-amber-500/10 text-amber-200 border-amber-500/30',
+    USEFUL:     'bg-cyan-500/10 text-cyan-200 border-cyan-500/30',
+    VALIDATED:  'bg-emerald-500/10 text-emerald-200 border-emerald-500/30',
+  }[sampleTier] || 'bg-slate-500/10 text-slate-300 border-slate-500/30';
+
+  return (
+    <div
+      className="rounded-lg border border-slate-700/60 bg-slate-900/40 p-3 space-y-2"
+      data-testid="mlb-pattern-memory-block"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs font-semibold text-slate-100">
+          <History className="w-3.5 h-3.5 text-violet-300" />
+          {lang === 'es' ? 'Memoria de patrones (Moneyball)' : 'Pattern memory (Moneyball)'}
+        </div>
+        <span
+          className={`text-[10px] px-2 py-0.5 rounded-full border ${tierClass}`}
+          data-testid="mlb-pattern-memory-tier"
+        >
+          {tierLabel} (n={pattern.sample_size})
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-[11px]">
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-slate-500">
+            {lang === 'es' ? 'Hit rate' : 'Hit rate'}
+          </span>
+          <div className="text-slate-100 font-medium" data-testid="mlb-pattern-memory-hit-rate">
+            {pattern.historical_hit_rate != null
+              ? `${(Number(pattern.historical_hit_rate) * 100).toFixed(1)}%`
+              : '—'}
+          </div>
+        </div>
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-slate-500">ROI</span>
+          <div className="text-slate-100 font-medium" data-testid="mlb-pattern-memory-roi">
+            {pattern.historical_roi != null
+              ? `${(Number(pattern.historical_roi) * 100).toFixed(1)}%`
+              : '—'}
+          </div>
+        </div>
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-slate-500">
+            {lang === 'es' ? 'Mejor mercado' : 'Best market'}
+          </span>
+          <div className="text-slate-100 font-medium text-[10px]" data-testid="mlb-pattern-memory-best-market">
+            {pattern.best_historical_market || '—'}
+          </div>
+        </div>
+      </div>
+      {pattern.warning ? (
+        <div className="text-[11px] text-amber-200 italic" data-testid="mlb-pattern-memory-warning">
+          {pattern.warning}
+        </div>
+      ) : null}
+      {pattern.primary_pattern ? (
+        <div className="text-[10px] text-slate-400" data-testid="mlb-pattern-memory-primary">
+          {lang === 'es' ? 'Patrón principal: ' : 'Primary pattern: '}
+          <span className="text-slate-200 font-mono">{pattern.primary_pattern}</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ManualOddsReviewBlock({ review, lang = 'es' }) {
+  if (!review || !review.required) return null;
+  return (
+    <div
+      className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 space-y-2"
+      data-testid="mlb-manual-odds-review-block"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs font-semibold text-amber-100">
+          <FileWarning className="w-3.5 h-3.5 text-amber-300" />
+          {lang === 'es' ? 'Revisión manual de cuota' : 'Manual odds review'}
+        </div>
+        <span
+          className="text-[10px] font-semibold uppercase tracking-wide text-amber-100 px-2 py-0.5 rounded-full border border-amber-400/50 bg-amber-500/20"
+          data-testid="mlb-manual-odds-required-chip"
+        >
+          {lang === 'es' ? 'Requiere acción' : 'Action required'}
+        </span>
+      </div>
+      <div className="text-[11px] text-amber-100/90" data-testid="mlb-manual-odds-action">
+        {lang === 'es' ? review.user_action_es : review.user_action}
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-[11px]">
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-amber-100/70">
+            {lang === 'es' ? 'Mercado sugerido' : 'Suggested market'}
+          </span>
+          <div className="text-amber-50 font-medium" data-testid="mlb-manual-odds-market">
+            {review.recommended_market || '—'}
+          </div>
+        </div>
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-amber-100/70">
+            {lang === 'es' ? 'Prob. del modelo' : 'Model probability'}
+          </span>
+          <div className="text-amber-50 font-medium" data-testid="mlb-manual-odds-engine-prob">
+            {review.engine_probability != null
+              ? `${(review.engine_probability * 100).toFixed(1)}%`
+              : '—'}
+          </div>
+        </div>
+      </div>
+      {review.why_this_market ? (
+        <div className="text-[11px] text-amber-100/80 italic" data-testid="mlb-manual-odds-why">
+          {review.why_this_market}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function MLBAdvancedStatsPanel({ pick, lang = 'es' }) {
   const [open, setOpen] = useState(false);
   const snap = pick?.advanced_stats_snapshot;
@@ -277,6 +514,11 @@ export function MLBAdvancedStatsPanel({ pick, lang = 'es' }) {
   const saberAudit = pick?.sabermetrics_audit;
   const selection = pick?.market_selection;
   const pressure = pick?.pressure_base?.combined;
+  const ghostEdges = pick?.ghost_edges;
+  const patternAudit = pick?.pattern_memory_audit;
+  const manualOdds = pick?.manual_odds_review;
+  const fragilityAudit = pick?.fragility_audit;
+  const survivalAudit = pick?.script_survival_audit;
 
   // Determine whether ANY block has data — if none, render nothing.
   const hasStatcast = !!(snap && (
@@ -287,8 +529,13 @@ export function MLBAdvancedStatsPanel({ pick, lang = 'es' }) {
   ));
   const hasSaber = !!saber?.available;
   const hasSelection = !!selection?.recommended_market;
+  const hasGhost = !!(ghostEdges?.available && ghostEdges?.flags?.length);
+  const hasPattern = !!(patternAudit && patternAudit.sample_size > 0);
+  const hasManualOdds = !!manualOdds?.required;
+  const hasFragSurv = !!((fragilityAudit?.available || survivalAudit?.available));
 
-  if (!hasStatcast && !hasSaber && !hasSelection) {
+  if (!hasStatcast && !hasSaber && !hasSelection
+      && !hasGhost && !hasPattern && !hasManualOdds && !hasFragSurv) {
     return null;
   }
 
@@ -332,6 +579,30 @@ export function MLBAdvancedStatsPanel({ pick, lang = 'es' }) {
                 data-testid="mlb-advanced-stats-selection-flag"
               >
                 {lang === 'es' ? 'Mercado' : 'Market'}
+              </span>
+            )}
+            {hasGhost && (
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full border bg-rose-500/10 text-rose-200 border-rose-500/30"
+                data-testid="mlb-advanced-stats-ghost-flag"
+              >
+                {lang === 'es' ? 'Ghost-edge' : 'Ghost-edge'}
+              </span>
+            )}
+            {hasManualOdds && (
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full border bg-amber-500/10 text-amber-200 border-amber-500/30"
+                data-testid="mlb-advanced-stats-manual-odds-flag"
+              >
+                {lang === 'es' ? 'Cuota manual' : 'Manual odds'}
+              </span>
+            )}
+            {hasPattern && (
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full border bg-violet-500/10 text-violet-200 border-violet-500/30"
+                data-testid="mlb-advanced-stats-pattern-flag"
+              >
+                {lang === 'es' ? 'Patrón' : 'Pattern'}
               </span>
             )}
           </div>
@@ -378,6 +649,21 @@ export function MLBAdvancedStatsPanel({ pick, lang = 'es' }) {
           {/* Market Selection summary */}
           <MarketSelectionBlock selection={selection} lang={lang} />
 
+          {/* Manual Odds Review (high priority — show first when active) */}
+          {hasManualOdds && <ManualOddsReviewBlock review={manualOdds} lang={lang} />}
+
+          {/* Ghost Edges (high priority warnings) */}
+          {hasGhost && <GhostEdgesBlock ghost={ghostEdges} lang={lang} />}
+
+          {/* Script Survival + Fragility audit */}
+          {hasFragSurv && (
+            <FragilitySurvivalBlock
+              fragility={fragilityAudit}
+              survival={survivalAudit}
+              lang={lang}
+            />
+          )}
+
           {/* Statcast blocks (pitchers + teams) */}
           {hasStatcast && (
             <div className="space-y-2" data-testid="mlb-advanced-stats-statcast-section">
@@ -412,6 +698,9 @@ export function MLBAdvancedStatsPanel({ pick, lang = 'es' }) {
 
           {/* Sabermetrics block */}
           {hasSaber && <SabermetricsBlock saber={saber} lang={lang} />}
+
+          {/* Pattern Memory (historical Moneyball warehouse) */}
+          {hasPattern && <PatternMemoryBlock pattern={patternAudit} lang={lang} />}
         </div>
       )}
     </div>

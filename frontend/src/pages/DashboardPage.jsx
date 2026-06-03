@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Loader2, ChevronDown, ChevronUp, ExternalLink, Activity, Shield, TrendingDown, AlertCircle, Eye, ShieldAlert, Flag, RefreshCcw } from 'lucide-react';
+import { Sparkles, Loader2, ChevronDown, ChevronUp, ExternalLink, Activity, Shield, TrendingDown, AlertCircle, Eye, ShieldAlert, Flag, RefreshCcw, Target } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useI18n, sportTerms } from '@/lib/i18n';
 import { useSport, sportLabel } from '@/lib/sport';
@@ -850,9 +850,21 @@ export default function DashboardPage() {
   // games to `structural_lean_requires_odds`. The legacy `discarded_market`
   // bucket must NOT be confused with these — for baseball it should be
   // empty unless the engine truly discarded games after full analysis.
+  //
+  // P4 Moneyball polish: stamp the `classification` so the panel can label
+  // each item correctly (structural lean → cyan; watchlist → amber).
   const isBaseball = sport === 'baseball';
   const manualReviewItems = isBaseball
-    ? [...structuralLean, ...watchlistManualOdds]
+    ? [
+        ...structuralLean.map((it) => ({
+          ...it,
+          classification: it.classification || 'STRUCTURAL_LEAN',
+        })),
+        ...watchlistManualOdds.map((it) => ({
+          ...it,
+          classification: it.classification || 'WATCHLIST_MANUAL_REVIEW',
+        })),
+      ]
     : [];
 
   const scrollTo = (key) => {
@@ -1089,16 +1101,46 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* MLB-V5 — Manual review section (baseball only). Renders games that
-          the v2 engine identified as having a structural lean but for which
-          automatic odds are missing. NOT routed to "Descartados por mercado
-          frágil" anymore. */}
-      {!loading && data && isBaseball && manualReviewItems.length > 0 && (
-        <ManualOddsReviewPanel
-          items={manualReviewItems}
-          lang={lang}
-          testId="mlb-manual-odds-review-section"
-        />
+      {/* MLB-V5 + P4 Moneyball polish — Manual review section (baseball
+          only). Renders TWO separate buckets so the user can tell the
+          difference between "structural lean — paste your odds" and
+          "watchlist — we're monitoring this game".
+          NOT routed to "Descartados por mercado frágil" anymore. */}
+      {!loading && data && isBaseball && structuralLean.length > 0 && (
+        <div data-testid="mlb-structural-lean-section">
+          <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs uppercase tracking-wide font-semibold text-cyan-200 mb-2 flex items-center gap-2">
+            <Target className="h-3.5 w-3.5" />
+            {lang === 'es'
+              ? `Lecturas estructurales que requieren cuota (${structuralLean.length})`
+              : `Structural leans requiring odds (${structuralLean.length})`}
+          </div>
+          <ManualOddsReviewPanel
+            items={structuralLean.map((it) => ({
+              ...it,
+              classification: 'STRUCTURAL_LEAN',
+            }))}
+            lang={lang}
+            testId="mlb-manual-odds-structural-lean"
+          />
+        </div>
+      )}
+      {!loading && data && isBaseball && watchlistManualOdds.length > 0 && (
+        <div data-testid="mlb-watchlist-manual-odds-section">
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs uppercase tracking-wide font-semibold text-amber-200 mb-2 flex items-center gap-2">
+            <AlertCircle className="h-3.5 w-3.5" />
+            {lang === 'es'
+              ? `Watchlist — revisión manual (${watchlistManualOdds.length})`
+              : `Watchlist — manual review (${watchlistManualOdds.length})`}
+          </div>
+          <ManualOddsReviewPanel
+            items={watchlistManualOdds.map((it) => ({
+              ...it,
+              classification: 'WATCHLIST_MANUAL_REVIEW',
+            }))}
+            lang={lang}
+            testId="mlb-manual-odds-watchlist"
+          />
+        </div>
       )}
 
       {/* NEW — Rescued picks (mercados protegidos + córners rescatados) */}
@@ -1168,7 +1210,7 @@ export default function DashboardPage() {
 
       {/* No-value message — ONLY shown when no recommended picks; rescued/watchlist/discarded still appear */}
       {!loading && data && data.verdict === 'no_value' && high.length === 0 && medium.length === 0 && rescued.length === 0 && protectedAcceptable.length === 0 && (
-        <EmptyStateNoValue summary={data.summary} watchlistCount={watchlist.length} />
+        <EmptyStateNoValue summary={data.summary} watchlistCount={watchlist.length} sport={sport} />
       )}
 
       {/* Quick summary when no picks but we DO have rescued/watchlist content */}

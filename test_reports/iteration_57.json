@@ -1,0 +1,136 @@
+{
+  "summary": "Completed comprehensive testing of MLB Moneyball alignment (P4) - all 778+ pytest tests pass, API endpoint returns correct schema 'moneyball.1' with all new breakdowns and legacy fields maintained",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "All 778 pytest tests pass (100% success rate)",
+    "45 Moneyball-specific tests pass (test_mlb_pipeline_payload_contract.py, test_mlb_run_evaluations_summary_moneyball.py, test_editorial_moneyball_alignment.py)",
+    "GET /api/mlb/run-evaluations/summary returns schema 'moneyball.1'",
+    "All 9 new Moneyball breakdowns present: by_market_selected, by_pressure_environment, by_script_survival, by_fragility_tier, by_sabermetrics_edge, by_ghost_edge, f5_vs_full_game_under, manual_odds_review_outcomes, pattern_memory_performance",
+    "All 8 legacy fields maintained: by_risk_tier, by_flip, by_market_scope, by_miss_type, high_conservative_won_anyway, dynamic_park_blocks, central_under_vetoes, park_blocks_saved",
+    "Fail-soft behavior verified: all 13 market buckets present with correct structure even with no data",
+    "All 4 pressure environment buckets present: LOW_PRESSURE, MODERATE_PRESSURE, HIGH_PRESSURE, CHAOTIC_PRESSURE",
+    "mlb_pipeline_payload_contract.seal_pick_payload ensures all CONTRACT_FIELDS present with available:false when data missing",
+    "build_ghost_edges_summary correctly aggregates ghost-edge flags from discrepancies and reason_codes",
+    "build_pattern_memory_audit classifies sample_size into LOW_SAMPLE/USEFUL/VALIDATED tiers",
+    "build_manual_odds_review correctly identifies structural_lean and manual review requirements",
+    "merge_pipeline_external_sources always declares 5 default sources (statcast, sabermetrics, editorial, warehouse, statsapi)",
+    "annotate_editorial_vs_moneyball NEVER modifies confidence field",
+    "Editorial vs Moneyball conflict detection: PUBLIC_NARRATIVE_RISK and EDITORIAL_CONTRADICTS_MONEYBALL flags generated when editorial suggests Over and ghost_edges.blocked_pick=True",
+    "editorial_signal_mapper.detect_sport_hint returns 'baseball' for MLB vocabulary (pitcher, FIP, F5 Under, bullpen, Coors Field)",
+    "MLB_NORMAL_MOTIVATION_NEUTRAL tag applied to regular-season motivation notes with confidence downgraded to ≤0.50",
+    "extract_mlb_tag correctly classifies signals into MLB_EDITORIAL_TAGS (pitcher_news, bullpen_news, injury_or_lineup_note, weather_or_park_note, market_public_bias, public_narrative)"
+  ],
+  "test_report_links": [
+    "/app/backend/backend_test_moneyball_api.py",
+    "/app/backend/tests/test_mlb_pipeline_payload_contract.py",
+    "/app/backend/tests/test_mlb_run_evaluations_summary_moneyball.py",
+    "/app/backend/tests/test_editorial_moneyball_alignment.py"
+  ],
+  "success_percentage": {
+    "backend": "100% (778/778 pytest tests + 7/7 API tests)",
+    "frontend": "N/A (frontend testing not requested)"
+  },
+  "action_item_for_main_agent": "",
+  "updated_files": [
+    "/app/backend/backend_test_moneyball_api.py"
+  ],
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  "test_details": {
+    "pytest_suite": {
+      "total_tests": 778,
+      "passed": 778,
+      "failed": 0,
+      "execution_time": "3.13s"
+    },
+    "moneyball_specific_tests": {
+      "test_mlb_pipeline_payload_contract": {
+        "tests": 15,
+        "passed": 15,
+        "key_validations": [
+          "seal_pick_payload ensures all CONTRACT_FIELDS present on empty input",
+          "Non-dict input converted to dict with all fields",
+          "Legacy fragility_score scalar preserved",
+          "Existing market_selection preserved",
+          "Ghost edges detected from discrepancies",
+          "Pattern memory audit with LOW_SAMPLE/USEFUL/VALIDATED tiers",
+          "Manual review required when market_selection demands it",
+          "External sources default block always present with 5 sources"
+        ]
+      },
+      "test_mlb_run_evaluations_summary_moneyball": {
+        "tests": 6,
+        "passed": 6,
+        "key_validations": [
+          "All new Moneyball keys present with empty data (fail-soft)",
+          "Legacy fields intact",
+          "Recommended market bucketing correct",
+          "F5 vs Full Game Under detects bullpen break",
+          "Pattern memory performance reads from warehouse",
+          "Fragility tier derived from score"
+        ]
+      },
+      "test_editorial_moneyball_alignment": {
+        "tests": 24,
+        "passed": 24,
+        "key_validations": [
+          "Editorial version bumped to p4-moneyball",
+          "MLB_EDITORIAL_TAGS canonical set correct",
+          "Fast stale tags include pitcher/lineup/bullpen news",
+          "Empty payload includes Moneyball metadata fields",
+          "annotate_editorial_vs_moneyball aligned when both recommend under",
+          "Contradicts when editorial Over vs engine Under",
+          "Ghost edge with editorial Over flags PUBLIC_NARRATIVE_RISK",
+          "annotate_editorial_vs_moneyball does NOT modify confidence",
+          "extract_mlb_tag correctly classifies pitcher/bullpen/injury/weather signals",
+          "detect_sport_hint returns 'baseball' for MLB vocabulary",
+          "MLB_NORMAL_MOTIVATION_NEUTRAL applied to regular-season motivation",
+          "Playoff motivation preserved (not neutralized)"
+        ]
+      }
+    },
+    "api_endpoint_tests": {
+      "endpoint": "GET /api/mlb/run-evaluations/summary",
+      "authentication": "Bearer token (demo@valuebet.app)",
+      "tests": 7,
+      "passed": 7,
+      "validations": [
+        "Schema version is 'moneyball.1'",
+        "All 9 new Moneyball breakdowns present",
+        "All 8 legacy fields present",
+        "Fail-soft: all 13 market buckets present with correct structure",
+        "All 4 pressure environment buckets present",
+        "External sources structure validated"
+      ]
+    }
+  },
+  "coverage_summary": {
+    "payload_contract": "✅ All CONTRACT_FIELDS enforced with fail-soft behavior",
+    "market_selection": "✅ Used as final layer in mlb_day_orchestrator.py",
+    "new_breakdowns": "✅ All 9 Moneyball breakdowns exposed via API with fail-soft",
+    "legacy_compatibility": "✅ All legacy fields maintained",
+    "external_sources": "✅ 5 default sources always declared (statcast, sabermetrics, editorial, warehouse, statsapi)",
+    "editorial_alignment": "✅ annotate_editorial_vs_moneyball never modifies confidence, generates conflict flags correctly",
+    "sport_detection": "✅ editorial_signal_mapper.detect_sport_hint returns 'baseball' for MLB vocabulary",
+    "motivation_handling": "✅ MLB_NORMAL_MOTIVATION_NEUTRAL applied to regular-season motivation with confidence ≤0.50",
+    "pytest_suite": "✅ All 778 tests pass without regressions"
+  },
+  "notes": [
+    "Testing was backend-only as requested (no UI/frontend testing)",
+    "All 44 new pytest tests created by main agent pass successfully",
+    "API endpoint correctly implements fail-soft behavior: empty buckets return available:false with 0 counts",
+    "Payload contract ensures UI never crashes on missing data",
+    "Editorial context is now a SECONDARY confirmation layer that never modifies confidence",
+    "MLB-specific editorial tags correctly classified (pitcher_news, bullpen_news, injury_or_lineup_note, etc.)",
+    "Sport hint detection works correctly for baseball/basketball/football vocabulary",
+    "Pattern memory performance reads from mlb_pattern_memory collection and returns top 50 rows sorted by sample_size"
+  ]
+}

@@ -216,13 +216,27 @@ export function LivePreMatchComparisonPanel({ comparison, lang = 'es' }) {
 
   // Special-case when there's no pregame pick at all → show a soft banner.
   if (reasons.includes('NO_PREGAME_PICK')) {
+    // P4 Moneyball polish: when the comparison engine specifically
+    // failed to find a pick via game_pk (vs a global "no pregame" run),
+    // we surface the more specific message so the user knows the issue
+    // is a join failure and not a data-quality gap.
+    const noLinkByGamePk = reasons.includes('NO_PICK_FOUND_BY_GAME_PK')
+      || comparison.no_pregame_reason === 'game_pk_not_found';
     return (
       <div
         className="rounded-md border border-slate-500/30 bg-slate-500/5 p-3 text-[12px] text-slate-300 flex items-start gap-2"
-        data-testid="script-comparison-empty"
+        data-testid={noLinkByGamePk
+          ? 'script-comparison-no-pregame-by-gamepk'
+          : 'script-comparison-empty'}
       >
         <Info className="h-4 w-4 text-slate-400 shrink-0 mt-0.5" />
-        <div>{t.noPregame}</div>
+        <div>
+          {noLinkByGamePk
+            ? (lang === 'es'
+                ? 'No se encontró pick pregame asociado por game_pk. Revisa el ID del partido si esperabas una comparación.'
+                : 'No pregame pick found by game_pk. Check the game ID if you expected a comparison.')
+            : t.noPregame}
+        </div>
       </div>
     );
   }
@@ -275,6 +289,46 @@ export function LivePreMatchComparisonPanel({ comparison, lang = 'es' }) {
   pair('errors_home',     'errors_away',     t.boxLabels.errors);
   pair('strikeouts_home', 'strikeouts_away', t.boxLabels.strikeouts);
   pair('pitches_home',    'pitches_away',    t.boxLabels.pitches);
+
+  // ── P4 Moneyball polish: live hits pressure warning ─────────────
+  // Many hits but few runs → bullpen / lineup is putting bodies on
+  // base but failing to convert. The Under that looked safe is now
+  // at risk because the marker hasn't caught up yet.
+  const totalHits = (
+    (typeof liveData.hits_home === 'number' ? liveData.hits_home : 0)
+    + (typeof liveData.hits_away === 'number' ? liveData.hits_away : 0)
+  );
+  const totalRuns = (typeof liveData.total_runs === 'number'
+    ? liveData.total_runs
+    : (liveData.score_home ?? 0) + (liveData.score_away ?? 0));
+  const liveHitsPressureWarning = (
+    totalHits >= 8
+    && totalRuns >= 0
+    && (totalHits - totalRuns) >= 5
+  );
+
+  // ── Filter out suggested alternatives that already happened ─────
+  // E.g. if the game is at 8 runs and the engine suggested "Over 7.5",
+  // we MUST NOT render that line — the user can't bet what already
+  // happened. We extract the numeric line and compare to actual.
+  const extractLine = (label) => {
+    const m = /(\d+(?:\.\d+)?)/.exec(String(label || ''));
+    return m ? parseFloat(m[1]) : null;
+  };
+  const safeAlts = (alts || []).filter((a) => {
+    const line = extractLine(a);
+    if (line == null) return true;
+    const isOver = /\bover\b|m[áa]s de/i.test(a);
+    const isUnder = /\bunder\b|menos de/i.test(a);
+    if (isOver && typeof totalRuns === 'number' && totalRuns >= line) {
+      return false;   // Over already happened — drop
+    }
+    if (isUnder && typeof totalRuns === 'number' && totalRuns > line) {
+      return false;   // Under already broken — drop
+    }
+    return true;
+  });
+  const filteredOutAlts = (alts || []).length - safeAlts.length;
 
   return (
     <section
@@ -391,6 +445,21 @@ export function LivePreMatchComparisonPanel({ comparison, lang = 'es' }) {
         </div>
       )}
 
+      {/* P4 Moneyball: live hits pressure warning */}
+      {liveHitsPressureWarning && (
+        <div
+          className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[12px] text-amber-100 flex items-start gap-2"
+          data-testid="cmp-live-hits-pressure-warning"
+        >
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-300 shrink-0 mt-0.5" />
+          <div>
+            {lang === 'es'
+              ? `Aviso de presión live: ${totalHits} hits acumulados vs solo ${totalRuns} carreras — el marcador puede estar subestimando el riesgo.`
+              : `Live hits-pressure warning: ${totalHits} hits but only ${totalRuns} runs — the score may be hiding offensive risk.`}
+          </div>
+        </div>
+      )}
+
       {/* Human summary */}
       {summary && (
         <div className="text-[12.5px] leading-relaxed text-foreground/90" data-testid="cmp-summary">
@@ -398,12 +467,14 @@ export function LivePreMatchComparisonPanel({ comparison, lang = 'es' }) {
         </div>
       )}
 
-      {/* Alternatives — surface only when the pick is settled. */}
-      {alts.length > 0 && (
+      {/* Alternatives — surface only when the pick is settled. Lines that
+          already happened (e.g. Over 7.5 when totalRuns >= 8) are
+          filtered out so the UI never recommends an impossible bet. */}
+      {safeAlts.length > 0 && (
         <div data-testid="cmp-alternatives">
           <div className="text-[10.5px] uppercase tracking-wide text-muted-foreground mb-1">{t.suggested}</div>
           <div className="flex flex-wrap gap-1.5">
-            {alts.map((a) => (
+            {safeAlts.map((a) => (
               <span
                 key={a}
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-100 text-[11px] font-mono-tabular"
@@ -412,6 +483,16 @@ export function LivePreMatchComparisonPanel({ comparison, lang = 'es' }) {
               </span>
             ))}
           </div>
+          {filteredOutAlts > 0 && (
+            <div
+              className="text-[10.5px] text-muted-foreground mt-1 italic"
+              data-testid="cmp-alternatives-filtered-out"
+            >
+              {lang === 'es'
+                ? `Línea ya superada — se omitieron ${filteredOutAlts} sugerencia(s) que ya no son apostables.`
+                : `Line already passed — ${filteredOutAlts} suggestion(s) hidden because they're no longer bettable.`}
+            </div>
+          )}
         </div>
       )}
     </section>

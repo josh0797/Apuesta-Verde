@@ -1,297 +1,194 @@
-# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening + P3 Editorial Context + P4 Playwright + **Bright Data Unlocker** + **Historical Detail Enrichment (Basketball→Baseball)** + **MLB Margin & Total Script Engine v2** + **MLB-V3 Histórico Baseball** + **MLB-V4 Feedback Loop** + **MLB-V5 Bucketing Estructural / Manual Odds** + **MLB-V6 Totals Prob Fix + Visible Picks + Over Discovery** + **MLB-V7 Explainability/Game Script/Diversificación** + **MLB Under Confidence Floor (P0)** + **F6C Auto-Settle (P1)** + **MLB Statcast Deep Integration (Phase 9/10) + Offensive Pressure Base (Objetivo 2) + Sabermetrics Layer (Phase 9.6) + Ghost-Edges Statcast (Phase 11) + Market Selection Intelligence (Phase 13.1) + UI Advanced Stats/Sabermetrics (Phase 13.2) + Prompt Moneyball MLB (Fix 1) + Backfill Picks (Fix 2) + MLB Intelligence Warehouse (Fix 3) + Feedback Loop Pattern Memory (Fix 1.1) + Statcast Warehouse-First (Fix 2.1) + Basketball Warehouse (Fix 1-BBALL)** (ACTUALIZADO)
+# MLB Moneyball Alignment — Polish Sprint (plan.md)
 
 ## 1) Objectives
-- Reducir **falsos descartes**: no tratar igual todo edge negativo; permitir **tolerancia contextual** en mercados protegidos.
-- Diferenciar de forma consistente: **AGGRESSIVE / BALANCED / PROTECTED** (y UNKNOWN conservador), y resultados: `VALUE_BET`, `PROTECTED_ACCEPTABLE`, `WATCHLIST`, `NO_BET_VALUE`, `MARKET_TRAP`, `FRAGILE_EDGE`.
-- Exponer **trapSignals estructuradas** (`code/label/severity/explanation`) y **fragilityScore 0–100** como elementos UI.
-- Añadir **rescate de mercados alternativos** antes de descartar un partido (sin inventar valor).
-- Mantener compatibilidad: endpoints existentes, `_market_edge`, payloads legacy y narrativa ES. **No tocar** `asyncio.wait_for(timeout=3.0)`.
-- Hardening de pipeline: evitar bloqueos en `stage=enriching` con timeouts + degradación elegante.
-
-- **(✅ COMPLETADO)** Robustez multi-deporte en LIVE:
-  - Detectar correctamente partidos LIVE en **basketball/baseball**.
-  - Evitar “zombies LIVE” en fútbol.
-  - Firewall de vocabulario para impedir **fugas de terminología**.
-
-- **(✅ COMPLETADO)** Enriquecimiento histórico fútbol (últimos 15): mejorar explicabilidad y señales para rescate Under.
-
-- **(✅ COMPLETADO)** **P3 — Editorial Context Engine (Scrapy)**:
-  - Capa opcional y **fail-soft** de enriquecimiento editorial profundo **solo para fútbol** y **solo para matches shortlisteados**.
-  - Separación **dato vs opinión** (heurístico regex) + interpretación Moneyball.
-  - UI: bloque “Contexto editorial”.
-
-- **(✅ COMPLETADO / VALIDADO EN VIVO)** Tuning de selectores + fuentes nuevas:
-  - **AS.com** y **Marca** server-rendered.
-  - Añadido filtrado fino para Marca (evitar `mercado-fichajes` / `-directo.html`).
-  - Spider con dedupe por URL y soporte de exclusión por patrón.
-
-- **(✅ COMPLETADO)** **P4 — Playwright** para fuentes JS-heavy:
-  - Subprocess + stealth + dispatch paralelo Scrapy/Playwright.
-  - Detecta challenges anti-bot y degrada sin romper análisis.
-
-- **(🟨 PENDIENTE / BLOQUEADO)** **Bright Data Web Unlocker** como tercer backend:
-  - Integrar Bright Data (API mode) para desbloquear fuentes con Cloudflare/PerimeterX.
-  - Usarlo para **Sportytrader/BeSoccer/scores24** y extenderlo a **fuentes editoriales NBA/basketball y MLB**.
-  - **Bloqueo actual:** faltan credenciales del usuario (`BRIGHTDATA_API_KEY`, `BRIGHTDATA_ZONE`).
-
-- **(✅ COMPLETADO)** **Historical Detail Enrichment (Baseball)**:
-  - Antes de analizar/descartar MLB, enriquecer con histórico profundo (últimos 15) y generar perfiles por equipo + combinado.
-  - Añadir `baseballRunsRescueLayer(match)` y **trap signals históricas**.
-
-- **(🟨 PENDIENTE)** **Historical Detail Enrichment (Basketball)**:
-  - Antes de analizar/descartar basketball, enriquecer con histórico profundo y generar perfiles.
-  - Añadir `basketballTotalPointsRescueLayer(match)`.
-  - UI: sección “Historial profundo”.
-
-- **(✅ COMPLETADO)** **MLB Margin & Total Script Engine v2 (solo Baseball)**:
-  - Engine especializado en guion MLB:
-    - Predecir **margen de victoria** (Run Line -1.5 favoritos dominantes)
-    - Seleccionar líneas **Over/Under más protegidas** (6.5/7.5/8/8.5/9 y equivalentes)
-    - Análisis **pitcher-first** con gate de pitchers confirmados
-    - Parlays **MLB-only** con validación de correlación positiva
-  - Restricción crítica: **NO tocar basketball/football** (backend y UI).
-
-- **(✅ COMPLETADO)** **MLB Feedback Loop (P2)**:
-  - Guardar outcomes reales por pick: `result/outcome`, `margin`, `totalRuns`, `runLineCovered`, `overHit`.
-  - Guardar snapshot v2: `expectedRuns`, `marginProjection`, `coverProbability`, `lineSelected`.
-  - Recalibración automática cada 50 picks settled → persiste pesos en DB.
-
-- **(✅ COMPLETADO)** **MLB-V5 — Bucketing estructural MLB + Manual Odds Review**:
-  - Baseball NO usa el LLM genérico en `/api/analysis/run`.
-  - Nuevos buckets MLB:
-    - `structural_lean_requires_odds`
-    - `watchlist_manual_odds`
-    - `discarded_after_full_analysis`
-  - UI: sección **“Revisión manual — falta cuota”** (solo MLB) vía `ManualOddsReviewPanel.jsx`.
-
-- **(✅ COMPLETADO)** **MLB-V6 — Totals Prob Fix + Visible Picks + Over Discovery / Market Audit (V6 UI + Backend)**:
-  - Fix Totals (Poisson) + UI Edge vs Línea + picks visibles.
-  - **Over Discovery Engine (V6)** para eliminar sesgo hacia Unders:
-    - Offensive Explosion Score (0–100)
-    - Offensive Script badge
-    - Over Survival score
-    - Market competition Under vs Over + swap cuando Over domina
-    - Daily Market Audit endpoint
-
-- **(✅ COMPLETADO)** **MLB-V4 Live Intelligence**:
-  - Volatility detection + script breaks monitoring + cashout intelligence.
-  - Restricción: solo aplica a matches que pasaron el filtro pregame.
-
-- **(✅ COMPLETADO)** **F6A/F6B Bullpen Risk & Storage**:
-  - Downgrade Full Game Unders a F5 Under si bullpens son riesgosos.
-  - Storage post-match de script breaks.
-
-- **(✅ COMPLETADO)** **MLB-V5 Script Survival & Fragility**:
-  - Survival score 0–100 + fragility score 0–100 con clasificación de estabilidad.
-  - UI: summary + detail panels.
-
-- **(✅ COMPLETADO — P0)** **MLB Under Confidence Floor (Moneyball guardrail)**:
-  - Regla:
-    - Solo para `sport == "baseball"`, **market Under (no team total, no NRFI)**.
-    - Solo cuando `edge is not None`.
-    - Si `confidence_score < MLB_UNDER_CONFIDENCE_FLOOR` (default 75) → degrada a `WATCHLIST`.
-    - Marca el pick con `pick["_conf_floor_demoted"] = True`.
-
-- **(✅ COMPLETADO)** **UI/summary: bucket de democión por floor**:
-  - `server.py` expone `summary.conf_floor_demoted`.
-
-- **(✅ COMPLETADO — P1)** **F6C Auto-Settle MLB (sin intervención del usuario)**:
-  - Nuevo módulo `services/mlb_results_settler.py` + wiring APScheduler.
-
-- **(✅ COMPLETADO — P0)** **MLB Statcast como “capa de confirmación/riesgo” (Phase 9/10)**:
-  - Ajustes **ponderados** por `data_quality` (Statcast no es motor principal):
-    - `strong` → 60%
-    - `partial/thin` → 35%
-    - `missing` → 0%
-  - Persistencia de auditoría: `pick_payload["advanced_adjustments"]` incluye `raw_conf_delta`, `weighted_conf_delta`, `weight_factor_used`, breakdown y reason_codes.
-  - Integración live: `mlb_explosive_inning_engine` añade contribución `statcast_contact` (cap ±8) + reason codes.
-
-- **(✅ COMPLETADO — P0)** **MLB Offensive Pressure Base (Objetivo 2)**:
-  - Nuevo módulo `services/mlb_pressure_base.py`.
-  - Detecta Under frágil cuando hay **muchos hits pero pocas carreras**.
-  - Basado en `baseballHistoricalProfile.recentRunSplit`/`onBaseProfileL5` (mirror) + (si existe) hits live.
-  - Wiring en orchestrator:
-    - `pick_payload["pressure_base"]` + `pick_payload["pressure_base_impact"]`
-    - Ajustes conservadores sobre `recommendation.confidence_score` y `fragility.score`.
-
-- **(✅ COMPLETADO — P0)** **MLB Sabermetrics Layer (Phase 9.6 — WAR/OPS/FIP)**:
-  - Nuevo módulo `services/mlb_sabermetrics_layer.py`.
-  - Calcula perfiles:
-    - OPS (OBP+SLG cuando aplique, tiers ELITE/STRONG/AVERAGE/WEAK)
-    - FIP (directo, por fórmula con constante configurable, o proxy vía xERA)
-    - WAR impact (cuando existe data; fail-soft si no)
-  - Produce contexto canónico `pick_payload["sabermetrics"]` con:
-    - `match_edges` (ops/fip/war/overall)
-    - `adjustments` (pitcher_quality, total_runs, fragility, script_survival, run_line_support)
-    - `reason_codes` y `summary`
-  - Integración en `mlb_day_orchestrator.py`:
-    - Aplica delta ponderado por `data_quality` (60/35/0) a `recommendation.confidence_score`.
-    - Guardado de auditoría en `pick_payload["sabermetrics_audit"]`.
-  - Guardrail: `weighted_conf_delta` capado a ±15; sabermetría **no** convierte picks débiles en fuertes por sí sola.
-
-- **(✅ COMPLETADO — P1)** **Fase 11 — Ghost-Edges con xERA/xwOBA (Verifier)**:
-  - `services/mlb_real_stats_verifier.py`:
-    - Nuevo kwarg `advanced_stats_snapshot` (backwards compatible).
-    - Flags:
-      - `ERA_UNDERSTATES_RISK` (ERA muy baja vs xERA alta → riesgo oculto, penaliza Under)
-      - `ERA_OVERSTATES_RISK` (ERA alta vs xERA baja → ghost-edge para Over)
-      - `PITCHER_XWOBA_WARNING` (xwOBA allowed elevada contra Under)
-      - `GHOST_EDGE_HARD_CONTACT_VS_UNDER` (barrel/hard-hit elevada contra Under)
-      - `GHOST_EDGE_TEAM_XWOBA_VS_UNDER` (ambos equipos con xwOBA alta contra Under)
-    - Cap de `confidence_penalty` actualizado a **55**.
-  - `mlb_day_orchestrator.py` pasa `advanced_stats_snapshot` al verifier.
-
-- **(✅ COMPLETADO — P1)** **Phase 13.1 — MLB Market Selection Intelligence**:
-  - Nuevo módulo `services/mlb_market_selection.py` (pure/fail-soft) con `select_protected_market(pick_payload)`.
-  - Selección final del mercado más protegido usando:
-    - `pressure_base`, `advanced_adjustments`, `sabermetrics/sabermetrics_audit`, `model_verification.discrepancies` (ghost edges), `pitcher_quality_score`, `fragility`, `script_survival`, `bullpen_risk`, `odds_range`.
-  - Guardrails Moneyball:
-    - Bloquea Run Line -1.5 si `marginProjection < 2.0` o `runLineCoverProb < 0.50` → prefiere Moneyline.
-    - Over sin odds → `Manual Odds Review`.
-    - Under con `HIGH_PRESSURE` → swap a F5 Under si abridores sostienen, si no → watchlist.
-    - Ghost-edge contra el lado → watchlist o swap a alternativa protegida.
-  - Output canónico persistido en `pick_payload["market_selection"]` y reason codes propagados.
-
-- **(✅ COMPLETADO — P1)** **Phase 13.2 — UI colapsable “MLB Advanced Stats” + “Sabermetría” + “Selección de mercado”**:
-  - Nuevo componente frontend `frontend/src/components/MLBAdvancedStatsPanel.jsx`.
-  - Integrado en `MatchCard.jsx` (gated por `sport === 'baseball'`).
-  - Panel fail-soft (si no hay datos → no aparece).
-
-- **(✅ COMPLETADO — P0)** **Fix 1 — Prompt Moneyball MLB (analyst_engine alignment)**:
-  - `services/analyst_engine.py`: prompt MLB alineado al pipeline actual.
-  - Prefilter MLB evita DISCARD por motivación normal/cuotas faltantes.
-
-- **(✅ COMPLETADO — P0)** **Fix 2 — Backfill / regeneración picks MLB**:
-  - Regeneración ejecutada con `/api/analysis/run` sport=baseball.
-  - Picks regenerados incluyen Phase 13 fields + auditorías + market_selection.
-
-- **(✅ COMPLETADO — P0)** **Fix 3 — MLB Intelligence Warehouse (Moneyball cache + pattern memory)**:
-  - Nuevo módulo `services/mlb_intelligence_warehouse.py`.
-  - Colecciones:
-    1) `mlb_team_daily_profiles`
-    2) `mlb_pitcher_daily_profiles`
-    3) `mlb_game_intelligence_snapshots`
-    4) `mlb_market_results`
-    5) `mlb_pattern_memory`
-  - Integración en `mlb_day_orchestrator.py`:
-    - Persistencia de `mlb_game_intelligence_snapshots` (digest) por `game_pk`.
-    - `historical_pattern_match` adjunto al pick.
-  - Pattern memory aplica gates por sample_size y ROI.
-
-- **(✅ COMPLETADO — NUEVO P0)** **Fix 1.1 — Feedback loop post-settle (MLB)**:
-  - `services/mlb_results_settler.py`:
-    - Hook tras settle exitoso llama `_feed_pattern_memory_from_eval`.
-    - Persiste resultado en `mlb_market_results` y actualiza `mlb_pattern_memory` vía `persist_market_result(...)`.
-    - Fail-soft: si falla lookup del pick o persistencia, no rompe el auto-settle.
-
-- **(✅ COMPLETADO — NUEVO P0)** **Fix 2.1 — Statcast adapter warehouse-first (MLB)**:
-  - `services/mlb_statcast_adapter.py`:
-    - Antes de fetch, intenta `load_pitcher_profile/load_team_profile` (si no `force_refresh`).
-    - Si hay hit fresco, retorna inmediatamente con `source_status.warehouse=hit`.
-    - Si fetch devuelve data válida, hace `upsert_pitcher_profile/upsert_team_profile`.
-
-- **(✅ COMPLETADO — NUEVO P0)** **Fix 1-BBALL — Basketball Intelligence Warehouse (separado)**:
-  - Nuevo módulo `services/basketball_intelligence_warehouse.py`.
-  - Colecciones y reason codes aislados (`bball_*`, `BBALL_*`).
-  - Patrones basketball específicos (pace/ratings/spread/momentum/variance).
-  - Mismas sample-size gates (sin forzar picks).
+- Alinear backend MLB al pipeline Moneyball: **Market Selection como capa final**, módulos legacy solo como contexto.
+- Estandarizar `pick_payload` (campos Moneyball + estados `available:false` si faltan) y mantener **fail-soft**.
+- Enriquecer métricas de evaluación (`mlb_run_evaluations_summary`) con breakdowns Moneyball sin romper compatibilidad.
+- Convertir **editorial** en capa de contexto/confirmación (no motor) + mapper con vocabulario MLB/NBA y `sport_hint`.
+- UI: explicar **por qué** se eligió el mercado, **por qué se rechazaron otros**, fragilidad, confirmaciones/bloqueos, manual odds, live vs pregame por `game_pk`.
 
 ---
 
-## 2) Implementation Steps
+## 2) Implementation Steps (Phases)
 
-### Phase 1 — Core POC (aislado) para el flujo “tolerancia + decisión contextual + señales trampa”
-**Estado:** ✅ COMPLETADO
+### Phase 1 — Core Flow POC (aislado, obligatorio)
+**Core a probar:** “Game → pipeline Moneyball → `market_selection` final → payload persistible + live/pregame linkage por `game_pk` (fail-soft).”
 
----
+User stories:
+1. Como operador, quiero ejecutar el pipeline para 1 juego y ver que el mercado final viene de `mlb_market_selection`.
+2. Como operador, quiero que si faltan odds el pick vaya a `structural_lean_requires_odds`/`watchlist_manual_odds` (no discard automático).
+3. Como operador, quiero que faltantes de Statcast/sabermetrics no rompan el análisis.
+4. Como operador, quiero ver `available:false` en capas faltantes para no romper UI.
+5. Como operador, quiero que el pick se vincule a `game_pk` para comparación live vs pregame.
 
-### Phase 2 — V1 App Development (backend + wiring de rescate)
-**Estado:** ✅ COMPLETADO
-
----
-
-### Phase 3 — Frontend UI (V1)
-**Estado:** ✅ COMPLETADO
-
----
-
-### Phase 4 — P0 LIVE Hardening + P2 Historical Profile (fútbol)
-**Estado:** ✅ COMPLETADO
-
----
-
-### Phase 5 — P3 Editorial Context Engine (Scrapy) — MVP
-**Estado:** ✅ COMPLETADO
+Steps:
+- Crear script/test aislado (pytest) que:
+  - construya un fixture MLB mínimo con `game_pk`.
+  - simule 3 escenarios: (a) odds OK, (b) odds missing, (c) advanced stats missing/stale.
+  - verifique: `market_selection.recommended_market` existe y es usado como final.
+  - verifique presencia/shape de campos Moneyball (o `available:false`).
+  - verifique persistencia de snapshot de inteligencia (colección `mlb_game_intelligence_snapshots`).
+- (Si aplica) mini-websearch interno de best practices: “fail-soft payload contracts + cached snapshot freshness patterns”.
+- No avanzar hasta que POC quede verde.
 
 ---
 
-### Phase 6 — P3 Selector Tuning + New Sources (AS.com, Marca) + limpieza de falsos positivos
-**Estado:** ✅ COMPLETADO
+### Phase 2 — V1 Backend Development (Moneyball alignment)
+
+#### 2.1 `mlb_day_orchestrator.py` (refactor de orden y responsabilidades)
+User stories:
+1. Como usuario, quiero que el pick final siempre pase por Market Selection.
+2. Como usuario, quiero que el sistema explique por qué eligió ese mercado y por qué rechazó otros.
+3. Como usuario, quiero que si faltan odds se pida revisión manual sin perder el análisis.
+4. Como usuario, quiero que el sistema use cache/warehouse antes de recalcular Statcast/sabermetrics.
+5. Como analista, quiero ver auditoría de pattern memory y fuentes externas en el payload.
+
+Steps:
+- Reordenar pipeline: base/contexto → pressure → sabermetrics → advanced snapshot/statcast → ghost edges → fragility/script survival → pattern memory → **market_selection (final)** → manual odds review.
+- Asegurar que legacy modules (run_line/over_under/nrfi/under_profile) **no finalicen** picks; solo llenen contexto de candidatos.
+- Estándar de payload:
+  - incluir cuando exista: `advanced_stats_snapshot`, `pressure_base`, `sabermetrics_audit`, `ghost_edges`, `fragility_score`, `script_survival_score`, `market_selection`, `historical_pattern_match`, `pattern_memory_audit`, `manual_odds_review`, `pipeline_meta.external_sources`.
+  - si falta capa/datos: devolver objeto con `available:false` (y `reason`/`stale` si aplica).
+- Odds handling:
+  - no mandar a `discarded_market` por missing odds.
+  - usar `structural_lean_requires_odds` y/o `watchlist_manual_odds`.
+- Warehouse-first:
+  - consultar snapshot fresco; si stale/no existe → recalcular + upsert.
+  - si snapshot válido → `upsert_team_profile`/`upsert_pitcher_profile`.
+  - persistir `mlb_game_intelligence_snapshots` al final.
+- Garantizar aislamiento: no tocar flujos football/basketball.
+
+#### 2.2 `mlb_run_evaluations_summary.py` (Moneyball breakdowns)
+User stories:
+1. Como usuario, quiero ver performance por mercado seleccionado.
+2. Como usuario, quiero ver cómo cambia el rendimiento por presión/fragilidad/supervivencia.
+3. Como usuario, quiero detectar ghost-edges frecuentes y su impacto.
+4. Como usuario, quiero comparar F5 under vs full game under y detectar “bullpen broke under”.
+5. Como usuario, quiero ver performance por pattern_key con ROI y sample_size.
+
+Steps:
+- Agregar campos nuevos (sin borrar legacy):
+  - `by_market_selected`, `by_pressure_environment`, `by_script_survival`, `by_fragility_tier`, `by_sabermetrics_edge`, `by_ghost_edge`, `f5_vs_full_game_under`, `manual_odds_review_outcomes`, `pattern_memory_performance`.
+- Fail-soft: si no hay datos → totales 0, `hit_rate:null`, listas vacías.
+- Mantener contrato del endpoint (compatibilidad).
+
+#### 2.3 `editorial_context_service.py` (contexto, no motor)
+User stories:
+1. Como usuario, quiero que editorial solo confirme/etiquete contexto.
+2. Como usuario, quiero ver warnings si editorial contradice Moneyball.
+3. Como usuario, quiero tags MLB consistentes (pitcher/bullpen/weather/bias).
+4. Como usuario, quiero metadata de alineación editorial vs modelo.
+5. Como usuario, quiero cache con TTL y flag `fast_stale` para pitcher/lineup.
+
+Steps:
+- Bump `EDITORIAL_CONTEXT_VERSION` → `p4-moneyball-context.1`.
+- MLB tags: `public_narrative`, `injury_or_lineup_note`, `pitcher_news`, `bullpen_news`, `market_public_bias`, `weather_or_park_note`.
+- No modificar `confidence` directamente; agregar:
+  - `moneyball_interpretation`, `editorial_vs_model_alignment`, `used_as_confirmation_only:true`.
+- Contradicción: si editorial sugiere Over y hay ghost-edge/fragility alta → flags `PUBLIC_NARRATIVE_RISK`, `EDITORIAL_CONTRADICTS_MONEYBALL`.
+- Cache: TTL 6h general; MLB pitcher/lineup con `fast_stale`/TTL menor.
+
+#### 2.4 `editorial_signal_mapper.py` (vocabulario y `sport_hint`)
+User stories:
+1. Como usuario, quiero que el mapper detecte MLB sin confundirlo con fútbol.
+2. Como usuario, quiero soporte NBA (spread/pace/back-to-back).
+3. Como usuario, quiero que “goles/corners/tarjetas” se marque football.
+4. Como usuario, quiero que “pitcher/bullpen/carreras/hits” se marque baseball.
+5. Como usuario, quiero que si es ambiguo salga OPINION con baja confianza.
+
+Steps:
+- Añadir patrones MLB (market + factual + warning) y NBA.
+- Añadir `sport_hint` en output.
+- Regla motivación MLB: `MLB_NORMAL_MOTIVATION_NEUTRAL`.
+- Fail-soft: default OPINION low confidence.
 
 ---
 
-### Phase 7 — P4 Playwright Integration (fuentes JS-heavy)
-**Estado:** ✅ COMPLETADO
+### Phase 3 — V1 Frontend Development (UI Moneyball)
+
+#### 3.1 MatchCard + Panels (explicabilidad)
+User stories:
+1. Como usuario, quiero ver mercado recomendado + alternativa protegida + fragilidad en el header.
+2. Como usuario, quiero entender “por qué este mercado” y “por qué no otros”.
+3. Como usuario, quiero ver pressure base L5/L15 y ambiente (LOW→CHAOTIC) con alertas.
+4. Como usuario, quiero ver sabermetrics (OPS/FIP/WAR) en español, sin saturación.
+5. Como usuario, quiero ver ghost-edges y si bloquearon/degradaron el pick.
+
+Steps:
+- Reorganizar MatchCard MLB con accordions:
+  - Header (debug `game_pk`, status, recommended, protected_alt, confidence, fragility tier).
+  - Market Selection panel (why/why_not/reason_codes/manual odds chips).
+  - Pressure Base panel.
+  - Sabermetrics panel.
+  - MLB Advanced Stats panel (sources/cache/data_quality + fail-soft).
+  - Ghost-Edges panel.
+  - Script Survival / Fragility panel.
+  - Pattern Memory panel (sample_size badges  <20 / ≥20 / ≥50).
+- Asegurar compatibilidad con picks viejos (render con defaults).
+
+#### 3.2 Dashboard buckets + empty states + manual odds
+User stories:
+1. Como usuario, quiero bucket “Structural Lean Requires Odds”.
+2. Como usuario, quiero bucket “Watchlist Manual Odds”.
+3. Como usuario, quiero “Discarded after full analysis” con copy Moneyball.
+4. Como usuario, quiero “Incomplete Data” con fuentes consultadas y faltantes.
+5. Como usuario, quiero pegar odds manuales y ver implied prob/edge/recomendación.
+
+Steps:
+- Actualizar DashboardPage y componentes relacionados para nuevos buckets.
+- Pulir `EmptyStateNoValue` con mensajes MLB y `SourcesConsultedPanel`.
+- Integrar/ajustar `InlineManualOddsInput` + `ManualOddsReviewPanel` para recalcular edge.
+
+#### 3.3 Live Analysis (live vs pregame por `game_pk`)
+User stories:
+1. Como usuario, quiero comparar live vs pregame por `game_pk`.
+2. Como usuario, quiero ver veredicto (mantener/evitar/cashout/esperar/invalidado).
+3. Como usuario, quiero warnings live (hits>>runs).
+4. Como usuario, no quiero recomendaciones de líneas ya superadas.
+5. Como usuario, si no hay pick pregame, quiero mensaje específico (no genérico).
+
+Steps:
+- Ajustar paneles live (`LivePreMatchComparisonPanel`/`LiveCopilotCard`) para lookup por `game_pk`.
+- Añadir chips live + reglas de “línea ya superada”.
 
 ---
 
-## Phase MLB-BatchB — Statcast Adapter (pybaseball + Bright Data + TheStatsAPI)
-**Estado:** ✅ COMPLETADO (core + Phase 9/10/9.6 + Phase 11 + Phase 13.1/13.2 + Fixes 1–3 + Fix 1.1 + Fix 2.1) (2026-06-03).
+### Phase 4 — Comprehensive Testing & Regression
+User stories:
+1. Como dev, quiero que `pytest` siga ≥733 sin regresiones.
+2. Como dev, quiero nuevos tests que cubran Market Selection final y fail-soft.
+3. Como dev, quiero tests de summary con breakdowns nuevos vacíos.
+4. Como dev, quiero tests editorial (no cambia confidence; contradicción genera warning).
+5. Como dev, quiero tests mapper con sport_hint MLB/NBA.
+
+Backend tests:
+- `test_mlb_day_orchestrator_market_selection_final` (incluye missing odds + advanced missing + upserts + snapshot persist).
+- `test_mlb_summary_new_breakdowns` (fields existen + legacy intact).
+- `test_editorial_context_moneyball_alignment`.
+- `test_editorial_signal_mapper_mlb_nba`.
+
+Frontend tests (RTL):
+- MatchCard render de `market_selection` + manual odds chip + fail-soft panels.
+- Live panel: no recomendar línea superada + lookup por `game_pk`.
+- Empty state: fuentes consultadas.
+- Buckets nuevos.
 
 ---
 
 ## 3) Next Actions
-
-### A) Bright Data Unlocker (P0 bloqueado)
-**Estado:** 🟨 PENDIENTE / BLOQUEADO
-- Requiere `BRIGHTDATA_API_KEY` + `BRIGHTDATA_ZONE`.
-
-### B) Basketball Historical Detail (P1)
-**Estado:** 🟨 PENDIENTE
-- Implementar perfil histórico y rescue layer equivalentes a MLB.
-
-### C) Fix 2C (P2) — Persistencia live como async
-**Estado:** 🟨 PENDIENTE
-
-### D) Football deep-live parity (P3)
-**Estado:** 🟨 PENDIENTE
-
-### E) (Nuevo) Basketball post-settle feedback loop
-**Estado:** 🟨 PENDIENTE
-- Integrar `basketball_intelligence_warehouse.persist_market_result(...)` en el settler de basketball cuando existan resultados settled.
+1. Implementar Phase 1 POC tests (backend) y correr `pytest -k moneyball_orchestrator_poc`.
+2. Refactor `mlb_day_orchestrator.py` para “market_selection final” + payload contract `available:false`.
+3. Añadir breakdowns a `mlb_run_evaluations_summary.py` manteniendo legacy.
+4. Actualizar editorial service + mapper (version bump + sport_hint).
+5. UI: reorganizar MatchCard y buckets; luego live comparison por `game_pk`.
+6. Ejecutar `pytest` completo + suite frontend.
 
 ---
 
 ## 4) Success Criteria
-- Market tolerance y rescue layers funcionan sin inventar valor.
-- LIVE multi-deporte estable; sin zombies; sin fugas de vocabulario.
-
-- Editorial Context:
-  - Scrapy/Playwright/BrightData degradan elegante.
-  - Fuentes bloqueadas se desbloquean con Unlocker cuando procede.
-  - UI muestra contexto con fuentes y warnings.
-
-- Historical Detail Enrichment:
-  - Ningún match (basketball/baseball) prioritario se descarta sin intentar perfil histórico.
-
-- **MLB Statcast Deep Integration (Phase 9/10) — ✅ cumplido**
-- **MLB Offensive Pressure Base (Objetivo 2) — ✅ cumplido**
-- **MLB Sabermetrics Layer (Phase 9.6) — ✅ cumplido**
-- **Fase 11 Ghost-Edges Statcast — ✅ cumplido**
-- **Fase 13.1 Market Selection Intelligence — ✅ cumplido**
-- **Fase 13.2 UI MLB Advanced Stats/Sabermetría/Selección — ✅ cumplido**
-- **Fix 1 Prompt Moneyball MLB — ✅ cumplido**
-- **Fix 2 Backfill picks MLB — ✅ cumplido**
-- **Fix 3 Intelligence Warehouse — ✅ cumplido**
-- **Fix 1.1 Feedback loop post-settle (MLB) — ✅ cumplido**
-- **Fix 2.1 Statcast warehouse-first (MLB) — ✅ cumplido**
-- **Fix 1-BBALL Basketball Intelligence Warehouse — ✅ cumplido**
-
-- Pattern memory:
-  - No fuerza picks.
-  - Gates por sample_size/ROI se respetan.
-  - Fail-soft cuando DB no disponible.
-
-### Testing status
-- **Suite actual:** **733 tests PASS**.
-- **Validación adicional:** `testing_agent_v3` backend OK (endpoints OK, sport isolation OK, feedback loop OK, statcast warehouse-first OK).
+- MLB: decisión final siempre via `mlb_market_selection` (legacy no decide).
+- Missing odds → `structural_lean_requires_odds`/`watchlist_manual_odds` (no discard automático).
+- Payload Moneyball consistente; capas faltantes retornan `available:false` sin romper UI.
+- Editorial = confirmación/contexto; contradicciones generan warnings.
+- UI explica selección/rechazo, fragilidad, confirmaciones/bloqueos, manual odds, live vs pregame por `game_pk`.
+- Tests: backend sin regresiones (≥733) + nuevos tests pasando; frontend tests clave pasando.

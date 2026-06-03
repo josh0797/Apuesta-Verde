@@ -18,15 +18,88 @@ import { useI18n } from '@/lib/i18n';
  */
 
 // Heuristic diagnosis based on the analyst summary (any list with content drives the message).
-function diagnose(summary, lang) {
+function diagnose(summary, lang, sport) {
   if (!summary) return null;
   const motCount = (summary.discarded_motivation || []).length;
   const mktCount = (summary.discarded_market || []).length;
   const incCount = (summary.incomplete_data || []).length;
+  const structuralLeanCount = (summary.structural_lean_requires_odds || []).length;
+  const watchlistManualCount = (summary.watchlist_manual_odds || []).length;
   const total = (summary.total_analyzed || 0);
+  const isBaseball = sport === 'baseball';
+
+  // ── P4 Moneyball polish: MLB-specific reasons ─────────────────────
+  const pipelineMeta = summary.pipeline_meta || {};
+  const abortReason  = pipelineMeta.abort_reason;
+  const scheduleGames = pipelineMeta.schedule_games_found || 0;
+  const droppedFinished = pipelineMeta.dropped_past_or_finished || 0;
+  const droppedPitchers = pipelineMeta.dropped_missing_pitchers || 0;
+  const advancedSourcesMissing =
+    (pipelineMeta.external_sources?.statcast?.status === 'missing'
+      || pipelineMeta.external_sources?.statcast?.status === 'failed');
 
   const items = [];
-  if (motCount > 0) {
+
+  // MLB priority: structural-lean buckets are the "we found something —
+  // just no odds yet" case. Surface this BEFORE generic discards.
+  if (isBaseball && (structuralLeanCount > 0 || watchlistManualCount > 0)) {
+    items.push({
+      icon: Activity,
+      tone: 'cyan',
+      label: lang === 'en'
+        ? `${structuralLeanCount + watchlistManualCount} structural lean${(structuralLeanCount + watchlistManualCount) > 1 ? 's' : ''} awaiting odds`
+        : `${structuralLeanCount + watchlistManualCount} lectura${(structuralLeanCount + watchlistManualCount) > 1 ? 's' : ''} estructural${(structuralLeanCount + watchlistManualCount) > 1 ? 'es' : ''} sin cuota`,
+      hint: lang === 'en'
+        ? 'Engine detected edge but odds are missing — paste them to validate.'
+        : 'El motor detectó edge pero faltan cuotas — pégalas para validar.',
+    });
+  }
+
+  // MLB: all games finished today.
+  if (isBaseball && scheduleGames > 0 && droppedFinished >= scheduleGames) {
+    items.push({
+      icon: Clock,
+      tone: 'slate',
+      label: lang === 'en'
+        ? 'All MLB games for today are already finished'
+        : 'Todos los partidos MLB del día ya terminaron',
+      hint: lang === 'en'
+        ? 'Come back tomorrow for the next slate.'
+        : 'Vuelve mañana para la próxima jornada.',
+    });
+  }
+
+  // MLB: probable pitchers not confirmed.
+  if (isBaseball && droppedPitchers > 0
+        && abortReason === 'no_probable_pitchers_all_sources') {
+    items.push({
+      icon: Shield,
+      tone: 'amber',
+      label: lang === 'en'
+        ? 'No games analysed — probable pitchers not confirmed'
+        : 'No se analizaron juegos porque faltan pitchers confirmados',
+      hint: lang === 'en'
+        ? 'Check back closer to first pitch.'
+        : 'Vuelve más cerca del primer lanzamiento.',
+    });
+  }
+
+  // MLB: advanced stats unavailable (engine still ran on base logic).
+  if (isBaseball && advancedSourcesMissing && motCount === 0 && mktCount === 0) {
+    items.push({
+      icon: BarChart3,
+      tone: 'slate',
+      label: lang === 'en'
+        ? 'Statcast / advanced sources unavailable'
+        : 'Métricas avanzadas (Statcast) no disponibles',
+      hint: lang === 'en'
+        ? 'Engine fell back to base logic; no value cleared the bar.'
+        : 'El motor usó lógica base; ningún partido superó el umbral.',
+    });
+  }
+
+  // ── Legacy reasons (football / fallback) ─────────────────────────
+  if (motCount > 0 && !isBaseball) {
     items.push({
       icon: TrendingDown,
       tone: 'amber',
@@ -42,12 +115,20 @@ function diagnose(summary, lang) {
     items.push({
       icon: AlertTriangle,
       tone: 'rose',
-      label: lang === 'en'
-        ? `${mktCount} match${mktCount > 1 ? 'es' : ''} with suspicious odds`
-        : `${mktCount} ${mktCount > 1 ? 'partidos' : 'partido'} con cuotas sospechosas`,
-      hint: lang === 'en'
-        ? 'Inflated lines or single-snapshot odds: market not stable.'
-        : 'Líneas infladas o snapshot único: mercado inestable.',
+      label: isBaseball
+        ? (lang === 'en'
+            ? `${mktCount} game${mktCount > 1 ? 's' : ''} discarded after full MLB analysis`
+            : `${mktCount} ${mktCount > 1 ? 'partidos' : 'partido'} sin edge tras análisis MLB completo`)
+        : (lang === 'en'
+            ? `${mktCount} match${mktCount > 1 ? 'es' : ''} with suspicious odds`
+            : `${mktCount} ${mktCount > 1 ? 'partidos' : 'partido'} con cuotas sospechosas`),
+      hint: isBaseball
+        ? (lang === 'en'
+            ? 'Ghost-edges, fragile script, or pressure contradicted the lean.'
+            : 'Ghost-edges, guion frágil o presión contradijo la lectura.')
+        : (lang === 'en'
+            ? 'Inflated lines or single-snapshot odds: market not stable.'
+            : 'Líneas infladas o snapshot único: mercado inestable.'),
     });
   }
   if (incCount > 0) {
@@ -99,9 +180,9 @@ function eduTip(lang) {
     : 'Tip: en una jornada sin valor, el edge disciplinado es saltarse — no bajar el umbral de confianza.';
 }
 
-export function EmptyStateNoValue({ summary }) {
+export function EmptyStateNoValue({ summary, sport }) {
   const { t, lang } = useI18n();
-  const items = diagnose(summary, lang) || [];
+  const items = diagnose(summary, lang, sport) || [];
   const strategy = suggestNext(lang);
   // Batch 3 (P3) — surface the list of data sources we actually
   // consulted on this run. Helps the user trust the empty-state by

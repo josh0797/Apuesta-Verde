@@ -35,11 +35,37 @@ from .editorial_normalizer import (
 
 log = logging.getLogger("editorial.service")
 
-EDITORIAL_CONTEXT_VERSION = "p3-mvp.1"
+# ── P4 Moneyball alignment (2026-Q2) ─────────────────────────────────
+# Editorial context is now a SECONDARY confirmation layer. It must never
+# modify ``confidence`` directly — it can only:
+#   * confirm pitcher / lineup / injury context (raises reliability)
+#   * surface narrative contradictions vs the Moneyball pipeline
+#     (PUBLIC_NARRATIVE_RISK, EDITORIAL_CONTRADICTS_MONEYBALL)
+#   * tag MLB-specific signal buckets (pitcher_news, bullpen_news, etc.)
+EDITORIAL_CONTEXT_VERSION = "p4-moneyball-context.1"
 CACHE_COLLECTION = "editorial_context_signals"
 CACHE_TTL_HOURS  = 6
+# Pitcher/lineup news goes stale much faster than long-form previews.
+CACHE_TTL_FAST_STALE_HOURS = 1.5
 MAX_MATCHES_PER_RUN = 8     # P3 spec: max 5–8 shortlisted matches per run
 SUBPROCESS_TIMEOUT_SEC = 30  # overall scrapy timeout per analyst run
+
+# MLB editorial tags — every signal returned for sport=baseball must
+# carry exactly ONE primary ``mlb_tag``. The mapper produces the raw
+# classification; this constant set is the union of supported tags so
+# the consumer (UI / analyst_engine) can render them deterministically.
+MLB_EDITORIAL_TAGS = (
+    "public_narrative",
+    "injury_or_lineup_note",
+    "pitcher_news",
+    "bullpen_news",
+    "market_public_bias",
+    "weather_or_park_note",
+)
+
+# Tags that warrant a faster cache (pitcher_news / lineup_note) — these
+# items are time-sensitive and we must NOT serve them stale.
+MLB_FAST_STALE_TAGS = ("pitcher_news", "injury_or_lineup_note", "bullpen_news")
 
 
 def _enabled() -> bool:
@@ -62,9 +88,146 @@ def _empty_payload(reason: str = "not_available") -> dict:
         "freshness_score":       0,
         "reliability_score":     0,
         "narrative_bias_score":  0,
+        # P4 Moneyball metadata (always declared — fail-soft).
+        "moneyball_interpretation":   None,
+        "editorial_vs_model_alignment": None,
+        "used_as_confirmation_only":  True,
+        "mlb_tags":                   [],
         "_reason":               reason,
         "_engine_version":       EDITORIAL_CONTEXT_VERSION,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# P4 Moneyball alignment — read-only annotation of an editorial payload
+# ─────────────────────────────────────────────────────────────────────
+def annotate_editorial_vs_moneyball(
+    editorial_payload: dict,
+    *,
+    pick_payload: dict | None = None,
+) -> dict:
+    """Tag an editorial payload with Moneyball alignment metadata.
+
+    Never modifies the engine's confidence. Adds:
+      * ``moneyball_interpretation`` — short ES summary of how the
+        editorial reads vs the Moneyball pipeline.
+      * ``editorial_vs_model_alignment`` — ``aligned`` / ``contradicts``
+        / ``neutral``.
+      * ``contradiction_flags`` — appends ``PUBLIC_NARRATIVE_RISK`` and/or
+        ``EDITORIAL_CONTRADICTS_MONEYBALL`` when the editorial pushes
+        an Over that the engine's ghost-edge / fragility blocks.
+
+    The annotation is **read-only and fail-soft**: a malformed input
+    returns the same dict with the canonical fields stamped as None.
+    """
+    if not isinstance(editorial_payload, dict):
+        return {
+            "available":                  False,
+            "moneyball_interpretation":   None,
+            "editorial_vs_model_alignment": None,
+            "used_as_confirmation_only":  True,
+            "contradiction_flags":        [],
+        }
+
+    pick_payload = pick_payload if isinstance(pick_payload, dict) else {}
+    editorial_dir = (editorial_payload.get("consensus_direction") or "").lower()
+    editorial_market = (editorial_payload.get("consensus_market") or "")
+
+    # Detect Moneyball "no Over" signals.
+    ghost = pick_payload.get("ghost_edges") or {}
+    ghost_flags = ghost.get("flags") or [] if isinstance(ghost, dict) else []
+    ghost_blocked = bool(isinstance(ghost, dict) and ghost.get("blocked_pick"))
+
+    fragility = pick_payload.get("fragility_score") or {}
+    frag_tier = fragility.get("tier") if isinstance(fragility, dict) else None
+
+    market_selection = pick_payload.get("market_selection") or {}
+    engine_market = (market_selection.get("recommended_market") or
+                     (pick_payload.get("recommendation") or {}).get("market") or "")
+
+    contradiction_flags = list(editorial_payload.get("contradiction_flags") or [])
+    alignment = "neutral"
+    interpretation = None
+
+    if editorial_dir and engine_market:
+        ed_is_over = editorial_dir in ("over", "alta", "high") or "over" in editorial_market.lower()
+        ed_is_under = editorial_dir in ("under", "baja", "low") or "under" in editorial_market.lower()
+        eng_is_over = "over" in engine_market.lower() and "team total" not in engine_market.lower()
+        eng_is_under = "under" in engine_market.lower() and "team total" not in engine_market.lower()
+        if ed_is_over and eng_is_under:
+            alignment = "contradicts"
+            interpretation = (
+                "Narrativa editorial sugiere Over; modelo Moneyball "
+                "favorece Under (revisar antes de apostar)."
+            )
+        elif ed_is_under and eng_is_over:
+            alignment = "contradicts"
+            interpretation = (
+                "Narrativa editorial sugiere Under; modelo Moneyball "
+                "favorece Over."
+            )
+        elif (ed_is_over and eng_is_over) or (ed_is_under and eng_is_under):
+            alignment = "aligned"
+            interpretation = "Editorial confirma la dirección del modelo."
+
+    # Ghost edges + Over narrative → public narrative risk.
+    if ghost_blocked or ghost_flags:
+        ed_over_like = editorial_dir == "over" or "over" in (editorial_market or "").lower()
+        if ed_over_like:
+            if "PUBLIC_NARRATIVE_RISK" not in contradiction_flags:
+                contradiction_flags.append("PUBLIC_NARRATIVE_RISK")
+            if "EDITORIAL_CONTRADICTS_MONEYBALL" not in contradiction_flags:
+                contradiction_flags.append("EDITORIAL_CONTRADICTS_MONEYBALL")
+            alignment = "contradicts"
+            interpretation = interpretation or (
+                "El consenso editorial empuja Over, pero Moneyball "
+                "detecta ghost-edges / fragilidad alta — trampa pública."
+            )
+
+    if frag_tier == "HIGH" and editorial_dir in ("over", "alta"):
+        if "PUBLIC_NARRATIVE_RISK" not in contradiction_flags:
+            contradiction_flags.append("PUBLIC_NARRATIVE_RISK")
+
+    editorial_payload["moneyball_interpretation"]   = interpretation
+    editorial_payload["editorial_vs_model_alignment"] = alignment
+    editorial_payload["used_as_confirmation_only"]  = True
+    editorial_payload["contradiction_flags"]        = contradiction_flags
+    editorial_payload.setdefault("mlb_tags", [])
+    return editorial_payload
+
+
+def extract_mlb_tag(signal: dict) -> str | None:
+    """Classify a raw editorial signal into one of MLB_EDITORIAL_TAGS.
+
+    Pure heuristic — never raises. Returns None for non-MLB signals.
+    """
+    if not isinstance(signal, dict):
+        return None
+    sport = (signal.get("sport") or "").lower()
+    if sport not in ("baseball", "mlb"):
+        return None
+
+    text = (signal.get("text") or signal.get("body") or "").lower()
+    sig_type = (signal.get("signal_type") or "").upper()
+
+    if sig_type == "INJURY_NOTE" or any(
+        kw in text for kw in ("lineup", "alineación", "alineacion",
+                                 "scratched", "lesionado", "baja", "injur")
+    ):
+        return "injury_or_lineup_note"
+    if any(kw in text for kw in ("bullpen", "relevo", "relief", "closer",
+                                  "set up", "cerrador")):
+        return "bullpen_news"
+    if any(kw in text for kw in ("pitcher", "starter", "abridor",
+                                  "opener", "probable", "rotación", "rotacion")):
+        return "pitcher_news"
+    if any(kw in text for kw in ("público", "publico", "narrativa",
+                                  "consenso", "trampa pública", "mercado")):
+        return "market_public_bias"
+    if any(kw in text for kw in ("weather", "clima", "wind", "viento",
+                                  "park", "coors", "estadio")):
+        return "weather_or_park_note"
+    return "public_narrative"
 
 
 async def _read_cached_signals(db, match_key: str, *, now: datetime) -> list[dict]:
@@ -360,5 +523,9 @@ async def fetch_editorial_context_bulk(
 __all__ = [
     "fetch_editorial_context",
     "fetch_editorial_context_bulk",
+    "annotate_editorial_vs_moneyball",
+    "extract_mlb_tag",
     "EDITORIAL_CONTEXT_VERSION",
+    "MLB_EDITORIAL_TAGS",
+    "MLB_FAST_STALE_TAGS",
 ]
