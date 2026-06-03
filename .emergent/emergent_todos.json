@@ -1,30 +1,22 @@
 [
   {
-    "content": "Fix 1: Reescribir SPORT_RULES['baseball'] y MLB_INTELLIGENCE_RULES con nueva filosofía Moneyball (statcast/pressure/sabermetrics/ghost-edges/market_selection)",
+    "content": "Fix 2: Cablear load_/upsert_pitcher|team_profile en services/mlb_statcast_adapter.get_mlb_advanced_profile (warehouse-first, fail-soft)",
     "status": "completed"
   },
   {
-    "content": "Fix 1: Actualizar _build_prefilter_prompt para que MLB no descarte por motivación/cuotas, use tags STRUCTURAL_LEAN/REQUIRES_MANUAL_ODDS/WATCHLIST/DISCARD_AFTER_FULL_ANALYSIS",
+    "content": "Fix 1: Integrar persist_market_result en mlb_results_settler tras update_run_evaluation_result OK",
     "status": "completed"
   },
   {
-    "content": "Fix 3: Crear services/mlb_intelligence_warehouse.py con read/write helpers + pattern_memory con sample_size gates (>=20 modest, >=50 ROI+)",
+    "content": "Fix 1: Crear services/basketball_intelligence_warehouse.py (colecciones separadas) con pattern keys basketball (pace/spread/totals/orating/drating/momentum)",
     "status": "completed"
   },
   {
-    "content": "Fix 3: Cablear warehouse en mlb_day_orchestrator.py: load profiles antes de recalc, persist snapshots, integrar pattern_match en pick payload",
-    "status": "completed"
-  },
-  {
-    "content": "Tests pytest: test_analyst_engine_mlb_prompt.py + test_mlb_intelligence_warehouse.py (pattern memory + sample_size gates)",
-    "status": "completed"
-  },
-  {
-    "content": "Fix 2: Regenerar picks MLB de hoy vía endpoint o script directo y validar campos nuevos en DB",
+    "content": "Tests pytest: test_basketball_intelligence_warehouse.py + test_mlb_settler_feedback_loop.py + smoke statcast warehouse caching",
     "status": "completed"
   },
   {
     "content": "Pytest completo + lint + testing_agent backend",
-    "status": "completed"
+    "status": "in_progress"
   }
 ]

@@ -365,6 +365,26 @@ async def auto_settle_pending_evaluations(
                         ev.get("recommended_line"),
                         ev.get("recommended_market"),
                     )
+
+                    # ── Pattern-Memory feedback loop ────────────────
+                    # Persist the settled outcome into the MLB
+                    # Intelligence Warehouse so the pattern memory
+                    # learns over time. Fail-soft: any error must
+                    # NOT prevent the rest of the sweep from
+                    # finishing.
+                    try:
+                        await _feed_pattern_memory_from_eval(
+                            db=db,
+                            evaluation=ev,
+                            final_runs_home=fs["home"],
+                            final_runs_away=fs["away"],
+                            outcome=outcome,
+                        )
+                    except Exception as _exc_fb:
+                        log.debug(
+                            "auto_settle pattern feedback failed eval=%s: %s",
+                            str(ev.get("id"))[:8], _exc_fb,
+                        )
                 else:
                     stats["errors"] += 1
             except Exception as exc:
@@ -387,7 +407,118 @@ async def auto_settle_pending_evaluations(
     return stats
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Pattern-memory feedback loop (Fix 1)
+# ─────────────────────────────────────────────────────────────────────
+async def _feed_pattern_memory_from_eval(
+    *,
+    db: Any,
+    evaluation: dict,
+    final_runs_home: int,
+    final_runs_away: int,
+    outcome: dict,
+) -> bool:
+    """Translate a settled MLB evaluation into a pattern_memory update.
+
+    1. Locate the original pick payload (``db.picks``) by match_id so
+       we can extract its ``pattern_keys``, odds, confidence, etc.
+    2. Derive a stake/payout pair (default: 1 unit stake, payout =
+       odds when won, 0 otherwise; pushes are stake-refund).
+    3. Persist to ``mlb_market_results`` and update each
+       ``mlb_pattern_memory`` row via the warehouse helpers.
+
+    Fully fail-soft — returns False on any internal error, the
+    caller already logs.
+    """
+    if db is None or not isinstance(evaluation, dict):
+        return False
+    result = (outcome or {}).get("result")
+    if result not in ("won", "lost", "push"):
+        return False
+
+    # Lazy import to avoid hard coupling at module load.
+    from .mlb_intelligence_warehouse import (
+        derive_pattern_keys,
+        persist_market_result,
+    )
+
+    match_id = evaluation.get("match_id")
+    game_pk  = evaluation.get("game_pk") or match_id
+
+    # Locate the pick payload that triggered this evaluation. We
+    # accept either a per-pick document (`payload.picks[]`) or a
+    # daily run document — we search the latter first by sport and
+    # match_id presence inside payload.picks.
+    pick_payload: dict | None = None
+    try:
+        # Try most recent baseball pick batch containing this match
+        async for daily in db.picks.find(
+            {"sport": "baseball"},
+            {"payload.picks": 1, "generated_at": 1},
+        ).sort("generated_at", -1).limit(20):
+            picks = ((daily or {}).get("payload") or {}).get("picks") or []
+            for p in picks:
+                if not isinstance(p, dict):
+                    continue
+                if (str(p.get("match_id") or "") == str(match_id)
+                        or str(p.get("game_pk") or "") == str(game_pk)):
+                    pick_payload = p
+                    break
+            if pick_payload:
+                break
+    except Exception as exc:
+        log.debug("pattern-memory: pick lookup failed for match=%s: %s",
+                    match_id, exc)
+
+    pattern_keys: list[str] = []
+    if pick_payload:
+        try:
+            pattern_keys = derive_pattern_keys(pick_payload)
+        except Exception as exc:
+            log.debug("pattern-memory: derive_pattern_keys failed: %s", exc)
+
+    # If no canonical patterns matched, persist as a "no-pattern"
+    # bucket so we still have aggregate hit-rate / ROI data for the
+    # raw market in mlb_market_results. mlb_pattern_memory stays
+    # untouched in that case (see warehouse contract).
+    market = evaluation.get("recommended_market")
+    # Derive a market-line tag for richer pattern attribution.
+    line = evaluation.get("recommended_line")
+    if line is not None:
+        market_label = f"{market} {line}".strip() if market else None
+    else:
+        market_label = market
+
+    # Stake / payout (single-unit model; downstream can override).
+    odds = _safe_float(evaluation.get("recommended_odds")) \
+        or (pick_payload or {}).get("recommendation", {}).get("odds_decimal") \
+        or 1.91   # neutral default
+    odds = max(1.01, float(odds))
+    stake = 1.0
+
+    if result == "won":
+        won = True
+        payout = round(stake * odds, 4)
+    elif result == "lost":
+        won = False
+        payout = 0.0
+    else:  # push
+        won = False  # not counted as win, but stake refunded → roi flat
+        payout = stake
+
+    return await persist_market_result(
+        db,
+        game_pk=game_pk,
+        pattern_keys=pattern_keys,
+        market=market_label,
+        stake=stake,
+        won=won,
+        payout=payout,
+    )
+
+
 __all__ = [
     "_resolve_result",
+    "_feed_pattern_memory_from_eval",
     "auto_settle_pending_evaluations",
 ]

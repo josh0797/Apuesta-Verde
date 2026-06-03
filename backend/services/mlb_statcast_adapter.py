@@ -836,6 +836,37 @@ async def get_mlb_advanced_profile(
             source_status={"adapter": "disabled"},
         )
 
+    # ── Warehouse-first lookup (Fix 2 — daily-profile cache) ────────
+    # If we have a stable per-day profile for this pitcher/team in the
+    # warehouse, return it immediately and skip both the L2 cache and
+    # the heavy parallel fetch. Fail-soft: any error → continue with
+    # legacy flow below.
+    if not force_refresh:
+        try:
+            from .mlb_intelligence_warehouse import (
+                load_pitcher_profile, load_team_profile,
+            )
+            _wh_doc = None
+            _wh_kind = None
+            if role in ("pitcher", "home_pitcher", "away_pitcher") and player_id is not None:
+                _wh_doc = await load_pitcher_profile(db, player_id)
+                _wh_kind = "pitcher"
+            elif role in ("team", "home_team", "away_team") and team_id is not None:
+                _wh_doc = await load_team_profile(db, team_id)
+                _wh_kind = "team"
+            if _wh_doc and isinstance(_wh_doc.get("profile"), dict):
+                wh_payload = dict(_wh_doc["profile"])
+                wh_payload.setdefault("source_status", {})
+                wh_payload["source_status"] = {
+                    **wh_payload["source_status"],
+                    "warehouse":      "hit",
+                    "warehouse_kind": _wh_kind,
+                    "warehouse_day":  _wh_doc.get("day"),
+                }
+                return wh_payload
+        except Exception as _exc_wh_read:
+            log.debug("[mlb_adv_adapter] warehouse read failed: %s", _exc_wh_read)
+
     cache_key = _build_cache_key(
         role=role, season=season,
         player_id=player_id, player_name=player_name,
@@ -900,4 +931,17 @@ async def get_mlb_advanced_profile(
         await write_mlb_advanced_cache(
             db, cache_key, merged, ttl_seconds=cache_ttl_seconds(role),
         )
+        # Fix 2: Also upsert into the daily warehouse so future analyses
+        # (same UTC day) can short-circuit the heavy fetch entirely.
+        # Fail-soft: any error must not affect the returned payload.
+        try:
+            from .mlb_intelligence_warehouse import (
+                upsert_pitcher_profile, upsert_team_profile,
+            )
+            if role in ("pitcher", "home_pitcher", "away_pitcher") and player_id is not None:
+                await upsert_pitcher_profile(db, player_id, merged)
+            elif role in ("team", "home_team", "away_team") and team_id is not None:
+                await upsert_team_profile(db, team_id, merged)
+        except Exception as _exc_wh_write:
+            log.debug("[mlb_adv_adapter] warehouse write failed: %s", _exc_wh_write)
     return merged

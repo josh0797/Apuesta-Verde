@@ -1,0 +1,227 @@
+{
+  "summary": "Completed comprehensive backend testing for Fix 1 (MLB feedback loop + Basketball intelligence warehouse) and Fix 2 (Statcast warehouse-first lookup). All 733 pytest tests passed (701 previous + 32 new). Zero regressions. All API endpoints functional. Sport isolation verified. Fail-soft behavior confirmed. Sample-size gates working correctly.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "✅ Backend boot OK - no import errors or exceptions",
+    "✅ Pytest suite: 733/733 tests passed (701 previous + 32 new)",
+    "✅ Login works: POST /api/auth/login with demo@valuebet.app/demo1234",
+    "✅ GET /api/picks/today?sport=baseball returns 200",
+    "✅ GET /api/picks/today?sport=football returns 200",
+    "✅ GET /api/picks/today?sport=basketball returns 200",
+    "✅ GET /api/analysis/jobs returns 200",
+    "✅ GET /api/meta/sports returns 200",
+    "✅ Clean imports: basketball_intelligence_warehouse module loads without errors",
+    "✅ Clean imports: mlb_results_settler._feed_pattern_memory_from_eval loads",
+    "✅ Clean imports: mlb_statcast_adapter.get_mlb_advanced_profile loads",
+    "✅ Sport isolation: All basketball reason codes start with 'BBALL_' (RC_PATTERN_LOW_SAMPLE='BBALL_PATTERN_MEMORY_LOW_SAMPLE', etc.)",
+    "✅ Sport isolation: All basketball collections start with 'bball_' (bball_team_daily_profiles, bball_player_daily_profiles, bball_game_intelligence_snapshots, bball_market_results, bball_pattern_memory)",
+    "✅ Fail-soft: derive_pattern_keys(None) returns []",
+    "✅ Fail-soft: derive_pattern_keys({}) returns []",
+    "✅ Sample-size gates: sample_size=10 returns adjustment=0 with RC_PATTERN_LOW_SAMPLE",
+    "✅ Sample-size gates: sample_size=30 returns adjustment capped at ±5 with RC_PATTERN_MODERATE_BOOST",
+    "✅ Sample-size gates: sample_size=60 with roi=0.15 returns adjustment >0 and ≤8 with RC_PATTERN_STRONG_BOOST",
+    "✅ Basketball patterns: HIGH_PACE_OVER_PROFILE detected when avg pace >= 102",
+    "✅ Basketball patterns: LOW_PACE_UNDER_PROFILE detected when avg pace <= 95",
+    "✅ Basketball patterns: STRONG_OFFENSIVE_RATING_EDGE detected when ORTG diff >= 6",
+    "✅ Basketball patterns: STRONG_DEFENSIVE_RATING_EDGE detected when DRTG diff >= 6",
+    "✅ Basketball patterns: SPREAD_MARGIN_SUPPORTED detected with margin >= 4 and cover >= 0.55",
+    "✅ Basketball patterns: MONEYLINE_SAFER_THAN_SPREAD detected with low margin/cover",
+    "✅ Basketball patterns: LIVE_MOMENTUM_FAVORITE/UNDERDOG detected from live_state.momentum",
+    "✅ Basketball patterns: THREE_POINT_VARIANCE_RISK detected when variance >= 0.30",
+    "✅ Test suite breakdown: 21 tests in test_basketball_intelligence_warehouse.py",
+    "✅ Test suite breakdown: 11 tests in test_mlb_settler_feedback_loop_and_statcast_wh.py",
+    "✅ Warehouse-first lookup: When fresh pitcher/team profile exists, adapter returns warehouse hit with source_status.warehouse='hit'",
+    "✅ Warehouse-first lookup: force_refresh=True skips warehouse lookup",
+    "✅ MLB feedback loop: _feed_pattern_memory_from_eval integrates with auto_settle",
+    "✅ MLB feedback loop: Locates pick payload by match_id, derives pattern_keys, calculates stake/payout, calls persist_market_result"
+  ],
+  "test_report_links": [
+    "/app/backend_test_fix1_fix2.py",
+    "/app/backend/tests/test_basketball_intelligence_warehouse.py",
+    "/app/backend/tests/test_mlb_settler_feedback_loop_and_statcast_wh.py"
+  ],
+  "action_item_for_main_agent": "",
+  "updated_files": [
+    "/app/backend_test_fix1_fix2.py"
+  ],
+  "success_percentage": {
+    "backend": "100% (733/733 pytest tests + 11/11 integration tests)",
+    "frontend": "N/A (backend-only testing requested)"
+  },
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  "detailed_test_results": {
+    "pytest_suite": {
+      "total_tests": 733,
+      "passed": 733,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "duration_seconds": 3.04,
+      "new_tests": {
+        "test_basketball_intelligence_warehouse.py": 21,
+        "test_mlb_settler_feedback_loop_and_statcast_wh.py": 11
+      },
+      "previous_tests": 701,
+      "regressions": 0
+    },
+    "api_endpoints": {
+      "login": {
+        "endpoint": "POST /api/auth/login",
+        "status": 200,
+        "credentials": "demo@valuebet.app / demo1234",
+        "token_received": true
+      },
+      "baseball_picks": {
+        "endpoint": "GET /api/picks/today?sport=baseball",
+        "status": 200,
+        "picks_count": 0
+      },
+      "football_picks": {
+        "endpoint": "GET /api/picks/today?sport=football",
+        "status": 200,
+        "picks_count": 0
+      },
+      "basketball_picks": {
+        "endpoint": "GET /api/picks/today?sport=basketball",
+        "status": 200,
+        "picks_count": 0
+      },
+      "analysis_jobs": {
+        "endpoint": "GET /api/analysis/jobs",
+        "status": 200,
+        "jobs_count": 0
+      },
+      "meta_sports": {
+        "endpoint": "GET /api/meta/sports",
+        "status": 200,
+        "sports": ["football", "basketball", "baseball"]
+      }
+    },
+    "module_imports": {
+      "basketball_intelligence_warehouse": {
+        "status": "success",
+        "functions_tested": [
+          "derive_pattern_keys",
+          "lookup_pattern_match",
+          "persist_market_result",
+          "attach_pattern_match_to_payload"
+        ]
+      },
+      "mlb_results_settler": {
+        "status": "success",
+        "functions_tested": [
+          "_feed_pattern_memory_from_eval"
+        ]
+      },
+      "mlb_statcast_adapter": {
+        "status": "success",
+        "functions_tested": [
+          "get_mlb_advanced_profile"
+        ]
+      }
+    },
+    "sport_isolation": {
+      "basketball_reason_codes": {
+        "all_prefixed_with_BBALL": true,
+        "codes": [
+          "BBALL_PATTERN_MEMORY_LOW_SAMPLE",
+          "BBALL_PATTERN_MEMORY_MODERATE_BOOST",
+          "BBALL_PATTERN_MEMORY_STRONG_BOOST",
+          "BBALL_PATTERN_MEMORY_NEGATIVE_ROI",
+          "BBALL_PATTERN_MEMORY_NO_MATCH",
+          "BBALL_WAREHOUSE_DISABLED"
+        ]
+      },
+      "basketball_collections": {
+        "all_prefixed_with_bball": true,
+        "collections": [
+          "bball_team_daily_profiles",
+          "bball_player_daily_profiles",
+          "bball_game_intelligence_snapshots",
+          "bball_market_results",
+          "bball_pattern_memory"
+        ]
+      }
+    },
+    "fail_soft_validation": {
+      "derive_pattern_keys_none": {
+        "input": null,
+        "expected": [],
+        "actual": [],
+        "passed": true
+      },
+      "derive_pattern_keys_empty": {
+        "input": {},
+        "expected": [],
+        "actual": [],
+        "passed": true
+      }
+    },
+    "sample_size_gates": {
+      "low_sample": {
+        "sample_size": 10,
+        "hit_rate": 0.8,
+        "roi": 0.3,
+        "adjustment": 0.0,
+        "reason_code": "BBALL_PATTERN_MEMORY_LOW_SAMPLE",
+        "warning_present": true,
+        "passed": true
+      },
+      "moderate_sample": {
+        "sample_size": 30,
+        "hit_rate": 0.62,
+        "roi": 0.1,
+        "adjustment_capped_at": 5.0,
+        "reason_code": "BBALL_PATTERN_MEMORY_MODERATE_BOOST",
+        "passed": true
+      },
+      "strong_sample": {
+        "sample_size": 60,
+        "hit_rate": 0.62,
+        "roi": 0.15,
+        "adjustment_max": 8.0,
+        "adjustment_positive": true,
+        "reason_code": "BBALL_PATTERN_MEMORY_STRONG_BOOST",
+        "passed": true
+      }
+    },
+    "basketball_pattern_detection": {
+      "HIGH_PACE_OVER_PROFILE": {
+        "trigger": "avg_pace >= 102",
+        "test_input": {"home_pace": 106, "away_pace": 104},
+        "detected": true
+      },
+      "LOW_PACE_UNDER_PROFILE": {
+        "trigger": "avg_pace <= 95",
+        "test_input": {"home_pace": 92, "away_pace": 94},
+        "detected": true
+      },
+      "STRONG_OFFENSIVE_RATING_EDGE": {
+        "trigger": "abs(ortg_diff) >= 6",
+        "test_input": {"home_ortg": 120, "away_ortg": 110},
+        "detected": true
+      }
+    }
+  },
+  "notes": [
+    "All 733 pytest tests passed with zero regressions",
+    "32 new tests added: 21 for basketball warehouse + 11 for MLB settler/statcast",
+    "Sport isolation confirmed: basketball uses 'BBALL_' prefix for reason codes and 'bball_' prefix for collections",
+    "Fail-soft behavior verified: all functions handle None/empty inputs gracefully",
+    "Sample-size gates working correctly: <20 no adjust, 20-49 ±5, >=50 with ROI+ ±8",
+    "Basketball patterns correctly detect pace, rating edges, spread support, momentum, and variance",
+    "MLB feedback loop integrates persist_market_result in mlb_results_settler",
+    "Statcast adapter implements warehouse-first lookup with force_refresh bypass",
+    "No football functionality affected (isolation maintained)",
+    "Backend boot clean with no import errors"
+  ]
+}
