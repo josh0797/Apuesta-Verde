@@ -1173,6 +1173,16 @@ function SignalColumn({ title, tone, icon, items, testId }) {
  * applied the score adjustment to the pick. This is the user-facing
  * "why".
  */
+const MARKET_KIND_LABELS_ES = {
+  totals_full:     'Total juego',
+  totals_f5:       'F5',
+  team_total:      'Total equipo',
+  runline_plus_15: 'Runline +1.5',
+  nrfi:            'NRFI',
+  yrfi:            'YRFI',
+};
+
+
 const DECISION_META = {
   SUPPORTS_OVER: {
     label: 'Apoya Over',
@@ -1218,6 +1228,14 @@ function TrendInterpretationBlock({ interpretation, testId }) {
         <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide font-semibold">
           <Sparkles className="w-3 h-3" />
           Interpretación L5 vs L15
+          {i.market_kind && i.market_kind !== 'other' ? (
+            <span
+              className="ml-1.5 px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-200 text-[9.5px] normal-case tracking-normal"
+              data-testid={`${testId}-market-kind`}
+            >
+              {MARKET_KIND_LABELS_ES[i.market_kind] || i.market_kind}
+            </span>
+          ) : null}
         </div>
         <span
           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-semibold ${meta.chip}`}

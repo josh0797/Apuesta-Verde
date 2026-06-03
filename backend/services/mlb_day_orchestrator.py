@@ -1311,6 +1311,8 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             )
             home_team_id = conf.get("home_team_id")
             away_team_id = conf.get("away_team_id")
+            home_team_name = conf.get("home_team_name") or (conf.get("home") or {}).get("name")
+            away_team_name = conf.get("away_team_name") or (conf.get("away") or {}).get("name")
             # MLB regular season runs Mar→Oct so the current calendar
             # year is the right season key — except in Jan/Feb when we
             # want the previous year's stats (offseason).
@@ -1319,8 +1321,8 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             if home_team_id and away_team_id:
                 async with _httpx_rf.AsyncClient() as _client_rf:
                     home_form, away_form = await asyncio.gather(
-                        get_team_recent_form(_client_rf, int(home_team_id), _season_year),
-                        get_team_recent_form(_client_rf, int(away_team_id), _season_year),
+                        get_team_recent_form(_client_rf, int(home_team_id), _season_year, team_name=home_team_name),
+                        get_team_recent_form(_client_rf, int(away_team_id), _season_year, team_name=away_team_name),
                         return_exceptions=False,
                     )
                 if home_form or away_form:
@@ -1328,6 +1330,9 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                     pick_payload["recent_run_split"]  = recent_form_payload["recent_run_split"]
                     pick_payload["recent_run_trend"]  = recent_form_payload["recent_run_trend"]
                     pick_payload["on_base_profile"]   = recent_form_payload["on_base_profile"]
+                    # 2026-06 — F5 + first-inning splits for F5/NRFI/YRFI markets.
+                    pick_payload["f5_split"]            = recent_form_payload.get("f5_split")
+                    pick_payload["first_inning_split"]  = recent_form_payload.get("first_inning_split")
                     # Mirror into baseballHistoricalProfile so the
                     # HistoricalProfilePanel can render the L5-vs-L15
                     # comparison alongside the existing 15-game block.
@@ -1358,11 +1363,26 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                         _a_ml = _odds.get("away")
                         if isinstance(_h_ml, (int, float)) and isinstance(_a_ml, (int, float)):
                             _underdog_side = "home" if _h_ml > _a_ml else "away"
+                        # Team-total context: when the market explicitly
+                        # references one side ("Yankees Over 4.5"), we
+                        # must apply the interpreter to that team only.
+                        _team_total_ctx = None
+                        if _selected_market and home_team_name and away_team_name:
+                            _mkt_lc = _selected_market.lower()
+                            _h_lc = home_team_name.lower()
+                            _a_lc = away_team_name.lower()
+                            if any(t and t in _mkt_lc for t in (_h_lc, _h_lc.split()[-1] if _h_lc else "")):
+                                _team_total_ctx = {"team_side": "home", "force_kind": "team_total"}
+                            elif any(t and t in _mkt_lc for t in (_a_lc, _a_lc.split()[-1] if _a_lc else "")):
+                                _team_total_ctx = {"team_side": "away", "force_kind": "team_total"}
                         _trend_interp = combine_trend_signals(
                             recent_run_split=recent_form_payload["recent_run_split"],
                             on_base_profile=recent_form_payload["on_base_profile"],
                             selected_market=_selected_market,
                             runline_context={"underdog_side": _underdog_side} if _underdog_side else None,
+                            f5_split=recent_form_payload.get("f5_split"),
+                            first_inning_split=recent_form_payload.get("first_inning_split"),
+                            team_total_context=_team_total_ctx,
                         )
                         if _trend_interp:
                             pick_payload["trend_interpretation"] = _trend_interp

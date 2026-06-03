@@ -1,30 +1,30 @@
 [
   {
-    "content": "Fix 1a: reescribir mlb_recent_form_split.py para usar /schedule + /boxscore (L5 ≠ L15 garantizado)",
+    "content": "Task 1: services/statmuse_recent_form.py (Bright Data + parser HTML stdlib + cross-validation)",
     "status": "completed"
   },
   {
-    "content": "Fix 1b: tests del scraper schedule+boxscore (8 tests PASS)",
+    "content": "Task 2: cablear StatMuse en mlb_recent_form_split.py (fallback + cross-check log warning)",
     "status": "completed"
   },
   {
-    "content": "Fix 2a: crear services/mlb_trend_interpreter.py",
+    "content": "Task 3: extraer F5 runs + first-inning runs desde /game/{pk}/linescore en paralelo con boxscore",
     "status": "completed"
   },
   {
-    "content": "Fix 2b: cablear trend interpreter en mlb_day_orchestrator (confidence_score + reason_codes)",
+    "content": "Task 4: extender mlb_trend_interpreter.py con _detect_market_kind + evaluators F5/team_total/NRFI/YRFI",
     "status": "completed"
   },
   {
-    "content": "Fix 2c: tests del trend interpreter (15 tests PASS)",
+    "content": "Task 5: 39 tests nuevos PASS (StatMuse parser, F5/NRFI evaluators, end-to-end routing)",
     "status": "completed"
   },
   {
-    "content": "Fix 2d: render del bloque interpretado en HistoricalProfilePanel",
+    "content": "Task 6: UI - chip de market_kind en TrendInterpretationBlock",
     "status": "completed"
   },
   {
-    "content": "Validar 312 pytest + esbuild OK",
+    "content": "Validar 351 pytest + esbuild + smoke",
     "status": "completed"
   }
 ]

@@ -200,23 +200,50 @@ async def _fetch_boxscore_lines(
 ) -> dict[int, dict]:
     """Fetch the boxscore for a game and return a per-team-id mapping
     of batting stats. Cached.
+
+    **2026-06 enhancement**: also pulls ``/game/{pk}/linescore`` in
+    parallel so we can extract per-inning runs and surface:
+      - ``first_inning_runs`` (NRFI/YRFI signal)
+      - ``f5_runs`` (first-5-innings total — the F5 market)
     """
     cached = _cache_get_box(game_pk)
     if cached is not None:
         return cached
 
-    url = f"{MLB_STATS_BASE}/game/{game_pk}/boxscore"
+    box_url   = f"{MLB_STATS_BASE}/game/{game_pk}/boxscore"
+    line_url  = f"{MLB_STATS_BASE}/game/{game_pk}/linescore"
     try:
-        r = await client.get(url, timeout=10.0)
-        r.raise_for_status()
-        data = r.json() or {}
+        box_resp, line_resp = await asyncio.gather(
+            client.get(box_url,  timeout=10.0),
+            client.get(line_url, timeout=10.0),
+            return_exceptions=True,
+        )
     except Exception as exc:
-        log.debug("boxscore fetch failed game=%s: %s", game_pk, exc)
+        log.debug("boxscore/linescore fetch failed game=%s: %s", game_pk, exc)
         _cache_set_box(game_pk, {})
         return {}
 
+    box_data: dict = {}
+    line_data: dict = {}
+    if isinstance(box_resp, httpx.Response):
+        try:
+            box_resp.raise_for_status()
+            box_data = box_resp.json() or {}
+        except Exception:
+            pass
+    if isinstance(line_resp, httpx.Response):
+        try:
+            line_resp.raise_for_status()
+            line_data = line_resp.json() or {}
+        except Exception:
+            pass
+
     out: dict[int, dict] = {}
-    teams_block = data.get("teams") or {}
+    teams_block = box_data.get("teams") or {}
+
+    # Linescore innings: list[{num, home: {runs}, away: {runs}}].
+    innings = line_data.get("innings") or []
+
     for side_key in ("home", "away"):
         side = teams_block.get(side_key) or {}
         team = side.get("team") or {}
@@ -224,14 +251,38 @@ async def _fetch_boxscore_lines(
         if not team_id:
             continue
         stats = (side.get("teamStats") or {}).get("batting") or {}
+        # Pull per-inning runs for THIS side.
+        first_inning_runs: Optional[int] = None
+        f5_runs: Optional[int] = None
+        if innings:
+            try:
+                # Index 0 = inning 1.
+                if len(innings) >= 1:
+                    first = innings[0].get(side_key) or {}
+                    fr = first.get("runs")
+                    first_inning_runs = int(fr) if fr is not None else None
+                # F5 = sum runs over innings 1..5 for the side.
+                f5_total = 0
+                f5_any = False
+                for inn in innings[:5]:
+                    side_blk = inn.get(side_key) or {}
+                    r = side_blk.get("runs")
+                    if r is not None:
+                        f5_any = True
+                        f5_total += int(r)
+                f5_runs = f5_total if f5_any else None
+            except (TypeError, ValueError, KeyError):
+                pass
         out[int(team_id)] = {
-            "runs":      _to_int(stats.get("runs")),
-            "hits":      _to_int(stats.get("hits")),
-            "walks":     _to_int(stats.get("baseOnBalls")),
-            "hbp":       _to_int(stats.get("hitByPitch")),
-            "home_runs": _to_int(stats.get("homeRuns")),
-            "obp":       _parse_obp(stats.get("obp")),
-            "plate_appearances": _to_int(stats.get("plateAppearances")),
+            "runs":               _to_int(stats.get("runs")),
+            "hits":               _to_int(stats.get("hits")),
+            "walks":              _to_int(stats.get("baseOnBalls")),
+            "hbp":                _to_int(stats.get("hitByPitch")),
+            "home_runs":          _to_int(stats.get("homeRuns")),
+            "obp":                _parse_obp(stats.get("obp")),
+            "plate_appearances":  _to_int(stats.get("plateAppearances")),
+            "first_inning_runs":  first_inning_runs,
+            "f5_runs":            f5_runs,
         }
     _cache_set_box(game_pk, out)
     return out
@@ -262,6 +313,16 @@ def _aggregate(per_game: list[dict]) -> dict:
         "hbp":       _avg([float(g.get("hbp", 0))       for g in per_game]),
         "home_runs": _avg([float(g.get("home_runs", 0)) for g in per_game]),
         "obp":       _avg([g.get("obp")                  for g in per_game]),  # _avg filters None
+        # 2026-06 — F5 + first-inning aggregates. ``_avg`` already
+        # filters None so games missing linescore data don't pollute
+        # the mean.
+        "f5_runs":           _avg([g.get("f5_runs")          for g in per_game]),
+        "first_inning_runs": _avg([g.get("first_inning_runs") for g in per_game]),
+        # Frequency of "scoring in the 1st" — useful for NRFI/YRFI bias.
+        "first_inning_scored_rate": _avg([
+            1.0 if (g.get("first_inning_runs") or 0) > 0 else 0.0
+            for g in per_game if g.get("first_inning_runs") is not None
+        ]),
         "games":     len(per_game),
     }
 
@@ -291,10 +352,75 @@ async def get_team_recent_form(
     client: httpx.AsyncClient,
     team_id: int,
     season: int,
+    team_name: Optional[str] = None,
 ) -> dict:
-    """Return per-team L5 and L15 aggregated batting lines. Falls back to
-    ``{}`` when the team has fewer than 5 finished games in the window.
+    """Return per-team L5 and L15 aggregated batting lines.
+
+    Strategy (2026-06):
+      1. **Primary**: schedule + boxscore from MLB Stats API.
+      2. **Fallback**: StatMuse scrape via Bright Data when primary
+         returns nothing.
+      3. **Cross-validation**: when ``team_name`` is provided AND
+         primary returned data, also pull StatMuse and attach the
+         discrepancy report under ``payload["cross_validation"]``.
+         Discrepancies > 10% are logged as ``[STATMUSE_DISCREPANCY]``.
+
+    ``team_name`` is required for the StatMuse paths since that source
+    is keyed by team display name (not team_id).
     """
+    if not team_id:
+        return {}
+    primary = await _fetch_primary_recent_form(client, int(team_id), int(season))
+
+    if not primary:
+        # Fallback path — only when MLB Stats API yielded nothing.
+        if team_name:
+            try:
+                from .statmuse_recent_form import get_team_recent_form_via_statmuse
+                fallback = await get_team_recent_form_via_statmuse(team_name)
+            except Exception as exc:  # noqa: BLE001
+                log.debug("statmuse fallback failed for %s: %s", team_name, exc)
+                fallback = {}
+            if fallback:
+                fallback["primary_source"] = "statmuse_fallback"
+                return fallback
+        return {}
+
+    primary["primary_source"] = "mlb_stats_api"
+
+    # Cross-validation hook — non-blocking. Only when team_name provided.
+    if team_name:
+        try:
+            from .statmuse_recent_form import (
+                get_team_recent_form_via_statmuse,
+                compare_forms,
+            )
+            secondary = await get_team_recent_form_via_statmuse(team_name)
+            if secondary:
+                report = compare_forms(primary, secondary, threshold_pct=10.0)
+                primary["cross_validation"] = {
+                    "source":         "statmuse",
+                    "match":          report["match"],
+                    "issues":         report["issues"],
+                    "secondary_team": secondary.get("team_name"),
+                }
+                if not report["match"]:
+                    log.warning(
+                        "[STATMUSE_DISCREPANCY] team=%s issues=%s",
+                        team_name, report["issues"],
+                    )
+        except Exception as exc:  # noqa: BLE001
+            log.debug("statmuse cross-check failed for %s: %s", team_name, exc)
+
+    return primary
+
+
+async def _fetch_primary_recent_form(
+    client: httpx.AsyncClient,
+    team_id: int,
+    season: int,
+) -> dict:
+    """Primary path — schedule + boxscore from MLB Stats API."""
     if not team_id:
         return {}
     games = await _fetch_recent_schedule(client, int(team_id), int(season))
@@ -347,6 +473,13 @@ async def get_team_recent_form(
         "obp_last_15":              a15.get("obp"),
         "games_played_last_5":      a5.get("games") or 0,
         "games_played_last_15":     a15.get("games") or 0,
+        # 2026-06 — F5 + NRFI aggregates.
+        "f5_runs_avg_last_5":           a5.get("f5_runs"),
+        "f5_runs_avg_last_15":          a15.get("f5_runs"),
+        "first_inning_runs_avg_last_5":  a5.get("first_inning_runs"),
+        "first_inning_runs_avg_last_15": a15.get("first_inning_runs"),
+        "first_inning_scored_rate_last_5":  a5.get("first_inning_scored_rate"),
+        "first_inning_scored_rate_last_15": a15.get("first_inning_scored_rate"),
     }
 
 
@@ -457,6 +590,82 @@ def build_recent_form_payload(home_form: dict, away_form: dict) -> dict:
         },
         "recent_run_trend": recent_run_trend,
         "on_base_profile":  on_base_profile,
+        # 2026-06 — F5 + first-inning split for F5 / NRFI / YRFI markets.
+        "f5_split": _build_f5_split(home_form, away_form),
+        "first_inning_split": _build_first_inning_split(home_form, away_form),
+    }
+
+
+def _build_f5_split(home_form: dict, away_form: dict) -> dict:
+    """Per-team and combined F5 (first-5 innings) splits."""
+    def _team_block(form: dict) -> dict:
+        l5  = form.get("f5_runs_avg_last_5")
+        l15 = form.get("f5_runs_avg_last_15")
+        return {
+            "f5_runs_avg_last_5":   l5,
+            "f5_runs_avg_last_15":  l15,
+            "f5_runs_delta_5_vs_15": _delta(l5, l15),
+        }
+    home_blk = _team_block(home_form)
+    away_blk = _team_block(away_form)
+    if (home_blk["f5_runs_avg_last_5"] is not None
+            and away_blk["f5_runs_avg_last_5"] is not None
+            and home_blk["f5_runs_avg_last_15"] is not None
+            and away_blk["f5_runs_avg_last_15"] is not None):
+        total_l5  = round(home_blk["f5_runs_avg_last_5"]  + away_blk["f5_runs_avg_last_5"],  3)
+        total_l15 = round(home_blk["f5_runs_avg_last_15"] + away_blk["f5_runs_avg_last_15"], 3)
+        total_delta = round(total_l5 - total_l15, 3)
+    else:
+        total_l5 = total_l15 = total_delta = None
+    return {
+        "home":     home_blk,
+        "away":     away_blk,
+        "combined": {
+            "f5_runs_avg_last_5":   total_l5,
+            "f5_runs_avg_last_15":  total_l15,
+            "f5_runs_delta_5_vs_15": total_delta,
+            "trend": _classify_run_trend(total_delta),
+        },
+    }
+
+
+def _build_first_inning_split(home_form: dict, away_form: dict) -> dict:
+    """Per-team and combined first-inning splits for NRFI / YRFI."""
+    def _team_block(form: dict) -> dict:
+        l5  = form.get("first_inning_runs_avg_last_5")
+        l15 = form.get("first_inning_runs_avg_last_15")
+        rate_l5  = form.get("first_inning_scored_rate_last_5")
+        rate_l15 = form.get("first_inning_scored_rate_last_15")
+        return {
+            "first_inning_runs_avg_last_5":   l5,
+            "first_inning_runs_avg_last_15":  l15,
+            "first_inning_runs_delta_5_vs_15": _delta(l5, l15),
+            "first_inning_scored_rate_last_5":  rate_l5,
+            "first_inning_scored_rate_last_15": rate_l15,
+        }
+    home_blk = _team_block(home_form)
+    away_blk = _team_block(away_form)
+    # Combined "any-team-scored-in-1st" probability is bounded by the
+    # union P(home or away) ≈ 1 - (1-p_h)*(1-p_a). Useful for YRFI.
+    rate_h = home_blk["first_inning_scored_rate_last_15"]
+    rate_a = away_blk["first_inning_scored_rate_last_15"]
+    yrfi_l15 = None
+    if rate_h is not None and rate_a is not None:
+        yrfi_l15 = round(1.0 - (1.0 - rate_h) * (1.0 - rate_a), 3)
+    rate_h5 = home_blk["first_inning_scored_rate_last_5"]
+    rate_a5 = away_blk["first_inning_scored_rate_last_5"]
+    yrfi_l5 = None
+    if rate_h5 is not None and rate_a5 is not None:
+        yrfi_l5 = round(1.0 - (1.0 - rate_h5) * (1.0 - rate_a5), 3)
+    return {
+        "home":     home_blk,
+        "away":     away_blk,
+        "combined": {
+            "yrfi_rate_last_5":  yrfi_l5,
+            "yrfi_rate_last_15": yrfi_l15,
+            "nrfi_rate_last_5":  None if yrfi_l5  is None else round(1.0 - yrfi_l5,  3),
+            "nrfi_rate_last_15": None if yrfi_l15 is None else round(1.0 - yrfi_l15, 3),
+        },
     }
 
 

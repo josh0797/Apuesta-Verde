@@ -230,6 +230,72 @@
 
 ---
 
+## Phase MLB-FP5 — StatMuse Fallback + F5 / Team Total / NRFI-YRFI
+**Estado:** ✅ COMPLETADO (2026-06-03)
+
+### MLB-FP5.1 StatMuse scraper — `services/statmuse_recent_form.py` (nuevo)
+- Wrapper sobre `brightdata_fetch()` (ya configurado en `.env` con `BRIGHTDATA_*`).
+- Parser HTML stdlib (`html.parser`) que extrae la tabla ranking de cualquier URL StatMuse del estilo `https://www.statmuse.com/mlb/ask/mlb-team-stats-last-{N}-games`.
+- Alias map para columnas: `TEAM → team`, `G/GP → G`, `R/R/G → R`, `H/H/G → H`, `BB → BB`, `HBP → HBP`, `HR/HRs → HR`, `OBP`, `OPS`.
+- `_normalise_team_name()` quita rank prefix ("1. Yankees" → "Yankees") y registros parentéticos ("(8-7)").
+- `find_team_row(rows, team_name)` con loose token-set matching (Jaccard-ish) para conciliar "NY Yankees" vs "New York Yankees".
+- `get_team_recent_form_via_statmuse(team_name)` pulls L5 + L15 y devuelve el mismo shape que la API primaria → drop-in fallback.
+- `compare_forms(primary, secondary, threshold_pct=10.0)` produce reporte de discrepancias.
+- Cache 12h en memoria. Bright Data como primer fetch; `direct_fetch` como último recurso.
+
+### MLB-FP5.2 Integración fallback + cross-validation en `mlb_recent_form_split.py`
+- `get_team_recent_form()` ahora acepta `team_name` opcional.
+- Si la API primaria (MLB Stats API) devuelve `{}` → intenta StatMuse y marca `primary_source="statmuse_fallback"`.
+- Si devuelve datos → opcionalmente llama StatMuse en paralelo y attacha `cross_validation: {match, issues, source}`.
+- Discrepancias > 10% en cualquier métrica headline (runs/hits/walks/HR L5+L15) → log `[STATMUSE_DISCREPANCY] team=X issues=[...]` para auditoría.
+- Fail-soft: cualquier excepción del fallback no rompe el pipeline.
+
+### MLB-FP5.3 F5 + first-inning desde `/game/{pk}/linescore`
+- `_fetch_boxscore_lines()` ahora pulls `linescore` en paralelo (`asyncio.gather`) sin HTTP extra (mismo cache 12h).
+- Extrae `first_inning_runs` (sumando runs del inning 0 para cada side) y `f5_runs` (innings 1-5 sumados por side).
+- `_aggregate()` calcula `f5_runs_avg`, `first_inning_runs_avg` y `first_inning_scored_rate` (P(team anotó ≥1 carrera en 1ra)).
+- `build_recent_form_payload()` agrega 2 nuevos bloques:
+  - **`f5_split`**: per-team L5/L15/Δ + combined trend.
+  - **`first_inning_split`**: per-team + combined `yrfi_rate` (vía P(home ∨ away) = 1 - (1-p_h)(1-p_a)) + `nrfi_rate`.
+
+### MLB-FP5.4 Trend Interpreter extendido — `mlb_trend_interpreter.py`
+- Nueva función `_detect_market_kind(market)` clasifica entre: `totals_full`, `totals_f5`, `team_total`, `nrfi`, `yrfi`, `runline_plus_15`, `other`.
+- `interpret_recent_form()` ahora acepta kw-only: `f5_split`, `first_inning_split`, `team_total_context`.
+- 3 evaluators nuevos con reglas dedicadas:
+  - **`_evaluate_f5()`**: thresholds calibrados a Δ ±0.8 carreras/5-innings; ajustes ±10/±6 score+conf.
+  - **`_evaluate_team_total()`**: solo evalúa la metrica del lado picked (`team_side: "home"|"away"`); usa tob_delta + runs_delta de ese equipo + HR trend.
+  - **`_evaluate_nrfi_yrfi()`**: anchor en `yrfi_rate_last_15` (low/high baseline) + detect recent shift L5 vs L15 (±20%).
+- Output incluye `market_kind` para que la UI sepa qué chip mostrar.
+
+### MLB-FP5.5 Orchestrator wiring
+- Pasa `team_name` a `get_team_recent_form()` (necesario para StatMuse).
+- Detecta team_total en el market label (busca tokens del nombre del equipo) → setea `team_total_context: {team_side, force_kind: "team_total"}`.
+- Pasa `f5_split` + `first_inning_split` al interpreter.
+
+### MLB-FP5.6 UI — chip `market_kind` en TrendInterpretationBlock
+- Header del bloque ahora muestra un mini-chip slate con el tipo: "Total juego" / "F5" / "Total equipo" / "Runline +1.5" / "NRFI" / "YRFI".
+- `data-testid="${testId}-market-kind"` para QA.
+
+### Validación
+- **351 tests PASS** (312 previos + 39 nuevos en `test_statmuse_and_f5_nrfi.py`).
+- Cobertura nueva:
+  - StatMuse parser (tabla simple, normalización rank/record, columnas desconocidas, tabla vacía, token-match).
+  - `compare_forms` (match, discrepancy ≥ 10%, missing metrics ignorados).
+  - `_detect_market_kind` 15 casos parametrizados.
+  - F5 split builder (combined delta, missing data).
+  - First-inning split (yrfi_rate vía union probability).
+  - F5 evaluator (rising/declining × Over/Under).
+  - Team-total evaluator (per-side direccional + side-unknown).
+  - NRFI/YRFI evaluator (baseline low/high + recent shift + no_data).
+  - End-to-end routing (`combine_trend_signals` con `selected_market="NRFI"` produce `market_kind="nrfi"` + reason codes correctos).
+- ESLint + esbuild limpio. Backend reinició limpio (APScheduler todos los jobs activos).
+
+### Despliegue
+Cambios en **PREVIEW**. Para `https://low-volatility-plays.emergent.host` se necesita **redeploy** del usuario.
+
+---
+
+
 ## Phase MLB-FP4 — Recent Form v2 (schedule+boxscore) + Trend Interpreter
 **Estado:** ✅ COMPLETADO (2026-06-03)
 

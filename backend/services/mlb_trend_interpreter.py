@@ -91,6 +91,34 @@ def _is_runline_plus_15(market: Optional[str]) -> bool:
     return "+1.5" in m and ("runline" in m or "run line" in m or "rl" in m)
 
 
+def _detect_market_kind(market: Optional[str]) -> str:
+    """Categorise the market into one of:
+      ``totals_full`` (Over/Under full game), ``totals_f5`` (F5 over/under),
+      ``team_total``, ``nrfi``, ``yrfi``, ``runline_plus_15``, ``other``.
+    """
+    if not market:
+        return "other"
+    m = market.lower().replace(",", ".")
+    if _is_runline_plus_15(market):
+        return "runline_plus_15"
+    if "nrfi" in m or ("no run" in m and "first inning" in m):
+        return "nrfi"
+    if "yrfi" in m or ("yes run" in m and "first inning" in m):
+        return "yrfi"
+    # F5 = first 5 innings (a.k.a. "1st 5 innings", "F5")
+    if "f5" in m or "first 5" in m or "1st 5" in m or "primeras 5" in m or "5 entradas" in m:
+        return "totals_f5"
+    # Team total — distinct from full-game totals: market mentions a team name
+    # OR contains a "team" qualifier. The orchestrator-side detection will
+    # pass an explicit hint when available, but this heuristic catches the
+    # common cases.
+    if "team total" in m or "total equipo" in m or "team_total" in m:
+        return "team_total"
+    if "over" in m or "under" in m or "más de" in m or "menos de" in m or "mas de" in m:
+        return "totals_full"
+    return "other"
+
+
 def _signal_strength(delta: Optional[float], high: float, mid: float) -> str:
     """Return a label for how strong a delta is (positive direction).
 
@@ -164,8 +192,22 @@ def interpret_recent_form(
     on_base_profile: Optional[dict],
     selected_market: Optional[str] = None,
     runline_context: Optional[dict] = None,
+    *,
+    f5_split: Optional[dict] = None,
+    first_inning_split: Optional[dict] = None,
+    team_total_context: Optional[dict] = None,
 ) -> dict:
-    """Top-level entry point. Returns ``{}`` when no usable input."""
+    """Top-level entry point. Returns ``{}`` when no usable input.
+
+    Extended in 2026-06 to support F5, team total and NRFI/YRFI
+    markets via the optional kw-only arguments:
+
+    * ``f5_split``           — per-team and combined F5 (innings 1-5) splits.
+    * ``first_inning_split`` — per-team first-inning run/scored-rate.
+    * ``team_total_context`` — for team-total markets, must contain
+      ``team_side`` ("home"|"away") so the engine only weighs that
+      team's data instead of the combined block.
+    """
     if not recent_run_split and not on_base_profile:
         return {}
 
@@ -272,9 +314,18 @@ def interpret_recent_form(
     # ── Score / confidence adjustment vs the selected market ─────────
     score_adjustment = 0
     confidence_adjustment = 0
-    is_runline = _is_runline_plus_15(selected_market)
-    is_under   = _is_under(selected_market) and not is_runline
-    is_over    = _is_over(selected_market)  and not is_runline
+    market_kind = _detect_market_kind(selected_market)
+    # Allow caller to override detection (orchestrator already knows the type).
+    if team_total_context and team_total_context.get("force_kind"):
+        market_kind = team_total_context["force_kind"]
+
+    is_runline = market_kind == "runline_plus_15"
+    is_under   = _is_under(selected_market) and market_kind == "totals_full"
+    is_over    = _is_over(selected_market)  and market_kind == "totals_full"
+    is_f5      = market_kind == "totals_f5"
+    is_team_total = market_kind == "team_total"
+    is_nrfi    = market_kind == "nrfi"
+    is_yrfi    = market_kind == "yrfi"
 
     if is_under:
         if trend_decision == "SUPPORTS_UNDER":
@@ -327,6 +378,43 @@ def interpret_recent_form(
         confidence_adjustment += rl["confidence_delta"]
         reason_codes.extend(rl["reason_codes"])
         decision_notes.extend(rl["decision_notes"])
+
+    elif is_f5:
+        # F5 = first 5 innings total. Apply the same Over/Under
+        # direction logic but with thresholds calibrated to a
+        # smaller run environment (≈ 4 runs through inning 5).
+        f5_eval = _evaluate_f5(
+            f5_split=f5_split, market=selected_market,
+            trend_decision=trend_decision,
+        )
+        score_adjustment += f5_eval["adjustment"]
+        confidence_adjustment += f5_eval["confidence_delta"]
+        reason_codes.extend(f5_eval["reason_codes"])
+        decision_notes.extend(f5_eval["decision_notes"])
+
+    elif is_team_total:
+        # Team total: only weigh the picked team's per-side data.
+        tt_eval = _evaluate_team_total(
+            home_side=home_side, away_side=away_side,
+            home_form_runs=run_split.get("runs_scored_delta_5_vs_15_home"),
+            away_form_runs=run_split.get("runs_scored_delta_5_vs_15_away"),
+            team_side=(team_total_context or {}).get("team_side"),
+            market=selected_market,
+        )
+        score_adjustment += tt_eval["adjustment"]
+        confidence_adjustment += tt_eval["confidence_delta"]
+        reason_codes.extend(tt_eval["reason_codes"])
+        decision_notes.extend(tt_eval["decision_notes"])
+
+    elif is_nrfi or is_yrfi:
+        nf_eval = _evaluate_nrfi_yrfi(
+            first_inning_split=first_inning_split,
+            is_nrfi=is_nrfi, market=selected_market,
+        )
+        score_adjustment += nf_eval["adjustment"]
+        confidence_adjustment += nf_eval["confidence_delta"]
+        reason_codes.extend(nf_eval["reason_codes"])
+        decision_notes.extend(nf_eval["decision_notes"])
 
     # Clamps.
     score_adjustment      = max(SCORE_CLAMP_LOW,  min(SCORE_CLAMP_HIGH, score_adjustment))
@@ -386,11 +474,220 @@ def interpret_recent_form(
         "reason_codes":           reason_codes,
         "impact_on_final_pick":   impact_on_final_pick,
         "applies_to_market":      selected_market or "",
+        "market_kind":            market_kind,
         "per_side": {
             "home": home_side,
             "away": away_side,
         },
     }
+
+
+# ── F5 evaluator ─────────────────────────────────────────────────────────
+def _evaluate_f5(*, f5_split: Optional[dict], market: Optional[str],
+                 trend_decision: str) -> dict:
+    """Apply Over/Under direction logic on the F5 (first-5-innings)
+    aggregated total. Uses a tighter Δ threshold than the full-game
+    interpreter because F5 totals sit in the 3–5 run range.
+    """
+    out = {"adjustment": 0, "confidence_delta": 0,
+           "reason_codes": [], "decision_notes": []}
+    if not f5_split:
+        out["reason_codes"].append("F5_NO_DATA")
+        out["decision_notes"].append(
+            "No hay datos F5 recientes — el ajuste por tendencia no aplica."
+        )
+        return out
+    combined = f5_split.get("combined") or {}
+    delta = combined.get("f5_runs_delta_5_vs_15")
+    l5  = combined.get("f5_runs_avg_last_5")
+    l15 = combined.get("f5_runs_avg_last_15")
+    if delta is None:
+        out["reason_codes"].append("F5_NO_DELTA")
+        return out
+
+    m = (market or "").lower().replace(",", ".")
+    is_under = "under" in m or "menos" in m
+    is_over  = "over"  in m or "más"   in m or "mas" in m
+
+    # Calibrated for F5: rising = ≥ +0.8 runs/5-innings.
+    if is_under:
+        if delta >= 0.8:
+            out["adjustment"]       -= 10
+            out["confidence_delta"] -= 8
+            out["reason_codes"].append("F5_RUN_ENV_RISING_VS_UNDER")
+            out["decision_notes"].append(
+                f"F5 total subiendo: L5={l5} vs L15={l15} (Δ +{delta}). Riesgo para Under F5."
+            )
+        elif delta <= -0.8:
+            out["adjustment"]       += 6
+            out["confidence_delta"] += 4
+            out["reason_codes"].append("F5_RUN_ENV_DECLINING_VS_UNDER")
+            out["decision_notes"].append(
+                f"F5 total cayendo: L5={l5} vs L15={l15} (Δ {delta}). Apoya Under F5."
+            )
+    elif is_over:
+        if delta >= 0.8:
+            out["adjustment"]       += 6
+            out["confidence_delta"] += 4
+            out["reason_codes"].append("F5_RUN_ENV_RISING_VS_OVER")
+            out["decision_notes"].append(
+                f"F5 total subiendo: L5={l5} vs L15={l15}. Apoya Over F5."
+            )
+        elif delta <= -0.8:
+            out["adjustment"]       -= 10
+            out["confidence_delta"] -= 8
+            out["reason_codes"].append("F5_RUN_ENV_DECLINING_VS_OVER")
+            out["decision_notes"].append(
+                f"F5 total cayendo: L5={l5} vs L15={l15}. Riesgo para Over F5."
+            )
+    if trend_decision == "MIXED":
+        out["adjustment"]       -= 3
+        out["confidence_delta"] -= 2
+        out["reason_codes"].append("F5_MIXED_FULLGAME_SIGNALS")
+    return out
+
+
+# ── Team total evaluator ─────────────────────────────────────────────────
+def _evaluate_team_total(*, home_side: dict, away_side: dict,
+                         home_form_runs: Optional[float],
+                         away_form_runs: Optional[float],
+                         team_side: Optional[str],
+                         market: Optional[str]) -> dict:
+    """Apply directional adjustments only for the picked team's side.
+
+    ``team_side`` must be "home" or "away". Without it, we fall back to
+    a soft adjustment using the combined picture.
+    """
+    out = {"adjustment": 0, "confidence_delta": 0,
+           "reason_codes": [], "decision_notes": []}
+    if team_side not in ("home", "away"):
+        out["reason_codes"].append("TEAM_TOTAL_SIDE_UNKNOWN")
+        return out
+
+    side = home_side if team_side == "home" else away_side
+    runs_delta = home_form_runs if team_side == "home" else away_form_runs
+
+    m = (market or "").lower().replace(",", ".")
+    is_under = "under" in m or "menos" in m
+    is_over  = "over"  in m or "más"   in m or "mas" in m
+
+    # On-base pressure for THIS team is the primary signal.
+    tob_delta = side.get("tob_delta")
+    hr_trend  = side.get("home_runs_trend")
+
+    if is_over:
+        if (tob_delta is not None and tob_delta >= MOD_OB_RISE) or \
+           (runs_delta is not None and runs_delta >= MOD_RUN_RISE):
+            out["adjustment"]       += 6
+            out["confidence_delta"] += 4
+            out["reason_codes"].append("TEAM_TOTAL_TREND_SUPPORTS_OVER")
+            out["decision_notes"].append(
+                f"El equipo {team_side} viene subiendo (Δ TOB {tob_delta}, Δ runs {runs_delta})."
+            )
+        elif (tob_delta is not None and tob_delta <= MOD_OB_DECLINE) or \
+             (runs_delta is not None and runs_delta <= MOD_RUN_DECLINE):
+            out["adjustment"]       -= 8
+            out["confidence_delta"] -= 6
+            out["reason_codes"].append("TEAM_TOTAL_TREND_CONTRADICTS_OVER")
+            out["decision_notes"].append(
+                f"El equipo {team_side} viene cayendo — riesgo para el team-total Over."
+            )
+        if hr_trend in ("strong_rising", "moderate_rising"):
+            out["adjustment"]       += 2
+            out["reason_codes"].append("TEAM_TOTAL_HR_RISING")
+    elif is_under:
+        if (tob_delta is not None and tob_delta <= MOD_OB_DECLINE) or \
+           (runs_delta is not None and runs_delta <= MOD_RUN_DECLINE):
+            out["adjustment"]       += 6
+            out["confidence_delta"] += 4
+            out["reason_codes"].append("TEAM_TOTAL_TREND_SUPPORTS_UNDER")
+            out["decision_notes"].append(
+                f"El equipo {team_side} en baja reciente — apoya team-total Under."
+            )
+        elif (tob_delta is not None and tob_delta >= MOD_OB_RISE) or \
+             (runs_delta is not None and runs_delta >= MOD_RUN_RISE):
+            out["adjustment"]       -= 8
+            out["confidence_delta"] -= 6
+            out["reason_codes"].append("TEAM_TOTAL_TREND_CONTRADICTS_UNDER")
+            out["decision_notes"].append(
+                f"El equipo {team_side} viene subiendo — contradice team-total Under."
+            )
+    return out
+
+
+# ── NRFI / YRFI evaluator ────────────────────────────────────────────────
+def _evaluate_nrfi_yrfi(*, first_inning_split: Optional[dict],
+                        is_nrfi: bool, market: Optional[str]) -> dict:
+    """Adjust score for NRFI/YRFI markets based on 1st-inning history.
+
+    Uses ``yrfi_rate_last_15`` (P(any team scores in 1st) over L15) as
+    the baseline and the L5 delta to detect a recent shift.
+    """
+    out = {"adjustment": 0, "confidence_delta": 0,
+           "reason_codes": [], "decision_notes": []}
+    if not first_inning_split:
+        out["reason_codes"].append("NRFI_NO_DATA")
+        return out
+    combined = first_inning_split.get("combined") or {}
+    yrfi_l15 = combined.get("yrfi_rate_last_15")
+    yrfi_l5  = combined.get("yrfi_rate_last_5")
+    if yrfi_l15 is None:
+        out["reason_codes"].append("NRFI_NO_BASELINE")
+        return out
+
+    pct = round(yrfi_l15 * 100.0, 1)
+    target = "NRFI" if is_nrfi else "YRFI"
+
+    # Baseline anchor — historically ~50-60% of MLB games are YRFI.
+    if is_nrfi:
+        if yrfi_l15 <= 0.40:
+            out["adjustment"]       += 8
+            out["confidence_delta"] += 5
+            out["reason_codes"].append("NRFI_LOW_BASELINE_YRFI")
+            out["decision_notes"].append(
+                f"L15 YRFI = {pct}% — baseline favorable al NRFI."
+            )
+        elif yrfi_l15 >= 0.65:
+            out["adjustment"]       -= 8
+            out["confidence_delta"] -= 5
+            out["reason_codes"].append("NRFI_HIGH_BASELINE_YRFI")
+            out["decision_notes"].append(
+                f"L15 YRFI = {pct}% — baseline alto contradice NRFI."
+            )
+    else:  # YRFI
+        if yrfi_l15 >= 0.65:
+            out["adjustment"]       += 8
+            out["confidence_delta"] += 5
+            out["reason_codes"].append("YRFI_HIGH_BASELINE")
+            out["decision_notes"].append(
+                f"L15 YRFI = {pct}% — baseline apoya YRFI."
+            )
+        elif yrfi_l15 <= 0.35:
+            out["adjustment"]       -= 8
+            out["confidence_delta"] -= 5
+            out["reason_codes"].append("YRFI_LOW_BASELINE")
+            out["decision_notes"].append(
+                f"L15 YRFI = {pct}% — baseline contradice YRFI."
+            )
+
+    # Recent shift signal — L5 vs L15.
+    if yrfi_l5 is not None:
+        shift = round(yrfi_l5 - yrfi_l15, 3)
+        if abs(shift) >= 0.20:
+            direction = "subiendo" if shift > 0 else "bajando"
+            out["reason_codes"].append(
+                f"{target}_RECENT_SHIFT_{'RISING' if shift > 0 else 'DECLINING'}"
+            )
+            out["decision_notes"].append(
+                f"YRFI rate {direction} en L5 ({round(yrfi_l5*100,1)}%) vs L15 ({pct}%)."
+            )
+            if (is_nrfi and shift < 0) or (not is_nrfi and shift > 0):
+                out["adjustment"]       += 4
+                out["confidence_delta"] += 2
+            else:
+                out["adjustment"]       -= 4
+                out["confidence_delta"] -= 2
+    return out
 
 
 # ── Runline +1.5 ─────────────────────────────────────────────────────────
@@ -557,6 +854,10 @@ def combine_trend_signals(
     on_base_profile: Optional[dict],
     selected_market: Optional[str] = None,
     runline_context: Optional[dict] = None,
+    *,
+    f5_split: Optional[dict] = None,
+    first_inning_split: Optional[dict] = None,
+    team_total_context: Optional[dict] = None,
 ) -> dict:
     """Alias for :func:`interpret_recent_form` — matches the name from
     the user's prompt."""
@@ -565,6 +866,9 @@ def combine_trend_signals(
         on_base_profile=on_base_profile,
         selected_market=selected_market,
         runline_context=runline_context,
+        f5_split=f5_split,
+        first_inning_split=first_inning_split,
+        team_total_context=team_total_context,
     )
 
 
