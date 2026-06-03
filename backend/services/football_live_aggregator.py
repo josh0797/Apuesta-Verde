@@ -37,6 +37,7 @@ from typing import Any
 import httpx
 
 from . import api_football as af
+from .external_sources import national_team_detector as ntd
 from .external_sources import thestatsapi_cache as ts_cache
 from .external_sources import thestatsapi_client as ts_client
 from .external_sources import thestatsapi_normalizer as ts_norm
@@ -62,8 +63,22 @@ def _strip_accents(s: str) -> str:
 
 
 def _normalize_team(name: str | None) -> str:
+    """Canonical, language-aware team-name form for dedupe.
+
+    Steps:
+      1. If the name matches a FIFA national team (after the ES↔EN
+         alias map in ``national_team_detector``), return that
+         canonical English form. This is what bridges
+         ``Bélgica`` ↔ ``Belgium``.
+      2. Otherwise fall back to the generic club-name normaliser:
+         strip accents, drop common suffixes (FC, CF, AC…), lowercase,
+         collapse whitespace.
+    """
     if not name:
         return ""
+    canon = ntd.country_canonical(name)
+    if canon:
+        return canon
     s = _strip_accents(str(name)).lower()
     s = _TEAM_SUFFIX_RE.sub(" ", s)
     s = _NON_WORD_RE.sub(" ", s)
@@ -137,9 +152,20 @@ def merge_and_deduplicate(
                 covered.add(prim_fx.get("_external_source") or "api_sports")
                 covered.add("thestatsapi")
                 prim_fx["_external_sources_covered"] = sorted(covered)
+                # Carry the secondary raw match-id onto the primary so the
+                # downstream `_enrich_football` can fetch xG / shots / poss
+                # from TheStatsAPI to fill the gaps when API-Sports' free
+                # tier ships an empty statistics array. We use a dedicated
+                # field (`_thestatsapi_raw_id`) so the primary's own
+                # `_external_source_id` (api-sports fixture id) stays
+                # intact for any other consumer.
+                if sec_fx.get("_external_source_id"):
+                    prim_fx.setdefault("_thestatsapi_raw_id", sec_fx["_external_source_id"])
                 # Mirror national-team flag onto primary if secondary had it
                 if sec_fx.get("_is_national_team") and not prim_fx.get("_is_national_team"):
                     prim_fx["_is_national_team"] = True
+                if sec_fx.get("_is_international") and not prim_fx.get("_is_international"):
+                    prim_fx["_is_international"] = True
                 duplicates_dropped += 1
                 match_found = True
                 break

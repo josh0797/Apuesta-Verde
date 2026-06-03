@@ -230,6 +230,86 @@
 
 ---
 
+## Phase MLB-TS1 (Batch 2) — National-team detector + stats enrichment + multi-source badge
+**Estado:** ✅ COMPLETADO (2026-06-03)
+
+### Decisiones de diseño (alineadas con usuario)
+- **Detector nat-team**: lista FIFA completa (~210 países) + keywords de competición (EN+ES) + alias ES↔EN (~40 países frecuentes).
+- **xG/stats enrichment**: sólo cuando el fixture tiene `_thestatsapi_raw_id` Y stats de API-Sports vacíos. Merge: primary gana en valores no-nulos; secondary llena los huecos.
+- **Tests**: 42 nuevos, todos con `httpx.MockTransport`. Caso real "Bélgica vs Croacia" validado.
+
+### MLB-TS1.8 `services/external_sources/national_team_detector.py` (nuevo)
+- `FIFA_NATIONAL_TEAMS` (~210 países, lowercase canonical en EN).
+- `COUNTRY_ALIASES` (~70 entradas ES/PT/EN variantes → canonical EN).
+- `INTERNATIONAL_COMP_KEYWORDS` (EN+ES: World Cup, Euro, Nations League, Copa America, Gold Cup, AFCON, Asian Cup, Friendly, Qualifying, Eliminatorias, Amistoso, Selección, etc.).
+- `INTERNATIONAL_REGIONS` ({World, International, Europe, South America, North America, Africa, Asia, Oceania}).
+- `normalize_country_name()` — accent-strip + lowercase + alias resolution.
+- `is_national_team_name(name)` — checks normalized form against FIFA set.
+- `is_international_competition(name, country)` — substring keywords + region check.
+- `is_national_team_match(home, away, league_name, league_country)` — true si comp es internacional **o** ambos teams son países (precision-focused).
+- `country_canonical(name)` — devuelve EN canonical si es FIFA nation, sino None (para dedupe).
+
+### MLB-TS1.9 Auto-detección en `thestatsapi_normalizer.normalize_match`
+- Tras inferir `is_national`/`is_intl` desde flags explícitos del payload, fallback al `ntd.is_national_team_match()` para fixtures de `/football/matches` que no traen `is_national_team`.
+- Resultado: "Belgium vs Croatia" en "UEFA Nations League" → `_is_national_team=True, _is_international=True`.
+
+### MLB-TS1.10 Aggregator: country-aware dedupe (Bélgica ↔ Belgium)
+- `_normalize_team()` ahora intenta primero `ntd.country_canonical()` antes del normalizador genérico de clubes.
+- Resultado: si API-Sports devuelve "Bélgica vs Croacia" y TheStatsAPI "Belgium vs Croatia", ambos colapsan a `(belgium, croatia)` y el dedupe los unifica.
+- Merge propaga `_thestatsapi_raw_id` al primary (campo dedicado, NO sobrescribe `_external_source_id` del primary) para que `_enrich_football` lo pueda usar luego.
+
+### MLB-TS1.11 Allowlist extendido en `data_ingestion.ingest_live`
+- Nuevo paso 3 tras checks 1 (club tier) y 2 (API-Sports nat-team league_id):
+  - Si `_is_national_team=True` (del aggregator) o `ntd.is_national_team_match()` devuelve true → asigna synthetic Tier-2 priority 72 con flag `_detector_source: "national_team_detector"`.
+- Log diferencia entre `api_sports_nat_team` (paso 2) y `thestatsapi/detector_nat_team` (paso 3).
+- **Resultado en vivo (validado)**: "Côte d'Ivoire U20 vs Venezuela U20" (Tournoi Maurice Revello, country=World) ahora atraviesa el filtro vía el paso 3 (antes el league_id no estaba en `NATIONAL_TEAM_LEAGUES`).
+
+### MLB-TS1.12 Match-stats normalizer (xG / shots / possession)
+- `thestatsapi_normalizer.normalize_match_stats()`:
+  - Soporta 3 layouts: flat (`home`/`away`), team-keyed (`home_team_stats`), data-wrapped.
+  - `_STAT_FIELD_MAP` mapea 24 nombres de stats TheStatsAPI → labels API-Sports (`xg` → `expected_goals`, `shots_total` → `Total Shots`, `possession` → `Ball Possession`, etc.).
+  - `_format_stat_value()` convierte possession a string `"55%"` (API-Sports compat), acepta tanto 0..1 como 0..100.
+  - Devuelve None si no hay stats útiles (callers preservan su payload original).
+- `merge_live_stats(primary, secondary)`: primary gana en valores no-nulos, secondary llena huecos. Anota `_sources` con la lista combinada.
+
+### MLB-TS1.13 Cableado en `_enrich_football`
+- Tras el fallback de `af.fixture_statistics`, si el fixture tiene `_thestatsapi_raw_id`, está live, y los stats siguen vacíos:
+  - Llama `ts_client.fetch_match_stats(client, ts_raw_id)`.
+  - Normaliza con `ts_norm.normalize_match_stats()`.
+  - Mergea con `merge_live_stats()`.
+- Fail-soft: cualquier excepción no rompe la enrichment.
+- Log: `[thestatsapi_stats] enriched fixture {fid} with xG/shots from TheStatsAPI`.
+
+### MLB-TS1.14 UI: badge "Multi-fuente" (Fuentes: API-Sports + TheStatsAPI)
+- Cyan-tinted pill en `MatchCard.jsx` cuando `external_sources_covered.length >= 2`.
+- Tooltip muestra la lista completa de fuentes ("Fuentes: API-Sports + TheStatsAPI").
+- `data-testid="pick-multisource-badge-{match_id}"`.
+
+### Validación
+- **483 tests PASS** (441 previos + 42 nuevos en `test_thestatsapi_batch2_nat_teams.py`).
+- Cobertura:
+  - `normalize_country_name` (accents, lowercase, aliases).
+  - `is_national_team_name` (Bélgica/Belgium, Croacia/Croatia, Argentina, São Tomé, rejects clubs).
+  - `is_international_competition` (15 casos parametrizados EN+ES + region check).
+  - `is_national_team_match` combined decision (4 escenarios: ambos países, comp intl, clubs en non-intl, friendly-name collision).
+  - Normalizer auto-flagging (Belgium vs Croatia en Nations League).
+  - Aggregator dedupe (`Bélgica` vs `Belgium`, `Alemania` vs `Germany`, no-collapse clubs).
+  - Match-stats normalizer (3 layouts, unknown fields skipped, empty returns None).
+  - `merge_live_stats` (primary wins on overlap, None handling, sources marker).
+  - Client `fetch_match_stats` (data wrapper + 404).
+- ESLint + esbuild limpio en `MatchCard.jsx`.
+- Backend reiniciado limpio.
+- **Validación en vivo con API real**:
+  - Aggregator merged 24 fixtures con `dropped_dupes=1` (Gibraltar vs British Virgin Islands).
+  - `_thestatsapi_raw_id=mt_377873051` correctamente grafted al primary.
+  - "Côte d'Ivoire U20 vs Venezuela U20" detectado como nat-team vía detector keywords (country=World).
+
+### Despliegue
+Cambios en **PREVIEW**. Para producción se requiere **redeploy** del usuario.
+
+---
+
+
 ## Phase MLB-TS1 — TheStatsAPI Integration (Football national teams + internacionales)
 **Estado:** ✅ COMPLETADO (2026-06-03)
 

@@ -34,6 +34,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from . import national_team_detector as ntd
+
 log = logging.getLogger(__name__)
 
 # Offset to avoid ID collisions with API-Sports (which uses 1..~1.5M)
@@ -306,6 +308,25 @@ def normalize_match(raw: dict, competitions_index: dict | None = None) -> dict |
 
     is_national = bool(home.get("is_national_team") or away.get("is_national_team")
                        or league.get("is_international"))
+    # Fallback heuristic: if the provider didn't flag national-team explicitly
+    # (typical for /football/matches which only ships `home_team.name` etc.),
+    # ask the national-team detector. It combines a FIFA-team allowlist + a
+    # keyword-based comp detector + region check.
+    if not is_national:
+        is_national = ntd.is_national_team_match(
+            home_name=home.get("name"),
+            away_name=away.get("name"),
+            league_name=league.get("name"),
+            league_country=league.get("country"),
+        )
+    # `is_international` likewise can be inferred from the comp name/country
+    # even when the provider doesn't ship a `type` field.
+    is_intl = bool(league.get("is_international"))
+    if not is_intl:
+        is_intl = ntd.is_international_competition(
+            league_name=league.get("name"),
+            league_country=league.get("country"),
+        )
 
     fixture = {
         "fixture": {
@@ -331,7 +352,7 @@ def normalize_match(raw: dict, competitions_index: dict | None = None) -> dict |
         "_external_source":     "thestatsapi",
         "_external_source_id":  raw.get("id") or raw.get("match_id"),
         "_is_national_team":    is_national,
-        "_is_international":   league.get("is_international", False),
+        "_is_international":   is_intl,
     }
     return fixture
 
@@ -386,3 +407,190 @@ def build_competitions_index(raw_competitions: list[dict]) -> dict[str, dict]:
             continue
         index[str(raw_id)] = n
     return index
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Match-stats normalizer — maps TheStatsAPI per-match stats payload onto
+# the API-Sports ``live_stats`` shape so the rest of the pipeline (xG
+# proxy, live_xg_proxy, territorial control, etc.) doesn't need to
+# branch on the source. The API-Sports format is::
+#
+#   {"home_stats": {"<stat type>": <value>}, "away_stats": {...},
+#    "score": {"home": int|None, "away": int|None},
+#    "minute": int|None, "status": str|None, "fetched_at": ISO}
+#
+# We deliberately key home_stats / away_stats by the same string
+# identifiers API-Sports uses ("Shots on Goal", "Ball Possession",
+# "Total Shots", "expected_goals") so the downstream code can read
+# them with no provider awareness.
+# ─────────────────────────────────────────────────────────────────────
+_STAT_FIELD_MAP: dict[str, str] = {
+    # TheStatsAPI key                  → API-Sports type label
+    "xg":                                "expected_goals",
+    "xg_total":                          "expected_goals",
+    "expected_goals":                    "expected_goals",
+    "shots_total":                       "Total Shots",
+    "shots":                             "Total Shots",
+    "shots_on_target":                   "Shots on Goal",
+    "shots_on_goal":                     "Shots on Goal",
+    "shots_off_target":                  "Shots off Goal",
+    "shots_off_goal":                    "Shots off Goal",
+    "shots_blocked":                     "Blocked Shots",
+    "shots_inside_box":                  "Shots insidebox",
+    "shots_outside_box":                 "Shots outsidebox",
+    "possession":                        "Ball Possession",
+    "ball_possession":                   "Ball Possession",
+    "possession_percent":                "Ball Possession",
+    "passes":                            "Total passes",
+    "passes_total":                      "Total passes",
+    "passes_accurate":                   "Passes accurate",
+    "passes_pct":                        "Passes %",
+    "passes_accuracy":                   "Passes %",
+    "corners":                           "Corner Kicks",
+    "corner_kicks":                      "Corner Kicks",
+    "fouls":                             "Fouls",
+    "offsides":                          "Offsides",
+    "yellow_cards":                      "Yellow Cards",
+    "red_cards":                         "Red Cards",
+    "saves":                             "Goalkeeper Saves",
+    "goalkeeper_saves":                  "Goalkeeper Saves",
+    "attacks":                           "attacks",
+    "dangerous_attacks":                 "dangerous_attacks",
+}
+
+
+def _format_stat_value(canon_key: str, value: Any) -> Any:
+    """Coerce values to the same shape API-Sports uses.
+
+    API-Sports stores possession as a string ``"55%"`` (not a float).
+    Everything else is numeric. We mirror that to keep downstream
+    consumers identical.
+    """
+    if value is None:
+        return None
+    if canon_key == "Ball Possession":
+        try:
+            v = float(value)
+            if 0.0 <= v <= 1.0:
+                v = v * 100.0
+            return f"{int(round(v))}%"
+        except (TypeError, ValueError):
+            s = str(value).strip()
+            if not s.endswith("%"):
+                # try to extract number
+                try:
+                    return f"{int(round(float(s)))}%"
+                except (TypeError, ValueError):
+                    return s
+            return s
+    return value
+
+
+def _extract_team_stats(raw_team: dict | None) -> dict[str, Any]:
+    """Convert a TheStatsAPI per-team stats blob to the API-Sports keyed dict."""
+    if not isinstance(raw_team, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for ts_key, val in raw_team.items():
+        canon = _STAT_FIELD_MAP.get(ts_key.lower() if isinstance(ts_key, str) else "")
+        if canon is None:
+            continue
+        formatted = _format_stat_value(canon, val)
+        if formatted is None:
+            continue
+        # If two TheStatsAPI keys map to the same canonical type, the first
+        # non-null wins (covers `xg` and `xg_total` both → expected_goals).
+        out.setdefault(canon, formatted)
+    return out
+
+
+def normalize_match_stats(raw: dict, fallback_status: str | None = None) -> dict | None:
+    """Convert a TheStatsAPI ``/football/matches/{id}/stats`` payload to
+    the API-Sports ``live_stats`` shape.
+
+    Recognised input layouts (all permissive):
+
+      A. Flat:
+         ``{"home": {...stats}, "away": {...stats},
+            "score": {"home": 1, "away": 0}, "minute": 67, "status": "live"}``
+
+      B. Team-keyed:
+         ``{"home_team_stats": {...}, "away_team_stats": {...},
+            ...}``
+
+      C. Data-wrapped:
+         ``{"data": {"home": {...}, "away": {...}, ...}}``  → unwrapped before call
+
+    Returns ``None`` if no usable stats found (so callers can keep their
+    existing API-Sports payload untouched).
+    """
+    if not isinstance(raw, dict):
+        return None
+
+    home_raw = (
+        raw.get("home_team_stats")
+        or raw.get("home_stats")
+        or raw.get("home")
+        or raw.get("home_team")
+    )
+    away_raw = (
+        raw.get("away_team_stats")
+        or raw.get("away_stats")
+        or raw.get("away")
+        or raw.get("away_team")
+    )
+    if not (isinstance(home_raw, dict) and isinstance(away_raw, dict)):
+        return None
+
+    home_stats = _extract_team_stats(home_raw)
+    away_stats = _extract_team_stats(away_raw)
+    if not (home_stats or away_stats):
+        return None
+
+    # Score
+    score_raw = raw.get("score") or {}
+    if isinstance(score_raw, dict):
+        score = {"home": score_raw.get("home"), "away": score_raw.get("away")}
+    else:
+        score = {"home": None, "away": None}
+
+    minute = raw.get("minute") or raw.get("elapsed")
+    status_str = raw.get("status") or fallback_status
+
+    return {
+        "minute":    minute,
+        "status":    _norm_status(status_str) if status_str else None,
+        "score":     score,
+        "home_stats": home_stats,
+        "away_stats": away_stats,
+        "incidents": [],   # TheStatsAPI doesn't ship per-event stream here
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "_source":   "thestatsapi",
+    }
+
+
+def merge_live_stats(primary: dict | None, secondary: dict | None) -> dict | None:
+    """Combine two ``live_stats`` payloads. Primary's non-empty values win.
+
+    Used to "graft" TheStatsAPI xG / shots / possession onto an
+    API-Sports ``live_stats`` that was returned but came back with
+    empty ``home_stats`` / ``away_stats`` blocks.
+    """
+    if primary is None:
+        return secondary
+    if secondary is None:
+        return primary
+    merged = dict(primary)
+    for side in ("home_stats", "away_stats"):
+        a = primary.get(side) or {}
+        b = secondary.get(side) or {}
+        out = dict(b)   # start from secondary, then overlay primary
+        for k, v in a.items():
+            if v is not None and v != "":
+                out[k] = v
+        merged[side] = out
+    # Mark provenance (additive — doesn't clobber existing _source)
+    sources = set(filter(None, [primary.get("_source"), secondary.get("_source")]))
+    if sources:
+        merged["_sources"] = sorted(sources)
+    return merged

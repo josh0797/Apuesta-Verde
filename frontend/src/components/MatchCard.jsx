@@ -125,6 +125,22 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
                 testId={`pick-quality-badge-${m.match_id}`}
               />
             )}
+            {/* MLB-TS1 Batch 2 — Multi-source coverage badge. Shows when
+                a football fixture was confirmed by both API-Sports AND
+                TheStatsAPI in the merge step. Strong signal that the
+                fixture metadata is robust (two independent providers
+                agree on teams + kickoff). */}
+            {sport === 'football' && Array.isArray(m.external_sources_covered) && m.external_sources_covered.length >= 2 && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold tracking-wide bg-cyan-500/15 text-cyan-200 border border-cyan-500/30"
+                data-testid={`pick-multisource-badge-${m.match_id}`}
+                title={lang === 'en'
+                  ? `Sources: ${m.external_sources_covered.map(s => s === 'api_sports' ? 'API-Sports' : s === 'thestatsapi' ? 'TheStatsAPI' : s).join(' + ')}`
+                  : `Fuentes: ${m.external_sources_covered.map(s => s === 'api_sports' ? 'API-Sports' : s === 'thestatsapi' ? 'TheStatsAPI' : s).join(' + ')}`}
+              >
+                {lang === 'en' ? 'Multi-fuente' : 'Multi-fuente'}
+              </span>
+            )}
             {/* MLB-TS1 — TheStatsAPI provider badge. Surfaces when the live
                 football aggregator found this fixture via TheStatsAPI
                 (typically national-team / international matches that

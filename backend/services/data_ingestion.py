@@ -425,12 +425,15 @@ async def ingest_live(client: httpx.AsyncClient, db, sport: str = "football", ma
     if sport == "football":
         # Late import to avoid cycles.
         from .api_sports import NATIONAL_TEAM_LEAGUES, is_national_team_league
+        from .external_sources import national_team_detector as ntd
         before = len(live_raw)
         kept: list[dict] = []
         nt_kept = 0
+        ts_nt_kept = 0
         for f in live_raw:
             league_obj = _fx_league(sport, f)
             league_name = (league_obj.get("name") or "").strip()
+            league_country = league_obj.get("country") or ""
             league_id_raw = league_obj.get("id")
             meta = fc.get_competition_meta(league_name)
             # 1) Standard club-tier allowlist
@@ -438,27 +441,58 @@ async def ingest_live(client: httpx.AsyncClient, db, sport: str = "football", ma
                 f["_competition_meta"] = meta
                 kept.append(f)
                 continue
-            # 2) National-team leagues (World Cup, Euros, Nations League,
-            #    Copa America, Gold Cup, AFCON, Asian Cup, WC Qualifying,
-            #    International Friendlies). Mirror of the patch in
-            #    ingest_upcoming: assigns synthetic Tier-2 priority 72 so
-            #    these live fixtures actually reach the frontend.
+            # 2) National-team leagues by API-Sports league_id (World Cup,
+            #    Euros, Nations League, Copa America, Gold Cup, AFCON,
+            #    Asian Cup, WC Qualifying, International Friendlies).
+            #    Mirror of the patch in ingest_upcoming: synthetic Tier-2
+            #    priority 72 so these live fixtures actually reach the
+            #    frontend.
             if is_national_team_league(league_id_raw):
                 f["_competition_meta"] = {
                     "tier":           "tier_2",
                     "priority":       72,
                     "canonical_name": league_name or "National Team Competition",
                     "type":           "international",
-                    "region":         league_obj.get("country") or "World",
+                    "region":         league_country or "World",
                     "_synthetic_national_team": True,
                 }
                 kept.append(f)
                 nt_kept += 1
+                continue
+            # 3) MLB-TS1 / Batch 2 — TheStatsAPI national-team detection.
+            #    The fixture may not have a league_id in our known set
+            #    (TheStatsAPI uses different IDs), or the fixture came
+            #    via TheStatsAPI exclusively. Use the language-aware
+            #    detector to grant the same synthetic Tier-2 slot.
+            home_name = ((f.get("teams") or {}).get("home") or {}).get("name")
+            away_name = ((f.get("teams") or {}).get("away") or {}).get("name")
+            is_nt = (
+                bool(f.get("_is_national_team"))
+                or ntd.is_national_team_match(
+                    home_name=home_name,
+                    away_name=away_name,
+                    league_name=league_name,
+                    league_country=league_country,
+                )
+            )
+            if is_nt:
+                f["_competition_meta"] = {
+                    "tier":           "tier_2",
+                    "priority":       72,
+                    "canonical_name": league_name or "National Team Competition",
+                    "type":           "international",
+                    "region":         league_country or "World",
+                    "_synthetic_national_team": True,
+                    "_detector_source": "national_team_detector",
+                }
+                f.setdefault("_is_national_team", True)
+                kept.append(f)
+                ts_nt_kept += 1
         kept.sort(key=lambda f: -((f.get("_competition_meta") or {}).get("priority", 0)))
         selected = kept[:max_total]
         log.info(
-            "Live scraper: %d events -> %d kept after tier filter (incl. %d national-team; allowed_tiers=%s)",
-            before, len(selected), nt_kept, sorted(fc.ALLOWED_TIERS),
+            "Live scraper: %d events -> %d kept after tier filter (incl. %d API-Sports nat-team + %d TheStatsAPI/detector nat-team; allowed_tiers=%s)",
+            before, len(selected), nt_kept, ts_nt_kept, sorted(fc.ALLOWED_TIERS),
         )
     else:
         top_set = _top_leagues_for(sport)
@@ -580,6 +614,52 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
                         live_stats = rehydrated
             except Exception as exc:
                 log.warning("fixture_statistics fetch failed for %s: %s", fid, exc)
+
+        # MLB-TS1 Batch 2 — TheStatsAPI stats enrichment for national-team /
+        # international fixtures. Trigger when:
+        #   * the fixture has a TheStatsAPI raw id attached
+        #     (`_thestatsapi_raw_id` set by the aggregator when both
+        #     providers covered the same fixture, OR `_external_source_id`
+        #     if the fixture came from TheStatsAPI exclusively), AND
+        #   * we're live, AND
+        #   * the API-Sports stats came back empty (no home_stats AND no
+        #     away_stats) OR the fixture is TheStatsAPI-only.
+        # This is the "Bélgica vs Croacia" case: API-Sports has the fixture
+        # but the free tier doesn't ship live stats for national-team games.
+        ts_raw_id = fx_raw.get("_thestatsapi_raw_id") or (
+            fx_raw.get("_external_source_id")
+            if fx_raw.get("_external_source") == "thestatsapi"
+            else None
+        )
+        ts_covered = fx_raw.get("_external_sources_covered") or []
+        ts_should_enrich = bool(ts_raw_id) and is_live and (
+            (fx_raw.get("_external_source") == "thestatsapi")
+            or "thestatsapi" in ts_covered
+            or (live_stats is None)
+            or (not (live_stats.get("home_stats") or live_stats.get("away_stats")) if live_stats else True)
+        )
+        if ts_should_enrich:
+            try:
+                from .external_sources import thestatsapi_client as _ts_client
+                from .external_sources import thestatsapi_normalizer as _ts_norm
+                if _ts_client.is_enabled():
+                    ts_stats_raw = await _ts_client.fetch_match_stats(client, ts_raw_id)
+                    if ts_stats_raw:
+                        ts_live = _ts_norm.normalize_match_stats(
+                            ts_stats_raw,
+                            fallback_status=(fx_raw.get("fixture", {}).get("status", {}) or {}).get("short"),
+                        )
+                        if ts_live:
+                            # Merge into existing live_stats (API-Sports payload
+                            # wins on non-empty values; TheStatsAPI fills the
+                            # gaps for xG / shots / possession).
+                            live_stats = _ts_norm.merge_live_stats(live_stats, ts_live)
+                            log.info(
+                                "[thestatsapi_stats] enriched fixture %s with xG/shots from TheStatsAPI",
+                                fid,
+                            )
+            except Exception as exc:
+                log.warning("[thestatsapi_stats] enrichment failed for %s: %s", fid, exc)
 
         h2h_clean = []
         for hf in h2h or []:

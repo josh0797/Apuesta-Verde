@@ -1,50 +1,38 @@
 [
   {
-    "content": "Add .env keys: THESTATSAPI_KEY, THESTATSAPI_BASE_URL, ENABLE_THE_STATS_API",
+    "content": "Create national_team_detector.py (FIFA list + ES↔EN aliases + comp keywords)",
     "status": "completed"
   },
   {
-    "content": "Create services/external_sources/thestatsapi_client.py (httpx async, fail-soft, rate limit, retries)",
+    "content": "Wire detector into thestatsapi_normalizer for is_national_team auto-detection",
     "status": "completed"
   },
   {
-    "content": "Create services/external_sources/thestatsapi_normalizer.py (TheStatsAPI -> API-Sports shape)",
+    "content": "Update aggregator dedupe to use country aliases (Belgica↔Belgium)",
     "status": "completed"
   },
   {
-    "content": "Create services/external_sources/thestatsapi_cache.py (Mongo cache with TTLs)",
+    "content": "Extend ingest_live allowlist for TheStatsAPI nat-team fixtures (synthetic Tier-2)",
     "status": "completed"
   },
   {
-    "content": "Create services/football_live_aggregator.py (merge API-Sports + TheStatsAPI + dedupe)",
+    "content": "Add TheStatsAPI stats normalizer (xG/shots/possession → API-Sports shape)",
     "status": "completed"
   },
   {
-    "content": "Wire aggregator into data_ingestion.ingest_live for sport=football",
+    "content": "Wire stats fetch+merge in _enrich_football for nat-team fixtures missing stats",
     "status": "completed"
   },
   {
-    "content": "Add health endpoint /api/debug/thestatsapi/health in server.py",
+    "content": "Add 'Fuentes: API-Sports + TheStatsAPI' badge in MatchCard",
     "status": "completed"
   },
   {
-    "content": "Add UI badges 'TheStatsAPI' / 'Selecciones' in MatchCard.jsx",
+    "content": "Tests: nat-team detection, Belgica/Croacia case, stats merge, dedupe with aliases",
     "status": "completed"
   },
   {
-    "content": "Write tests with mocked httpx (no real API calls)",
-    "status": "completed"
-  },
-  {
-    "content": "Run full pytest suite to verify no regressions (~398 tests)",
-    "status": "completed"
-  },
-  {
-    "content": "Update plan.md with MLB-TS1 phase",
-    "status": "completed"
-  },
-  {
-    "content": "Lint check + frontend esbuild",
+    "content": "Run full pytest suite (target 441+ tests pass)",
     "status": "completed"
   }
 ]
