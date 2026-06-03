@@ -1,4 +1,4 @@
-# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening + P3 Editorial Context + P4 Playwright + **Bright Data Unlocker** + **Historical Detail Enrichment (Basketball→Baseball)** + **MLB Margin & Total Script Engine v2** + **MLB-V3 Histórico Baseball** + **MLB-V4 Feedback Loop** + **MLB-V5 Bucketing Estructural / Manual Odds** + **MLB-V6 Totals Prob Fix + Visible Picks + Over Discovery** + **MLB-V7 Explainability/Game Script/Diversificación** + **MLB Under Confidence Floor (P0)** + **F6C Auto-Settle (P1)** + **MLB Statcast Deep Integration (Phase 9/10) + Offensive Pressure Base (Objetivo 2) + Sabermetrics Layer (Phase 9.6) + Ghost-Edges Statcast (Phase 11) + Market Selection Intelligence (Phase 13.1) + UI Advanced Stats/Sabermetrics (Phase 13.2)** (ACTUALIZADO)
+# plan.md — Market Tolerance + Rescue Layers + UI trampa/fragilidad + LIVE Hardening + P3 Editorial Context + P4 Playwright + **Bright Data Unlocker** + **Historical Detail Enrichment (Basketball→Baseball)** + **MLB Margin & Total Script Engine v2** + **MLB-V3 Histórico Baseball** + **MLB-V4 Feedback Loop** + **MLB-V5 Bucketing Estructural / Manual Odds** + **MLB-V6 Totals Prob Fix + Visible Picks + Over Discovery** + **MLB-V7 Explainability/Game Script/Diversificación** + **MLB Under Confidence Floor (P0)** + **F6C Auto-Settle (P1)** + **MLB Statcast Deep Integration (Phase 9/10) + Offensive Pressure Base (Objetivo 2) + Sabermetrics Layer (Phase 9.6) + Ghost-Edges Statcast (Phase 11) + Market Selection Intelligence (Phase 13.1) + UI Advanced Stats/Sabermetrics (Phase 13.2) + Prompt Moneyball MLB (Fix 1) + Backfill Picks (Fix 2) + MLB Intelligence Warehouse (Fix 3)** (ACTUALIZADO)
 
 ## 1) Objectives
 - Reducir **falsos descartes**: no tratar igual todo edge negativo; permitir **tolerancia contextual** en mercados protegidos.
@@ -98,7 +98,7 @@
 - **(✅ COMPLETADO — P1)** **F6C Auto-Settle MLB (sin intervención del usuario)**:
   - Nuevo módulo `services/mlb_results_settler.py` + wiring APScheduler.
 
-- **(✅ COMPLETADO — NUEVO P0)** **MLB Statcast como “capa de confirmación/riesgo” (Phase 9/10)**:
+- **(✅ COMPLETADO — P0)** **MLB Statcast como “capa de confirmación/riesgo” (Phase 9/10)**:
   - Ajustes **ponderados** por `data_quality` (Statcast no es motor principal):
     - `strong` → 60%
     - `partial/thin` → 35%
@@ -106,7 +106,7 @@
   - Persistencia de auditoría: `pick_payload["advanced_adjustments"]` incluye `raw_conf_delta`, `weighted_conf_delta`, `weight_factor_used`, breakdown y reason_codes.
   - Integración live: `mlb_explosive_inning_engine` añade contribución `statcast_contact` (cap ±8) + reason codes.
 
-- **(✅ COMPLETADO — NUEVO P0)** **MLB Offensive Pressure Base (Objetivo 2)**:
+- **(✅ COMPLETADO — P0)** **MLB Offensive Pressure Base (Objetivo 2)**:
   - Nuevo módulo `services/mlb_pressure_base.py`.
   - Detecta Under frágil cuando hay **muchos hits pero pocas carreras**.
   - Basado en `baseballHistoricalProfile.recentRunSplit`/`onBaseProfileL5` (mirror) + (si existe) hits live.
@@ -114,7 +114,7 @@
     - `pick_payload["pressure_base"]` + `pick_payload["pressure_base_impact"]`
     - Ajustes conservadores sobre `recommendation.confidence_score` y `fragility.score`.
 
-- **(✅ COMPLETADO — NUEVO P0)** **MLB Sabermetrics Layer (Phase 9.6 — WAR/OPS/FIP)**:
+- **(✅ COMPLETADO — P0)** **MLB Sabermetrics Layer (Phase 9.6 — WAR/OPS/FIP)**:
   - Nuevo módulo `services/mlb_sabermetrics_layer.py`.
   - Calcula perfiles:
     - OPS (OBP+SLG cuando aplique, tiers ELITE/STRONG/AVERAGE/WEAK)
@@ -129,7 +129,7 @@
     - Guardado de auditoría en `pick_payload["sabermetrics_audit"]`.
   - Guardrail: `weighted_conf_delta` capado a ±15; sabermetría **no** convierte picks débiles en fuertes por sí sola.
 
-- **(✅ COMPLETADO — NUEVO P1)** **Fase 11 — Ghost-Edges con xERA/xwOBA (Verifier)**:
+- **(✅ COMPLETADO — P1)** **Fase 11 — Ghost-Edges con xERA/xwOBA (Verifier)**:
   - `services/mlb_real_stats_verifier.py`:
     - Nuevo kwarg `advanced_stats_snapshot` (backwards compatible).
     - Flags:
@@ -141,7 +141,7 @@
     - Cap de `confidence_penalty` actualizado a **55**.
   - `mlb_day_orchestrator.py` pasa `advanced_stats_snapshot` al verifier.
 
-- **(✅ COMPLETADO — NUEVO P1)** **Phase 13.1 — MLB Market Selection Intelligence**:
+- **(✅ COMPLETADO — P1)** **Phase 13.1 — MLB Market Selection Intelligence**:
   - Nuevo módulo `services/mlb_market_selection.py` (pure/fail-soft) con `select_protected_market(pick_payload)`.
   - Selección final del mercado más protegido usando:
     - `pressure_base`, `advanced_adjustments`, `sabermetrics/sabermetrics_audit`, `model_verification.discrepancies` (ghost edges), `pitcher_quality_score`, `fragility`, `script_survival`, `bullpen_risk`, `odds_range`.
@@ -152,7 +152,7 @@
     - Ghost-edge contra el lado → watchlist o swap a alternativa protegida.
   - Output canónico persistido en `pick_payload["market_selection"]` y reason codes propagados.
 
-- **(✅ COMPLETADO — NUEVO P1)** **Phase 13.2 — UI colapsable “MLB Advanced Stats” + “Sabermetría” + “Selección de mercado”**:
+- **(✅ COMPLETADO — P1)** **Phase 13.2 — UI colapsable “MLB Advanced Stats” + “Sabermetría” + “Selección de mercado”**:
   - Nuevo componente frontend `frontend/src/components/MLBAdvancedStatsPanel.jsx`.
   - Integrado en `MatchCard.jsx` (gated por `sport === 'baseball'`).
   - Muestra:
@@ -162,6 +162,38 @@
     - 4 bloques Statcast: pitchers + teams con métricas y badges de `sources_consulted` y `data_quality`.
     - Bloque Sabermetría: OPS/FIP/WAR por equipo + edges + summary.
   - `data-testid` añadidos para testing y estabilidad.
+
+- **(✅ COMPLETADO — NUEVO P0)** **Fix 1 — Prompt Moneyball MLB (analyst_engine alignment)**:
+  - `services/analyst_engine.py`:
+    - Reescrito `SPORT_RULES["baseball"]` y el sistema MLB para reflejar el pipeline actual (Statcast/pressure_base/sabermetrics/ghost-edges/market_selection/pattern_memory).
+    - Eliminadas reglas obsoletas (Run Line -1.5 prohibido absoluto, Under solo con pitchers élite, etc.).
+    - Añadidas reglas: protected-market-first, manual odds review cuando faltan cuotas, no DISCARD por motivación normal.
+  - Prefilter MLB actualizado:
+    - Prohibido DISCARD por cuotas faltantes o “motivación normal”.
+    - Introduce tags: `STRUCTURAL_LEAN`, `REQUIRES_MANUAL_ODDS`, `WATCHLIST`, `DISCARD_AFTER_FULL_ANALYSIS`.
+
+- **(✅ COMPLETADO — NUEVO P0)** **Fix 2 — Backfill / Regeneración picks MLB**:
+  - Regeneración ejecutada con `/api/analysis/run` sport=baseball.
+  - Validado que los picks regenerados incluyen:
+    - `advanced_stats_snapshot`, `pressure_base`, `sabermetrics_audit`, `market_selection`, `model_verification` (ghost-edges), `advanced_adjustments`.
+    - Campos pattern-memory (aunque inicialmente sin match): `historical_pattern_match` + `historical_hit_rate/roi/best_historical_market`.
+
+- **(✅ COMPLETADO — NUEVO P0)** **Fix 3 — MLB Intelligence Warehouse (Moneyball cache + pattern memory)**:
+  - Nuevo módulo `services/mlb_intelligence_warehouse.py`.
+  - Colecciones:
+    1) `mlb_team_daily_profiles`
+    2) `mlb_pitcher_daily_profiles`
+    3) `mlb_game_intelligence_snapshots`
+    4) `mlb_market_results`
+    5) `mlb_pattern_memory`
+  - Integración en `mlb_day_orchestrator.py`:
+    - Persistencia de `mlb_game_intelligence_snapshots` (digest de capas) por `game_pk`.
+    - `historical_pattern_match` adjunto al pick con gates por sample_size.
+  - Sample-size gates:
+    - `<20` → warning, sin ajuste.
+    - `20–49` → ajuste moderado cap ±5.
+    - `≥50` con ROI positivo → ajuste cap ±8.
+  - Feedback loop preparado vía `persist_market_result` → actualiza `mlb_pattern_memory`.
 
 ---
 
@@ -203,7 +235,7 @@
 ---
 
 ## Phase MLB-BatchB — Statcast Adapter (pybaseball + Bright Data + TheStatsAPI)
-**Estado:** ✅ CORE + Phase 9/10/9.6 + Phase 11 + Phase 13.1/13.2 COMPLETADAS (2026-06-03).
+**Estado:** ✅ CORE + Phase 9/10/9.6 + Phase 11 + Phase 13.1/13.2 + Fixes 1–3 COMPLETADAS (2026-06-03).
 
 ### Fix 2 — Batch B: MLB Statcast Adapter (Fases 1-8 + 12 + 14)
 **Estado:** ✅ COMPLETADO
@@ -227,6 +259,15 @@
 
 ### Phase 13.2 — UI “MLB Advanced Stats” + “Sabermetría” + “Selección de mercado”
 **Estado:** ✅ COMPLETADO (P1)
+
+### Fix 1 — Prompt Moneyball MLB
+**Estado:** ✅ COMPLETADO (P0)
+
+### Fix 2 — Backfill / regeneración picks MLB
+**Estado:** ✅ COMPLETADO (P0)
+
+### Fix 3 — MLB Intelligence Warehouse
+**Estado:** ✅ COMPLETADO (P0)
 
 ---
 
@@ -294,6 +335,19 @@
   - Fail-soft: si no hay datos en el pick, el panel no aparece.
   - Aislamiento: football/basketball no cambian.
 
+- **Fix 1 Prompt Moneyball MLB — ✅ cumplido**
+  - Prompt MLB menciona explícitamente capas nuevas (Statcast/Pressure/Sabermetrics/Ghost-Edges/Market Selection/Manual Odds/Pattern Memory).
+  - Evita DISCARD por motivación normal o cuotas faltantes.
+
+- **Fix 2 Backfill picks MLB — ✅ cumplido**
+  - Picks regenerados incluyen los campos Phase 13 y auditorías.
+  - Live analysis sigue encontrando el pregame pick por `game_pk`.
+
+- **Fix 3 Intelligence Warehouse — ✅ cumplido**
+  - `mlb_game_intelligence_snapshots` se puebla por día y `game_pk`.
+  - Pattern memory aplica gates por sample_size y ROI.
+  - Fail-soft: warehouse deshabilitado no rompe el engine.
+
 - **MLB Under Confidence Floor — ✅ cumplido**
   - Un pick MLB Under no puede quedar recomendado si `confidence_score < 75` con odds.
 
@@ -301,5 +355,5 @@
   - Evaluaciones pending se resuelven automáticamente cuando hay `final_score`.
 
 ### Testing status
-- **Suite actual:** 678 tests PASS.
-- **Validación adicional:** `testing_agent_v3` backend+frontend OK (endpoints OK, boot limpio, fail-soft confirmado, UI MLB colapsable verificada).
+- **Suite actual:** **701 tests PASS**.
+- **Validación adicional:** `testing_agent_v3` backend OK (prompts + endpoints + backfill + warehouse OK).
