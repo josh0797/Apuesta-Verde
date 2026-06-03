@@ -977,6 +977,15 @@ function OnBaseTrendCell({ label, data, trendCode, testId }) {
   const l15 = data?.times_on_base_avg_last_15;
   const l5  = data?.times_on_base_avg_last_5;
   const delta = data?.times_on_base_delta_5_vs_15;
+  // Secondary metrics surfaced 2026-06: hits / walks / HR with their own
+  // L15/L5/Δ so the panel actually shows the breakdown the user
+  // requested instead of only the aggregate "times-on-base".
+  const subRows = [
+    { key: 'hits',      label: 'Hits',  l15: data?.hits_avg_last_15,       l5: data?.hits_avg_last_5,       d: data?.hits_delta_5_vs_15 },
+    { key: 'walks',     label: 'BB',    l15: data?.walks_avg_last_15,      l5: data?.walks_avg_last_5,      d: data?.walks_delta_5_vs_15 },
+    { key: 'home_runs', label: 'HR',    l15: data?.home_runs_avg_last_15,  l5: data?.home_runs_avg_last_5,  d: data?.home_runs_delta_5_vs_15 },
+  ].filter((r) => r.l15 != null || r.l5 != null);
+
   return (
     <div
       className="rounded-md bg-black/30 border border-slate-700/30 p-2 space-y-0.5"
@@ -999,6 +1008,30 @@ function OnBaseTrendCell({ label, data, trendCode, testId }) {
       <div className={`text-[10.5px] tabular-nums ${toneCls}`}>
         Δ {fmtDelta(delta)} <span className="text-slate-500">(veces en base / juego)</span>
       </div>
+      {subRows.length > 0 ? (
+        <div className="pt-1 mt-0.5 border-t border-slate-700/30 space-y-0.5">
+          {subRows.map((row) => {
+            const d = row.d;
+            const sign = d != null ? (d > 0 ? 'text-emerald-300' : d < 0 ? 'text-rose-300' : 'text-slate-400') : 'text-slate-500';
+            return (
+              <div
+                key={row.key}
+                className="grid grid-cols-[40px_minmax(0,1fr)] gap-1 text-[10px] tabular-nums"
+                data-testid={`${testId}-${row.key}`}
+              >
+                <span className="text-slate-400">{row.label}:</span>
+                <span className="text-slate-300">
+                  L15 <span className="text-slate-100">{fmtNum(row.l15, row.key === 'home_runs' ? 2 : 1)}</span>
+                  <span className="text-slate-500"> · </span>
+                  L5 <span className="text-slate-100">{fmtNum(row.l5, row.key === 'home_runs' ? 2 : 1)}</span>
+                  <span className="text-slate-500"> · </span>
+                  <span className={sign}>Δ {fmtDelta(d, row.key === 'home_runs' ? 2 : 1)}</span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
       {(data?.obp_last_5 != null || data?.obp_last_15 != null) ? (
         <div className="text-[10px] text-slate-400 tabular-nums">
           OBP L15: <span className="text-slate-200">{fmtNum(data.obp_last_15, 3)}</span>

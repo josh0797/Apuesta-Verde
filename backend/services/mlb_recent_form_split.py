@@ -177,6 +177,8 @@ async def get_team_recent_form(
     bb_l15    = _per_game(l15, numerator_field="baseOnBalls")
     hbp_l5    = _per_game(l5,  numerator_field="hitByPitch")
     hbp_l15   = _per_game(l15, numerator_field="hitByPitch")
+    hr_l5     = _per_game(l5,  numerator_field="homeRuns")
+    hr_l15    = _per_game(l15, numerator_field="homeRuns")
 
     def _tob(h: Optional[float], bb: Optional[float], hbp: Optional[float]) -> Optional[float]:
         parts = [x for x in (h, bb, hbp) if x is not None]
@@ -201,6 +203,8 @@ async def get_team_recent_form(
         "walks_avg_last_15":       bb_l15,
         "hbp_avg_last_5":          hbp_l5,
         "hbp_avg_last_15":         hbp_l15,
+        "home_runs_avg_last_5":    hr_l5,
+        "home_runs_avg_last_15":   hr_l15,
         "times_on_base_avg_last_5":  tob_l5,
         "times_on_base_avg_last_15": tob_l15,
         "obp_last_5":              obp_l5,
@@ -267,14 +271,30 @@ def build_recent_form_payload(home_form: dict, away_form: dict) -> dict:
     def _ob_block(side_form: dict) -> dict:
         tob_l5  = side_form.get("times_on_base_avg_last_5")
         tob_l15 = side_form.get("times_on_base_avg_last_15")
+        hits_l5  = side_form.get("hits_avg_last_5")
+        hits_l15 = side_form.get("hits_avg_last_15")
+        bb_l5   = side_form.get("walks_avg_last_5")
+        bb_l15  = side_form.get("walks_avg_last_15")
+        hbp_l5  = side_form.get("hbp_avg_last_5")
+        hbp_l15 = side_form.get("hbp_avg_last_15")
+        hr_l5   = side_form.get("home_runs_avg_last_5")
+        hr_l15  = side_form.get("home_runs_avg_last_15")
         return {
             "times_on_base_avg_last_5":   tob_l5,
             "times_on_base_avg_last_15":  tob_l15,
             "times_on_base_delta_5_vs_15": _delta(tob_l5, tob_l15),
-            "hits_avg_last_5":             side_form.get("hits_avg_last_5"),
-            "hits_avg_last_15":            side_form.get("hits_avg_last_15"),
-            "walks_avg_last_5":            side_form.get("walks_avg_last_5"),
-            "walks_avg_last_15":           side_form.get("walks_avg_last_15"),
+            "hits_avg_last_5":             hits_l5,
+            "hits_avg_last_15":            hits_l15,
+            "hits_delta_5_vs_15":          _delta(hits_l5, hits_l15),
+            "walks_avg_last_5":            bb_l5,
+            "walks_avg_last_15":           bb_l15,
+            "walks_delta_5_vs_15":         _delta(bb_l5, bb_l15),
+            "hbp_avg_last_5":              hbp_l5,
+            "hbp_avg_last_15":             hbp_l15,
+            "hbp_delta_5_vs_15":           _delta(hbp_l5, hbp_l15),
+            "home_runs_avg_last_5":        hr_l5,
+            "home_runs_avg_last_15":       hr_l15,
+            "home_runs_delta_5_vs_15":     _delta(hr_l5, hr_l15),
             "obp_last_5":                  side_form.get("obp_last_5"),
             "obp_last_15":                 side_form.get("obp_last_15"),
             "trend": _classify_on_base_trend(_delta(tob_l5, tob_l15)),

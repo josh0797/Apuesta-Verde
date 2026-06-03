@@ -186,25 +186,35 @@ export default function MatchDetailPage() {
           {/* LLM pick or fallback — DEMOTED when settled / not actionable. */}
           {(() => {
             const cmp = match?.script_comparison || {};
-            const settled = ['already_won', 'already_lost', 'not_actionable']
-              .includes(cmp.pregame_pick_status);
+            const ps  = cmp.pregame_pick_status;
+            const settled = ['already_won', 'already_lost', 'not_actionable'].includes(ps);
+            // Differentiated header copy — was a single generic
+            // "ya cumplido / no accionable" which conflated wins, losses
+            // and unresolved cases. Now each branch is unambiguous.
+            const headerByStatus = {
+              already_won:    lang === 'en' ? 'Pregame pick — already won'        : 'Pick pregame · ya ganó',
+              already_lost:   lang === 'en' ? 'Pregame pick — already lost'       : 'Pick pregame · ya perdió',
+              not_actionable: lang === 'en' ? 'Pregame pick — not actionable now' : 'Pick pregame · no accionable',
+            };
+            const toneByStatus = {
+              already_won:    'border-cyan-500/30 bg-cyan-500/[0.06]   text-cyan-200',
+              already_lost:   'border-rose-500/30 bg-rose-500/[0.06]   text-rose-200',
+              not_actionable: 'border-amber-500/30 bg-amber-500/[0.06] text-amber-200',
+            };
             if (llmPick && settled) {
-              // Render in a desaturated, "informational" container so
-              // the user understands the pick is no longer actionable.
+              const tone = toneByStatus[ps] || toneByStatus.not_actionable;
               return (
                 <div
-                  className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 space-y-3"
+                  className={`rounded-xl border p-5 space-y-3 ${tone}`}
                   data-testid="llm-pick-block-settled"
                 >
-                  <div className="text-[11px] uppercase tracking-wide text-amber-200 font-semibold">
-                    {lang === 'en'
-                      ? 'Pregame pick — already settled / not actionable'
-                      : 'Pick pregame ya cumplido / no accionable'}
+                  <div className="text-[11px] uppercase tracking-wide font-semibold">
+                    {headerByStatus[ps] || headerByStatus.not_actionable}
                   </div>
-                  <div className="flex items-center justify-between gap-3 flex-wrap opacity-80">
+                  <div className="flex items-center justify-between gap-3 flex-wrap opacity-90">
                     <div>
                       <div className="text-lg font-semibold flex items-center flex-wrap gap-2">
-                        <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-100 border border-amber-500/30 text-xs">
+                        <span className="px-2 py-0.5 rounded-md bg-white/10 border border-white/20 text-xs">
                           {llmPick.recommendation?.market}
                         </span>
                         {humanizeSelection(llmPick.recommendation?.selection, llmPick.recommendation?.market, home?.name, away?.name, lang, sport)}

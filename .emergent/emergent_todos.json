@@ -1,22 +1,26 @@
 [
   {
-    "content": "FIX 1: override del lean ahora escribe en combined.* + mixedSignals + mirror del recent_form en baseballHistoricalProfile",
+    "content": "Backend: live engine NO devolver insufficient_data en juego FINAL si validator resolvió; agregar live_verdict",
     "status": "completed"
   },
   {
-    "content": "FIX 2: bloque L5 vs L15 (carreras + on-base) renderizado en HistoricalProfilePanel.jsx",
+    "content": "Backend: añadir HR + deltas explicitos (hits/BB/HBP/HR) a mlb_recent_form_split.py",
     "status": "completed"
   },
   {
-    "content": "FIX 3: render del bloque 'Señales mixtas' cuando mixedSignals.has_mixed_signals",
+    "content": "Frontend LivePreMatchComparisonPanel: no early-return insufficient + render live_verdict chips + box-score table",
     "status": "completed"
   },
   {
-    "content": "FIX 4: añadir input inline 'Agregar cuota manual' en MatchCard cuando odds_range está vacío para MLB",
+    "content": "Frontend MatchDetailPage: diferenciar already_won / already_lost / not_actionable",
     "status": "completed"
   },
   {
-    "content": "Validar con pytest + esbuild + screenshot",
+    "content": "Frontend HistoricalProfilePanel: añadir filas hits / BB / HR en OnBaseTrendCell",
+    "status": "completed"
+  },
+  {
+    "content": "Tests + esbuild + screenshot",
     "status": "completed"
   }
 ]

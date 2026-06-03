@@ -28,6 +28,8 @@ function pillClasses(state) {
       return 'bg-orange-500/15 text-orange-200 border-orange-500/40';
     case 'broken_script':
       return 'bg-rose-500/15 text-rose-200 border-rose-500/40';
+    case 'final_settled':
+      return 'bg-slate-500/15 text-slate-200 border-slate-500/30';
     // pregame_pick_status
     case 'still_playable':
       return 'bg-emerald-500/15 text-emerald-200 border-emerald-500/40';
@@ -61,21 +63,33 @@ const LABELS = {
     scriptStatus:        'Estado del guion',
     pregameStatus:       'Pick pregame',
     liveStatus:          'Lectura live',
+    liveVerdict:         'Veredicto live',
     expectedVsActual:    'Esperado vs real',
     period:              'Periodo',
     suggested:           'Líneas live sugeridas',
     noPregame:           'No hay análisis pregame disponible. Recomendación basada solo en datos live.',
     insufficient:        'Datos live insuficientes para comparar contra el análisis previo.',
+    liveBoxTitle:        'Datos live del partido',
+    boxLabels: {
+      total_runs:    'Carreras',
+      hits:          'Hits',
+      walks:         'Bases por bolas (BB)',
+      home_runs:     'Home runs',
+      errors:        'Errores',
+      strikeouts:    'Ponches',
+      pitches:       'Lanzamientos',
+    },
     script: {
       on_script:         'En guion',
       soft_deviation:    'Desviación leve',
       hard_deviation:    'Desviación fuerte',
       broken_script:     'Guion roto',
+      final_settled:     'Partido finalizado',
       insufficient_data: 'Datos insuficientes',
     },
     pregame: {
       pending:           'Pendiente',
-      already_won:       'Ya cumplido',
+      already_won:       'Ya ganó',
       already_lost:      'Ya perdió',
       still_playable:    'Aún jugable',
       not_actionable:    'No accionable',
@@ -87,28 +101,49 @@ const LABELS = {
       hedge:             'Cobertura',
       cashout_watch:     'Vigilar cashout',
     },
+    verdict: {
+      PICK_ALREADY_LOST:        'Pick ya perdió — no perseguir',
+      PICK_ALREADY_WON:         'Pick ya ganó — cerrado',
+      AVOID_UNDER_OR_LOOK_OVER: 'Evitar Under · buscar Over',
+      AVOID_OVER_OR_CASHOUT:    'Evitar Over · cashout',
+      MAINTAIN:                 'Mantener pick',
+      CASHOUT:                  'Considerar cashout',
+      NO_ACTIONABLE:            'No accionable',
+    },
   },
   en: {
     title: 'Pregame ↔ live comparison',
     scriptStatus:        'Script status',
     pregameStatus:       'Pregame pick',
     liveStatus:          'Live read',
+    liveVerdict:         'Live verdict',
     expectedVsActual:    'Expected vs actual',
     period:              'Period',
     suggested:           'Suggested live lines',
     noPregame:           'No pregame analysis available. Recommendation based on live data only.',
     insufficient:        'Insufficient live data to compare against the pregame analysis.',
+    liveBoxTitle:        'Live box score',
+    boxLabels: {
+      total_runs:    'Runs',
+      hits:          'Hits',
+      walks:         'Walks (BB)',
+      home_runs:     'Home runs',
+      errors:        'Errors',
+      strikeouts:    'Strikeouts',
+      pitches:       'Pitches',
+    },
     script: {
       on_script:         'On script',
       soft_deviation:    'Soft deviation',
       hard_deviation:    'Hard deviation',
       broken_script:     'Broken script',
+      final_settled:     'Game finished',
       insufficient_data: 'Insufficient data',
     },
     pregame: {
       pending:           'Pending',
-      already_won:       'Settled win',
-      already_lost:      'Settled loss',
+      already_won:       'Already won',
+      already_lost:      'Already lost',
       still_playable:    'Still playable',
       not_actionable:    'Not actionable',
     },
@@ -119,7 +154,26 @@ const LABELS = {
       hedge:             'Hedge',
       cashout_watch:     'Watch cashout',
     },
+    verdict: {
+      PICK_ALREADY_LOST:        'Pick lost — do not chase',
+      PICK_ALREADY_WON:         'Pick won — closed',
+      AVOID_UNDER_OR_LOOK_OVER: 'Avoid Under · look Over',
+      AVOID_OVER_OR_CASHOUT:    'Avoid Over · cashout',
+      MAINTAIN:                 'Maintain pick',
+      CASHOUT:                  'Consider cashout',
+      NO_ACTIONABLE:            'Not actionable',
+    },
   },
+};
+
+const VERDICT_CLASSES = {
+  PICK_ALREADY_LOST:        'bg-rose-500/15 text-rose-100 border-rose-500/40',
+  PICK_ALREADY_WON:         'bg-cyan-500/15 text-cyan-100 border-cyan-500/40',
+  AVOID_UNDER_OR_LOOK_OVER: 'bg-orange-500/15 text-orange-100 border-orange-500/40',
+  AVOID_OVER_OR_CASHOUT:    'bg-orange-500/15 text-orange-100 border-orange-500/40',
+  MAINTAIN:                 'bg-emerald-500/15 text-emerald-100 border-emerald-500/40',
+  CASHOUT:                  'bg-amber-500/15 text-amber-100 border-amber-500/40',
+  NO_ACTIONABLE:            'bg-slate-500/15 text-slate-200 border-slate-500/30',
 };
 
 function StatePill({ value, dict, testId }) {
@@ -150,6 +204,7 @@ export function LivePreMatchComparisonPanel({ comparison, lang = 'es' }) {
   const ss = comparison.script_status || 'insufficient_data';
   const ps = comparison.pregame_pick_status || 'pending';
   const ls = comparison.live_recommendation_status || 'wait';
+  const verdict = comparison.live_verdict || null;
   const sd = comparison.score_delta;
   const expected = comparison.expected_total_through;
   const actual   = comparison.actual_total;
@@ -157,6 +212,7 @@ export function LivePreMatchComparisonPanel({ comparison, lang = 'es' }) {
   const reasons  = comparison.reason_codes || [];
   const alts     = comparison.suggested_alternatives || [];
   const summary  = lang === 'en' ? comparison.human_summary_en : comparison.human_summary_es;
+  const liveData = comparison.live_data || {};
 
   // Special-case when there's no pregame pick at all → show a soft banner.
   if (reasons.includes('NO_PREGAME_PICK')) {
@@ -170,7 +226,17 @@ export function LivePreMatchComparisonPanel({ comparison, lang = 'es' }) {
       </div>
     );
   }
-  if (ss === 'insufficient_data') {
+
+  // Only treat as truly insufficient when we have NO score AND no useful
+  // pregame-pick-status. When the game is FINAL with a known score, the
+  // backend now promotes ss to "final_settled" and the validator
+  // produces a meaningful pregame_pick_status — render normally.
+  const hasUsefulInfo = (
+    actual != null
+    || ['already_won', 'already_lost', 'not_actionable'].includes(ps)
+    || verdict
+  );
+  if (ss === 'insufficient_data' && !hasUsefulInfo) {
     return (
       <div
         className="rounded-md border border-slate-500/30 bg-slate-500/5 p-3 text-[12px] text-slate-300 flex items-start gap-2"
@@ -181,6 +247,34 @@ export function LivePreMatchComparisonPanel({ comparison, lang = 'es' }) {
       </div>
     );
   }
+
+  // Box-score chips to render — only those actually present.
+  const boxRows = [];
+  const pair = (homeKey, awayKey, label) => {
+    const h = liveData[homeKey];
+    const a = liveData[awayKey];
+    if (h == null && a == null) return;
+    boxRows.push({
+      label,
+      home: h ?? '—',
+      away: a ?? '—',
+      total: (typeof h === 'number' && typeof a === 'number') ? h + a : null,
+    });
+  };
+  if (liveData.total_runs != null) {
+    boxRows.push({
+      label: t.boxLabels.total_runs,
+      home: liveData.score_home ?? '—',
+      away: liveData.score_away ?? '—',
+      total: liveData.total_runs,
+    });
+  }
+  pair('hits_home',       'hits_away',       t.boxLabels.hits);
+  pair('walks_home',      'walks_away',      t.boxLabels.walks);
+  pair('home_runs_home',  'home_runs_away',  t.boxLabels.home_runs);
+  pair('errors_home',     'errors_away',     t.boxLabels.errors);
+  pair('strikeouts_home', 'strikeouts_away', t.boxLabels.strikeouts);
+  pair('pitches_home',    'pitches_away',    t.boxLabels.pitches);
 
   return (
     <section
@@ -208,6 +302,25 @@ export function LivePreMatchComparisonPanel({ comparison, lang = 'es' }) {
           <StatePill value={ls} dict={t.live} testId="cmp-live-status" />
         </div>
       </div>
+
+      {/* Live verdict chip — the canonical action recommendation */}
+      {verdict ? (
+        <div className="space-y-1">
+          <div className="text-[10.5px] uppercase tracking-wide text-muted-foreground">{t.liveVerdict}</div>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold ${VERDICT_CLASSES[verdict] || VERDICT_CLASSES.NO_ACTIONABLE}`}
+            data-testid="cmp-live-verdict"
+          >
+            {verdict === 'PICK_ALREADY_LOST' && <XCircle className="h-3 w-3" />}
+            {verdict === 'PICK_ALREADY_WON'  && <CheckCircle2 className="h-3 w-3" />}
+            {(verdict === 'CASHOUT' || verdict === 'AVOID_OVER_OR_CASHOUT') && <Eye className="h-3 w-3" />}
+            {verdict === 'AVOID_UNDER_OR_LOOK_OVER' && <AlertTriangle className="h-3 w-3" />}
+            {verdict === 'MAINTAIN' && <CheckCircle2 className="h-3 w-3" />}
+            {verdict === 'NO_ACTIONABLE' && <Info className="h-3 w-3" />}
+            {t.verdict[verdict] || verdict}
+          </span>
+        </div>
+      ) : null}
 
       {/* Numeric tile — expected vs actual through current period */}
       {(expected != null && actual != null) && (
@@ -237,6 +350,43 @@ export function LivePreMatchComparisonPanel({ comparison, lang = 'es' }) {
           <div className="text-right">
             <div className="text-[10.5px] uppercase tracking-wide text-muted-foreground">{t.period}</div>
             <div className="text-[12px] mono font-mono-tabular tabular-nums">{period ?? '—'}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Live box score — runs, hits, BB, HR, errors, strikeouts, pitches */}
+      {boxRows.length > 0 && (
+        <div className="space-y-1.5" data-testid="cmp-live-box">
+          <div className="text-[10.5px] uppercase tracking-wide text-muted-foreground font-semibold">
+            {t.liveBoxTitle}
+          </div>
+          <div className="rounded-md bg-slate-500/5 border border-slate-500/20 overflow-hidden">
+            <table className="w-full text-[11px] tabular-nums">
+              <thead>
+                <tr className="border-b border-slate-500/20 text-[10px] uppercase text-muted-foreground">
+                  <th className="text-left px-2 py-1.5 font-medium">—</th>
+                  <th className="text-right px-2 py-1.5 font-medium">L</th>
+                  <th className="text-right px-2 py-1.5 font-medium">V</th>
+                  <th className="text-right px-2 py-1.5 font-medium">Tot</th>
+                </tr>
+              </thead>
+              <tbody>
+                {boxRows.map((row, i) => (
+                  <tr
+                    key={`${row.label}-${i}`}
+                    className="border-b last:border-b-0 border-slate-500/10"
+                    data-testid={`cmp-live-box-row-${i}`}
+                  >
+                    <td className="px-2 py-1 text-foreground/85">{row.label}</td>
+                    <td className="px-2 py-1 text-right text-foreground">{row.home}</td>
+                    <td className="px-2 py-1 text-right text-foreground">{row.away}</td>
+                    <td className="px-2 py-1 text-right text-foreground font-semibold">
+                      {row.total ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

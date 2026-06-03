@@ -230,6 +230,62 @@
 
 ---
 
+## Phase MLB-FP3 — Live Engine v2 + Recent Form Split BB/HR/Hits
+**Estado:** ✅ COMPLETADO (2026-06-03)
+
+### MLB-FP3.1 Live engine — FIN del falso "Datos live insuficientes"
+- Archivo: `services/live_pre_match_comparison.py`
+- Bug: cuando el partido finalizaba sin `period_n` (juegos FINAL), `_classify_script` devolvía `insufficient_data` aunque el validator hubiera resuelto el pick → la UI bloqueaba toda la información y mostraba "Datos live insuficientes" en lugar de "Pick ya perdió".
+- Fix: tras `_classify_script`, si tenemos `actual_total` y el partido es FINAL o validator devolvió `already_resolved_*`, se promueve `script_status="final_settled"`.
+
+### MLB-FP3.2 Nuevo `live_verdict` (chips solicitados por el usuario)
+- Función nueva: `_derive_live_verdict()` con lógica para los 7 chips canónicos:
+  - `PICK_ALREADY_LOST` / `PICK_ALREADY_WON`
+  - `AVOID_UNDER_OR_LOOK_OVER` / `AVOID_OVER_OR_CASHOUT`
+  - `MAINTAIN` (on-script + still playable)
+  - `CASHOUT` (deviación)
+  - `NO_ACTIONABLE` (final sin resolución / sin pregame)
+- Lógica direccional: si pregame era Under y actual > expected con broken_script → `AVOID_UNDER_OR_LOOK_OVER`; si era Over y actual < expected → `AVOID_OVER_OR_CASHOUT`.
+
+### MLB-FP3.3 Payload `live_data` (box-score live)
+- El comparator ahora extrae `score_home / score_away / total_runs / hits / walks / home_runs / errors / strikeouts / pitches / inning + half` del `live_state` y los expone bajo `comparison.live_data`. Filtra keys nulos para mantener el payload limpio.
+
+### MLB-FP3.4 Recent form split — HR + deltas explícitos
+- Archivo: `services/mlb_recent_form_split.py`
+- `_fetch_last_x_games` / `get_team_recent_form` ahora calculan `home_runs_avg_last_5/15`.
+- `_ob_block` expone `hits_delta_5_vs_15`, `walks_delta_5_vs_15`, `hbp_delta_5_vs_15`, `home_runs_delta_5_vs_15` para que la UI pueda renderizar tendencias por componente.
+
+### MLB-FP3.5 Frontend — `LivePreMatchComparisonPanel.jsx`
+- Eliminado el early-return en `insufficient_data` cuando hay `actual_total` / `pregame_pick_status` accionable / `live_verdict` (criterio `hasUsefulInfo`).
+- Añadido pill `final_settled`.
+- Nuevo chip "Veredicto live" con los 7 estados + colores específicos (rose para lost, cyan para won, orange para pivot, emerald para maintain, amber para cashout, slate para no-actionable).
+- Nueva tabla de box-score live: 4 columnas (Local / Visitante / Total) con filas para carreras, hits, BB, HR, errores, ponches, lanzamientos — render condicional, oculta filas con todos los valores nulos.
+
+### MLB-FP3.6 Frontend — `MatchDetailPage.jsx`
+- El header del bloque "settled" antes era genérico ("Pick pregame ya cumplido / no accionable"). Ahora:
+  - `already_won` → "Pick pregame · ya ganó" (cyan)
+  - `already_lost` → "Pick pregame · ya perdió" (rose)
+  - `not_actionable` → "Pick pregame · no accionable" (amber)
+
+### MLB-FP3.7 Frontend — `HistoricalProfilePanel.jsx`
+- `OnBaseTrendCell` ahora renderiza sub-filas para **Hits / BB / HR** con L15 · L5 · Δ debajo del bloque agregado de times-on-base. Δ coloreado por dirección (verde / rojo / gris). Cada fila tiene `data-testid` específico (`-hits`, `-walks`, `-home_runs`) para QA.
+
+### Validación
+- 13 tests nuevos en `tests/test_live_verdict_and_form_split.py` → PASS:
+  - `_derive_live_verdict()` para 7 escenarios.
+  - Caso real Minnesota 6-4 FINAL → final_settled + already_lost + PICK_ALREADY_LOST.
+  - Caso real Yankees 4-9 9th → already_lost + PICK_ALREADY_LOST.
+  - Recent form split expone HR + deltas calculados correctamente.
+  - Umbrales `_classify_run_trend` / `_classify_on_base_trend`.
+- Suite total: **289 tests PASS** (276 previos + 13 nuevos).
+- ESLint + esbuild OK en `LivePreMatchComparisonPanel.jsx`, `HistoricalProfilePanel.jsx`, `MatchDetailPage.jsx`.
+- Backend reiniciado limpio, APScheduler activo.
+
+### Nota de despliegue
+- Los cambios viven en **PREVIEW**. Para producción (`https://low-volatility-plays.emergent.host`) requiere **redeploy** del usuario.
+
+---
+
 ## Phase MLB-FP2 — Deep Script UI: lean visual + L5/L15 + Manual Odds inline
 **Estado:** ✅ COMPLETADO (2026-06-02)
 
