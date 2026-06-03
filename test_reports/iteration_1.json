@@ -1,53 +1,61 @@
 {
-  "summary": "Phase 13.1 (Market Selection Intelligence) and Phase 13.2 (MLB Advanced Stats UI) testing completed. Backend integration verified with 678 passing tests (661 previous + 17 new). Frontend component correctly integrated with fail-soft behavior. Current picks don't have Phase 13 data (generated before deployment), so panel correctly returns null. All data-testid attributes present in component code.",
-  
+  "summary": "Completed comprehensive backend testing for MLB Intelligence Warehouse Integration (Fixes 1-3). All core functionality verified: prompt updates aligned with new pipeline, warehouse collections populating correctly, sample-size gates enforced, fail-soft behavior working, and sport isolation maintained.",
   "backend_issues": {
     "critical_bugs": [],
-    "flaky_endpoints": []
+    "flaky_endpoints": [],
+    "notes": "No critical backend issues found. All 701 pytest tests pass. Backend boot clean."
   },
-  
   "frontend_issues": {
     "ui_bugs": [],
     "integration_issues": [],
-    "design_issues": []
+    "design_issues": [],
+    "notes": "Frontend testing not in scope (backend only testing requested)"
   },
-  
   "passed_tests": [
-    "Backend boot clean - no errors in logs",
-    "Import test: select_protected_market imports successfully",
-    "Pytest suite: All 678 tests pass (661 previous + 17 new from test_mlb_market_selection.py)",
-    "Fail-soft test: select_protected_market(None) returns watchlist=True without exception",
-    "Fail-soft test: select_protected_market({}) returns watchlist=True without exception",
-    "Canonical schema: All 9 required keys present in market_selection output",
-    "Endpoint test: POST /api/auth/login returns 200 with token",
-    "Endpoint test: GET /api/picks/today?sport=baseball returns 200",
-    "Endpoint test: GET /api/picks/today?sport=football returns 200",
-    "Endpoint test: GET /api/debug/thestatsapi/health?probe=true returns 200",
-    "Endpoint test: GET /api/analysis/jobs returns 200",
-    "Endpoint test: GET /api/meta/sports returns 200",
-    "Frontend boot: Compiled successfully with no errors",
-    "Frontend login: Successfully logged in with demo@valuebet.app / demo1234",
-    "Sport switching: Successfully switched between Football and Baseball",
-    "Sport isolation: MLB panel correctly absent from football picks",
-    "Component integration: MLBAdvancedStatsPanel imported in MatchCard.jsx for baseball only (line 24, 442-444)",
-    "Fail-soft behavior: Panel returns null when no data available (expected behavior)",
-    "Orchestrator integration: select_protected_market called at line 1780 of mlb_day_orchestrator.py",
-    "Data attachment: market_selection attached to pick_payload at line 1782"
+    "Backend boot OK - services running without errors",
+    "Login endpoint works - demo@valuebet.app/demo1234 returns valid JWT token",
+    "Full pytest suite passes - 701/701 tests (678 previous + 23 new test_mlb_intelligence_warehouse.py)",
+    "MLB prompt contains new keywords - pressure_base, market_selection, sabermetrics, ghost-edges, historical_pattern_match all present",
+    "MLB prompt NO obsolete rules - 'Run Line -1.5 prohibido' and 'UNDER solo con pitchers élite' removed",
+    "MLB_INTELLIGENCE_RULES updated - PIPELINE ACTUALIZADO block present with all Phase 13 layers",
+    "Prefilter prompt MLB-specific rules - STRUCTURAL_LEAN, REQUIRES_MANUAL_ODDS, no DISCARD for normal motivation or missing odds",
+    "mlb_game_intelligence_snapshots collection populated - 6 documents with game_pk, day, digest, pattern_keys",
+    "Phase 13 fields present in digest - advanced_stats_snapshot, advanced_adjustments, pressure_base, pressure_base_impact, sabermetrics, sabermetrics_audit, market_selection",
+    "Fail-soft behavior validated - lookup_pattern_match(db=None) returns sample_size=0, confidence_adjustment=0.0 without crash",
+    "attach_pattern_match_to_payload(db=None) adds historical_pattern_match field with neutral values",
+    "Sample-size gates enforced - <20 no adjust (returns 0.0 with warning), 20-49 capped ±5, >=50 with ROI+ capped ±8, negative ROI inverts adjustment",
+    "Football prompt isolation - no pressure_base, no sabermetrics, has 'REGLAS DEL DEPORTE (Fútbol)'",
+    "Basketball prompt isolation - no pressure_base, no sabermetrics, has 'REGLAS DEL DEPORTE (NBA/Basket)'",
+    "derive_pattern_keys() working - correctly identifies LOW_PRESSURE_STRONG_FIP_BOTH, HIGH_HIT_PRESSURE_LOW_RUN_CONVERSION, ERA_UNDERSTATES_RISK, F5_UNDER_BETTER_THAN_FULL_GAME, RUN_LINE_MARGIN_SUPPORTED, MONEYLINE_SAFER_THAN_RUN_LINE, GHOST_EDGE_BLOCKED_PICK",
+    "_compute_pattern_adjustment() gates correct - sample_size=10 returns 0.0, sample_size=30 returns ±5 max, sample_size=60 with roi>0 returns up to 8.0"
   ],
-  
   "test_report_links": [
-    "/app/backend/tests/test_mlb_market_selection.py"
+    "/app/backend/tests/test_mlb_intelligence_warehouse.py",
+    "/app/backend_test.py"
   ],
-  
   "success_percentage": {
-    "backend": "100% (678/678 tests pass, all endpoints working, fail-soft verified)",
-    "frontend": "100% (component integrated, fail-soft working, sport isolation verified)"
+    "backend": "100% (all core tests pass)",
+    "frontend": "N/A (not in scope)",
+    "pytest_suite": "100% (701/701)",
+    "warehouse_integration": "100%",
+    "prompt_alignment": "100%",
+    "fail_soft": "100%",
+    "sample_size_gates": "100%",
+    "sport_isolation": "100%"
   },
-  
+  "action_item_for_main_agent": "",
   "updated_files": [],
-  
-  "action_item_for_main_agent": "✅ Phase 13.1 and 13.2 implementation verified successfully. All tests pass. The MLBAdvancedStatsPanel is correctly integrated and will render when picks have market_selection, sabermetrics, or advanced_stats_snapshot data. Current picks in the system were generated before Phase 13 deployment, so they don't have this data yet. Next baseball analysis run will populate these fields and the panel will render. No action required - implementation is complete and working as designed.",
-  
   "should_call_test_agent_after_fix": false,
-  "should_main_agent_test_itself": false
+  "should_main_agent_test_itself": false,
+  "testing_notes": {
+    "scope": "Backend only (as requested)",
+    "mlb_picks_status": "6 picks generated and moved to rescued bucket (expected behavior - picks without odds go to rescued per MLB-V5 pipeline)",
+    "warehouse_status": "mlb_game_intelligence_snapshots collection has 6 documents with all Phase 13 fields",
+    "pattern_memory_status": "Pattern memory collections (mlb_team_daily_profiles, mlb_pitcher_daily_profiles, mlb_pattern_memory, mlb_market_results) remain at 0 documents until feedback loop activates (requires settled bets - out of scope)",
+    "prompt_verification": "Both analyst_engine.py and mlb_intelligence.py prompts verified to contain new pipeline keywords and exclude obsolete rules",
+    "prefilter_verification": "Prefilter prompt for baseball correctly implements MLB-specific rules (no DISCARD for normal motivation or missing odds)",
+    "fail_soft_verification": "All warehouse functions handle db=None gracefully without crashes",
+    "sample_size_gates_verification": "All three tiers (<20, 20-49, >=50) enforce correct adjustment caps",
+    "sport_isolation_verification": "Football and basketball prompts confirmed to not contain MLB-specific content"
+  }
 }

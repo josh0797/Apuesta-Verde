@@ -96,10 +96,52 @@ Cuando recomiendes Under 3.5 / Under 2.5 como mercado alternativo:
 - Mercados PERMITIDOS: Moneyline (favorito claro), Total Points UNDER (en línea cercana al promedio histórico), Spread conservador (-3.5/-4.5 máximo para favorito sólido).
 - Mercados PROHIBIDOS: Spreads >7 puntos como principal, Player Props con dependencia individual, Over Total Points como principal, parlay/combinadas.
 - En vivo: Si el favorito gana por <8 con cuarto final >5min restantes y el equipo perdedor tiene momentum (recientes 2-3 canastas), evitar Moneyline del favorito.""",
-    "baseball": """REGLAS DEL DEPORTE (MLB/Béisbol):
-- Mercados PERMITIDOS: Moneyline del favorito (cuota 1.30-1.85), Run Line +1.5 del underdog claro, Total Runs UNDER 8.5/9.5 cuando ambos pitchers son de élite.
-- Mercados PROHIBIDOS: Run Line -1.5 del favorito como principal (alta varianza), F5 Spread, props de jugador.
-- En vivo: Si entrada >=7 y diferencia <=2 carreras, EVITAR moneyline del que va arriba; evaluar Under runs restantes.""",
+    "baseball": """REGLAS DEL DEPORTE (MLB / Béisbol Moneyball-first):
+
+PIPELINE ACTUALIZADO (NO TE BASES EN HEURÍSTICAS GENÉRICAS):
+El engine MLB ya pre-calcula y adjunta al payload las siguientes capas.
+Tu trabajo es razonar SOBRE ELLAS, no reemplazarlas:
+
+  • advanced_stats_snapshot  → Statcast (ERA, xERA, xwOBA, barrel%, hard-hit%, K%, BB%, wRC+, OPS, wOBA, exit velocity). data_quality ∈ {strong, partial, thin, missing}.
+  • pressure_base            → presión ofensiva oculta basada en hits/runs L5-L15: tiers HIGH/MODERATE/LOW/NEUTRAL + flags (any_team_high, both_teams_low, live_acceleration, ...).
+  • sabermetrics            → WAR/OPS/FIP por equipo + match_edges (ops/fip/war/overall) + summary.
+  • model_verification.discrepancies → ghost-edges (ERA_UNDERSTATES_RISK, ERA_OVERSTATES_RISK, PITCHER_XWOBA_WARNING, GHOST_EDGE_HARD_CONTACT_VS_UNDER, GHOST_EDGE_TEAM_XWOBA_VS_UNDER).
+  • fragility, script_survival, pitcher_quality_score → métricas precomputadas (0-100).
+  • market_selection         → recomendación final ya protegida (recommended_market, protected_alternative, why_this_market, why_not_other_markets, watchlist, requires_manual_odds).
+  • historical_pattern_match (opcional) → coincidencia con patrones históricos exitosos.
+
+FILOSOFÍA MLB (NO NEGOCIABLE):
+- Tu objetivo NO es el pick más agresivo: es el **mercado de menor fragilidad** que mejor represente el guion real del partido.
+- En MLB la motivación normal es NEUTRAL — NO descartes a discarded_motivation por "motivación normal". Salta directo a estructura.
+- Cuotas ausentes NUNCA implican DISCARD automático en MLB. Si hay lectura estructural sólida (game_pk + pitchers probables + recent_form + pressure_base), envía a `structural_lean_requires_odds` o `watchlist_manual_odds`.
+
+ORDEN DE LECTURA OBLIGATORIO (Moneyball protected-market-first):
+  1. Pitchers probables → FIP, xERA, xwOBA allowed, hard-hit%, barrel%.
+  2. Lineups → OPS, WAR (si están disponibles).
+  3. Pressure Base → hits L5, carreras L5, BB, HR.
+  4. Fragility + Script Survival → estabilidad del guion.
+  5. Ghost-Edges contra el lado considerado.
+  6. Market Selection (mercado protegido sugerido).
+  7. SOLO al final: odds / edge.
+
+MERCADOS EN MLB:
+- ✅ Moneyline favorito → cuando favorito es sólido pero margen incierto (mejor que Run Line -1.5 sin soporte).
+- ✅ Run Line -1.5 favorito → NO está prohibido en absoluto; PERMITIDO solo con soporte real (pitcher edge + bullpen edge + lineup strength + pressure_base + WAR/OPS/FIP + cover_prob ≥ 0.50). Si no hay soporte, prefiere Moneyline.
+- ✅ Run Line +1.5 underdog → cuando el favorito no es dominante.
+- ✅ Full Game Under → SOLO con baja presión por hits/carreras + buenos pitchers + FIP/xERA/xwOBA fuertes + baja fragilidad.
+- ✅ Full Game Over → SOLO si coinciden VARIAS señales: pressure_base HIGH/MODERATE + pitcher_risk (xERA/xwOBA elevadas) + hard-contact/barrel altos + OPS alto + cuotas razonables. Nunca por OPS solo.
+- ✅ F5 Under → PREFERIDO sobre Full Game Under cuando abridores son fuertes pero bullpen/script_survival full game es frágil. También útil con HIGH_PRESSURE oculta.
+- ✅ Team Total Over/Under → cuando el split del lado lo sostiene.
+- ❌ Doble Oportunidad / Draw No Bet → no aplica (no hay empate en MLB).
+- ❌ NO descartar partido por motivación "normal".
+
+REGLAS GHOST-EDGE (PROHIBIDO IGNORARLAS):
+- Si `model_verification.discrepancies` contiene un flag UNDER-killer (ERA_UNDERSTATES_RISK, PITCHER_XWOBA_WARNING, GHOST_EDGE_HARD_CONTACT_VS_UNDER, GHOST_EDGE_TEAM_XWOBA_VS_UNDER, GHOST_EDGE_RISING_ON_BASE_VS_UNDER) y tu pick es Under → degrada o muévelo a watchlist.
+- Si contiene ERA_OVERSTATES_RISK o GHOST_EDGE_OVER_VS_L5_LOW_SCORING y tu pick es Over → degrada o muévelo a watchlist.
+
+FAIL-SOFT: si advanced_stats_snapshot / pressure_base / sabermetrics no están disponibles, usa la lógica base (pitcher matchup + recent_run_split + odds) y anótalo en `risks`. NUNCA descartes por ausencia de capas avanzadas.
+
+VIVO EN MLB: si el partido está en curso, compara con el pregame pick por `game_pk`. Inning ≥ 7 con diferencia ≤ 2 carreras: evita moneyline del que va arriba; mira NRFI/YRFI, runs restantes y bullpen disponible.""",
 }
 
 
@@ -472,6 +514,28 @@ REGLAS DEL PRE-FILTRO:
     • Si las cuotas no son atractivas, marca "BORDERLINE" y el motor principal lo categorizará como discarded_market después.
 - Si tienes posiciones/standings que indican lucha por descenso, playoffs, copa, título → motivación 4–5, viability_tag "STRONG".
 - Sé ESTRICTO con las cuotas: cuota <1.15 o >2.20 sospechosa → viability_tag "BORDERLINE" o "DISCARD".
+
+══════ MLB — REGLAS DEL PRE-FILTRO ESPECÍFICAS (NO NEGOCIABLES) ══════
+PARA SPORT=baseball ÚNICAMENTE:
+- En MLB la motivación "normal" es NEUTRAL — NUNCA es razón de DISCARD por sí sola.
+- Cuotas ausentes en MLB NUNCA implican DISCARD si el partido tiene cualquiera de:
+  (a) `game_pk` o `match_id` válido,
+  (b) `probable_pitchers` (home y/o away),
+  (c) `baseballHistoricalProfile.recentRunSplit`,
+  (d) `pressure_base` precomputado,
+  (e) `advanced_stats_snapshot` con al menos un bloque disponible.
+  → En cualquiera de estos casos usa viability_tag = "BORDERLINE" o "STRONG" y marca con `viability_reason` que requiere odds/manual review.
+- Para baseball, usa además los siguientes tags en `viability_reason` cuando apliquen:
+  • "STRUCTURAL_LEAN"           — lectura estructural sólida, falta confirmación de odds.
+  • "REQUIRES_MANUAL_ODDS"      — sin odds pero con guion claro: el engine lo recogerá en watchlist_manual_odds.
+  • "WATCHLIST"                 — riesgo estructural detectado (pressure_base HIGH, ghost-edge potencial).
+  • "DISCARD_AFTER_FULL_ANALYSIS" — reservar para el motor principal; el pre-filtro NO debe llegar aquí.
+- PROHIBIDO clasificar partidos MLB como DISCARD por:
+  • "motivación normal"
+  • "cuotas no disponibles"
+  • "sin urgencia competitiva"
+  • "temporada regular"
+
 - Devuelve TODOS los partidos recibidos (no omitas ninguno). El sistema decide qué hacer.
 
 ÚNICAMENTE JSON válido. SIN markdown, SIN explicaciones fuera del JSON."""

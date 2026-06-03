@@ -1,26 +1,30 @@
 [
   {
-    "content": "Crear services/mlb_market_selection.py: select_protected_market(pick_payload) consume pressure_base, statcast, sabermetrics, ghost-edges, fragility, script survival, odds",
+    "content": "Fix 1: Reescribir SPORT_RULES['baseball'] y MLB_INTELLIGENCE_RULES con nueva filosofía Moneyball (statcast/pressure/sabermetrics/ghost-edges/market_selection)",
     "status": "completed"
   },
   {
-    "content": "Cablear market_selection en mlb_day_orchestrator.py (post-fase 9.6, antes de market_lean_classifier)",
+    "content": "Fix 1: Actualizar _build_prefilter_prompt para que MLB no descarte por motivación/cuotas, use tags STRUCTURAL_LEAN/REQUIRES_MANUAL_ODDS/WATCHLIST/DISCARD_AFTER_FULL_ANALYSIS",
     "status": "completed"
   },
   {
-    "content": "Tests pytest test_mlb_market_selection.py: F5 Under preferido / Run Line bloqueado / ML safer / Over no forzado / ghost-edge / hit pressure / missing odds / fail-soft / sport isolation",
+    "content": "Fix 3: Crear services/mlb_intelligence_warehouse.py con read/write helpers + pattern_memory con sample_size gates (>=20 modest, >=50 ROI+)",
     "status": "completed"
   },
   {
-    "content": "Fase 13.2 UI: MatchCard collapsible 'MLB Advanced Stats' + 'Sabermetría' + badges por fuente con data-testid",
+    "content": "Fix 3: Cablear warehouse en mlb_day_orchestrator.py: load profiles antes de recalc, persist snapshots, integrar pattern_match en pick payload",
     "status": "completed"
   },
   {
-    "content": "Verificar pytest 661+ + lint Python + esbuild frontend",
+    "content": "Tests pytest: test_analyst_engine_mlb_prompt.py + test_mlb_intelligence_warehouse.py (pattern memory + sample_size gates)",
     "status": "completed"
   },
   {
-    "content": "testing_agent backend + frontend para validación final",
+    "content": "Fix 2: Regenerar picks MLB de hoy vía endpoint o script directo y validar campos nuevos en DB",
     "status": "completed"
+  },
+  {
+    "content": "Pytest completo + lint + testing_agent backend",
+    "status": "in_progress"
   }
 ]

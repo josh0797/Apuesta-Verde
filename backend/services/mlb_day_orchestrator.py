@@ -1797,6 +1797,50 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as _exc_ms:
             log.debug("mlb_market_selection failed (fail-soft): %s", _exc_ms)
 
+        # ── MLB INTELLIGENCE WAREHOUSE (Fix 3 — Pattern Memory + Snapshots) ──
+        # Lookup pattern memory and attach `historical_pattern_match` to the
+        # pick. Persist the daily game intelligence snapshot for future
+        # pattern learning. Fail-soft: warehouse disabled → no-op.
+        try:
+            from .mlb_intelligence_warehouse import (
+                attach_pattern_match_to_payload,
+                persist_game_intelligence_snapshot,
+            )
+            _pm_summary = await attach_pattern_match_to_payload(db, pick_payload)
+            _pm_adj = float(_pm_summary.get("confidence_adjustment") or 0.0)
+            if _pm_adj:
+                _rec_pm = pick_payload.get("recommendation") or {}
+                _cur_conf_pm = float(_rec_pm.get("confidence_score") or 0)
+                _new_conf_pm = max(0.0, min(100.0, _cur_conf_pm + _pm_adj))
+                _rec_pm["confidence_score"] = round(_new_conf_pm, 2)
+                _rec_pm["pattern_memory_confidence_delta"] = round(_pm_adj, 2)
+                pick_payload["recommendation"] = _rec_pm
+                _existing_pm = pick_payload.get("reason_codes") or []
+                for _rc in (_pm_summary.get("reason_codes") or []):
+                    if _rc not in _existing_pm:
+                        _existing_pm.append(_rc)
+                pick_payload["reason_codes"] = _existing_pm
+
+            # Persist the snapshot for future analytics (fail-soft).
+            def _safe_team_id(v):
+                if isinstance(v, dict):
+                    return v.get("id") or v.get("team_id")
+                return None
+            await persist_game_intelligence_snapshot(
+                db,
+                game_pk=pick_payload.get("game_pk")
+                          or (pick_payload.get("recommendation") or {}).get("game_pk")
+                          or pick_payload.get("match_id"),
+                match_id=pick_payload.get("match_id"),
+                home_team_id=_safe_team_id(pick_payload.get("home_team"))
+                              or pick_payload.get("home_team_id"),
+                away_team_id=_safe_team_id(pick_payload.get("away_team"))
+                              or pick_payload.get("away_team_id"),
+                pick_payload=pick_payload,
+            )
+        except Exception as _exc_wh:
+            log.debug("mlb_intelligence_warehouse failed (fail-soft): %s", _exc_wh)
+
         # ── MLB MARKET LEAN — SINGLE SOURCE OF TRUTH ─────────────────────────
         # Fixes the UX contradiction reported by the user where the
         # "Historial profundo" badge showed LEAN OVER while the final

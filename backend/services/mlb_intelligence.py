@@ -399,81 +399,90 @@ def sanitize_mlb_picks(parsed: dict) -> dict:
 
 
 # ── Prompt fragment for the LLM (Stage 2) ───────────────────────────────────
-MLB_INTELLIGENCE_RULES = """REGLAS ESPECÍFICAS PARA MLB (NO NEGOCIABLES — ESTE DEPORTE NO SE ANALIZA COMO FÚTBOL):
+MLB_INTELLIGENCE_RULES = """REGLAS ESPECÍFICAS PARA MLB (PIPELINE MONEYBALL — NO NEGOCIABLES):
 
-A) PONDERACIÓN DE FACTORES (MLB):
-   - Matchup de pitchers abridores: 20%
-   - Bullpen (fuerza + fatiga reciente): 20%
-   - Forma ofensiva últimos 5–10 juegos: 15%
-   - Splits bateador vs mano del pitcher: 15%
-   - Probabilidad de embase (base reach): 10%
-   - Estado de juego en vivo: 10%
-   - Motivación / contexto: MÁXIMO 10% (señal secundaria)
-   - Cuotas implícitas de mercado: OBLIGATORIO para validación final
+═══ A) LECTURA OBLIGATORIA DE CAPAS PRECOMPUTADAS ═══
+El pipeline MLB adjunta al payload de cada partido (no tienes que recalcular):
+  • advanced_stats_snapshot   → Statcast adapter (xERA, xwOBA, barrel%, hard-hit%, K%, BB%, WHIP, OPS, wRC+ de equipo). Incluye data_quality por bloque.
+  • pressure_base             → tier HIGH/MODERATE/LOW/NEUTRAL + flags + inputs (hits L5, runs L5 combined).
+  • sabermetrics              → home/away.ops_profile, war_impact, starting_pitcher_fip + match_edges + summary + adjustments.
+  • advanced_adjustments       → auditoría Phase 9 (raw_conf_delta, weighted_conf_delta, weight_factor_used según data_quality 60/35/0).
+  • sabermetrics_audit         → auditoría Phase 9.6 (sabermetrics_weighted_adjustment + data_quality).
+  • model_verification.discrepancies → ghost-edges (Phase 11): ERA_UNDERSTATES_RISK, ERA_OVERSTATES_RISK, PITCHER_XWOBA_WARNING, GHOST_EDGE_HARD_CONTACT_VS_UNDER, GHOST_EDGE_TEAM_XWOBA_VS_UNDER, GHOST_EDGE_UNDER_VS_L5_HIGH_SCORING, GHOST_EDGE_OVER_VS_L5_LOW_SCORING, GHOST_EDGE_F5_UNDER_VS_L5, RECENT_RUN_TREND_CONTRADICTS_*.
+  • fragility, script_survival, pitcher_quality_score → 0-100.
+  • market_selection           → mercado protegido sugerido (recommended_market, protected_alternative, why_this_market, why_not_other_markets, reason_codes, watchlist, requires_manual_odds).
+  • historical_pattern_match  → coincidencia con patrones históricos (warehouse). Incluye historical_hit_rate, historical_roi, best_historical_market, pattern_confidence_adjustment, pattern_reason_codes, sample_size.
 
-   PROHIBIDO: usar "el equipo necesita ganar", "ya clasificado", "sin urgencia",
-   "presión de eliminación" como factor PRIMARIO en MLB. Estos son señales
-   secundarias con peso ≤10%. La decisión debe descansar en pitchers,
-   bullpen, ofensiva real y mercado.
+═══ B) FILOSOFÍA: PROTECTED-MARKET-FIRST ═══
+Tu objetivo NO es predecir; es ELEGIR EL MERCADO MÁS PROTEGIDO que mejor refleje el guion real:
+  1. Probable pitchers / FIP / xERA / xwOBA.
+  2. Lineups y WAR/OPS si están disponibles.
+  3. Pressure Base: hits, carreras promedio, BB, HR, L5/L15.
+  4. Fragility + Script Survival.
+  5. Ghost-Edges contra el lado considerado.
+  6. Selección del mercado más protegido (consulta `market_selection`).
+  7. SOLO después: odds / edge.
 
-B) MERCADOS PROHIBIDOS EN MLB:
-   - ❌ Doble Oportunidad — no aplica (no hay empate en béisbol)
-   - ❌ Draw No Bet — no aplica (no hay empate)
-   - ❌ Cualquier selección con "empate" / "draw" / "X"
-   Si el modelo siente que el partido no tiene edge claro, usar discarded_market,
-   NUNCA forzar un Doble Oportunidad.
+═══ C) MERCADOS PERMITIDOS (REGLAS NUEVAS — REEMPLAZAN LAS PROHIBICIONES ANTIGUAS) ═══
+  ✅ Moneyline favorito: cuando es sólido pero el margen no soporta -1.5 (cover_prob < 0.50 o marginProjection < 2.0).
+  ✅ Run Line -1.5 favorito: PERMITIDO sólo si marginProjection ≥ 2.0, cover_prob ≥ 0.50, pitcher edge + bullpen edge + lineup strength + WAR edge + sabermetrics edge alineados. SIN ese soporte → Moneyline.
+  ✅ Run Line +1.5 underdog: cuando favorito no es dominante.
+  ✅ Full Game Under: SOLO con pressure_base LOW + FIP/xERA fuertes en ambos + xwOBA baja + fragility bajo + script_survival alto.
+  ✅ F5 Under: PREFERIDO sobre Full Game Under cuando abridores son fuertes pero bullpen frágil O pressure_base es HIGH_PRESSURE.
+  ✅ Full Game Over: SOLO si coinciden VARIAS señales (pressure_base ≥ MODERATE + pitcher_risk vía xERA/xwOBA + hard-contact alto + OPS alto + cuotas razonables). Nunca por OPS solo.
+  ✅ Team Total Over/Under: cuando el split del lado lo sostiene.
+  ✅ NRFI/YRFI: solo con `firstInningSplit` claro.
+  ❌ Doble Oportunidad / Draw No Bet / cualquier mercado de "empate" — NO existen en MLB.
 
-C) MERCADOS PERMITIDOS EN MLB:
-   - ✅ Moneyline (Home/Away) — solo cuando exista edge real (≥3% vs implícita)
-   - ✅ Run Line (-1.5 / +1.5) — solo si el diferencial esperado lo justifica
-   - ✅ Total Runs Over/Under — solo si pitcher + bullpen + ofensiva + estadio respaldan
-   - ✅ Player props (hit, total bases, reach base) — cuando baseReachScore alto
+═══ D) REGLAS GHOST-EDGE (BLOQUEOS) ═══
+Si `model_verification.discrepancies` contiene flags UNDER-killer (ERA_UNDERSTATES_RISK, PITCHER_XWOBA_WARNING, GHOST_EDGE_HARD_CONTACT_VS_UNDER, GHOST_EDGE_TEAM_XWOBA_VS_UNDER) y tu pick es Under:
+  → degrádalo a F5 Under (si abridores soportan) o watchlist.
+Si contiene flags OVER-killer (ERA_OVERSTATES_RISK, GHOST_EDGE_OVER_VS_L5_LOW_SCORING) y tu pick es Over:
+  → muévelo a watchlist.
 
-D) USAR EL BLOQUE `mlb_context` cuando esté presente en el payload:
-   - Contiene ERA/WHIP/K-BB/HR del pitcher abridor, OPS/runs por juego, y fatiga
-     del bullpen (3 días recientes). Es la fuente PRIMARIA — úsala literalmente.
-   - Si el bloque viene vacío o con data_quality="missing", admite el partido
-     en incomplete_data o explica por qué hay edge sin esos datos.
+═══ E) PRESSURE BASE (PRESIÓN OFENSIVA OCULTA) ═══
+  • HIGH_PRESSURE + pick Under → bandera roja: prefiere F5 Under si abridores son fuertes.
+  • LOW_PRESSURE + ambos pitchers sólidos → confirma Under.
+  • Live-acceleration flag → contacto in-game caliente sin runs aún (bomba de tiempo). No recomiendes Under fuerte.
 
-E) LECCIÓN RANGERS vs ANGELS (caso real del usuario):
-   "Una remontada parcial NO equivale a probabilidad alta de comeback. Si el
-   mercado/cashout sigue descontando baja probabilidad, el engine debe
-   respetar esa señal. Pasar de 6-0 a 6-3 mejora el ticket, pero NO convierte
-   automáticamente al equipo en favorito real. El cash out bajo es señal de
-   baja probabilidad real de remontada."
-   Por tanto, en MLB live, JAMÁS recomiendes Moneyline del equipo perdedor
-   solo porque está acercando el marcador. La probabilidad implícita del
-   mercado en vivo es tu ground truth.
+═══ F) SABERMETRICS (WAR/OPS/FIP) ═══
+La capa Sabermetrics es de CONFIRMACIÓN, no motor principal. **JAMÁS** justifiques un pick fuerte SOLO con WAR/OPS/FIP. Se aplica ya ponderada (60% strong, 35% partial, 0% missing) — `sabermetrics_audit.sabermetrics_weighted_adjustment` te dice el delta neto.
+  • ERA_OVERSTATES_PITCHER_QUALITY (en sabermetrics) → pitcher con suerte, riesgo oculto para Under.
+  • ERA_UNDERSTATES_PITCHER_QUALITY → pitcher con mala suerte, posible valor oculto.
 
-F) MOMENTUM L5 vs L15 (CAMPO `baseballHistoricalProfile` / `recent_run_split`):
-   Cuando el payload del partido incluya `baseballHistoricalProfile.recentRunSplit`
-   (o equivalentemente `recent_run_split` a nivel raíz), DEBES usarlo como
-   señal de momentum reciente. Estructura típica::
+═══ G) MARKET SELECTION (USA EL RESULTADO PROPUESTO) ═══
+El campo `market_selection.recommended_market` ya aplicó las reglas de protección (ghost-edge / pressure / bullpen / run-line margin / odds availability). Tu trabajo:
+  • Si market_selection.watchlist == True → manda el pick a `watchlist` y razona por qué.
+  • Si market_selection.requires_manual_odds == True → manda a `structural_lean_requires_odds` o `watchlist_manual_odds`, NUNCA a `discarded_market`.
+  • Si market_selection.recommended_market difiere del que te propondrías, EXPLICA por qué adoptas o descartas la sugerencia y cita los reason_codes.
 
-       recentRunSplit = {
-         "home": {"runs_l5_avg": 5.2, "runs_l15_avg": 4.1, "delta_pct": +27.0, ...},
-         "away": {"runs_l5_avg": 3.4, "runs_l15_avg": 4.6, "delta_pct": -26.0, ...}
-       }
-       recentRunTrend = "BOTH_HOT" | "HOME_HOT_AWAY_COLD" | "BOTH_COLD" | ...
+═══ H) HISTORICAL PATTERN MEMORY (`historical_pattern_match` — capa de ajuste conservadora) ═══
+  • Si `historical_pattern_match.sample_size < 20` → solo warning, NO ajustes confianza.
+  • Si `20 <= sample_size < 50` → ajuste moderado siguiendo `pattern_confidence_adjustment` (cap ±5 puntos).
+  • Si `sample_size >= 50` Y `historical_roi > 0` → puedes aumentar confianza hasta el ajuste sugerido. Cita el patrón en `reasoning`.
+  • NUNCA conviertas un pick débil en uno fuerte solo por memoria histórica.
 
-   onBaseProfileL5 trae el mismo split pero para BB + hits + base reach.
+═══ I) FAIL-SOFT Y PROHIBICIONES DE DESCARTE ═══
+  • Si advanced_stats_snapshot / pressure_base / sabermetrics están missing → usa lógica base (pitcher matchup + recent_run_split + odds). Anota la limitación en `risks` pero NO descartes el partido.
+  • Cuotas ausentes en MLB → estructural lean / watchlist manual odds, NO discarded_market.
+  • "Motivación normal" en MLB → NEUTRAL, no es razón de descarte. Salta a estructura.
 
-   USO OBLIGATORIO:
-   - delta_pct > +20%       → equipo en racha caliente (ofensiva subiendo).
-   - delta_pct < -20%       → equipo en racha fría (ofensiva cayendo).
-   - |delta_pct| < 10%      → momentum neutro (ignorar la señal).
-   - Total Over/Under: si AMBOS equipos están HOT (`recentRunTrend=BOTH_HOT`),
-     inclina hacia Over; si AMBOS están COLD, inclina hacia Under.
-   - Team Total (Over/Under de un equipo concreto): aplica el split de ESE
-     equipo, no el promedio.
-   - F5 (primeros 5 innings): si tienes `f5Split`, úsalo en lugar del split
-     completo para mercados F5.
-   - NRFI/YRFI (primer inning): usa `firstInningSplit` específicamente.
-     Si `firstInningSplit.home.scored_pct` + `firstInningSplit.away.scored_pct`
-     ≥ 60%, inclina hacia YRFI; si ambos < 25%, hacia NRFI.
+═══ J) MOMENTUM L5 vs L15 (compatible con la base ya existente) ═══
+La estructura `baseballHistoricalProfile.recentRunSplit` sigue presente y la usa pressure_base internamente. Estructura típica::
 
-   En `reasoning` cita explícitamente la métrica usada (ejemplo:
-   "Yankees runs L5 5.6 vs L15 4.0 = +40% momentum caliente"). Si el campo
-   está ausente o `recentRunTrend = "INSUFFICIENT_DATA"`, NO inventes —
-   anótalo en `risks` como "Sin splits L5/L15 fiables".
+    recentRunSplit = {
+      "home": {"runs_l5_avg": 5.2, "runs_l15_avg": 4.1, "delta_pct": +27.0, ...},
+      "away": {"runs_l5_avg": 3.4, "runs_l15_avg": 4.6, "delta_pct": -26.0, ...}
+    }
+    recentRunTrend = "BOTH_HOT" | "HOME_HOT_AWAY_COLD" | "BOTH_COLD" | ...
+
+Umbrales (umbralizados también internamente):
+  • delta_pct > +20%       → equipo caliente (ofensiva subiendo).
+  • delta_pct < -20%       → equipo frío (ofensiva cayendo).
+  • |delta_pct| < 10%      → momentum neutro.
+
+Cuando justifiques un Under/Over en `reasoning`, cita los valores L5/L15 explícitamente (ejemplo: "Yankees runs L5 5.6 vs L15 4.0 = +40% caliente"). Si recentRunTrend = "INSUFFICIENT_DATA" → anótalo en risks, NO inventes.
+
+═══ K) VIVO EN MLB ═══
+Compara contra el pregame pick por `game_pk`. Inning ≥ 7 con diferencia ≤ 2 carreras: NO recomiendes moneyline del que va arriba (caso Rangers vs Angels). Evalúa runs restantes y bullpen disponible.
 """
