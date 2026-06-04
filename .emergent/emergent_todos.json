@@ -1,18 +1,14 @@
 [
   {
-    "content": "FEATURE 1 - Backend + tests bucket dispersion activation",
+    "content": "Summary: threshold 90 para buckets whitelisteados + tier classification",
     "status": "completed"
   },
   {
-    "content": "FIX 2 - Backend: /picks/tracked acepta ?sport=; track_pick enriched + dedup",
+    "content": "Backend: validation tracker (mlb_bucket_validation_tracker upsert + days_since helper)",
     "status": "completed"
   },
   {
-    "content": "FIX 2 - Backend: settle_mlb_pick guarda final_score, match_date, settled_at en pick_tracking",
-    "status": "completed"
-  },
-  {
-    "content": "FIX 2 - Frontend HistoryPage: sport tabs, columnas, badge, dedup defensivo, mobile cards",
+    "content": "Orquestador: tiered confidence/fragility adjustment con caps + UNDER-only restriction + auto-validate 14d",
     "status": "completed"
   },
   {

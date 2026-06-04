@@ -70,13 +70,18 @@ def _resolve_bucket_ratio(
     park_code: Optional[str],
     park_runs_mult: Optional[float],
     summary: Optional[dict],
-) -> Optional[tuple[float, str]]:
+) -> Optional[dict]:
     """Resolve a bucket-specific NB dispersion ratio for the current game.
 
-    Returns ``(ratio, bucket_name)`` when the resolved bucket is
-    ``apply_eligible`` (n≥100 settled samples) AND whitelisted by the
-    summary's ``bucket_application_policy.buckets_eligible_for_apply``.
-    Returns ``None`` otherwise — caller falls back to the global ratio.
+    Returns a dict ``{ratio, bucket_name, sample_size, adjustment_tier,
+    max_confidence_adjust, max_fragility_bump}`` when the resolved
+    bucket is ``apply_eligible`` (whitelisted: n≥90, else n≥100) AND
+    listed by the summary's ``bucket_application_policy``. Returns
+    ``None`` otherwise — caller falls back to the global ratio.
+
+    The tiered caps come from the summary's ``_adjustment_tier_for``
+    output so the orchestrator can clamp its delta without re-deriving
+    the rules.
 
     Alignment with the summary
     --------------------------
@@ -144,8 +149,17 @@ def _resolve_bucket_ratio(
         if not bucket.get("apply_eligible"):
             continue
         r = _clamp(bucket.get("suggested_ratio"))
-        if r is not None:
-            return (r, name)
+        if r is None:
+            continue
+        return {
+            "ratio":                  r,
+            "bucket_name":            name,
+            "sample_size":            int(bucket.get("sample_size") or 0),
+            "adjustment_tier":        bucket.get("adjustment_tier") or "INSUFFICIENT",
+            "max_confidence_adjust":  int(bucket.get("max_confidence_adjust") or 0),
+            "max_fragility_bump":     int(bucket.get("max_fragility_bump") or 0),
+            "whitelisted":            bool(bucket.get("whitelisted", True)),
+        }
     return None
 
 
@@ -2379,16 +2393,14 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             except Exception as exc_pf:
                 log.debug("park_factor_live compute failed: %s", exc_pf)
 
-            # ── Recalibración NB por bucket (PASIVO hasta n≥100) ─────
-            # El NB de la primera pasada usó el ratio GLOBAL porque al
-            # proyectar aún no se conocía el bucket. Aquí, con presión
-            # y parque ya calculados, recalculamos SI el bucket es
-            # apply_eligible. Hoy ningún bucket llega a n≥100 → no-op.
-            #
-            # IMPORTANTE: este bloque NO modifica confidence_score.
-            # Solo guarda telemetría completa (global + bucket) para
-            # que storage/feedback loop/UI vean ambas pasadas. La
-            # aplicación al confidence queda preparada en Fase 2 (abajo).
+            # ── Recalibración NB por bucket (PASIVO en OBSERVING) ────
+            # Phase 1: bucket dispersion ratio always overrides the global
+            # ratio when an apply-eligible whitelisted bucket matches.
+            # Phase 2 (auto-activated): once a bucket has been VALIDATED
+            # (14 days continuous OBSERVING), the orchestrator applies
+            # tier-aware confidence/fragility adjustments — but ONLY for
+            # UNDER picks (per spec: never force OVER nor convert weak
+            # picks into strong ones).
             try:
                 _exp_total  = pick_payload.get("expected_total")
                 _book_total = pick_payload.get("book_total")
@@ -2409,7 +2421,8 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                         summary        = active_calibration_summary,
                     )
                     if _resolved is not None:
-                        _bucket_ratio, _bucket_name = _resolved
+                        _bucket_ratio = _resolved["ratio"]
+                        _bucket_name  = _resolved["bucket_name"]
                         from .mlb_pregame_analytics_v2 import totals_probability
                         _recalc = totals_probability(
                             expected_runs    = _exp_total,
@@ -2421,8 +2434,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                         _recalc["_source"]           = "bucket_recalibration"
                         pick_payload["totals_probability_bucket"] = _recalc
 
-                        # Auditoría completa: conservar el global, exponer
-                        # ambos valores nombrados explícitamente.
+                        # Auditoría completa.
                         _global_nb    = pick_payload.get("nb_prob_under")
                         _global_ratio = pick_payload.get("dispersion_ratio")
                         pick_payload["nb_prob_under_global"]    = _global_nb
@@ -2431,14 +2443,12 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                         pick_payload["dispersion_ratio_bucket"] = _bucket_ratio
 
                         # Sobrescribir los campos que persisten (storage
-                        # + feedback loop leen estos). El confidence NO
-                        # los usa hoy, así que esto no altera la decisión.
+                        # + feedback loop leen estos). El confidence_score
+                        # se ajusta abajo según el adjustment_tier.
                         pick_payload["nb_prob_under"]    = _recalc.get("prob_under")
                         pick_payload["dispersion_ratio"] = _bucket_ratio
                         pick_payload["under_calibration_delta_pts"] = _recalc.get("under_calibration_delta_pts")
 
-                        # Bloque de auditoría que la UI / feedback loop
-                        # leen para explicar que hubo segunda pasada.
                         _bucket_delta_pts = None
                         try:
                             if _global_nb is not None and _recalc.get("prob_under") is not None:
@@ -2447,49 +2457,135 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                                 )
                         except (TypeError, ValueError):
                             _bucket_delta_pts = None
-                        pick_payload["totals_dispersion_bucket_recalc"] = {
-                            "applied":          True,
-                            "bucket_name":      _bucket_name,
-                            "bucket_ratio":     _bucket_ratio,
-                            "global_ratio":     _global_ratio,
-                            "bucket_delta_pts": _bucket_delta_pts,
-                            "source":           "bucket_recalibration",
-                        }
 
-                        log.info(
-                            "Bucket NB recalc game=%s bucket=%s ratio=%.2f prob_under %.3f→%.3f (Δ%.1fpts)",
-                            conf.get("game_pk"), _bucket_name, _bucket_ratio,
-                            _global_nb or 0, _recalc.get("prob_under") or 0,
-                            _bucket_delta_pts or 0,
+                        # ── Tracker upsert + validation state ─────────
+                        # The tracker counts days since the bucket first
+                        # crossed apply_eligible. After 14 days it auto-
+                        # transitions to VALIDATED and the orchestrator
+                        # is allowed to penalise confidence on UNDERs.
+                        _val_state: dict = {"status": "OBSERVING", "validated": False}
+                        if db is not None:
+                            try:
+                                from .mlb_bucket_validation_tracker import (
+                                    get_bucket_validation_state,
+                                    upsert_bucket_observation,
+                                )
+                                await upsert_bucket_observation(
+                                    db,
+                                    bucket_key     = _bucket_name,
+                                    sample_size    = _resolved["sample_size"],
+                                    apply_eligible = True,
+                                )
+                                _val_state = await get_bucket_validation_state(
+                                    db, _bucket_name,
+                                )
+                            except Exception as _exc_t:
+                                log.debug("validation tracker failed: %s", _exc_t)
+
+                        # ── Tier-aware confidence + fragility adjustment ──
+                        # Only UNDER picks on the FULL GAME market are
+                        # eligible — the spec demands these buckets never
+                        # force OVER nor convert weak picks into strong
+                        # ones. F5 markets are untouched too: they're
+                        # already protected against bullpen variance.
+                        _rec = pick_payload.get("recommendation") or {}
+                        _market_str = str(_rec.get("market") or "").lower()
+                        _is_under_pick = "under" in _market_str
+                        _is_f5         = "f5" in _market_str or "first 5" in _market_str
+                        _is_full_under = _is_under_pick and not _is_f5
+                        _max_conf  = _resolved.get("max_confidence_adjust", 0)
+                        _max_frag  = _resolved.get("max_fragility_bump", 0)
+                        _adj_tier  = _resolved.get("adjustment_tier", "INSUFFICIENT")
+
+                        _conf_applied = 0
+                        _frag_applied = 0
+                        _action_taken = "OBSERVE_ONLY"
+                        # Apply ONLY when: validated AND UNDER full-game AND tier > INSUFFICIENT
+                        # AND the bucket reduced the Under probability (Δ > 0).
+                        if (_val_state.get("validated")
+                                and _is_full_under
+                                and _adj_tier in ("SOFT", "FULL")
+                                and (_bucket_delta_pts or 0) >= 2):
+                            # Confidence: proportional to delta, capped at tier max.
+                            _conf_applied = int(min(
+                                _max_conf,
+                                max(0, round((_bucket_delta_pts or 0) * 0.5)),
+                            ))
+                            # Fragility: stronger ramp, capped at tier max.
+                            _frag_applied = int(min(
+                                _max_frag,
+                                max(0, round((_bucket_delta_pts or 0) * 1.0)),
+                            ))
+                            if _conf_applied > 0 and "confidence_score" in _rec:
+                                try:
+                                    _rec["confidence_score"] = max(
+                                        0, float(_rec["confidence_score"]) - _conf_applied,
+                                    )
+                                except (TypeError, ValueError):
+                                    pass
+                            if _frag_applied > 0:
+                                try:
+                                    _curr_frag = float(pick_payload.get("fragility_score") or 0)
+                                    pick_payload["fragility_score"] = min(100.0, _curr_frag + _frag_applied)
+                                except (TypeError, ValueError):
+                                    pass
+                            _rec.setdefault("reason_codes", []).append(
+                                f"BUCKET_NB_UNDER_PROBABILITY_REDUCED:{_bucket_name}",
+                            )
+                            # Protected-market suggestion: nudge towards F5
+                            # / higher line / watchlist. We DO NOT change
+                            # the recommended market here (avoids cascading
+                            # downstream re-validation); we only attach a
+                            # hint the UI surfaces in the explanation.
+                            _rec.setdefault("protected_market_suggestions", []).extend([
+                                "PREFER_F5_UNDER",
+                                "CONSIDER_HIGHER_LINE",
+                                "WATCHLIST_OR_MANUAL_REVIEW",
+                            ])
+                            pick_payload["recommendation"] = _rec
+                            _action_taken = "APPLIED"
+                        elif _adj_tier == "INSUFFICIENT" or not _val_state.get("validated"):
+                            _action_taken = "OBSERVING_NOT_VALIDATED"
+                        elif not _is_full_under:
+                            # Eligible but pick isn't UNDER full-game.
+                            _action_taken = "NOT_UNDER_FULL_GAME"
+
+                        # Bloque de auditoría — la UI / feedback loop leen
+                        # este bloque para explicar QUÉ pasó en cada juego.
+                        pick_payload["totals_dispersion_bucket_recalc"] = {
+                            "applied":             _action_taken == "APPLIED",
+                            "action":              _action_taken,
+                            "bucket_name":         _bucket_name,
+                            "bucket_ratio":        _bucket_ratio,
+                            "global_ratio":        _global_ratio,
+                            "bucket_delta_pts":    _bucket_delta_pts,
+                            "sample_size":         _resolved.get("sample_size"),
+                            "adjustment_tier":     _adj_tier,
+                            "max_confidence_adjust": _max_conf,
+                            "max_fragility_bump":  _max_frag,
+                            "confidence_adjusted_by": _conf_applied,
+                            "fragility_bumped_by":    _frag_applied,
+                            "is_under_full_game":  _is_full_under,
+                            "validation_state":    {
+                                "status":    _val_state.get("status"),
+                                "validated": _val_state.get("validated"),
+                                "days_since_first_eligible":
+                                    _val_state.get("days_since_first_eligible"),
+                                "days_until_validated":
+                                    _val_state.get("days_until_validated"),
+                            },
+                            "source":              "bucket_recalibration",
+                        }
+                        # Legacy alias kept for backward-compat.
+                        pick_payload["_phase2_bucket_penalty_eligible"] = (
+                            _action_taken == "APPLIED"
                         )
 
-                        # ── FASE 2 (PREPARADA, NO ACTIVA) ───────────
-                        # Cuando se valide en producción, descomentar
-                        # para penalizar conservadoramente el confidence
-                        # del Under cuando el bucket NB reduce la prob
-                        # del Under en ≥5 pts. Ubicación correcta: aquí,
-                        # antes de que el pick entre a picks/rescued/
-                        # watchlist. Requiere confirmar is_under_pick.
-                        #
-                        # _is_under_pick = "under" in str(
-                        #     (pick_payload.get("recommendation") or {}).get("market") or ""
-                        # ).lower()
-                        # if _is_under_pick and (_bucket_delta_pts or 0) >= 5:
-                        #     _rec = pick_payload.get("recommendation") or {}
-                        #     _penalty = min(5, (_bucket_delta_pts or 0) * 0.5)
-                        #     if "confidence_score" in _rec:
-                        #         _rec["confidence_score"] = max(
-                        #             0, float(_rec["confidence_score"]) - _penalty
-                        #         )
-                        #     _rec.setdefault("reason_codes", []).append(
-                        #         "BUCKET_NB_UNDER_PROBABILITY_REDUCED"
-                        #     )
-                        #     pick_payload["recommendation"] = _rec
-                        pick_payload["_phase2_bucket_penalty_eligible"] = bool(
-                            (_bucket_delta_pts or 0) >= 5
-                            and "under" in str(
-                                (pick_payload.get("recommendation") or {}).get("market") or ""
-                            ).lower()
+                        log.info(
+                            "Bucket NB game=%s bucket=%s ratio=%.2f Δ%.1fpts tier=%s action=%s conf-%d frag+%d",
+                            conf.get("game_pk"), _bucket_name, _bucket_ratio,
+                            _bucket_delta_pts or 0, _adj_tier, _action_taken,
+                            _conf_applied, _frag_applied,
                         )
             except Exception as _exc_brc:
                 log.debug("bucket NB recalc failed (non-fatal): %s", _exc_brc)

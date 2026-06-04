@@ -989,10 +989,56 @@ def _compute_totals_dispersion_by_buckets(docs: list[dict]) -> dict:
             buckets["fragility"][ftier].append(d)
         buckets["park"][_park_bucket(d.get("park_runs_mult"))].append(d)
 
-    def _bucket_summary(subset: list[dict]) -> dict:
+    # Whitelisted buckets get a LOWER apply_eligible threshold (90 vs 100)
+    # PLUS a tiered adjustment ladder so downstream consumers can use
+    # bucket signals gradually as the sample grows. Non-whitelisted
+    # buckets stay at n≥100 and are always OBSERVE_ONLY (no caps shipped).
+    # Kept in-module — duplicating the v2 whitelist would couple the
+    # summary to engine imports. Keep these in sync if ever changed.
+    _SUMMARY_APPLY_WHITELIST = frozenset({
+        "pressure.HIGH_PRESSURE",
+        "park.HITTER_FRIENDLY",
+    })
+
+    def _adjustment_tier_for(n: int, whitelisted: bool) -> dict:
+        """Tiered adjustment caps for whitelisted buckets.
+
+        * n <  90 → ``INSUFFICIENT`` (everything OBSERVE_ONLY)
+        * 90 ≤ n < 150 → ``WARNING_ONLY`` for non-whitelisted,
+                         ``SOFT`` for whitelisted (max ±3 conf, +5 frag)
+        * 150 ≤ n < 250 → ``FULL`` (max ±7 conf, +10 frag)
+        * n ≥ 250 → ``FULL`` (no further ramp — caps stay at FULL)
+        """
+        if not whitelisted:
+            return {
+                "tier":                  "INSUFFICIENT",
+                "max_confidence_adjust": 0,
+                "max_fragility_bump":    0,
+            }
+        if n < 90:
+            return {
+                "tier":                  "INSUFFICIENT",
+                "max_confidence_adjust": 0,
+                "max_fragility_bump":    0,
+            }
+        if n < 150:
+            return {
+                "tier":                  "SOFT",
+                "max_confidence_adjust": 3,
+                "max_fragility_bump":    5,
+            }
+        return {
+            "tier":                  "FULL",
+            "max_confidence_adjust": 7,
+            "max_fragility_bump":    10,
+        }
+
+    def _bucket_summary(subset: list[dict], *, bucket_key: str) -> dict:
         n = len(subset)
+        whitelisted = bucket_key in _SUMMARY_APPLY_WHITELIST
         if n == 0:
-            return {"available": False, "sample_size": 0, "reason": "empty_bucket"}
+            return {"available": False, "sample_size": 0, "reason": "empty_bucket",
+                     "bucket_key": bucket_key, "whitelisted": whitelisted}
         # Hit rate (Under hit ratio) — fail-soft if no results.
         won  = sum(1 for d in subset if d.get("result") == "won")
         lost = sum(1 for d in subset if d.get("result") == "lost")
@@ -1012,6 +1058,20 @@ def _compute_totals_dispersion_by_buckets(docs: list[dict]) -> dict:
         if disp.get("available") is False and n >= 10:
             # Recompute with relaxed min samples.
             disp = _compute_totals_dispersion_for_bucket(subset)
+
+        # ── Apply-eligibility (whitelisted: ≥90; otherwise: ≥100) ──
+        min_apply = 90 if whitelisted else 100
+        apply_eligible = n >= min_apply
+        # Mode: APPLY when eligible; WARNING when whitelisted but below
+        # threshold yet ≥30 samples (informational); OBSERVE_ONLY otherwise.
+        if apply_eligible:
+            mode = "APPLY"
+        elif whitelisted and n >= 30:
+            mode = "WARNING_ONLY"
+        else:
+            mode = "OBSERVE_ONLY"
+        tier_info = _adjustment_tier_for(n, whitelisted)
+
         return {
             "available":          disp.get("available", False),
             "sample_size":        n,
@@ -1025,22 +1085,27 @@ def _compute_totals_dispersion_by_buckets(docs: list[dict]) -> dict:
             "mean_expected_total": disp.get("mean_expected_total"),
             "confidence_tier":    disp.get("confidence_tier"),
             "recommendation":     disp.get("recommendation"),
-            # ── Observe-only application policy ─────────────────────
-            # A bucket must accumulate ≥100 own samples before its
-            # per-bucket dispersion ratio is eligible to be APPLIED
-            # by downstream consumers. Until then we only OBSERVE the
-            # value (display + audit) — applying a bucket ratio with
-            # n<100 would sub-calibrate a slice and contaminate Unders
-            # disproportionately. This flag is the gatekeeper.
-            "apply_eligible":     n >= 100,
-            "mode":               "APPLY" if n >= 100 else "OBSERVE_ONLY",
-            "samples_until_apply": max(0, 100 - n),
+            # ── Application policy ───────────────────────────────────
+            "bucket_key":          bucket_key,
+            "whitelisted":         whitelisted,
+            "apply_eligible":      apply_eligible,
+            "mode":                mode,
+            "min_apply_threshold": min_apply,
+            "samples_until_apply": max(0, min_apply - n),
+            # ── Tiered adjustment caps (whitelisted only) ────────────
+            # Consumers MUST clamp their confidence/fragility deltas to
+            # these caps. Non-whitelisted buckets ship zeros so the
+            # downstream code can blindly apply min(delta, cap) without
+            # branching on whitelisted/not.
+            "adjustment_tier":     tier_info["tier"],
+            "max_confidence_adjust": tier_info["max_confidence_adjust"],
+            "max_fragility_bump":    tier_info["max_fragility_bump"],
         }
 
     out: dict[str, dict] = {"pressure": {}, "f5": {}, "fragility": {}, "park": {}}
     for dim, sub in buckets.items():
         for key, subset in sub.items():
-            out[dim][key] = _bucket_summary(subset)
+            out[dim][key] = _bucket_summary(subset, bucket_key=f"{dim}.{key}")
     return out
 
 

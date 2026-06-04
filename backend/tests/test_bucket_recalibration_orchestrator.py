@@ -69,10 +69,14 @@ def test_resolve_pressure_bucket_wins_when_eligible():
             "pressure": {"HIGH_PRESSURE": {
                 "available": True, "apply_eligible": True,
                 "suggested_ratio": 1.85, "sample_size": 120,
+                "adjustment_tier": "SOFT", "max_confidence_adjust": 3,
+                "max_fragility_bump": 5, "whitelisted": True,
             }},
             "park": {"HITTER_FRIENDLY": {
                 "available": True, "apply_eligible": True,
                 "suggested_ratio": 2.30, "sample_size": 110,
+                "adjustment_tier": "SOFT", "max_confidence_adjust": 3,
+                "max_fragility_bump": 5, "whitelisted": True,
             }},
         },
     }
@@ -83,7 +87,12 @@ def test_resolve_pressure_bucket_wins_when_eligible():
         summary=summary,
     )
     # Pressure runs first → wins even though park has a wider ratio.
-    assert out == (1.85, "pressure.HIGH_PRESSURE")
+    assert out is not None
+    assert out["ratio"] == 1.85
+    assert out["bucket_name"] == "pressure.HIGH_PRESSURE"
+    assert out["adjustment_tier"] == "SOFT"
+    assert out["max_confidence_adjust"] == 3
+    assert out["max_fragility_bump"] == 5
 
 
 def test_resolve_falls_back_to_park_when_pressure_not_eligible():
@@ -101,6 +110,8 @@ def test_resolve_falls_back_to_park_when_pressure_not_eligible():
             "park": {"HITTER_FRIENDLY": {
                 "available": True, "apply_eligible": True,
                 "suggested_ratio": 2.30, "sample_size": 150,
+                "adjustment_tier": "FULL", "max_confidence_adjust": 7,
+                "max_fragility_bump": 10,
             }},
         },
     }
@@ -110,7 +121,10 @@ def test_resolve_falls_back_to_park_when_pressure_not_eligible():
         park_runs_mult=1.15,
         summary=summary,
     )
-    assert out == (2.30, "park.HITTER_FRIENDLY")
+    assert out is not None
+    assert out["ratio"] == 2.30
+    assert out["bucket_name"] == "park.HITTER_FRIENDLY"
+    assert out["adjustment_tier"] == "FULL"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -136,6 +150,8 @@ def test_park_key_resolution_by_code_or_multiplier(code, mult, expected_key):
             "park": {expected_key: {
                 "available": True, "apply_eligible": True,
                 "suggested_ratio": 2.0, "sample_size": 200,
+                "adjustment_tier": "FULL", "max_confidence_adjust": 7,
+                "max_fragility_bump": 10,
             }},
         },
     }
@@ -144,7 +160,9 @@ def test_park_key_resolution_by_code_or_multiplier(code, mult, expected_key):
         park_code=code, park_runs_mult=mult,
         summary=summary,
     )
-    assert out == (2.0, f"park.{expected_key}")
+    assert out is not None
+    assert out["ratio"] == 2.0
+    assert out["bucket_name"] == f"park.{expected_key}"
 
 
 def test_park_key_falls_back_to_none_on_garbage_multiplier():
@@ -193,7 +211,7 @@ def test_resolve_clamps_high_ratio_to_25():
         summary=summary,
     )
     assert out is not None
-    assert out[0] == 2.5
+    assert out["ratio"] == 2.5
 
 
 def test_resolve_clamps_low_ratio_to_11():
@@ -216,7 +234,7 @@ def test_resolve_clamps_low_ratio_to_11():
         summary=summary,
     )
     assert out is not None
-    assert out[0] == 1.1
+    assert out["ratio"] == 1.1
 
 
 def test_resolve_returns_none_when_suggested_ratio_is_string():
