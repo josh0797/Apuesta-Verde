@@ -77,7 +77,7 @@ async def test_summary_has_all_new_moneyball_keys_with_empty_data():
     for b in GHOST_EDGE_BUCKETS:
         assert b in summary["by_ghost_edge"]
     assert summary["pattern_memory_performance"] == []
-    assert summary["summary_schema_version"] == "moneyball.1"
+    assert summary["summary_schema_version"] == "moneyball.2"
 
 
 @pytest.mark.asyncio

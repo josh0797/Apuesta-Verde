@@ -436,6 +436,13 @@ async def compute_run_evaluations_summary(db,
     # ── Pattern memory performance (from mlb_pattern_memory) ──────
     pattern_memory_performance = await _compute_pattern_memory_performance(db)
 
+    # ── Totals dispersion calibration (NB feedback loop) ──────────
+    # Inspect settled docs with an `expected_total` + `actual_total` to
+    # estimate the empirical variance/mean ratio. If we have enough
+    # samples (≥30), we expose a *suggested* dispersion_ratio so the
+    # operator can update MLB_TOTALS_DISPERSION_RATIO with confidence.
+    totals_dispersion = _compute_totals_dispersion_calibration(settled_docs)
+
     return {
         "ok":           True,
         "window_days":  capped_days,
@@ -463,8 +470,9 @@ async def compute_run_evaluations_summary(db,
         "f5_vs_full_game_under":       f5_vs_full_game_under,
         "manual_odds_review_outcomes": manual_odds_review_outcomes,
         "pattern_memory_performance":  pattern_memory_performance,
+        "totals_dispersion_calibration": totals_dispersion,
         # Schema version (UI can branch on this)
-        "summary_schema_version":  "moneyball.1",
+        "summary_schema_version":  "moneyball.2",
     }
 
 
@@ -601,6 +609,110 @@ async def _compute_pattern_memory_performance(db) -> list[dict]:
         })
     rows.sort(key=lambda r: int(r.get("sample_size") or 0), reverse=True)
     return rows[:50]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Totals dispersion calibration (Negative-Binomial feedback loop)
+# ─────────────────────────────────────────────────────────────────────
+def _compute_totals_dispersion_calibration(docs: list[dict]) -> dict:
+    """Estimate the empirical variance/mean ratio for MLB total runs.
+
+    Drives the Negative-Binomial model in ``mlb_pregame_analytics_v2``:
+    if the empirical ratio drifts away from the configured default
+    (``MLB_TOTALS_DISPERSION_RATIO = 1.5``), this block surfaces the
+    suggested value so the operator can update the constant or the
+    feedback loop can read it dynamically.
+
+    Reads each settled doc for ``expected_total`` (engine projection)
+    and ``actual_total`` (final game score sum). When at least 30
+    matched pairs exist, we compute:
+
+        ratio = empirical_variance(actual - expected) / mean(expected)
+
+    Returns a fail-soft dict with sample_size, ratio_estimate, and a
+    confidence tier so the UI can render it without crashing.
+    """
+    pairs: list[tuple[float, float]] = []
+    for d in docs:
+        exp_total = (
+            d.get("expected_total")
+            or _get_nested(d, "totals_model", "lambda")
+            or _get_nested(d, "smart_total_line", "expected_runs")
+        )
+        actual_total = (
+            d.get("actual_total")
+            or d.get("final_total_runs")
+            or _get_nested(d, "final_score", "total")
+        )
+        if exp_total is None or actual_total is None:
+            continue
+        try:
+            e = float(exp_total)
+            a = float(actual_total)
+        except (TypeError, ValueError):
+            continue
+        if e <= 0 or a < 0:
+            continue
+        pairs.append((e, a))
+
+    sample_size = len(pairs)
+    if sample_size < 30:
+        return {
+            "available":         False,
+            "sample_size":       sample_size,
+            "reason":            "insufficient_samples",
+            "min_samples_required": 30,
+            "current_default":   1.5,
+        }
+
+    mean_exp = sum(e for e, _ in pairs) / sample_size
+    if mean_exp <= 0:
+        return {
+            "available":         False,
+            "sample_size":       sample_size,
+            "reason":            "non_positive_mean",
+            "current_default":   1.5,
+        }
+    residuals = [(a - e) for e, a in pairs]
+    mean_res  = sum(residuals) / sample_size
+    var_res   = sum((x - mean_res) ** 2 for x in residuals) / max(1, sample_size - 1)
+    # The empirical variance of the *actual* totals is what we want,
+    # but using the residual variance is a stable proxy that does not
+    # depend on the absolute level of expected_total. We add back the
+    # variance contributed by the expected_total spread.
+    exp_var   = sum((e - mean_exp) ** 2 for e, _ in pairs) / max(1, sample_size - 1)
+    total_var = var_res + exp_var
+    raw_ratio = total_var / mean_exp if mean_exp > 0 else 1.0
+
+    # Clamp to a realistic empirical range so a noisy small sample never
+    # produces wild updates.
+    suggested = max(1.0, min(2.5, raw_ratio))
+    if sample_size >= 200:
+        confidence_tier = "VALIDATED"
+    elif sample_size >= 100:
+        confidence_tier = "USEFUL"
+    else:
+        confidence_tier = "LOW_SAMPLE"
+
+    return {
+        "available":             True,
+        "sample_size":           sample_size,
+        "mean_expected_total":   round(mean_exp, 3),
+        "empirical_variance":    round(total_var, 3),
+        "raw_ratio":             round(raw_ratio, 3),
+        "suggested_ratio":       round(suggested, 3),
+        "current_default":       1.5,
+        "confidence_tier":       confidence_tier,
+        "recommendation":        _dispersion_recommendation(suggested),
+    }
+
+
+def _dispersion_recommendation(suggested: float) -> str:
+    if 1.4 <= suggested <= 1.6:
+        return "default_ok"
+    if suggested < 1.4:
+        return "tighten_dispersion_lower"
+    return "loosen_dispersion_higher"
 
 
 __all__ = [

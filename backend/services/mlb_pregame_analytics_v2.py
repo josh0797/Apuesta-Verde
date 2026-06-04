@@ -361,22 +361,101 @@ def _poisson_cdf(k: int, lam: float) -> float:
     return max(0.0, min(1.0, total))
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Negative-Binomial totals model — corrects Poisson's under-dispersion.
+#
+# MLB total runs are over-dispersed: empirical variance ≈ 1.4–1.7× the mean,
+# while Poisson forces variance = mean. Using pure Poisson systematically
+# UNDER-estimates the probability of high totals (the explosive innings that
+# bust Unders). The NB model adds a dispersion parameter so the upper tail
+# is fatter and Under probabilities are honest.
+#
+# Parameterisation: mean μ, dispersion_ratio r (variance = r·μ).
+#   size k = μ / (r − 1)      (k → ∞ as r → 1, recovering Poisson)
+#   p      = k / (k + μ)
+#   P(X = i) = C(i+k-1, i) · p^k · (1-p)^i
+# ────────────────────────────────────────────────────────────────────────────
+
+# Default empirical over-dispersion for MLB total runs. Configurable so the
+# feedback loop can recalibrate it from settled mlb_run_evaluations later.
+MLB_TOTALS_DISPERSION_RATIO = 1.5
+
+
+def _nb_params_from_mean(mu: float, dispersion_ratio: float) -> tuple[float, float]:
+    """Return ``(k, p)`` for a Negative-Binomial with given mean and
+    variance = ``dispersion_ratio × mean``. Falls back toward Poisson-like
+    behaviour when the ratio is ~1.0 (very large k)."""
+    mu = max(0.05, float(mu))
+    r = float(dispersion_ratio)
+    if r <= 1.0001:
+        # Effectively Poisson — use a very large k.
+        k = 1.0e6
+    else:
+        k = mu / (r - 1.0)
+    k = max(1.0e-3, k)
+    p = k / (k + mu)
+    return k, p
+
+
+def _nb_cdf(x: int, mu: float, dispersion_ratio: float) -> float:
+    """Cumulative ``P(X ≤ x)`` for ``X ~ NegBinom(mean=mu, var=ratio·mu)``.
+
+    Computed by summing the pmf iteratively with a recurrence that is
+    numerically stable for the small means (≤ ~25) seen in MLB.
+    """
+    if x < 0:
+        return 0.0
+    k, p = _nb_params_from_mean(mu, dispersion_ratio)
+    # pmf(0) = p^k
+    try:
+        log_p0 = k * math.log(p)
+    except ValueError:
+        return 1.0
+    pmf = math.exp(log_p0)
+    total = pmf
+    # Recurrence: pmf(i) = pmf(i-1) · (i + k - 1)/i · (1 - p)
+    one_minus_p = 1.0 - p
+    for i in range(1, int(x) + 1):
+        pmf *= ((i + k - 1.0) / i) * one_minus_p
+        total += pmf
+    return max(0.0, min(1.0, total))
+
+
+def _nb_pmf(n: int, mu: float, dispersion_ratio: float) -> float:
+    """Point mass ``P(X = n)`` for the same NB parameterisation."""
+    if n < 0:
+        return 0.0
+    k, p = _nb_params_from_mean(mu, dispersion_ratio)
+    try:
+        log_pmf = (
+            math.lgamma(n + k) - math.lgamma(k) - math.lgamma(n + 1.0)
+            + k * math.log(p) + n * math.log(1.0 - p)
+        )
+    except ValueError:
+        return 0.0
+    return max(0.0, min(1.0, math.exp(log_pmf)))
+
+
 def totals_probability(
     expected_runs: float,
     line: float,
     *,
-    model: str = "Poisson",
+    model: str = "NegativeBinomial",
+    dispersion_ratio: Optional[float] = None,
 ) -> dict:
-    """Return ``{prob_under, prob_over, model}`` for an MLB totals line.
+    """Return ``{prob_under, prob_over, model, lambda, line, ...}`` for an
+    MLB totals line, using a Negative-Binomial model that accounts for the
+    over-dispersion of MLB total runs (variance > mean).
 
-    Half-line example (most common, line=8.5):
-        Under 8.5 → P(total ≤ 8)  = poisson_cdf(8, λ)
-        Over  8.5 → P(total ≥ 9)  = 1 - poisson_cdf(8, λ)
+    The previous Poisson model under-estimated high totals and therefore
+    over-estimated Under probabilities. NB widens the upper tail so the
+    Under probability is calibrated. Set ``model="Poisson"`` to force the
+    legacy behaviour (kept for A/B comparison).
 
-    Integer-line example (rare, line=8.0):
-        We compute P(push) = poisson_pmf(8, λ), then assign half of it to
-        each side so the displayed Cover Probability never includes the
-        push leg (the user is told elsewhere when push risk is non-trivial).
+    Half-line (line=8.5):
+        Under 8.5 → P(total ≤ 8)
+        Over  8.5 → 1 − P(total ≤ 8)
+    Integer line (rare, line=8.0): push split 50/50 for display.
     """
     try:
         lam = float(expected_runs)
@@ -388,25 +467,56 @@ def totals_probability(
         ln = 0.0
 
     lam = max(0.05, min(25.0, lam))
+    ratio = (
+        MLB_TOTALS_DISPERSION_RATIO if dispersion_ratio is None
+        else float(dispersion_ratio)
+    )
+    use_poisson = (model or "").lower() == "poisson"
+
     is_half = abs(ln - round(ln)) > 1e-9
     if is_half:
         k = int(math.floor(ln))
-        p_under = _poisson_cdf(k, lam)
+        if use_poisson:
+            p_under = _poisson_cdf(k, lam)
+        else:
+            p_under = _nb_cdf(k, lam, ratio)
     else:
-        # Integer line: split the push 50/50.
         n = int(round(ln))
-        # Poisson pmf at n
-        log_term = -lam + n * math.log(lam) - sum(math.log(i) for i in range(1, n + 1)) if n > 0 else -lam
-        p_eq = math.exp(log_term)
-        p_under = _poisson_cdf(n - 1, lam) + p_eq * 0.5
+        if use_poisson:
+            log_term = (
+                -lam + n * math.log(lam)
+                - sum(math.log(i) for i in range(1, n + 1))
+            ) if n > 0 else -lam
+            p_eq = math.exp(log_term)
+            p_under = _poisson_cdf(n - 1, lam) + p_eq * 0.5
+        else:
+            p_eq = _nb_pmf(n, lam, ratio)
+            p_under = _nb_cdf(n - 1, lam, ratio) + p_eq * 0.5
+
     p_under = max(0.0, min(1.0, p_under))
     p_over  = max(0.0, min(1.0, 1.0 - p_under))
+
+    # Poisson comparison for transparency / A-B telemetry. Computed only
+    # for half-lines so the telemetry math is unambiguous.
+    poisson_p_under = (
+        _poisson_cdf(int(math.floor(ln)), lam) if is_half
+        else None
+    )
+    calibration_delta = (
+        round((poisson_p_under - p_under) * 100, 1)
+        if poisson_p_under is not None else None
+    )
+
     return {
-        "prob_under": round(p_under, 4),
-        "prob_over":  round(p_over, 4),
-        "model":      model,
-        "lambda":     round(lam, 3),
-        "line":       ln,
+        "prob_under":        round(p_under, 4),
+        "prob_over":         round(p_over, 4),
+        "model":             "Poisson" if use_poisson else "NegativeBinomial",
+        "lambda":            round(lam, 3),
+        "dispersion_ratio":  round(ratio, 3),
+        "line":              ln,
+        # Telemetry: how much the Poisson model was over-stating the Under.
+        "poisson_prob_under":          round(poisson_p_under, 4) if poisson_p_under is not None else None,
+        "under_calibration_delta_pts": calibration_delta,
     }
 
 
@@ -1265,6 +1375,7 @@ __all__ = [
     "run_line_dominance_model",
     "smart_total_line_selector",
     "totals_probability",
+    "MLB_TOTALS_DISPERSION_RATIO",
     "pitcher_centered_evaluation",
     "same_game_correlation_rule",
     "classify_pick_type",
