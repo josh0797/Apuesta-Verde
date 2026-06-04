@@ -2491,12 +2491,43 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 # learn beyond the hard rules baked into the veto.
                 try:
                     from .learning_cases import detect_mlb_under_warning_pattern
+                    # Expanded learn_ctx so the curated rules (Enfoque C)
+                    # can read park_factor_live, series_degradation, the
+                    # recent-form L5 split and the pitcher regression
+                    # signals. Every field falls back to ctx → pick_payload
+                    # → empty so the call site is fail-soft.
                     learn_ctx = {
                         "home_team_ops":          ctx.get("home_team_ops"),
                         "away_team_ops":          ctx.get("away_team_ops"),
                         "home_bullpen_real":      ctx.get("home_bullpen_real"),
                         "away_bullpen_real":      ctx.get("away_bullpen_real"),
                         "active_series_context":  pick_payload.get("active_series_context"),
+                        # ── Curated-rule inputs ──────────────────────
+                        "park_factor_live":       (
+                            ctx.get("park_factor_live")
+                            or pick_payload.get("park_factor_live")
+                            or ctx.get("park")
+                        ),
+                        "series_degradation":     (
+                            ctx.get("series_degradation")
+                            or pick_payload.get("series_degradation")
+                            or {}
+                        ),
+                        "recent_run_split":       (
+                            ctx.get("recent_run_split")
+                            or pick_payload.get("recent_run_split")
+                            or {}
+                        ),
+                        "home_pitcher":           (
+                            ctx.get("home_pitcher")
+                            or pick_payload.get("home_pitcher")
+                            or {}
+                        ),
+                        "away_pitcher":           (
+                            ctx.get("away_pitcher")
+                            or pick_payload.get("away_pitcher")
+                            or {}
+                        ),
                     }
                     learning = detect_mlb_under_warning_pattern(
                         match=conf, scoring_ctx=learn_ctx,

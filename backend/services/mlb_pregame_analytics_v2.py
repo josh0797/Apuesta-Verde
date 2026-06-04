@@ -376,9 +376,15 @@ def _poisson_cdf(k: int, lam: float) -> float:
 #   P(X = i) = C(i+k-1, i) · p^k · (1-p)^i
 # ────────────────────────────────────────────────────────────────────────────
 
-# Default empirical over-dispersion for MLB total runs. Configurable so the
-# feedback loop can recalibrate it from settled mlb_run_evaluations later.
-MLB_TOTALS_DISPERSION_RATIO = 1.5
+# Empirical default raised 1.5 → 1.9 tras el backtest de mayo 2026.
+# Justificación: la varianza marginal real de runs totales de MLB
+# (SD≈4.5 sobre media≈9) da un ratio crudo ~2.2. El backtest sugirió
+# loosen_higher pero está contaminado (scoring_ctx con defaults
+# neutrales + líneas aproximadas), por lo que 1.9 captura la mayor
+# parte de la corrección sin sobre-ajustar a una fuente sesgada.
+# El valor final de producción lo decide el cohort _slate real
+# (líneas y contexto verdaderos) cuando llegue a USEFUL (100+).
+MLB_TOTALS_DISPERSION_RATIO = 1.9
 
 
 def _nb_params_from_mean(mu: float, dispersion_ratio: float) -> tuple[float, float]:

@@ -49,6 +49,18 @@ from .mlb_run_storage import REFERENCE_MLB_POWER_BAT_EXPLOSIVE
 
 log = logging.getLogger("mlb_run_evaluations_summary")
 
+
+def _current_dispersion_default() -> float:
+    """Read the active ``MLB_TOTALS_DISPERSION_RATIO`` from the v2 engine
+    so the summary always reports the production floor in use (not a
+    stale hardcoded value). Lazy import to dodge any circular import
+    risk during module load."""
+    try:
+        from .mlb_pregame_analytics_v2 import MLB_TOTALS_DISPERSION_RATIO
+        return float(MLB_TOTALS_DISPERSION_RATIO)
+    except Exception:
+        return 1.5
+
 SETTLED_OUTCOMES = ("won", "lost", "push")
 
 # Canonical buckets for Moneyball breakdowns (always emitted, even with 0 docs).
@@ -267,6 +279,7 @@ async def compute_run_evaluations_summary(db,
                                             *,
                                             days: int = 30,
                                             user_id: str = "_slate",
+                                            cohort_priority: str = "real_first",
                                             ) -> dict:
     """Compute calibration breakdowns for the last ``days``.
 
@@ -276,10 +289,22 @@ async def compute_run_evaluations_summary(db,
     days      : Lookback window. Capped at 365.
     user_id   : Cohort selector. Default ``"_slate"`` (orchestrator
                 pregame writes). Pass a user UUID for per-user views.
+    cohort_priority : "real_first" | "combined" | "backtest_only".
+        Controls which cohort drives the recommended empirical ratio
+        when both ``_slate`` (real) and ``_slate_backtest`` exist:
+          * ``real_first`` (default) — if real has ≥30 settled, use ONLY
+            real for the recommendation; backtest surfaces in a
+            separate ``cohort_breakdown.backtest_reference`` block,
+            tagged ``_contaminated: True``.
+          * ``combined`` — keep the legacy behaviour: real + backtest
+            are merged for the recommendation.
+          * ``backtest_only`` — use ONLY backtest data (useful for
+            historical audits).
 
     Returns
     -------
-    dict with both legacy AND Moneyball breakdowns.
+    dict with both legacy AND Moneyball breakdowns, plus a
+    ``cohort_breakdown`` block exposing the source of truth used.
     """
     capped_days = max(1, min(365, int(days or 30)))
     cutoff_iso = (datetime.now(timezone.utc)
@@ -450,6 +475,57 @@ async def compute_run_evaluations_summary(db,
     # (independent of expected vs actual — works pregame too).
     nb_vs_poisson_aggregate = _compute_nb_vs_poisson_aggregate(settled_docs)
 
+    # ── Cohort separation (real_first / combined / backtest_only) ──
+    # The backtest cohort is contaminated: it ran the engine over
+    # historical games with neutral scoring_ctx defaults and approximate
+    # book lines. The recommended ratio for production must come from
+    # the REAL pregame slate. We compute both ratios so the UI can show
+    # the backtest as reference, but the recommendation is driven by
+    # the priority policy.
+    cohort_breakdown = await _compute_cohort_breakdown(
+        db,
+        primary_user_id=user_id,
+        primary_disp=totals_dispersion,
+        cutoff_iso=cutoff_iso,
+        cohort_priority=cohort_priority,
+    )
+    # If priority asked to lean on the real slate AND we currently
+    # surface the backtest cohort, override `totals_dispersion` so the
+    # recommendation reflects real-cohort math only.
+    if cohort_breakdown.get("ratio_source_used") == "real_slate" and \
+       user_id != "_slate" and \
+       cohort_breakdown.get("real_slate", {}).get("dispersion"):
+        totals_dispersion = cohort_breakdown["real_slate"]["dispersion"]
+
+    # ── Master bucket-application policy ──────────────────────────
+    # The bucket-level ratios are shown for AUDIT only; consumers must
+    # NOT apply a per-bucket ratio until that bucket reaches 100 own
+    # samples. Only the global ratio drives production behaviour.
+    global_ratio_in_use = (
+        totals_dispersion.get("suggested_ratio")
+        if totals_dispersion.get("available")
+        else _current_dispersion_default()
+    )
+    buckets_eligible_for_apply: list[str] = []
+    for dim_name, dim_buckets in (totals_dispersion_by_bucket or {}).items():
+        if not isinstance(dim_buckets, dict):
+            continue
+        for bkey, bval in dim_buckets.items():
+            if isinstance(bval, dict) and bval.get("apply_eligible"):
+                buckets_eligible_for_apply.append(f"{dim_name}.{bkey}")
+    totals_dispersion["bucket_application_policy"] = {
+        "mode":   "OBSERVE_ONLY",
+        "reason": (
+            "Los ratios por bucket se calculan y muestran pero NO se aplican "
+            "hasta que cada bucket alcance 100 muestras propias. Solo el ratio "
+            "global se usa en producción. Esto evita sobre-corregir un "
+            "subconjunto (ej. park offensive) con muestra insuficiente."
+        ),
+        "global_ratio_in_use":         global_ratio_in_use,
+        "buckets_eligible_for_apply":  buckets_eligible_for_apply,
+        "min_samples_per_bucket":      100,
+    }
+
     return {
         "ok":           True,
         "window_days":  capped_days,
@@ -480,8 +556,137 @@ async def compute_run_evaluations_summary(db,
         "totals_dispersion_calibration": totals_dispersion,
         "totals_dispersion_by_bucket":   totals_dispersion_by_bucket,
         "nb_vs_poisson_aggregate":       nb_vs_poisson_aggregate,
+        "cohort_breakdown":              cohort_breakdown,
         # Schema version (UI can branch on this)
         "summary_schema_version":  "moneyball.2",
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Cohort separation (real vs backtest)
+# ─────────────────────────────────────────────────────────────────────
+_REAL_COHORT_ID     = "_slate"
+_BACKTEST_COHORT_ID = "_slate_backtest"
+_REAL_MIN_FOR_AUTHORITY = 30   # below this the backtest still helps
+
+
+async def _compute_cohort_breakdown(
+    db,
+    *,
+    primary_user_id: str,
+    primary_disp: dict,
+    cutoff_iso: str,
+    cohort_priority: str,
+) -> dict:
+    """Build the ``cohort_breakdown`` block surfaced by the summary.
+
+    Strategy
+    --------
+    * Always compute the dispersion ratio for BOTH cohorts (``_slate``
+      and ``_slate_backtest``) so the UI can show real-vs-backtest at
+      a glance.
+    * ``ratio_source_used`` is decided per ``cohort_priority``:
+        - ``real_first`` (default) — real cohort wins when it has
+          ≥30 settled docs; else fall back to the primary cohort the
+          caller requested (combined preliminary).
+        - ``combined`` — the primary cohort wins outright. Used by the
+          legacy callers that don't care about provenance.
+        - ``backtest_only`` — force the backtest cohort even when the
+          real slate has data.
+    * The backtest cohort is ALWAYS tagged ``_contaminated: True`` with
+      a human note. Consumers that want production-grade calibration
+      must filter on ``_contaminated == False``.
+
+    Fail-soft: if the secondary cohort query throws, that branch is
+    surfaced as ``{"sample_size": 0, "dispersion": None}``.
+    """
+    real_disp:     Optional[dict] = None
+    real_size:     int = 0
+    backtest_disp: Optional[dict] = None
+    backtest_size: int = 0
+
+    async def _query_settled(cohort_id: str) -> list[dict]:
+        try:
+            docs = await db.mlb_run_evaluations.find({
+                "user_id":      cohort_id,
+                "sport":        "baseball",
+                "generated_at": {"$gte": cutoff_iso},
+                "result":       {"$in": list(SETTLED_OUTCOMES)},
+            }, {"_id": 0}).to_list(length=10000)
+            return docs or []
+        except Exception as exc:
+            log.debug("cohort query failed for %s: %s", cohort_id, exc)
+            return []
+
+    # Reuse the primary cohort math when it matches one of the canonical
+    # IDs so we don't double-fetch.
+    if primary_user_id == _REAL_COHORT_ID:
+        real_disp = primary_disp
+        real_size = primary_disp.get("sample_size", 0) or 0
+    else:
+        real_docs = await _query_settled(_REAL_COHORT_ID)
+        real_size = len(real_docs)
+        real_disp = (
+            _compute_totals_dispersion_calibration(real_docs)
+            if real_docs else None
+        )
+
+    if primary_user_id == _BACKTEST_COHORT_ID:
+        backtest_disp = primary_disp
+        backtest_size = primary_disp.get("sample_size", 0) or 0
+    else:
+        bt_docs = await _query_settled(_BACKTEST_COHORT_ID)
+        backtest_size = len(bt_docs)
+        backtest_disp = (
+            _compute_totals_dispersion_calibration(bt_docs)
+            if bt_docs else None
+        )
+
+    # Resolve `ratio_source_used` per policy.
+    policy = (cohort_priority or "real_first").lower()
+    if policy == "backtest_only":
+        ratio_source_used = "backtest_reference"
+    elif policy == "combined":
+        ratio_source_used = (
+            "real_slate" if primary_user_id == _REAL_COHORT_ID
+            else "combined_preliminary"
+        )
+    else:  # real_first (default)
+        if real_size >= _REAL_MIN_FOR_AUTHORITY:
+            ratio_source_used = "real_slate"
+        else:
+            ratio_source_used = "combined_preliminary"
+
+    def _shape(disp: Optional[dict], size: int) -> dict:
+        if not disp:
+            return {
+                "sample_size":     size,
+                "empirical_ratio": None,
+                "dispersion":      None,
+            }
+        return {
+            "sample_size":     disp.get("sample_size", size),
+            "empirical_ratio": disp.get("suggested_ratio"),
+            "raw_ratio":       disp.get("raw_ratio"),
+            "confidence_tier": disp.get("confidence_tier"),
+            "dispersion":      disp,
+        }
+
+    real_block = _shape(real_disp, real_size)
+    backtest_block = _shape(backtest_disp, backtest_size)
+    # Mandatory contamination flag on the backtest cohort.
+    backtest_block["_contaminated"] = True
+    backtest_block["_note"] = (
+        "scoring_ctx neutral + líneas aproximadas (ver mlb_backtest_runner). "
+        "Útil para tendencias pero NO debe pisar el ratio de producción."
+    )
+
+    return {
+        "real_slate":         real_block,
+        "backtest_reference": backtest_block,
+        "ratio_source_used":  ratio_source_used,
+        "policy":             policy,
+        "real_min_for_authority": _REAL_MIN_FOR_AUTHORITY,
     }
 
 
@@ -671,7 +876,7 @@ def _compute_totals_dispersion_calibration(docs: list[dict]) -> dict:
             "sample_size":       sample_size,
             "reason":            "insufficient_samples",
             "min_samples_required": 30,
-            "current_default":   1.5,
+            "current_default":   _current_dispersion_default(),
         }
 
     mean_exp = sum(e for e, _ in pairs) / sample_size
@@ -680,7 +885,7 @@ def _compute_totals_dispersion_calibration(docs: list[dict]) -> dict:
             "available":         False,
             "sample_size":       sample_size,
             "reason":            "non_positive_mean",
-            "current_default":   1.5,
+            "current_default":   _current_dispersion_default(),
         }
     residuals = [(a - e) for e, a in pairs]
     mean_res  = sum(residuals) / sample_size
@@ -710,7 +915,7 @@ def _compute_totals_dispersion_calibration(docs: list[dict]) -> dict:
         "empirical_variance":    round(total_var, 3),
         "raw_ratio":             round(raw_ratio, 3),
         "suggested_ratio":       round(suggested, 3),
-        "current_default":       1.5,
+        "current_default":       _current_dispersion_default(),
         "confidence_tier":       confidence_tier,
         "recommendation":        _dispersion_recommendation(suggested),
     }
@@ -820,6 +1025,16 @@ def _compute_totals_dispersion_by_buckets(docs: list[dict]) -> dict:
             "mean_expected_total": disp.get("mean_expected_total"),
             "confidence_tier":    disp.get("confidence_tier"),
             "recommendation":     disp.get("recommendation"),
+            # ── Observe-only application policy ─────────────────────
+            # A bucket must accumulate ≥100 own samples before its
+            # per-bucket dispersion ratio is eligible to be APPLIED
+            # by downstream consumers. Until then we only OBSERVE the
+            # value (display + audit) — applying a bucket ratio with
+            # n<100 would sub-calibrate a slice and contaminate Unders
+            # disproportionately. This flag is the gatekeeper.
+            "apply_eligible":     n >= 100,
+            "mode":               "APPLY" if n >= 100 else "OBSERVE_ONLY",
+            "samples_until_apply": max(0, 100 - n),
         }
 
     out: dict[str, dict] = {"pressure": {}, "f5": {}, "fragility": {}, "park": {}}

@@ -33,8 +33,11 @@ This module exposes:
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
+
+log = logging.getLogger("learning_cases")
 
 
 # Rule keys are stable identifiers used by:
@@ -297,10 +300,14 @@ def detect_mlb_under_warning_pattern(
       1) `power_bat_visiting_avoid_under` — any team OPS > 0.770.
       2) `active_series_overs_avoid_under` — active-series avg > 12 runs
          AND game ≥ 2 of series AND one bullpen with pitch_stress > 1.5.
+      3) Curated rules (``CURATED_UNDER_VETO_RULES``) — qualitative
+         patterns that the dispersion model alone cannot capture
+         (offensive park + tired bullpens, active-series override,
+         late-series hot lineups, ace regression).
 
-    Each fired rule includes `block=True` so the caller can short-circuit
-    the Under selection. Returns ``None`` when no rule applies — caller
-    treats that as "no learned pattern".
+    Each fired rule includes ``block`` (True/False) so the caller can
+    short-circuit the Under selection. Returns ``None`` when no rule
+    applies — caller treats that as "no learned pattern".
     """
     if not scoring_ctx:
         return None
@@ -354,12 +361,192 @@ def detect_mlb_under_warning_pattern(
             },
         })
 
+    # ── Rules 3..N — curated post-mortem patterns ───────────────────
+    # Each curated rule has its own condition + severity. We evaluate
+    # them defensively so a broken predicate never blows up the caller.
+    for curated in CURATED_UNDER_VETO_RULES:
+        try:
+            triggered = bool(curated["condition"](scoring_ctx))
+        except Exception as exc:
+            log.debug("curated rule %s eval failed: %s",
+                       curated.get("rule_key"), exc)
+            continue
+        if not triggered:
+            continue
+        rules_fired.append({
+            "rule_key":      curated["rule_key"],
+            "severity":      curated["severity"],
+            "block":         curated["severity"] == "BLOCK",
+            "explanation":   curated["explanation"],
+            "evidence":      _curated_evidence(curated["rule_key"], scoring_ctx),
+        })
+
     if not rules_fired:
         return None
     return {
-        "any_block":   any(r["block"] for r in rules_fired),
+        "any_block":   any(r.get("block") for r in rules_fired),
         "rules_fired": rules_fired,
     }
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Curated qualitative rules (Enfoque C)
+# ════════════════════════════════════════════════════════════════════════
+# These complement the dispersion-ratio feedback loop: they capture
+# patterns where the empirical variance is misleading because a few
+# qualitative signals (offensive park + tired bullpens, active-series
+# override, ace regression) drive the upper tail. The dispersion model
+# corrects MAGNITUDE; these rules correct CONTEXT.
+
+def _park_is_offensive(ctx: dict) -> bool:
+    """True when the live park context reads as a hitter park.
+
+    Accepts both ``park_factor_live`` (the dynamic block from
+    ``mlb_park_factor_live``) and the legacy flat ``park`` dict.
+    """
+    park = ctx.get("park_factor_live") or ctx.get("park") or {}
+    code = (park.get("code") or "").upper()
+    if code == "OFFENSIVE":
+        return True
+    dynamic = park.get("dynamic") or park.get("park_runs_mult") or 1.0
+    try:
+        return float(dynamic) >= 1.08
+    except (TypeError, ValueError):
+        return False
+
+
+def _both_bullpens_fatigued(ctx: dict) -> bool:
+    """True when BOTH bullpens are tagged as fatigued via either the
+    real-usage index (``pitch_stress_index``) or the legacy 0-100
+    ``fatigue_score_0_100``."""
+    def _tired(bp):
+        bp = bp or {}
+        stress = bp.get("pitch_stress_index")
+        fatigue = bp.get("fatigue_score_0_100")
+        if stress is not None:
+            try:
+                return float(stress) >= 1.3   # ~58+ pitches in 48h
+            except (TypeError, ValueError):
+                pass
+        if fatigue is not None:
+            try:
+                return float(fatigue) >= 60   # "high" or worse
+            except (TypeError, ValueError):
+                pass
+        return False
+    return _tired(ctx.get("home_bullpen_real")) and _tired(ctx.get("away_bullpen_real"))
+
+
+def _hot_from_split(side: Optional[dict]) -> bool:
+    """True when a recent-form L5 split exposes >+20% delta vs L15."""
+    if not isinstance(side, dict):
+        return False
+    try:
+        return float(side.get("delta_pct")) > 20.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _both_offenses_hot_l5(ctx: dict) -> bool:
+    """Both teams must show >+20% delta in the L5 recent-run split."""
+    rr = ctx.get("recent_run_split") or {}
+    return _hot_from_split(rr.get("home")) and _hot_from_split(rr.get("away"))
+
+
+def _any_pitcher_overperforming(ctx: dict) -> bool:
+    """True when ``_regression_signal == "PITCHER_OVERPERFORMING"`` is
+    set on either starter — flag emitted by the regression layer when
+    ERA undershoots xERA by ≥1.0."""
+    for key in ("home_pitcher", "away_pitcher"):
+        p = ctx.get(key) or {}
+        if isinstance(p, dict) and p.get("_regression_signal") == "PITCHER_OVERPERFORMING":
+            return True
+    return False
+
+
+def _curated_evidence(rule_key: str, ctx: dict) -> dict:
+    """Return a compact evidence dict for the rule that fired so the
+    UI / logs can show which specific signals matched."""
+    if rule_key == "OFFENSIVE_PARK_PLUS_TIRED_BULLPENS":
+        park = ctx.get("park_factor_live") or ctx.get("park") or {}
+        return {
+            "park_code":       (park.get("code") or "").upper() or None,
+            "park_dynamic":    park.get("dynamic") or park.get("park_runs_mult"),
+            "home_bp_stress":  (ctx.get("home_bullpen_real") or {}).get("pitch_stress_index"),
+            "away_bp_stress":  (ctx.get("away_bullpen_real") or {}).get("pitch_stress_index"),
+        }
+    if rule_key == "ACTIVE_SERIES_HIGH_SCORING":
+        sd = ctx.get("active_series_context") or {}
+        return {
+            "series_override":  sd.get("series_override"),
+            "series_lean":      sd.get("series_lean"),
+            "total_runs_avg":   sd.get("total_runs_avg"),
+        }
+    if rule_key == "LATE_SERIES_BOTH_LINEUPS_HOT":
+        sd = ctx.get("series_degradation") or {}
+        rr = ctx.get("recent_run_split") or {}
+        return {
+            "game_in_series": sd.get("game_in_series"),
+            "home_delta_pct": (rr.get("home") or {}).get("delta_pct"),
+            "away_delta_pct": (rr.get("away") or {}).get("delta_pct"),
+        }
+    if rule_key == "OVERPERFORMING_ACE_REGRESSION":
+        return {
+            "home_signal": (ctx.get("home_pitcher") or {}).get("_regression_signal"),
+            "away_signal": (ctx.get("away_pitcher") or {}).get("_regression_signal"),
+        }
+    return {}
+
+
+CURATED_UNDER_VETO_RULES: list[dict] = [
+    {
+        "rule_key":   "OFFENSIVE_PARK_PLUS_TIRED_BULLPENS",
+        "severity":   "BLOCK",
+        "condition":  lambda ctx: (
+            _park_is_offensive(ctx)
+            and _both_bullpens_fatigued(ctx)
+        ),
+        "explanation": (
+            "Parque ofensivo + ambos bullpens agotados. Combinación de "
+            "cola alta que el modelo de runs subestima. Under bloqueado "
+            "(caso Colorado @ Angels)."
+        ),
+    },
+    {
+        "rule_key":   "ACTIVE_SERIES_HIGH_SCORING",
+        "severity":   "BLOCK",
+        "condition":  lambda ctx: (
+            bool((ctx.get("active_series_context") or {}).get("series_override"))
+            and ((ctx.get("active_series_context") or {}).get("series_lean") == "OVER")
+        ),
+        "explanation": (
+            "La serie activa promedia muy por encima de la línea y forzó "
+            "override OVER. Under bloqueado (caso Twins @ Pirates 15 runs/juego)."
+        ),
+    },
+    {
+        "rule_key":   "LATE_SERIES_BOTH_LINEUPS_HOT",
+        "severity":   "WARNING",
+        "condition":  lambda ctx: (
+            int((ctx.get("series_degradation") or {}).get("game_in_series", 1)) >= 3
+            and _both_offenses_hot_l5(ctx)
+        ),
+        "explanation": (
+            "G3 de serie con ambas alineaciones calientes en L5 — los "
+            "bateadores ya tienen book completo del abridor. Riesgo de "
+            "cola alta elevado."
+        ),
+    },
+    {
+        "rule_key":   "OVERPERFORMING_ACE_REGRESSION",
+        "severity":   "WARNING",
+        "condition":  lambda ctx: _any_pitcher_overperforming(ctx),
+        "explanation": (
+            "Un abridor está sobre-rindiendo su xERA por ≥1.0 — probable "
+            "regresión a la media. El Under apoyado en ese abridor es frágil."
+        ),
+    },
+]
 
 
 __all__ = [
@@ -372,4 +559,5 @@ __all__ = [
     "save_case",
     "list_cases",
     "seed_cases",
+    "CURATED_UNDER_VETO_RULES",
 ]

@@ -142,7 +142,9 @@ def test_dispersion_calibration_insufficient_samples():
     res = _compute_totals_dispersion_calibration([])
     assert res["available"] is False
     assert res["reason"] == "insufficient_samples"
-    assert res["current_default"] == 1.5
+    # current_default tracks the live MLB_TOTALS_DISPERSION_RATIO so the
+    # operator can see at-a-glance which floor the summary is reporting.
+    assert res["current_default"] == MLB_TOTALS_DISPERSION_RATIO
 
 
 def test_dispersion_calibration_returns_suggestion_with_samples():

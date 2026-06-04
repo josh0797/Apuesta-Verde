@@ -3440,6 +3440,7 @@ async def mlb_run_evaluations_summary(
     """
     try:
         from services.mlb_run_evaluations_summary import (
+            _current_dispersion_default,
             compute_run_evaluations_summary,
         )
         cohort = user_id or "_slate"
@@ -3478,7 +3479,7 @@ async def mlb_run_evaluations_summary(
         # Enrich dispersion calibration with the field names the panel reads.
         disp = result.get("totals_dispersion_calibration") or {}
         if disp.get("available"):
-            disp["current_ratio"]   = disp.get("current_default", 1.5)
+            disp["current_ratio"]   = disp.get("current_default") or _current_dispersion_default()
             disp["empirical_ratio"] = disp.get("suggested_ratio")
             # Under hit rate from the by_market_selected bucket (F5+Full).
             under_total = (
@@ -3507,7 +3508,7 @@ async def mlb_run_evaluations_summary(
             except Exception:
                 pass
         else:
-            disp.setdefault("current_ratio", 1.5)
+            disp.setdefault("current_ratio", _current_dispersion_default())
             disp.setdefault("empirical_ratio", None)
             disp.setdefault("under_hit_rate", None)
             disp.setdefault("nb_mean_delta", None)
