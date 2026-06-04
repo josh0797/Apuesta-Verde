@@ -183,12 +183,21 @@ export default function MLBCalibrationPanel({ days = 30 }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(true);
+  // Cohort toggle: "_slate" = real pregame picks (default),
+  // "_slate_backtest" = historical replay seeded by mlb_backtest_runner.
+  const [cohort, setCohort] = useState('_slate');
 
   const fetchSummary = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const r = await api.get('/mlb/run-evaluations/summary', { params: { days } });
+      const params = { days };
+      if (cohort && cohort !== '_slate') params.user_id = cohort;
+      // Backtest cohort: widen the window so historical seeds are visible.
+      // The server caps non-slate cohorts at 730 days so we can request
+      // a generous window without worrying about validation.
+      if (cohort === '_slate_backtest') params.days = 730;
+      const r = await api.get('/mlb/run-evaluations/summary', { params });
       const sum = r?.data?.summary || r?.data || null;
       setSummary(sum);
     } catch (err) {
@@ -202,7 +211,7 @@ export default function MLBCalibrationPanel({ days = 30 }) {
     } finally {
       setLoading(false);
     }
-  }, [days]);
+  }, [days, cohort]);
 
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
 
@@ -286,12 +295,39 @@ export default function MLBCalibrationPanel({ days = 30 }) {
                 </Badge>
               )}
             </h2>
-            <p className="text-[11px] text-muted-foreground">
-              Comparación Negative-Binomial vs Poisson · ventana {summary.window_days || days} días
+            <p className="text-[11px] text-muted-foreground" data-testid="mlb-calibration-subtitle">
+              {cohort === '_slate_backtest'
+                ? `Cohort: Backtest histórico · ventana ${summary.window_days || days} días`
+                : `Comparación Negative-Binomial vs Poisson · ventana ${summary.window_days || days} días`}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Cohort toggle — switch between live slate and historical backtest. */}
+          <div
+            className="inline-flex rounded-md border border-border overflow-hidden text-[11px]"
+            role="tablist"
+            data-testid="mlb-calibration-cohort-tabs"
+          >
+            <button
+              type="button"
+              onClick={() => setCohort('_slate')}
+              className={`px-2.5 py-1 transition-colors ${cohort === '_slate' ? 'bg-cyan-500/20 text-cyan-100' : 'bg-transparent text-muted-foreground hover:text-foreground'}`}
+              data-testid="mlb-calibration-cohort-slate"
+              aria-pressed={cohort === '_slate'}
+            >
+              Picks reales
+            </button>
+            <button
+              type="button"
+              onClick={() => setCohort('_slate_backtest')}
+              className={`px-2.5 py-1 border-l border-border transition-colors ${cohort === '_slate_backtest' ? 'bg-amber-500/20 text-amber-100' : 'bg-transparent text-muted-foreground hover:text-foreground'}`}
+              data-testid="mlb-calibration-cohort-backtest"
+              aria-pressed={cohort === '_slate_backtest'}
+            >
+              Backtest
+            </button>
+          </div>
           <Button
             size="sm" variant="ghost"
             onClick={fetchSummary}

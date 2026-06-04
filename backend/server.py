@@ -3442,8 +3442,15 @@ async def mlb_run_evaluations_summary(
         from services.mlb_run_evaluations_summary import (
             compute_run_evaluations_summary,
         )
-        days = max(7, min(90, int(days)))
         cohort = user_id or "_slate"
+        # The default slate uses a 7..90 day window. The backtest cohort
+        # is historical by nature, so we extend the cap to 730 days for
+        # any non-default user_id so the operator can audit older
+        # backfills without juggling timestamps manually.
+        if cohort == "_slate":
+            days = max(7, min(90, int(days)))
+        else:
+            days = max(7, min(730, int(days)))
         result = await compute_run_evaluations_summary(
             db, days=days, user_id=cohort,
         )
@@ -3512,6 +3519,63 @@ async def mlb_run_evaluations_summary(
         raise HTTPException(
             status_code=500,
             detail=f"mlb_run_evaluations_summary_failed: {exc}",
+        )
+
+
+# ── MLB Backtest (admin) ────────────────────────────────────────────────────
+class MlbBacktestIn(BaseModel):
+    """Body for POST /api/admin/mlb/backtest.
+
+    The runner replays the current engine over finished MLB games and
+    populates ``mlb_run_evaluations`` with settled docs tagged
+    ``_source: "backtest"``. Used to seed the Negative-Binomial
+    feedback loop without waiting weeks of real slates.
+    """
+    start_date: str = Field(..., description="YYYY-MM-DD inclusive")
+    end_date:   str = Field(..., description="YYYY-MM-DD inclusive")
+    dry_run:    bool = True   # default True — preview, no DB writes
+    user_id:    Optional[str] = None   # default "_slate_backtest" cohort
+
+
+@api.post("/admin/mlb/backtest")
+async def mlb_backtest(
+    body: MlbBacktestIn,
+    user: dict = Depends(get_current_user),
+):
+    """Replay the MLB engine over a historical date range.
+
+    The default ``dry_run=True`` lets the operator preview how many
+    games will be processed before committing rows to MongoDB. Switch
+    to ``dry_run=False`` to actually persist into ``mlb_run_evaluations``.
+
+    Response::
+
+        {"ok": True, "date_range": "...", "games_fetched": int,
+         "games_inserted": int, "games_skipped": int, "games_failed": int,
+         "won": int, "lost": int, "push": int,
+         "under_hit_rate": float | null, "dry_run": bool, "user_id": str}
+    """
+    try:
+        from services.mlb_backtest_runner import (
+            DEFAULT_BACKTEST_USER_ID, run_backtest,
+        )
+        cohort = body.user_id or DEFAULT_BACKTEST_USER_ID
+        result = await run_backtest(
+            db,
+            body.start_date, body.end_date,
+            dry_run=bool(body.dry_run),
+            user_id=cohort,
+        )
+        return {"ok": True, **result}
+    except ValueError as exc:
+        # Bad date range / validation error — surface as 400 so the
+        # operator gets actionable feedback.
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        log.exception("mlb_backtest failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"mlb_backtest_failed: {exc}",
         )
 
 
