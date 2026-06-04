@@ -1,46 +1,38 @@
 [
   {
-    "content": "Phase 1 POC: explorar orchestrator + market_selection + warehouse para entender contratos actuales",
+    "content": "Crear package services/injury_intelligence/ con __init__, schema, normalizer",
     "status": "completed"
   },
   {
-    "content": "Refactor mlb_day_orchestrator.py: market_selection como capa final, payload contract con available:false",
+    "content": "Crear nba_star_registry.py (superstars/stars hardcoded) + role classifier",
     "status": "completed"
   },
   {
-    "content": "Agregar nuevos breakdowns en mlb_run_evaluations_summary.py",
+    "content": "Crear multi-source fetcher: API-Sports + TheStatsAPI + Bright Data ESPN/Rotowire",
     "status": "completed"
   },
   {
-    "content": "Actualizar editorial_context_service.py (version bump + MLB tags + no modificar confidence)",
+    "content": "Crear basketball_injury_impact.py con scoring + reason_codes",
     "status": "completed"
   },
   {
-    "content": "Actualizar editorial_signal_mapper.py (vocabulario MLB/NBA + sport_hint)",
+    "content": "Crear orchestrator público fetch_basketball_injury_intelligence(home, away) con match_edge",
     "status": "completed"
   },
   {
-    "content": "Tests backend nuevos (payload contract, summary, editorial)",
+    "content": "Tests backend completos",
     "status": "completed"
   },
   {
-    "content": "Frontend MatchCard MLB: reorganizar paneles en accordions",
+    "content": "Integrar en basketball pipeline + analyst_engine prompt",
     "status": "completed"
   },
   {
-    "content": "Frontend Dashboard: buckets nuevos (structural_lean, watchlist, discarded copy MLB)",
+    "content": "UI: crear InjuryIntelligencePanel.jsx + integrar en MatchCard",
     "status": "completed"
   },
   {
-    "content": "Frontend Live Analysis: comparación por game_pk + no recomendar líneas superadas",
-    "status": "completed"
-  },
-  {
-    "content": "Frontend Manual Odds + EmptyState pulidos",
-    "status": "completed"
-  },
-  {
-    "content": "Tests frontend + ejecución pytest completo final",
+    "content": "Verificar pytest 839+ sin regresiones, esbuild OK",
     "status": "completed"
   }
 ]

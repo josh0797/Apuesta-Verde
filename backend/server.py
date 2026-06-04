@@ -935,6 +935,64 @@ async def match_live_refresh(match_id: str, user: dict = Depends(get_current_use
     return await fetch_and_persist_live_state(db, doc.get("match_id"))
 
 
+@api.get("/matches/{match_id}/injury-intelligence")
+async def match_injury_intelligence(
+    match_id: str,
+    force_refresh: bool = False,
+    user: dict = Depends(get_current_user),
+):
+    """Injury Intelligence payload for a basketball match (Phase 1).
+
+    Returns the canonical ``injury_intelligence`` shape (see
+    services/injury_intelligence/injury_schema.py). The orchestrator
+    uses a Mongo-backed TTL cache (2h pregame / 30m game-day) so the
+    UI can poll this endpoint cheaply.
+
+    For non-basketball sports the endpoint returns ``available:false``
+    with ``_reason="sport_not_supported"`` — Phase 2 will add football.
+    """
+    candidates: list = [match_id]
+    try:
+        candidates.append(int(match_id))
+    except (ValueError, TypeError):
+        pass
+    doc = await db.matches.find_one(
+        {"match_id": {"$in": candidates}},
+        projection={
+            "sport": 1, "match_id": 1, "is_live": 1,
+            "home_team": 1, "away_team": 1,
+            "home_team_id": 1, "away_team_id": 1,
+            "league": 1, "season": 1,
+        },
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="match not found")
+
+    if doc.get("sport") != "basketball":
+        from services.injury_intelligence import empty_payload
+        return empty_payload(
+            sport=doc.get("sport") or "unknown",
+            reason="sport_not_supported_phase1_basketball_only",
+        )
+
+    from services.injury_intelligence import fetch_basketball_injury_intelligence
+    return await fetch_basketball_injury_intelligence(
+        home_team={
+            "id":     doc.get("home_team_id"),
+            "name":   doc.get("home_team"),
+            "season": doc.get("season"),
+        },
+        away_team={
+            "id":     doc.get("away_team_id"),
+            "name":   doc.get("away_team"),
+            "season": doc.get("season"),
+        },
+        db=db,
+        force_refresh=bool(force_refresh),
+        is_game_day=bool(doc.get("is_live")),
+    )
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Live Territorial Control + Corner Intelligence (FOOTBALL ONLY)
 # ════════════════════════════════════════════════════════════════════════════

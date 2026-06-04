@@ -95,7 +95,20 @@ Cuando recomiendes Under 3.5 / Under 2.5 como mercado alternativo:
     "basketball": """REGLAS DEL DEPORTE (NBA/Basket):
 - Mercados PERMITIDOS: Moneyline (favorito claro), Total Points UNDER (en línea cercana al promedio histórico), Spread conservador (-3.5/-4.5 máximo para favorito sólido).
 - Mercados PROHIBIDOS: Spreads >7 puntos como principal, Player Props con dependencia individual, Over Total Points como principal, parlay/combinadas.
-- En vivo: Si el favorito gana por <8 con cuarto final >5min restantes y el equipo perdedor tiene momentum (recientes 2-3 canastas), evitar Moneyline del favorito.""",
+- En vivo: Si el favorito gana por <8 con cuarto final >5min restantes y el equipo perdedor tiene momentum (recientes 2-3 canastas), evitar Moneyline del favorito.
+
+INJURY INTELLIGENCE (capa de riesgo — leer SIEMPRE antes de recomendar):
+- El payload `injury_intelligence` (si está disponible) trae por equipo: bajas (out/doubtful/questionable/minutes_restriction), rol del jugador (superstar/star/starter/rotation/bench), impact_tier y reason_codes.
+- También trae `match_injury_edge.net_edge` (home/away/neutral) + `net_edge_points` + `edge_tier` (SMALL/MODERATE/STRONG).
+- REGLAS:
+  1) NO recomiendes Moneyline ni spread fuerte de un favorito que tenga superstar/2+ titulares OUT sin ajuste.
+  2) Si hay RIM_PROTECTOR_OUT o DEFENSIVE_ANCHOR_OUT del rival, considerar team total del otro equipo (mercado protegido), no over agresivo del total.
+  3) Si hay STARTING_POINT_GUARD_OUT en favorito, baja confianza en su Moneyline.
+  4) Si `match_impact.market_warnings` incluye AGGRESSIVE_PICKS_BLOCKED_HOME/AWAY, NO selecciones spread duro ni ML fuerte de ese lado.
+  5) Si `high_volatility=true` (ambos equipos golpeados), prefiere watchlist o mercado defensivo (UNDER conservador) en lugar de pick agresivo.
+  6) Si `freshness="stale"` o data missing, NO uses Injury Intelligence para SUBIR confianza fuerte; solo como warning.
+  7) El edge neto (`match_injury_edge`) solo aumenta confianza si el pick favorece al equipo BENEFICIADO; si el pick va contra el edge, baja confianza o marca warning.
+  8) Questionable star del lado del pick → enviar a watchlist o entrada live.""",
     "baseball": """REGLAS DEL DEPORTE (MLB / Béisbol Moneyball-first):
 
 PIPELINE ACTUALIZADO (NO TE BASES EN HEURÍSTICAS GENÉRICAS):

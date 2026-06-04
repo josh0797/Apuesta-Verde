@@ -1,194 +1,227 @@
-# MLB Moneyball Alignment — Polish Sprint (plan.md)
+# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence (plan.md)
 
 ## 1) Objectives
-- Alinear backend MLB al pipeline Moneyball: **Market Selection como capa final**, módulos legacy solo como contexto.
-- Estandarizar `pick_payload` (campos Moneyball + estados `available:false` si faltan) y mantener **fail-soft**.
-- Enriquecer métricas de evaluación (`mlb_run_evaluations_summary`) con breakdowns Moneyball sin romper compatibilidad.
-- Convertir **editorial** en capa de contexto/confirmación (no motor) + mapper con vocabulario MLB/NBA y `sport_hint`.
-- UI: explicar **por qué** se eligió el mercado, **por qué se rechazaron otros**, fragilidad, confirmaciones/bloqueos, manual odds, live vs pregame por `game_pk`.
+
+### Objetivos completados (MLB Moneyball)
+- ✅ Alinear backend MLB al pipeline Moneyball: **Market Selection como capa final**, módulos legacy solo como contexto.
+- ✅ Estandarizar `pick_payload` con contrato fail-soft (`available:false` por capa) sin romper UI ni picks viejos.
+- ✅ Enriquecer `mlb_run_evaluations_summary` con breakdowns Moneyball, manteniendo compatibilidad legacy.
+- ✅ Convertir **editorial** en capa de confirmación/contexto (no motor) + mapper con vocabulario MLB/NBA y `sport_hint`.
+- ✅ UI Moneyball: paneles explicables (market selection, ghost-edges, fragility/survival, pattern memory, manual odds, etc.).
+- ✅ Live MLB: corregido gating y contradicciones en comparación pregame vs live.
+
+### Objetivos nuevos (Injury Intelligence Layer)
+- Implementar **Injury Intelligence Layer** para **Basketball (Phase 1)** y luego Football (Phase 2), sin tocar MLB.
+- Arquitectura: **fail-soft**, multi-source, cache-aware, sport-specific, explicable, conservadora.
+- Entregar un bloque `injury_intelligence` en el payload que ajuste (conservadoramente) confidence/fragility/market warnings **sin forzar picks**.
+- UI: `InjuryIntelligencePanel` para football/basketball (no MLB por ahora) mostrando bajas clave, severidad, impacto y freshness.
 
 ---
 
 ## 2) Implementation Steps (Phases)
 
-### Phase 1 — Core Flow POC (aislado, obligatorio)
-**Core a probar:** “Game → pipeline Moneyball → `market_selection` final → payload persistible + live/pregame linkage por `game_pk` (fail-soft).”
+### Phase 1 — Core Flow POC (aislado, obligatorio) ✅ COMPLETADO
+**Core probado:** “Game → pipeline Moneyball → `market_selection` final → payload persistible + live/pregame linkage por `game_pk` (fail-soft).”
 
-User stories:
-1. Como operador, quiero ejecutar el pipeline para 1 juego y ver que el mercado final viene de `mlb_market_selection`.
-2. Como operador, quiero que si faltan odds el pick vaya a `structural_lean_requires_odds`/`watchlist_manual_odds` (no discard automático).
-3. Como operador, quiero que faltantes de Statcast/sabermetrics no rompan el análisis.
-4. Como operador, quiero ver `available:false` en capas faltantes para no romper UI.
-5. Como operador, quiero que el pick se vincule a `game_pk` para comparación live vs pregame.
-
-Steps:
-- Crear script/test aislado (pytest) que:
-  - construya un fixture MLB mínimo con `game_pk`.
-  - simule 3 escenarios: (a) odds OK, (b) odds missing, (c) advanced stats missing/stale.
-  - verifique: `market_selection.recommended_market` existe y es usado como final.
-  - verifique presencia/shape de campos Moneyball (o `available:false`).
-  - verifique persistencia de snapshot de inteligencia (colección `mlb_game_intelligence_snapshots`).
-- (Si aplica) mini-websearch interno de best practices: “fail-soft payload contracts + cached snapshot freshness patterns”.
-- No avanzar hasta que POC quede verde.
+Entregables:
+- ✅ Contrato de payload Moneyball sellado.
+- ✅ Warehouse/source status agregados.
 
 ---
 
-### Phase 2 — V1 Backend Development (Moneyball alignment)
+### Phase 2 — V1 Backend Development (Moneyball alignment) ✅ COMPLETADO
 
-#### 2.1 `mlb_day_orchestrator.py` (refactor de orden y responsabilidades)
-User stories:
-1. Como usuario, quiero que el pick final siempre pase por Market Selection.
-2. Como usuario, quiero que el sistema explique por qué eligió ese mercado y por qué rechazó otros.
-3. Como usuario, quiero que si faltan odds se pida revisión manual sin perder el análisis.
-4. Como usuario, quiero que el sistema use cache/warehouse antes de recalcular Statcast/sabermetrics.
-5. Como analista, quiero ver auditoría de pattern memory y fuentes externas en el payload.
+#### 2.1 `mlb_day_orchestrator.py` (refactor de orden y responsabilidades) ✅
+- ✅ `market_selection` como capa final.
+- ✅ Buckets `structural_lean_requires_odds` / `watchlist_manual_odds`.
+- ✅ Payload contract + `pipeline_meta.external_sources`.
 
-Steps:
-- Reordenar pipeline: base/contexto → pressure → sabermetrics → advanced snapshot/statcast → ghost edges → fragility/script survival → pattern memory → **market_selection (final)** → manual odds review.
-- Asegurar que legacy modules (run_line/over_under/nrfi/under_profile) **no finalicen** picks; solo llenen contexto de candidatos.
-- Estándar de payload:
-  - incluir cuando exista: `advanced_stats_snapshot`, `pressure_base`, `sabermetrics_audit`, `ghost_edges`, `fragility_score`, `script_survival_score`, `market_selection`, `historical_pattern_match`, `pattern_memory_audit`, `manual_odds_review`, `pipeline_meta.external_sources`.
-  - si falta capa/datos: devolver objeto con `available:false` (y `reason`/`stale` si aplica).
-- Odds handling:
-  - no mandar a `discarded_market` por missing odds.
-  - usar `structural_lean_requires_odds` y/o `watchlist_manual_odds`.
-- Warehouse-first:
-  - consultar snapshot fresco; si stale/no existe → recalcular + upsert.
-  - si snapshot válido → `upsert_team_profile`/`upsert_pitcher_profile`.
-  - persistir `mlb_game_intelligence_snapshots` al final.
-- Garantizar aislamiento: no tocar flujos football/basketball.
+#### 2.2 `mlb_run_evaluations_summary.py` (Moneyball breakdowns) ✅
+- ✅ Nuevos breakdowns + `summary_schema_version=moneyball.1`.
 
-#### 2.2 `mlb_run_evaluations_summary.py` (Moneyball breakdowns)
-User stories:
-1. Como usuario, quiero ver performance por mercado seleccionado.
-2. Como usuario, quiero ver cómo cambia el rendimiento por presión/fragilidad/supervivencia.
-3. Como usuario, quiero detectar ghost-edges frecuentes y su impacto.
-4. Como usuario, quiero comparar F5 under vs full game under y detectar “bullpen broke under”.
-5. Como usuario, quiero ver performance por pattern_key con ROI y sample_size.
+#### 2.3 `editorial_context_service.py` (contexto, no motor) ✅
+- ✅ `p4-moneyball-context.1` + anotación vs Moneyball.
 
-Steps:
-- Agregar campos nuevos (sin borrar legacy):
-  - `by_market_selected`, `by_pressure_environment`, `by_script_survival`, `by_fragility_tier`, `by_sabermetrics_edge`, `by_ghost_edge`, `f5_vs_full_game_under`, `manual_odds_review_outcomes`, `pattern_memory_performance`.
-- Fail-soft: si no hay datos → totales 0, `hit_rate:null`, listas vacías.
-- Mantener contrato del endpoint (compatibilidad).
-
-#### 2.3 `editorial_context_service.py` (contexto, no motor)
-User stories:
-1. Como usuario, quiero que editorial solo confirme/etiquete contexto.
-2. Como usuario, quiero ver warnings si editorial contradice Moneyball.
-3. Como usuario, quiero tags MLB consistentes (pitcher/bullpen/weather/bias).
-4. Como usuario, quiero metadata de alineación editorial vs modelo.
-5. Como usuario, quiero cache con TTL y flag `fast_stale` para pitcher/lineup.
-
-Steps:
-- Bump `EDITORIAL_CONTEXT_VERSION` → `p4-moneyball-context.1`.
-- MLB tags: `public_narrative`, `injury_or_lineup_note`, `pitcher_news`, `bullpen_news`, `market_public_bias`, `weather_or_park_note`.
-- No modificar `confidence` directamente; agregar:
-  - `moneyball_interpretation`, `editorial_vs_model_alignment`, `used_as_confirmation_only:true`.
-- Contradicción: si editorial sugiere Over y hay ghost-edge/fragility alta → flags `PUBLIC_NARRATIVE_RISK`, `EDITORIAL_CONTRADICTS_MONEYBALL`.
-- Cache: TTL 6h general; MLB pitcher/lineup con `fast_stale`/TTL menor.
-
-#### 2.4 `editorial_signal_mapper.py` (vocabulario y `sport_hint`)
-User stories:
-1. Como usuario, quiero que el mapper detecte MLB sin confundirlo con fútbol.
-2. Como usuario, quiero soporte NBA (spread/pace/back-to-back).
-3. Como usuario, quiero que “goles/corners/tarjetas” se marque football.
-4. Como usuario, quiero que “pitcher/bullpen/carreras/hits” se marque baseball.
-5. Como usuario, quiero que si es ambiguo salga OPINION con baja confianza.
-
-Steps:
-- Añadir patrones MLB (market + factual + warning) y NBA.
-- Añadir `sport_hint` en output.
-- Regla motivación MLB: `MLB_NORMAL_MOTIVATION_NEUTRAL`.
-- Fail-soft: default OPINION low confidence.
+#### 2.4 `editorial_signal_mapper.py` (vocabulario y `sport_hint`) ✅
+- ✅ MLB/NBA vocab + sport discrimination + neutralización de motivación MLB.
 
 ---
 
-### Phase 3 — V1 Frontend Development (UI Moneyball)
+### Phase 3 — V1 Frontend Development (UI Moneyball) ✅ COMPLETADO
 
-#### 3.1 MatchCard + Panels (explicabilidad)
-User stories:
-1. Como usuario, quiero ver mercado recomendado + alternativa protegida + fragilidad en el header.
-2. Como usuario, quiero entender “por qué este mercado” y “por qué no otros”.
-3. Como usuario, quiero ver pressure base L5/L15 y ambiente (LOW→CHAOTIC) con alertas.
-4. Como usuario, quiero ver sabermetrics (OPS/FIP/WAR) en español, sin saturación.
-5. Como usuario, quiero ver ghost-edges y si bloquearon/degradaron el pick.
+#### 3.1 MatchCard + Panels (explicabilidad) ✅
+- ✅ Secciones/paneles Moneyball (Market Selection, Ghost Edges, Fragility/Survival, Pattern Memory, Manual Odds Review, etc.).
 
-Steps:
-- Reorganizar MatchCard MLB con accordions:
-  - Header (debug `game_pk`, status, recommended, protected_alt, confidence, fragility tier).
-  - Market Selection panel (why/why_not/reason_codes/manual odds chips).
-  - Pressure Base panel.
-  - Sabermetrics panel.
-  - MLB Advanced Stats panel (sources/cache/data_quality + fail-soft).
-  - Ghost-Edges panel.
-  - Script Survival / Fragility panel.
-  - Pattern Memory panel (sample_size badges  <20 / ≥20 / ≥50).
-- Asegurar compatibilidad con picks viejos (render con defaults).
+#### 3.2 Dashboard buckets + empty states + manual odds ✅
+- ✅ Buckets separados (structural lean vs watchlist) + copy MLB.
 
-#### 3.2 Dashboard buckets + empty states + manual odds
-User stories:
-1. Como usuario, quiero bucket “Structural Lean Requires Odds”.
-2. Como usuario, quiero bucket “Watchlist Manual Odds”.
-3. Como usuario, quiero “Discarded after full analysis” con copy Moneyball.
-4. Como usuario, quiero “Incomplete Data” con fuentes consultadas y faltantes.
-5. Como usuario, quiero pegar odds manuales y ver implied prob/edge/recomendación.
-
-Steps:
-- Actualizar DashboardPage y componentes relacionados para nuevos buckets.
-- Pulir `EmptyStateNoValue` con mensajes MLB y `SourcesConsultedPanel`.
-- Integrar/ajustar `InlineManualOddsInput` + `ManualOddsReviewPanel` para recalcular edge.
-
-#### 3.3 Live Analysis (live vs pregame por `game_pk`)
-User stories:
-1. Como usuario, quiero comparar live vs pregame por `game_pk`.
-2. Como usuario, quiero ver veredicto (mantener/evitar/cashout/esperar/invalidado).
-3. Como usuario, quiero warnings live (hits>>runs).
-4. Como usuario, no quiero recomendaciones de líneas ya superadas.
-5. Como usuario, si no hay pick pregame, quiero mensaje específico (no genérico).
-
-Steps:
-- Ajustar paneles live (`LivePreMatchComparisonPanel`/`LiveCopilotCard`) para lookup por `game_pk`.
-- Añadir chips live + reglas de “línea ya superada”.
+#### 3.3 Live Analysis (live vs pregame por `game_pk`) ✅
+- ✅ Warning hits-pressure, filtro de líneas ya superadas.
 
 ---
 
-### Phase 4 — Comprehensive Testing & Regression
-User stories:
-1. Como dev, quiero que `pytest` siga ≥733 sin regresiones.
-2. Como dev, quiero nuevos tests que cubran Market Selection final y fail-soft.
-3. Como dev, quiero tests de summary con breakdowns nuevos vacíos.
-4. Como dev, quiero tests editorial (no cambia confidence; contradicción genera warning).
-5. Como dev, quiero tests mapper con sport_hint MLB/NBA.
+### Phase 4 — Comprehensive Testing & Regression ✅ COMPLETADO
+- ✅ Suite backend sin regresiones.
+- ✅ Nuevos tests Moneyball + live polish.
 
-Backend tests:
-- `test_mlb_day_orchestrator_market_selection_final` (incluye missing odds + advanced missing + upserts + snapshot persist).
-- `test_mlb_summary_new_breakdowns` (fields existen + legacy intact).
-- `test_editorial_context_moneyball_alignment`.
-- `test_editorial_signal_mapper_mlb_nba`.
-
-Frontend tests (RTL):
-- MatchCard render de `market_selection` + manual odds chip + fail-soft panels.
-- Live panel: no recomendar línea superada + lookup por `game_pk`.
-- Empty state: fuentes consultadas.
-- Buckets nuevos.
+**Estado tests:** ✅ `pytest` 792 passing.
 
 ---
 
-## 3) Next Actions
-1. Implementar Phase 1 POC tests (backend) y correr `pytest -k moneyball_orchestrator_poc`.
-2. Refactor `mlb_day_orchestrator.py` para “market_selection final” + payload contract `available:false`.
-3. Añadir breakdowns a `mlb_run_evaluations_summary.py` manteniendo legacy.
-4. Actualizar editorial service + mapper (version bump + sport_hint).
-5. UI: reorganizar MatchCard y buckets; luego live comparison por `game_pk`.
-6. Ejecutar `pytest` completo + suite frontend.
+## 3) NEW: Injury Intelligence Layer — Basketball (Phase 1)
+
+## Context
+El usuario solicita Injury Intelligence para basketball y football. Alcance confirmado:
+- **Phase 1 = Basketball backend + UI**
+- Phase 2 = Football
+
+Fuentes disponibles:
+- **API-Sports + Bright Data scraping (ESPN/Rotowire/Transfermarkt) + TheStatsAPI**
+
+Estrategia roles:
+- **Lista hardcodeada de superstars/estrellas por equipo** + apoyo con endpoint player-stats (si existe) / heurística.
+
+### Phase 5 — Injury Intelligence (Basketball) — Backend (NEW)
+
+#### 5.1 Crear package `services/injury_intelligence/`
+Crear módulos:
+- `services/injury_intelligence/__init__.py`
+- `injury_schema.py` (dataclasses/typing + shape canónico)
+- `injury_sources.py` (multi-source fetcher; wrappers API-Sports/TheStatsAPI/BrightData)
+- `injury_normalizer.py` (normalización de estados + dedupe)
+- `injury_impact_model.py` (motor común: caps, pesos, freshness)
+- `basketball_injury_impact.py` (scoring NBA)
+- `injury_cache.py` (mongo + TTL policies)
+
+Reglas:
+- Fail-soft estricto: missing data → `available:false`, no crash.
+- Multi-source: si una fuente falla, continuar.
+- Conservador: conflictos → estado más severo.
+- Provenance por jugador: source/source_url/updated_at/confidence.
+
+#### 5.2 Schema normalizado
+Implementar shape común (según prompt) y helpers:
+- `normalize_status(...)` → out/doubtful/questionable/probable/day_to_day/suspended/minutes_restriction/rest/unknown
+- `compute_freshness(...)` con TTLs:
+  - Basketball: 2h pregame, 30min game-day
+
+#### 5.3 Roles NBA
+- Crear `nba_star_registry.py` (o dentro de `basketball_injury_impact.py`) con:
+  - superstars/stars hardcoded por equipo
+  - fallback heurístico cuando no está en lista (minutos/usage/ppg si player-stats existen)
+
+#### 5.4 Fetch multi-source (Basketball)
+- API-Sports basketball injuries (si endpoint existe; wire via `_get`/client existente)
+- TheStatsAPI injuries si disponible
+- Bright Data: scrapers ESPN/Rotowire (fallback)
+- Editorial context como complemento (no fuente primaria)
+
+#### 5.5 Impact scorer (Basketball)
+Función:
+- `calculate_basketball_injury_impact(team_profile, injuries, player_stats=None)`
+
+Output por equipo:
+- `basketball_injury_score` con:
+  - team_strength/offense/defense/pace adjustments
+  - spread/moneyline/total_points adjustments
+  - fragility_adjustment
+  - reason_codes
+
+Reglas clave:
+- Caps: ±12 confidence, +15 fragility
+- HIGH/CRITICAL pueden bloquear picks agresivos (spread duro, ML fuerte)
+- Questionable/minutes restriction en clave → watchlist/manual review
+
+#### 5.6 Match-level edge
+- `match_injury_edge`: home vs away net_edge_points + tier (SMALL/MODERATE/STRONG)
+- `high_volatility` si ambos con impacto HIGH/CRITICAL
+
+#### 5.7 Integración con pipeline Basketball
+- Inyectar `injury_intelligence` en payload para basketball:
+  - no tocar MLB
+  - ajustes conservadores a confidence/fragility (si data fresh)
+  - warnings para market_selection (no forzar pick)
+
+#### 5.8 Prompt `analyst_engine`
+- Añadir reglas: antes de recomendar basketball revisar `injury_intelligence`.
 
 ---
 
-## 4) Success Criteria
-- MLB: decisión final siempre via `mlb_market_selection` (legacy no decide).
-- Missing odds → `structural_lean_requires_odds`/`watchlist_manual_odds` (no discard automático).
-- Payload Moneyball consistente; capas faltantes retornan `available:false` sin romper UI.
-- Editorial = confirmación/contexto; contradicciones generan warnings.
-- UI explica selección/rechazo, fragilidad, confirmaciones/bloqueos, manual odds, live vs pregame por `game_pk`.
-- Tests: backend sin regresiones (≥733) + nuevos tests pasando; frontend tests clave pasando.
+### Phase 6 — Injury Intelligence (Basketball) — Frontend/UI (NEW)
+
+#### 6.1 `InjuryIntelligencePanel.jsx`
+- Renderiza solo si:
+  - `injury_intelligence.available===true` y hay lesiones relevantes, o
+  - hay `market_warnings`, o
+  - freshness=stale con warnings.
+
+Debe mostrar:
+- Jugadores OUT/QUESTIONABLE/minutes restriction
+- Rol (superstar/star/starter/rotation/bench)
+- Impact tier + score
+- Team impact y net edge
+- Source badges + freshness
+- Market warnings
+
+Integración:
+- MatchCard basketball
+- Picks detail modal
+- Live panel (warnings live/pregame)
+
+#### 6.2 Buckets UI
+- Si injury uncertainty alta → mostrar chip “Watchlist por lesiones”
+
+---
+
+### Phase 7 — Tests (Basketball Injury Intelligence) (NEW)
+
+#### 7.1 Backend tests (pytest)
+- Normalización de estados
+- Conflictos entre fuentes (questionable vs out)
+- Superstar out → tier CRITICAL + ajustes
+- Minutes restriction key player → warning + fragility
+- Multiple starters out → bloquea spread agresivo
+- Fresh/partial/stale weights y caps
+- Missing data no rompe y no ajusta confidence
+- Cross-sport: MLB no afectado
+
+#### 7.2 Frontend tests (RTL)
+- Renderiza panel con data
+- Ordena jugadores por impacto
+- Badges HIGH/CRITICAL/DATA STALE
+- Fail-soft si `injury_intelligence` null
+- No aparece en MLB
+
+---
+
+## 4) Next Actions (Actualizado)
+
+### Inmediato (Basketball Injury Phase 1)
+1. Crear package `services/injury_intelligence/` + schema + normalizer.
+2. Implementar multi-source fetcher basketball (API-Sports/TheStatsAPI/BrightData).
+3. Implementar rol registry NBA + scoring `calculate_basketball_injury_impact`.
+4. Integrar `injury_intelligence` al pipeline basketball (payload + ajustes conservadores).
+5. UI: crear `InjuryIntelligencePanel.jsx` e integrarlo en cards basketball.
+6. Tests backend + frontend; correr `pytest` (mantener 792+ sin regresiones).
+
+### Posterior
+- Phase 2: replicar arquitectura para Football (injury/suspension intelligence).
+
+---
+
+## 5) Success Criteria (Actualizado)
+
+### Moneyball MLB (ya cumplido)
+- ✅ Market Selection decide el pick final.
+- ✅ Missing odds → buckets manuales, no discard automático.
+- ✅ Payload contract fail-soft; editorial confirmación; UI explicable; live sin contradicciones.
+
+### Injury Intelligence Basketball (Phase 1)
+- Injury Intelligence **fail-soft**: missing → `available:false` y no altera engine.
+- Multi-source con provenance, conflictos conservadores.
+- Roles NBA: superstars hardcoded + fallback heurístico.
+- Ajustes conservadores con caps (±12 confidence, +15 fragility).
+- HIGH/CRITICAL bloquea picks agresivos (sin forzar picks).
+- Payload incluye `injury_intelligence` en basketball.
+- UI muestra bajas y edge neto en  <5s, no rompe picks viejos.
+- Tests pasan: backend sin regresiones (≥792) + nuevos tests injury.

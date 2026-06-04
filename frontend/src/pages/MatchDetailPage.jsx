@@ -18,6 +18,7 @@ import { MLBMatchupPanel } from '@/components/MLBMatchupPanel';
 import { MLBLiveIntelPanel } from '@/components/MLBLiveIntelPanel';
 import { MLBScriptPanel } from '@/components/MLBScriptPanel';
 import { MLBLiveScoreboard } from '@/components/MLBLiveScoreboard';
+import { InjuryIntelligencePanel } from '@/components/InjuryIntelligencePanel';
 import { LivePreMatchComparisonPanel } from '@/components/LivePreMatchComparisonPanel';
 import { useLiveMatchDetail } from '@/hooks/useLiveMatchDetail';
 import { LiveTerritorialControlPanel } from '@/components/LiveTerritorialControlPanel';
@@ -174,6 +175,16 @@ export default function MatchDetailPage() {
       <div className="grid lg:grid-cols-12 gap-6">
         {/* Main */}
         <div className="lg:col-span-8 space-y-6">
+          {/* Injury Intelligence (basketball only, Phase 1) — high-priority
+              risk layer rendered ABOVE the pick so users see absences and
+              market warnings before reading the recommendation. The panel
+              self-hides for non-basketball sports and when no data is
+              available, so it adds zero noise to MLB / football flows. */}
+          <InjuryIntelligencePanel
+            matchId={match?.match_id ?? match?.id}
+            sport={sport}
+            lang={lang}
+          />
           {/* Live ↔ pregame comparison (always above the pick so the user
               sees the verdict before the pick itself when the market is
               already settled). */}
