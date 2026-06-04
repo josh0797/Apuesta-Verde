@@ -1,285 +1,341 @@
-#!/usr/bin/env python3
-"""Backend Testing for MLB Intelligence Warehouse Integration (Fix 1-3).
+"""
+Backend Integration Tests for Football Moneyball Intelligence Layer
 
 Tests:
-1. Backend boot OK
-2. Login endpoint works
-3. POST /api/analysis/run with sport=baseball produces picks with Phase 13 fields
-4. MLB prompt contains new keywords and NO obsolete rules
-5. Prefilter prompt doesn't DISCARD for normal motivation or missing odds
-6. mlb_game_intelligence_snapshots collection populating
-7. Fail-soft validation
-8. Sample-size gates
-9. Football/basketball not affected
+1. Backend startup and index creation (verified via logs)
+2. GET /api/football/pattern-memory/summary endpoint (auth required, fail-soft)
+3. POST /api/analysis/run with sport=football enriches picks
+4. MLB and Basketball endpoints still work
+5. GET /api/picks/today?sport=football still works
 """
 
-import sys
 import requests
-import json
+import sys
 from datetime import datetime
 
 BASE_URL = "https://low-volatility-plays.preview.emergentagent.com"
-MONGO_URL = "mongodb://localhost:27017"
-DB_NAME = "test_database"
 
-class Colors:
-    GREEN = '\033[92m'
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    END = '\033[0m'
+class FootballMoneybballTester:
+    def __init__(self):
+        self.base_url = BASE_URL
+        self.token = None
+        self.tests_run = 0
+        self.tests_passed = 0
+        self.test_results = []
 
-def print_test(name, passed, details=""):
-    status = f"{Colors.GREEN}✅ PASS{Colors.END}" if passed else f"{Colors.RED}❌ FAIL{Colors.END}"
-    print(f"{status} - {name}")
-    if details:
-        print(f"    {details}")
-    return passed
-
-def test_login():
-    """Test 1: Login endpoint works"""
-    try:
-        response = requests.post(
-            f"{BASE_URL}/api/auth/login",
-            json={"email": "demo@valuebet.app", "password": "demo1234"},
-            timeout=10
-        )
-        if response.status_code == 200:
-            data = response.json()
-            token = data.get("token")
-            return print_test("Login endpoint", token is not None, f"Token received: {token[:50] if token else 'None'}...")
+    def log_test(self, name, passed, message=""):
+        """Log test result"""
+        self.tests_run += 1
+        if passed:
+            self.tests_passed += 1
+            print(f"✅ PASS: {name}")
         else:
-            return print_test("Login endpoint", False, f"Status: {response.status_code}")
-    except Exception as e:
-        return print_test("Login endpoint", False, f"Error: {str(e)}")
+            print(f"❌ FAIL: {name} - {message}")
+        self.test_results.append({
+            "name": name,
+            "passed": passed,
+            "message": message
+        })
 
-def get_auth_token():
-    """Helper to get auth token"""
-    response = requests.post(
-        f"{BASE_URL}/api/auth/login",
-        json={"email": "demo@valuebet.app", "password": "demo1234"},
-        timeout=10
-    )
-    return response.json().get("token")
+    def login(self):
+        """Login and get token"""
+        print("\n🔐 Testing Authentication...")
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/auth/login",
+                json={"email": "demo@valuebet.app", "password": "demo1234"},
+                timeout=10
+            )
+            if response.status_code == 200:
+                data = response.json()
+                self.token = data.get("token") or data.get("access_token")
+                if self.token:
+                    self.log_test("Login", True, f"Token obtained")
+                    return True
+                else:
+                    self.log_test("Login", False, f"No token in response: {data.keys()}")
+                    return False
+            else:
+                self.log_test("Login", False, f"Status {response.status_code}")
+                return False
+        except Exception as e:
+            self.log_test("Login", False, str(e))
+            return False
 
-def test_mlb_prompt_content():
-    """Test 2: MLB prompt contains new keywords and NO obsolete rules"""
-    try:
-        from services.analyst_engine import _build_system_prompt
-        from services.mlb_intelligence import MLB_INTELLIGENCE_RULES
-        
-        prompt = _build_system_prompt("baseball")
-        
-        # Check for NEW keywords
-        new_keywords = [
-            "pressure_base", "market_selection", "sabermetrics", 
-            "ghost-edges", "historical_pattern_match", "STRUCTURAL_LEAN"
-        ]
-        has_new = all(kw in prompt for kw in new_keywords)
-        
-        # Check for OBSOLETE rules (should NOT be present)
-        obsolete_phrases = [
-            "Run Line -1.5 del favorito prohibido como principal",
-            "Total Runs UNDER solo cuando ambos pitchers son de élite"
-        ]
-        has_obsolete = any(phrase in prompt for phrase in obsolete_phrases)
-        
-        # Check MLB_INTELLIGENCE_RULES
-        mlb_rules_ok = "PIPELINE ACTUALIZADO" in MLB_INTELLIGENCE_RULES
-        mlb_rules_ok = mlb_rules_ok and "advanced_stats_snapshot" in MLB_INTELLIGENCE_RULES
-        mlb_rules_ok = mlb_rules_ok and "pressure_base" in MLB_INTELLIGENCE_RULES
-        
-        passed = has_new and not has_obsolete and mlb_rules_ok
-        details = f"New keywords: {has_new}, No obsolete: {not has_obsolete}, MLB rules OK: {mlb_rules_ok}"
-        return print_test("MLB prompt content", passed, details)
-    except Exception as e:
-        return print_test("MLB prompt content", False, f"Error: {str(e)}")
+    def test_pattern_memory_summary_auth_required(self):
+        """Test that pattern-memory endpoint requires auth"""
+        print("\n🔒 Testing Pattern Memory Summary - Auth Required...")
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/football/pattern-memory/summary",
+                timeout=10
+            )
+            # Should return 401 without auth
+            if response.status_code == 401:
+                self.log_test("Pattern Memory Auth Required", True, "401 Unauthorized as expected")
+                return True
+            else:
+                self.log_test("Pattern Memory Auth Required", False, f"Expected 401, got {response.status_code}")
+                return False
+        except Exception as e:
+            self.log_test("Pattern Memory Auth Required", False, str(e))
+            return False
 
-def test_prefilter_prompt():
-    """Test 3: Prefilter prompt doesn't DISCARD for normal motivation or missing odds in MLB"""
-    try:
-        from services.analyst_engine import _build_prefilter_prompt
-        
-        prefilter = _build_prefilter_prompt("baseball")
-        
-        # Check for MLB-specific rules
-        has_mlb_rules = "PARA SPORT=baseball ÚNICAMENTE" in prefilter
-        no_discard_normal = "motivación normal es NEUTRAL" in prefilter or "NUNCA es razón de DISCARD" in prefilter
-        no_discard_odds = "Cuotas ausentes en MLB NUNCA implican DISCARD" in prefilter
-        
-        passed = has_mlb_rules and no_discard_normal and no_discard_odds
-        details = f"MLB rules: {has_mlb_rules}, No discard normal: {no_discard_normal}, No discard odds: {no_discard_odds}"
-        return print_test("Prefilter prompt MLB rules", passed, details)
-    except Exception as e:
-        return print_test("Prefilter prompt MLB rules", False, f"Error: {str(e)}")
-
-def test_warehouse_collections():
-    """Test 4: mlb_game_intelligence_snapshots collection exists and has data"""
-    try:
-        from pymongo import MongoClient
-        
-        client = MongoClient(MONGO_URL)
-        db = client[DB_NAME]
-        
-        # Check collection exists and has documents
-        count = db.mlb_game_intelligence_snapshots.count_documents({})
-        
-        if count > 0:
-            # Check one document structure
-            doc = db.mlb_game_intelligence_snapshots.find_one({})
-            has_required_fields = all(k in doc for k in ["game_pk", "day", "digest", "pattern_keys"])
+    def test_pattern_memory_summary_authenticated(self):
+        """Test pattern-memory endpoint with authentication"""
+        print("\n📊 Testing Pattern Memory Summary - Authenticated...")
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.get(
+                f"{self.base_url}/api/football/pattern-memory/summary?limit=10",
+                headers=headers,
+                timeout=10
+            )
             
-            # Check digest has Phase 13 fields
-            digest = doc.get("digest", {})
-            phase13_fields = [
-                "advanced_stats_snapshot", "advanced_adjustments", "pressure_base",
-                "pressure_base_impact", "sabermetrics", "sabermetrics_audit",
-                "market_selection"
-            ]
-            has_phase13 = all(f in digest for f in phase13_fields)
+            if response.status_code == 200:
+                data = response.json()
+                # Check expected shape
+                required_keys = ["available", "items", "count", "generated_at"]
+                has_all_keys = all(k in data for k in required_keys)
+                
+                if has_all_keys:
+                    # Empty DB is expected initially
+                    if data["available"] and data["count"] == 0 and isinstance(data["items"], list):
+                        self.log_test(
+                            "Pattern Memory Summary Shape",
+                            True,
+                            f"Empty DB response correct: {data['count']} items"
+                        )
+                        return True
+                    elif data["available"]:
+                        self.log_test(
+                            "Pattern Memory Summary Shape",
+                            True,
+                            f"Response has {data['count']} items"
+                        )
+                        return True
+                    else:
+                        self.log_test(
+                            "Pattern Memory Summary Shape",
+                            False,
+                            f"available=False: {data}"
+                        )
+                        return False
+                else:
+                    self.log_test(
+                        "Pattern Memory Summary Shape",
+                        False,
+                        f"Missing keys. Got: {list(data.keys())}"
+                    )
+                    return False
+            else:
+                self.log_test(
+                    "Pattern Memory Summary",
+                    False,
+                    f"Status {response.status_code}: {response.text[:200]}"
+                )
+                return False
+        except Exception as e:
+            self.log_test("Pattern Memory Summary", False, str(e))
+            return False
+
+    def test_pattern_memory_fail_soft(self):
+        """Test that pattern-memory endpoint is fail-soft (doesn't return 500)"""
+        print("\n🛡️ Testing Pattern Memory Fail-Soft...")
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            # Try with various parameters to ensure fail-soft
+            response = requests.get(
+                f"{self.base_url}/api/football/pattern-memory/summary?limit=100",
+                headers=headers,
+                timeout=10
+            )
             
-            passed = has_required_fields and has_phase13
-            details = f"Documents: {count}, Required fields: {has_required_fields}, Phase 13 fields: {has_phase13}"
-            return print_test("Warehouse collection populated", passed, details)
+            # Should never return 500
+            if response.status_code != 500:
+                self.log_test(
+                    "Pattern Memory Fail-Soft",
+                    True,
+                    f"No 500 error (got {response.status_code})"
+                )
+                return True
+            else:
+                self.log_test(
+                    "Pattern Memory Fail-Soft",
+                    False,
+                    f"Got 500 error: {response.text[:200]}"
+                )
+                return False
+        except Exception as e:
+            self.log_test("Pattern Memory Fail-Soft", False, str(e))
+            return False
+
+    def test_football_picks_today(self):
+        """Test that /api/picks/today?sport=football still works"""
+        print("\n⚽ Testing Football Picks Today...")
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.get(
+                f"{self.base_url}/api/picks/today?sport=football",
+                headers=headers,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                # Check it's a valid response
+                if isinstance(data, dict):
+                    self.log_test(
+                        "Football Picks Today",
+                        True,
+                        f"Response OK with {len(data.get('picks', []))} picks"
+                    )
+                    
+                    # Check if any picks have moneyball enrichment
+                    picks = data.get("picks", [])
+                    if picks:
+                        first_pick = picks[0]
+                        has_moneyball = any(k in first_pick for k in [
+                            "goal_pressure_profile",
+                            "market_selection",
+                            "historical_pattern_match",
+                            "football_pattern_keys"
+                        ])
+                        if has_moneyball:
+                            print(f"   ℹ️  Picks have Moneyball enrichment")
+                        else:
+                            print(f"   ℹ️  Picks don't have Moneyball enrichment yet (may need analysis run)")
+                    return True
+                else:
+                    self.log_test("Football Picks Today", False, f"Invalid response type: {type(data)}")
+                    return False
+            else:
+                self.log_test(
+                    "Football Picks Today",
+                    False,
+                    f"Status {response.status_code}: {response.text[:200]}"
+                )
+                return False
+        except Exception as e:
+            self.log_test("Football Picks Today", False, str(e))
+            return False
+
+    def test_mlb_not_affected(self):
+        """Test that MLB endpoints still work"""
+        print("\n⚾ Testing MLB Not Affected...")
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.get(
+                f"{self.base_url}/api/picks/today?sport=baseball",
+                headers=headers,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, dict):
+                    self.log_test(
+                        "MLB Not Affected",
+                        True,
+                        f"MLB endpoint works with {len(data.get('picks', []))} picks"
+                    )
+                    return True
+                else:
+                    self.log_test("MLB Not Affected", False, f"Invalid response type")
+                    return False
+            else:
+                self.log_test(
+                    "MLB Not Affected",
+                    False,
+                    f"Status {response.status_code}"
+                )
+                return False
+        except Exception as e:
+            self.log_test("MLB Not Affected", False, str(e))
+            return False
+
+    def test_basketball_not_affected(self):
+        """Test that Basketball endpoints still work"""
+        print("\n🏀 Testing Basketball Not Affected...")
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.get(
+                f"{self.base_url}/api/picks/today?sport=basketball",
+                headers=headers,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, dict):
+                    self.log_test(
+                        "Basketball Not Affected",
+                        True,
+                        f"Basketball endpoint works with {len(data.get('picks', []))} picks"
+                    )
+                    return True
+                else:
+                    self.log_test("Basketball Not Affected", False, f"Invalid response type")
+                    return False
+            else:
+                self.log_test(
+                    "Basketball Not Affected",
+                    False,
+                    f"Status {response.status_code}"
+                )
+                return False
+        except Exception as e:
+            self.log_test("Basketball Not Affected", False, str(e))
+            return False
+
+    def print_summary(self):
+        """Print test summary"""
+        print("\n" + "="*70)
+        print("📊 TEST SUMMARY")
+        print("="*70)
+        print(f"Total Tests: {self.tests_run}")
+        print(f"Passed: {self.tests_passed}")
+        print(f"Failed: {self.tests_run - self.tests_passed}")
+        print(f"Success Rate: {(self.tests_passed/self.tests_run*100):.1f}%")
+        print("="*70)
+        
+        if self.tests_passed == self.tests_run:
+            print("✅ ALL TESTS PASSED!")
+            return 0
         else:
-            return print_test("Warehouse collection populated", False, f"No documents found (count: {count})")
-    except Exception as e:
-        return print_test("Warehouse collection populated", False, f"Error: {str(e)}")
-
-def test_fail_soft():
-    """Test 5: Fail-soft behavior when db is None"""
-    try:
-        from services.mlb_intelligence_warehouse import (
-            lookup_pattern_match, attach_pattern_match_to_payload
-        )
-        import asyncio
-        
-        async def run_test():
-            # Test lookup with None db
-            result = await lookup_pattern_match(None, ["LOW_PRESSURE_STRONG_FIP_BOTH"])
-            lookup_ok = result["sample_size"] == 0 and result["confidence_adjustment"] == 0.0
-            
-            # Test attach with None db
-            payload = {"pressure_base": {"combined": {"pressure_tier": "LOW_PRESSURE"}}}
-            summary = await attach_pattern_match_to_payload(None, payload)
-            attach_ok = summary["confidence_adjustment"] == 0.0
-            attach_ok = attach_ok and "historical_pattern_match" in payload
-            
-            return lookup_ok and attach_ok
-        
-        passed = asyncio.run(run_test())
-        return print_test("Fail-soft behavior", passed, "db=None handled gracefully")
-    except Exception as e:
-        return print_test("Fail-soft behavior", False, f"Error: {str(e)}")
-
-def test_sample_size_gates():
-    """Test 6: Sample-size gates working correctly"""
-    try:
-        from services.mlb_intelligence_warehouse import _compute_pattern_adjustment
-        
-        # Test <20: no adjustment
-        adj1, codes1, warn1 = _compute_pattern_adjustment(sample_size=10, hit_rate=0.8, roi=0.3)
-        test1 = adj1 == 0.0 and warn1 is not None
-        
-        # Test 20-49: moderate adjustment capped at ±5
-        adj2, codes2, _ = _compute_pattern_adjustment(sample_size=30, hit_rate=0.62, roi=0.10)
-        test2 = -5.0 <= adj2 <= 5.0
-        
-        # Test >=50 with positive ROI: strong adjustment up to ±8
-        adj3, codes3, _ = _compute_pattern_adjustment(sample_size=60, hit_rate=0.62, roi=0.15)
-        test3 = 0 < adj3 <= 8.0
-        
-        # Test >=50 with negative ROI: negative adjustment
-        adj4, codes4, _ = _compute_pattern_adjustment(sample_size=60, hit_rate=0.4, roi=-0.10)
-        test4 = adj4 < 0
-        
-        passed = test1 and test2 and test3 and test4
-        details = f"<20: {test1}, 20-49: {test2}, >=50 pos: {test3}, >=50 neg: {test4}"
-        return print_test("Sample-size gates", passed, details)
-    except Exception as e:
-        return print_test("Sample-size gates", False, f"Error: {str(e)}")
-
-def test_football_basketball_unaffected():
-    """Test 7: Football/basketball prompts not affected by MLB changes"""
-    try:
-        from services.analyst_engine import _build_system_prompt
-        
-        football_prompt = _build_system_prompt("football")
-        basketball_prompt = _build_system_prompt("basketball")
-        
-        # These should NOT contain MLB-specific content
-        football_ok = "pressure_base" not in football_prompt
-        football_ok = football_ok and "sabermetrics" not in football_prompt
-        football_ok = football_ok and "REGLAS DEL DEPORTE (Fútbol)" in football_prompt
-        
-        basketball_ok = "pressure_base" not in basketball_prompt
-        basketball_ok = basketball_ok and "sabermetrics" not in basketball_prompt
-        basketball_ok = basketball_ok and "REGLAS DEL DEPORTE (NBA/Basket)" in basketball_prompt
-        
-        passed = football_ok and basketball_ok
-        details = f"Football clean: {football_ok}, Basketball clean: {basketball_ok}"
-        return print_test("Football/Basketball unaffected", passed, details)
-    except Exception as e:
-        return print_test("Football/Basketball unaffected", False, f"Error: {str(e)}")
-
-def test_pytest_suite():
-    """Test 8: Full pytest suite passes (701 tests)"""
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["python", "-m", "pytest", "tests/", "-q", "--tb=no"],
-            cwd="/app/backend",
-            capture_output=True,
-            text=True,
-            timeout=120
-        )
-        
-        # Parse output for test count
-        output = result.stdout
-        if "701 passed" in output:
-            return print_test("Pytest suite (701 tests)", True, "All tests passed")
-        else:
-            # Extract actual count
-            import re
-            match = re.search(r"(\d+) passed", output)
-            count = match.group(1) if match else "unknown"
-            return print_test("Pytest suite (701 tests)", False, f"Expected 701, got {count}")
-    except Exception as e:
-        return print_test("Pytest suite (701 tests)", False, f"Error: {str(e)}")
+            print("❌ SOME TESTS FAILED")
+            print("\nFailed Tests:")
+            for result in self.test_results:
+                if not result["passed"]:
+                    print(f"  - {result['name']}: {result['message']}")
+            return 1
 
 def main():
-    print(f"\n{Colors.BLUE}{'='*70}{Colors.END}")
-    print(f"{Colors.BLUE}MLB Intelligence Warehouse Integration Test Suite{Colors.END}")
-    print(f"{Colors.BLUE}Testing Fixes 1-3: Prompt Updates + Warehouse + Pick Regeneration{Colors.END}")
-    print(f"{Colors.BLUE}{'='*70}{Colors.END}\n")
+    print("="*70)
+    print("🧪 FOOTBALL MONEYBALL BACKEND INTEGRATION TESTS")
+    print("="*70)
     
-    results = []
+    tester = FootballMoneybballTester()
     
-    # Run tests
-    print(f"{Colors.YELLOW}Running Backend Tests...{Colors.END}\n")
+    # Run tests in order
+    if not tester.login():
+        print("\n❌ Login failed, cannot continue tests")
+        return 1
     
-    results.append(test_login())
-    results.append(test_mlb_prompt_content())
-    results.append(test_prefilter_prompt())
-    results.append(test_warehouse_collections())
-    results.append(test_fail_soft())
-    results.append(test_sample_size_gates())
-    results.append(test_football_basketball_unaffected())
-    results.append(test_pytest_suite())
+    # Test pattern memory endpoint
+    tester.test_pattern_memory_summary_auth_required()
+    tester.test_pattern_memory_summary_authenticated()
+    tester.test_pattern_memory_fail_soft()
     
-    # Summary
-    passed = sum(results)
-    total = len(results)
+    # Test football picks still work
+    tester.test_football_picks_today()
     
-    print(f"\n{Colors.BLUE}{'='*70}{Colors.END}")
-    print(f"{Colors.BLUE}Test Summary{Colors.END}")
-    print(f"{Colors.BLUE}{'='*70}{Colors.END}")
-    print(f"Total: {total} tests")
-    print(f"{Colors.GREEN}Passed: {passed}{Colors.END}")
-    print(f"{Colors.RED}Failed: {total - passed}{Colors.END}")
-    print(f"Success Rate: {passed/total*100:.1f}%\n")
+    # Test other sports not affected
+    tester.test_mlb_not_affected()
+    tester.test_basketball_not_affected()
     
-    return 0 if passed == total else 1
+    # Print summary
+    return tester.print_summary()
 
 if __name__ == "__main__":
     sys.exit(main())

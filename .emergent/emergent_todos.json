@@ -1,18 +1,50 @@
 [
   {
-    "content": "Summary: threshold 90 para buckets whitelisteados + tier classification",
+    "content": "Phase 8: Crear package services/football_moneyball/ + football_intelligence_warehouse.py (4 colecciones + índices + IO fail-soft)",
     "status": "completed"
   },
   {
-    "content": "Backend: validation tracker (mlb_bucket_validation_tracker upsert + days_since helper)",
+    "content": "Phase 9: Implementar football_goal_pressure_profile.py (pure, thresholds football-specific)",
     "status": "completed"
   },
   {
-    "content": "Orquestador: tiered confidence/fragility adjustment con caps + UNDER-only restriction + auto-validate 14d",
+    "content": "Phase 10: Implementar football_snapshot_builder.py (pregame + live digest, idempotente)",
     "status": "completed"
   },
   {
-    "content": "Tests + verificación end-to-end",
+    "content": "Phase 11: Implementar football_pattern_memory.py (derive keys + lookup + attach con gates conservadores)",
     "status": "completed"
+  },
+  {
+    "content": "Phase 12: Implementar football_market_selection.py (capa final protegida)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 13: Implementar football_feedback_loop.py + persist_football_market_result",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 14: Extender live_reevaluation.py con football_live_vs_pregame",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 15: Integrar football_moneyball en analyst_engine.py (fail-soft, sport==football only)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 15b: Endpoint GET /api/football/pattern-memory/summary + ensure_football_indexes en startup",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 16: Tests pytest backend football_moneyball (36 nuevos + 943 existentes = 979 total)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 17: UI mínima — 3 paneles en MatchCard.jsx (Intelligence, PatternMemory, LiveVsPregame)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 18: Testing agent backend para verificación endpoint + integración",
+    "status": "in_progress"
   }
 ]

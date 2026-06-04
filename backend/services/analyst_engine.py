@@ -2325,6 +2325,68 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         except Exception as exc:
             log.warning("editorial_interpretation Phase 12 failed: %s", exc)
 
+    # ── Phase 12a-FM — Football Moneyball Intelligence + Pattern Memory ──
+    # New Moneyball-style historical layer for football. Applies the
+    # pregame snapshot + pattern memory + market selection to every
+    # football entry (picks, rescued_picks, discarded_market, watchlist,
+    # protected_acceptable). Strictly fail-soft: missing data leaves the
+    # entry untouched, DB errors are swallowed. Cross-sport: gated by
+    # `sport == 'football'` so MLB/Basketball are unaffected.
+    if sport == "football":
+        try:
+            from .football_moneyball import attach_football_intelligence_to_payload as _attach_fm
+            by_id_fm = {m.get("match_id"): m for m in matches_payload}
+            summary_fm = parsed.get("summary") or {}
+            picks_fm   = parsed.get("picks") or []
+            buckets_fm = [
+                picks_fm,
+                summary_fm.get("discarded_market")    or [],
+                summary_fm.get("discarded_motivation") or [],
+                summary_fm.get("rescued_picks")       or [],
+                summary_fm.get("watchlist")           or [],
+                summary_fm.get("protected_acceptable") or [],
+            ]
+            fm_audit = {
+                "entries_processed": 0,
+                "snapshots_persisted": 0,
+                "market_selection_ok": 0,
+                "pattern_keys_total": 0,
+            }
+            for bucket in buckets_fm:
+                for entry in bucket:
+                    if not isinstance(entry, dict):
+                        continue
+                    mid = entry.get("match_id")
+                    src = by_id_fm.get(mid) or {}
+                    try:
+                        # Persist only for confirmed/rescued picks; discarded
+                        # entries get the intelligence block but no snapshot
+                        # write (to keep the warehouse focused).
+                        persist_flag = bucket is picks_fm or bucket is (summary_fm.get("rescued_picks") or [])
+                        result = await _attach_fm(db, entry, src, persist=persist_flag)
+                    except Exception as _exc:
+                        log.debug("attach_football_intelligence_to_payload failed for %s: %s", mid, _exc)
+                        continue
+                    if isinstance(result, dict) and result.get("available"):
+                        fm_audit["entries_processed"] += 1
+                        if result.get("snapshot_persisted"):
+                            fm_audit["snapshots_persisted"] += 1
+                        if result.get("market_selection_ok"):
+                            fm_audit["market_selection_ok"] += 1
+                        fm_audit["pattern_keys_total"] += len(result.get("pattern_keys") or [])
+            parsed.setdefault("_pipeline", {})
+            parsed["_pipeline"]["football_moneyball"] = {
+                **fm_audit,
+                "engine_version": "football_moneyball.intelligence.1",
+            }
+            log.info(
+                "Analyst[football]: Moneyball intelligence attached entries=%d snapshots=%d ms_ok=%d patterns_total=%d",
+                fm_audit["entries_processed"], fm_audit["snapshots_persisted"],
+                fm_audit["market_selection_ok"], fm_audit["pattern_keys_total"],
+            )
+        except Exception as exc:
+            log.warning("football_moneyball Phase 12a-FM failed: %s", exc)
+
     # ── Phase 12b — Basketball Historical Profile annotation ────────────
     # When the basketball pre-fetch produced a profile (Phase 10b), copy it
     # into the user-facing payload entries (picks, discarded_market,

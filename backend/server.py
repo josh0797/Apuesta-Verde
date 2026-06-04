@@ -79,6 +79,18 @@ async def on_startup() -> None:
         await job_queue.cleanup_stale(db, max_age_minutes=0)  # everything still "running" is now stale
     except Exception as e:
         log.warning("startup cleanup_stale failed: %s", e)
+    # Football Moneyball — ensure warehouse indexes (best-effort, fail-soft).
+    try:
+        from services.football_moneyball import ensure_football_indexes
+        idx_res = await ensure_football_indexes(db)
+        if isinstance(idx_res, dict):
+            log.info(
+                "[FOOTBALL_MONEYBALL] indexes ensured: created=%d errors=%d",
+                len(idx_res.get("created") or []),
+                len(idx_res.get("errors") or []),
+            )
+    except Exception as exc:
+        log.warning("[FOOTBALL_MONEYBALL] ensure indexes failed: %s", exc)
     log.info("Startup complete")
 
 
@@ -4000,6 +4012,37 @@ async def football_market_audit(
         log.exception("football_market_audit failed: %s", exc)
         return JSONResponse(status_code=500,
                             content={"ok": False, "detail": str(exc)})
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Football Pattern Memory — aggregate summary endpoint
+# ════════════════════════════════════════════════════════════════════════════
+@api.get("/football/pattern-memory/summary")
+async def football_pattern_memory_summary(
+    user: dict = Depends(get_current_user),
+    limit: int = 25,
+    enabled_only: bool = True,
+):
+    """Return a compact roll-up of the football pattern memory.
+
+    Fail-soft: if the DB is unavailable or any error occurs, returns
+    ``{available:false, reason:...}`` with HTTP 200 so the UI can render
+    an empty-state without showing an error.
+
+    Query params:
+      • limit         : max number of patterns to return (default 25, max 200).
+      • enabled_only  : when true (default) skip explicitly disabled patterns.
+    """
+    try:
+        from services.football_moneyball import summarize_pattern_memory
+        limit = max(1, min(200, int(limit or 25)))
+        summary = await summarize_pattern_memory(
+            db, limit=limit, enabled_only=bool(enabled_only),
+        )
+        return summary
+    except Exception as exc:
+        log.exception("football_pattern_memory_summary failed: %s", exc)
+        return {"available": False, "reason": "exception", "items": []}
 
 
 @api.post("/mlb/engine/recompute")

@@ -22,6 +22,7 @@ import { SourcesConsultedPanel } from './SourcesConsultedPanel';
 import { MLBScriptPanel } from './MLBScriptPanel';
 import { MLBScriptV3Panel, MLBDiversityBadge, MLBBullpenSwapBadge, MLBOverSwapBadge, MLBFalseCompetitiveUnderdogBadge } from './MLBScriptV3Panel';
 import { MLBAdvancedStatsPanel } from './MLBAdvancedStatsPanel';
+import { FootballIntelligencePanel, FootballPatternMemoryPanel, FootballLiveVsPregamePanel } from './FootballMoneyballPanels';
 import { InlineManualOddsInput } from './InlineManualOddsInput';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -395,6 +396,28 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
         sport={m.baseballHistoricalProfile ? 'baseball' : 'basketball'}
         testId={`historical-profile-${m.match_id}`}
       />
+
+      {/* Football Moneyball Intelligence Layer + Pattern Memory.
+          Three independent, fail-soft panels. Each renders only when its
+          payload is present and `available`. Football-only by gating
+          on `sport === 'football'` so MLB / Basketball cards stay
+          unchanged. */}
+      {sport === 'football' && (
+        <>
+          <FootballIntelligencePanel
+            pick={m}
+            testId={`football-intel-${m.match_id}`}
+          />
+          <FootballPatternMemoryPanel
+            pick={m}
+            testId={`football-pattern-${m.match_id}`}
+          />
+          <FootballLiveVsPregamePanel
+            diff={m.football_live_vs_pregame || m._live_reeval?.football_live_vs_pregame}
+            testId={`football-live-vs-pregame-${m.match_id}`}
+          />
+        </>
+      )}
 
       {/* MLB Engine V3 — Explainability layer (Game Script + Pitchers +
           Why This Pick + Confidence Breakdown + baseball-first reasons).

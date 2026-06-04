@@ -297,6 +297,31 @@ def _reevaluate_football(
         logging.getLogger("live_reeval").warning("interpret_live failed: %s", _exc)
         interpreter = None
 
+    # ── Football Moneyball — Live vs Pregame comparison (fail-soft) ──
+    # Pure (no IO): builds a live snapshot from the current match doc and
+    # compares it against the pregame snapshot we already attach in
+    # analyst_engine (`football_pregame_snapshot` on the match) or one
+    # we build on-the-fly here. Never raises.
+    fb_live_vs_pregame = None
+    try:
+        from .football_moneyball import (
+            build_pregame_snapshot as _fb_build_pregame,
+            build_live_snapshot as _fb_build_live,
+            compare_live_vs_pregame as _fb_compare,
+        )
+        pregame_snap = (
+            match.get("football_pregame_snapshot")
+            or _fb_build_pregame(match)
+        )
+        live_snap = _fb_build_live(match)
+        fb_live_vs_pregame = _fb_compare(pregame_snap, live_snap)
+    except Exception as _exc:
+        import logging
+        logging.getLogger("live_reeval").debug(
+            "football_live_vs_pregame failed: %s", _exc,
+        )
+        fb_live_vs_pregame = None
+
     return _build_response(
         match_id=match.get("match_id"),
         live_state=state,
@@ -315,6 +340,7 @@ def _reevaluate_football(
         live_analysis=live_analysis,
         trap=trap,
         interpreter=interpreter,
+        football_live_vs_pregame=fb_live_vs_pregame,
     )
 
 
@@ -503,6 +529,7 @@ def _build_response(**kwargs) -> dict:
         "live_analysis":       kwargs.get("live_analysis"),
         "trap":                kwargs.get("trap"),
         "interpreter":         kwargs.get("interpreter"),
+        "football_live_vs_pregame": kwargs.get("football_live_vs_pregame"),
     }
 
 
