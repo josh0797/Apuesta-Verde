@@ -387,6 +387,285 @@ def _poisson_cdf(k: int, lam: float) -> float:
 MLB_TOTALS_DISPERSION_RATIO = 1.9
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Bucket-specific dispersion activation
+# ─────────────────────────────────────────────────────────────────────
+# Per the observe-only policy in `mlb_run_evaluations_summary`, a bucket
+# may carry its OWN empirical dispersion ratio when it accumulates ≥100
+# settled samples. The resolver below decides, for a given pick context,
+# whether to use the global ratio or a bucket-specific one.
+#
+# Buckets initially eligible to be APPLIED (when n≥100):
+#   * pressure.HIGH_PRESSURE
+#   * park.HITTER_FRIENDLY
+#
+# Buckets initially OBSERVE_ONLY (until validated):
+#   * fragility.HIGH
+#   * bullpen_fragility.HIGH
+#   * market_scope.full_game
+#
+# A bucket is APPLY-eligible when BOTH conditions are met:
+#   1. The summary marks `apply_eligible == True` for that bucket.
+#   2. The bucket key is whitelisted in BUCKETS_APPLY_WHITELIST.
+BUCKETS_APPLY_WHITELIST: frozenset = frozenset({
+    "pressure.HIGH_PRESSURE",
+    "park.HITTER_FRIENDLY",
+})
+
+# Safety clamp on any bucket-derived ratio.
+_BUCKET_RATIO_MIN = 1.2
+_BUCKET_RATIO_MAX = 2.5
+
+
+def detect_totals_dispersion_buckets(scoring_ctx: Optional[dict]) -> list[str]:
+    """Return the list of bucket keys that apply to ``scoring_ctx``.
+
+    Pure / synchronous — used by both the resolver and tests. Returns
+    an empty list when no bucket applies, never raises.
+    """
+    if not isinstance(scoring_ctx, dict):
+        return []
+    out: list[str] = []
+    # ── Pressure environment ─────────────────────────────────────────
+    pressure_base = scoring_ctx.get("pressure_base") or {}
+    pressure = (
+        pressure_base.get("pressure_environment")
+        or ((pressure_base.get("combined") or {}).get("pressure_tier"))
+    )
+    if pressure == "HIGH_PRESSURE":
+        out.append("pressure.HIGH_PRESSURE")
+
+    # ── Park (HITTER_FRIENDLY) ───────────────────────────────────────
+    park = (
+        scoring_ctx.get("park_factor_live")
+        or scoring_ctx.get("park")
+        or {}
+    )
+    park_code = (park.get("code") or "").upper()
+    if park_code in ("HITTER_FRIENDLY", "OFFENSIVE"):
+        out.append("park.HITTER_FRIENDLY")
+    else:
+        try:
+            mult = float(park.get("park_runs_mult") or park.get("dynamic") or 1.0)
+            if mult >= 1.08:
+                out.append("park.HITTER_FRIENDLY")
+        except (TypeError, ValueError):
+            pass
+
+    # ── Fragility (observe-only initially) ───────────────────────────
+    fragility = scoring_ctx.get("fragility_score") or {}
+    if (fragility.get("tier") or fragility.get("level")) == "HIGH":
+        out.append("fragility.HIGH")
+
+    # ── Market scope (Full Game vs F5) ───────────────────────────────
+    market_scope = (
+        scoring_ctx.get("market_scope")
+        or (scoring_ctx.get("recommendation") or {}).get("market_scope")
+    )
+    if market_scope == "full_game":
+        out.append("market_scope.full_game")
+
+    # Dedup while preserving order.
+    seen = set()
+    deduped = []
+    for key in out:
+        if key not in seen:
+            seen.add(key)
+            deduped.append(key)
+    return deduped
+
+
+def choose_bucket_ratio(
+    candidates: list[dict],
+    market_direction: str = "UNDER",
+) -> Optional[dict]:
+    """Pick the bucket ratio to apply when several buckets are eligible.
+
+    Strategy
+    --------
+    * UNDER: pick the bucket with the LARGEST empirical_ratio
+             (wider tail → kinder to Unders is mathematically WRONG;
+              the wider tail means Under is LESS likely, so we want the
+              highest ratio to be the most conservative on Under).
+    * OVER:  pick the SMALLEST ratio (or fall back to global), so we
+             never artificially inflate Over edges.
+    * Unknown: pick by largest sample size (most reliable signal).
+
+    Returns the chosen candidate dict or ``None`` when ``candidates``
+    is empty.
+    """
+    if not candidates:
+        return None
+    direction = (market_direction or "UNDER").upper()
+    if direction == "UNDER":
+        return max(candidates, key=lambda c: c.get("empirical_ratio") or 0)
+    if direction == "OVER":
+        return min(
+            candidates,
+            key=lambda c: (
+                c.get("empirical_ratio")
+                if c.get("empirical_ratio") is not None else float("inf")
+            ),
+        )
+    return max(candidates, key=lambda c: c.get("sample_size") or 0)
+
+
+def resolve_totals_dispersion_ratio(
+    scoring_ctx: Optional[dict] = None,
+    *,
+    active_weights: Optional[dict] = None,
+    calibration_summary: Optional[dict] = None,
+    env_ratio: Optional[float] = None,
+    default_ratio: float = MLB_TOTALS_DISPERSION_RATIO,
+    market_direction: Optional[str] = None,
+) -> dict:
+    """Resolve the dispersion ratio for the current pick context.
+
+    Precedence (highest first)
+    --------------------------
+      1. ``active_weights['dispersion_ratio']`` (engineer override).
+      2. Bucket calibration  — when a whitelisted bucket is APPLY-eligible.
+      3. Global calibration  — ``calibration_summary.suggested_ratio``
+         (when its confidence_tier is at least USEFUL).
+      4. ``env_ratio`` (e.g. ``$MLB_TOTALS_DISPERSION_RATIO`` env var).
+      5. ``default_ratio`` (module constant, currently 1.9).
+
+    The returned dict carries the *full provenance* so the v2 payload
+    and the calibration panel can audit exactly which source moved the
+    ratio.
+    """
+    reason_codes: list[str] = []
+    # ── 1) active_weights override ─────────────────────────────────
+    aw_ratio = None
+    if isinstance(active_weights, dict):
+        try:
+            aw = active_weights.get("dispersion_ratio")
+            if aw is not None:
+                aw_ratio = float(aw)
+        except (TypeError, ValueError):
+            aw_ratio = None
+    if aw_ratio is not None:
+        reason_codes.append("active_weights_override")
+        return {
+            "ratio":              max(_BUCKET_RATIO_MIN, min(_BUCKET_RATIO_MAX, aw_ratio)),
+            "source":             "active_weights",
+            "bucket_key":         None,
+            "bucket_mode":        "GLOBAL",
+            "global_ratio":       default_ratio,
+            "bucket_ratio":       None,
+            "bucket_sample_size": 0,
+            "reason_codes":       reason_codes,
+        }
+
+    # Resolve the global ratio first (used as the default + as the
+    # baseline returned when no bucket applies).
+    global_disp = (calibration_summary or {}).get("totals_dispersion_calibration") or {}
+    global_ratio = default_ratio
+    if (global_disp.get("available")
+            and global_disp.get("confidence_tier") in ("USEFUL", "VALIDATED")):
+        try:
+            global_ratio = float(global_disp.get("suggested_ratio") or default_ratio)
+            reason_codes.append("global_calibration_active")
+        except (TypeError, ValueError):
+            global_ratio = default_ratio
+    elif env_ratio is not None:
+        try:
+            global_ratio = float(env_ratio)
+            reason_codes.append("env_ratio_used")
+        except (TypeError, ValueError):
+            pass
+    global_ratio = max(_BUCKET_RATIO_MIN, min(_BUCKET_RATIO_MAX, global_ratio))
+
+    # ── 2) Bucket calibration ──────────────────────────────────────
+    detected_buckets = detect_totals_dispersion_buckets(scoring_ctx or {})
+    by_bucket = (calibration_summary or {}).get("totals_dispersion_by_bucket") or {}
+
+    eligible_candidates: list[dict] = []
+    observe_only_candidates: list[dict] = []
+    for bkey in detected_buckets:
+        dim, name = bkey.split(".", 1)
+        bucket_data = (by_bucket.get(dim) or {}).get(name) or {}
+        if not bucket_data:
+            continue
+        sample_size = int(bucket_data.get("sample_size") or 0)
+        empirical = bucket_data.get("suggested_ratio")
+        # Whitelisted AND apply_eligible (≥100 samples) AND available.
+        if (bkey in BUCKETS_APPLY_WHITELIST
+                and bucket_data.get("apply_eligible")
+                and bucket_data.get("available")
+                and empirical is not None):
+            try:
+                eligible_candidates.append({
+                    "bucket_key":       bkey,
+                    "empirical_ratio":  float(empirical),
+                    "sample_size":      sample_size,
+                })
+            except (TypeError, ValueError):
+                pass
+        else:
+            observe_only_candidates.append({
+                "bucket_key":       bkey,
+                "empirical_ratio":  empirical,
+                "sample_size":      sample_size,
+                "apply_eligible":   bool(bucket_data.get("apply_eligible")),
+            })
+
+    if eligible_candidates:
+        winner = choose_bucket_ratio(
+            eligible_candidates,
+            market_direction=(market_direction or "UNDER"),
+        )
+        if winner is not None:
+            bucket_ratio = max(
+                _BUCKET_RATIO_MIN, min(_BUCKET_RATIO_MAX, winner["empirical_ratio"]),
+            )
+            reason_codes.append(f"bucket_active:{winner['bucket_key']}")
+            return {
+                "ratio":              bucket_ratio,
+                "source":             "bucket_calibration",
+                "bucket_key":         winner["bucket_key"],
+                "bucket_mode":        "APPLY",
+                "global_ratio":       global_ratio,
+                "bucket_ratio":       bucket_ratio,
+                "bucket_sample_size": winner["sample_size"],
+                "reason_codes":       reason_codes,
+                "observe_only_buckets": observe_only_candidates,
+            }
+
+    # ── 3) Global calibration / env / default fallback ─────────────
+    if "global_calibration_active" in reason_codes:
+        source = "global_calibration"
+        mode = "GLOBAL"
+    elif "env_ratio_used" in reason_codes:
+        source = "env"
+        mode = "GLOBAL"
+    else:
+        source = "default"
+        mode = "GLOBAL"
+        reason_codes.append("default_floor")
+
+    # If we detected buckets but none was APPLY-eligible, surface that
+    # explicitly so the UI can show "would-be-eligible at n=N".
+    detected_but_not_applied = {
+        c["bucket_key"]: c for c in observe_only_candidates
+    }
+    if detected_but_not_applied and mode == "GLOBAL":
+        mode = "NOT_ELIGIBLE" if detected_buckets else "GLOBAL"
+
+    return {
+        "ratio":              global_ratio,
+        "source":             source,
+        "bucket_key":         None,
+        "bucket_mode":        mode,
+        "global_ratio":       global_ratio,
+        "bucket_ratio":       None,
+        "bucket_sample_size": 0,
+        "reason_codes":       reason_codes,
+        "observe_only_buckets": observe_only_candidates,
+        "detected_buckets":   detected_buckets,
+    }
+
+
 def _nb_params_from_mean(mu: float, dispersion_ratio: float) -> tuple[float, float]:
     """Return ``(k, p)`` for a Negative-Binomial with given mean and
     variance = ``dispersion_ratio × mean``. Falls back toward Poisson-like
@@ -530,13 +809,33 @@ def smart_total_line_selector(
     expected_runs: float,
     ctx: Optional[dict] = None,
     market_lines: Optional[list[float]] = None,
+    *,
+    calibration_summary: Optional[dict] = None,
+    active_weights: Optional[dict] = None,
+    market_direction: Optional[str] = None,
 ) -> dict:
     """Pick the safest, best-value O/U line for a given expected_runs.
 
     Returns a dict with bestLine / safeLine / aggressiveLine /
     recommendedLine + lineSafetyScore + fragilityScore.
+
+    When ``calibration_summary`` is provided, every per-candidate
+    ``totals_probability`` call uses the resolved bucket-aware ratio
+    (see ``resolve_totals_dispersion_ratio``). The resolved provenance
+    is surfaced in the return value as ``dispersionResolved``.
     """
     ctx = ctx or {}
+    # ── Bucket-aware ratio resolution ───────────────────────────────
+    # Resolve ONCE per call so every ladder candidate uses the same
+    # ratio. The resolver is fail-soft: when no summary/buckets apply
+    # it falls back to MLB_TOTALS_DISPERSION_RATIO transparently.
+    resolved = resolve_totals_dispersion_ratio(
+        scoring_ctx=ctx,
+        active_weights=active_weights,
+        calibration_summary=calibration_summary,
+        market_direction=(market_direction or "UNDER"),
+    )
+    active_ratio = resolved.get("ratio") or MLB_TOTALS_DISPERSION_RATIO
     try:
         er = float(expected_runs)
     except (TypeError, ValueError):
@@ -590,7 +889,7 @@ def smart_total_line_selector(
     candidates: list[dict] = []
     for ln in ladder:
         s, f = _score_line(ln, side)
-        probs = totals_probability(er, ln)
+        probs = totals_probability(er, ln, dispersion_ratio=active_ratio)
         # ── NB calibration penalty on Under fragility ───────────────
         # The NB model corrects Poisson's UNDER-estimation of high
         # totals. The bigger the calibration delta (`poisson - NB`),
@@ -674,6 +973,7 @@ def smart_total_line_selector(
             "poissonProbUnder":          None,
             "nbProbUnder":               None,
             "underCalibrationDeltaPts":  None,
+            "dispersionResolved":        resolved,
         }
 
     reason_parts = [
@@ -720,6 +1020,8 @@ def smart_total_line_selector(
             if recommended.get("nb_prob_under") is not None else None
         ),
         "underCalibrationDeltaPts":  recommended.get("under_calibration_delta_pts"),
+        # ── Bucket-aware dispersion resolution provenance ─────────
+        "dispersionResolved":        resolved,
     }
 
 
@@ -1218,12 +1520,16 @@ def build_v2_payload(
     over_under_v1: Optional[dict] = None,
     book_total: Optional[float] = None,
     weights: Optional[dict] = None,
+    calibration_summary: Optional[dict] = None,
 ) -> dict:
     """Combine v2 functions into a single per-game payload.
 
     The orchestrator already computed run_line_v1 and over_under_v1 (from the
     base module); we use them as inputs so we don't recompute the same blocks.
-    `weights` (optional) — auto-recalibrated weights from the feedback loop.
+    ``weights`` (optional) — auto-recalibrated weights from the feedback loop.
+    ``calibration_summary`` (optional) — the latest ``compute_run_evaluations_summary``
+    payload; when present, the totals model uses the bucket-aware ratio
+    resolver (see ``resolve_totals_dispersion_ratio``).
     """
     # Inject weights into scoring_ctx so the dominance model reads them.
     if weights:
@@ -1233,7 +1539,11 @@ def build_v2_payload(
 
     pcen = pitcher_centered_evaluation(scoring_ctx)
     rldom = run_line_dominance_model(scoring_ctx)
-    line_sel = smart_total_line_selector(expected_runs or 9.0, scoring_ctx)
+    line_sel = smart_total_line_selector(
+        expected_runs or 9.0, scoring_ctx,
+        calibration_summary=calibration_summary,
+        active_weights=weights,
+    )
 
     # Same-game correlation requires both legs to be recommended.
     ov_side = (over_under_v1 or {}).get("verdict")
@@ -1371,6 +1681,11 @@ def build_v2_payload(
             "nb_prob_under":                line_sel.get("nbProbUnder"),
             "under_calibration_delta_pts":  line_sel.get("underCalibrationDeltaPts"),
             "recommended_line":             line_sel.get("recommendedLine"),
+            # Bucket-aware resolution provenance — copies the resolver
+            # output verbatim so downstream consumers (orchestrator,
+            # pick_payload, MLBCalibrationPanel) can audit which bucket
+            # moved the ratio (or whether the global default was used).
+            "dispersion_resolved":          line_sel.get("dispersionResolved"),
         },
     }
 

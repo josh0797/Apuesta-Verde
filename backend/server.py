@@ -3093,18 +3093,38 @@ async def picks_run(run_id: str, user: dict = Depends(get_current_user)):
 
 
 # ── Pick tracking ────────────────────────────────────────────────────────────
+class FinalScoreIn(BaseModel):
+    """Final score block used by the History UI to render '4-2'."""
+    home: Optional[int] = None
+    away: Optional[int] = None
+    display: Optional[str] = None
+
+
 class TrackIn(BaseModel):
     run_id: str
     match_id: int | str
     market: str
     selection: str
     confidence_score: int
-    outcome: str = Field(pattern="^(won|lost|push|pending)$")
+    outcome: str = Field(pattern="^(won|lost|push|pending|void)$")
     odds: Optional[float] = None
     league: Optional[str] = None
     match_label: Optional[str] = None
     notes: Optional[str] = None
     sport: Optional[str] = None  # football | basketball | baseball
+    # ── History overhaul: enriched fields ────────────────────────
+    # All optional + additive — old clients keep working.
+    home_team:    Optional[str] = None
+    away_team:    Optional[str] = None
+    match_date:   Optional[str] = None        # YYYY-MM-DD (event date)
+    kickoff_iso:  Optional[str] = None        # ISO-8601 with TZ if known
+    is_live:      Optional[bool] = None       # True when settled live
+    line:         Optional[float] = None      # totals line / handicap
+    game_pk:      Optional[str] = None        # MLB-specific anchor
+    final_score:  Optional[FinalScoreIn] = None
+    settled_at:   Optional[str] = None
+    pipeline_version: Optional[str] = None
+    source:       Optional[str] = None        # engine | manual
 
 
 @api.post("/picks/track")
@@ -3120,28 +3140,75 @@ async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
     # The unique index `(user_id, match_id, pick_id)` therefore did NOT
     # collide and the same match got persisted with multiple pick_uids
     # → duplicated rows in the history view, distorted win-rate maths.
-    # Anchoring pick_uid to (sport, date, match_id) makes it idempotent
-    # across recalibrations on the same day.
+    # Anchoring pick_uid to (sport, date, anchor_id, market_norm, sel_norm)
+    # makes it idempotent across recalibrations AND across the same game
+    # being suggested with multiple markets / sides on the same day.
     now = datetime.now(timezone.utc)
     tracked_date = now.strftime("%Y-%m-%d")
-    pick_uid = f"{sport}-{tracked_date}-{payload.match_id}"
+    # MLB anchors prefer game_pk (stable across recalibrations); other
+    # sports fall back to match_id.
+    anchor_id = (
+        str(payload.game_pk)
+        if (sport == "baseball" and payload.game_pk)
+        else str(payload.match_id)
+    )
+    # Slug-ify market+selection so different bets on the SAME game land
+    # in different rows (e.g. Under 9.5 vs Run Line -1.5).
+    _market_norm = "".join(c.lower() if c.isalnum() else "-"
+                            for c in (payload.market or "m"))
+    _sel_norm    = "".join(c.lower() if c.isalnum() else "-"
+                            for c in (payload.selection or "s"))[:24]
+    # Use match_date when known — falls back to tracked_date for legacy.
+    date_part = (payload.match_date or tracked_date)
+    pick_uid = f"{sport}-{date_part}-{anchor_id}-{_market_norm[:24]}-{_sel_norm}"
+
+    # ── Build final_score block defensively ─────────────────────────
+    final_score_block = None
+    if payload.final_score is not None:
+        fs = payload.final_score
+        display = fs.display
+        if display is None and fs.home is not None and fs.away is not None:
+            display = f"{fs.home}-{fs.away}"
+        final_score_block = {
+            "home":    fs.home,
+            "away":    fs.away,
+            "display": display,
+        }
+
+    # ── Settled-at: set automatically when outcome leaves pending ──
+    settled_at = payload.settled_at
+    if settled_at is None and payload.outcome in ("won", "lost", "push", "void"):
+        settled_at = now.isoformat()
 
     doc = {
         "user_id":           user["id"],
         "pick_id":           pick_uid,
+        "pick_uid":          pick_uid,       # canonical alias for the UI
         "run_id":            payload.run_id,
         "match_id":          str(payload.match_id),
+        "game_pk":           (str(payload.game_pk) if payload.game_pk else None),
         "match_label":       payload.match_label,
+        "home_team":         payload.home_team,
+        "away_team":         payload.away_team,
         "league":            payload.league,
         "market":            payload.market,
         "selection":         payload.selection,
+        "line":              payload.line,
         "confidence_score":  payload.confidence_score,
         "outcome":           payload.outcome,
+        "result":            payload.outcome,  # mirror as `result` (per spec)
         "odds":              payload.odds,
         "notes":             payload.notes,
         "sport":             sport,
         "tracked_date":      tracked_date,
         "tracked_at":        now.isoformat(),
+        "match_date":        payload.match_date,
+        "kickoff_iso":       payload.kickoff_iso,
+        "is_live":           bool(payload.is_live) if payload.is_live is not None else False,
+        "final_score":       final_score_block,
+        "settled_at":        settled_at,
+        "source":            payload.source or "engine",
+        "pipeline_version":  payload.pipeline_version,
     }
 
     # ── One-time dedup of stale rows from prior recalibrations ──────
@@ -3175,9 +3242,85 @@ async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
 
 
 @api.get("/picks/tracked")
-async def list_tracked(user: dict = Depends(get_current_user), limit: int = 200):
-    docs = await db.pick_tracking.find({"user_id": user["id"]}).sort("tracked_at", -1).limit(limit).to_list(length=limit)
-    return {"count": len(docs), "items": _clean_list(docs)}
+async def list_tracked(
+    sport: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+    limit: int = 200,
+):
+    """Return the user's tracked picks with optional sport filter.
+
+    Query params
+    ------------
+    sport : "baseball" | "football" | "basketball" | "mlb" | "nba" | "soccer"
+        Aliases supported:
+          - baseball ⇔ mlb
+          - football ⇔ soccer
+          - basketball ⇔ nba
+        When omitted, returns ALL sports (legacy behaviour).
+
+    The response is server-side deduplicated by the canonical pick_uid
+    AND a defensive ``(sport, anchor_id, market, selection, line)`` key
+    so legacy rows generated with the old non-unique pick_uid don't
+    repeat in the History UI.
+    """
+    base = {"user_id": user["id"]}
+    # ── Sport filter (with alias resolution) ────────────────────
+    if sport:
+        norm = sport.lower().strip()
+        ALIASES = {
+            "baseball":   ["baseball", "mlb"],
+            "mlb":        ["baseball", "mlb"],
+            "football":   ["football", "soccer"],
+            "soccer":     ["football", "soccer"],
+            "basketball": ["basketball", "nba"],
+            "nba":        ["basketball", "nba"],
+        }
+        sport_keys = ALIASES.get(norm, [norm])
+        if "football" in sport_keys:
+            # Legacy rows without a sport field default to football.
+            base["$or"] = [
+                {"sport": {"$in": sport_keys}},
+                {"sport": {"$exists": False}},
+            ]
+        else:
+            base["sport"] = {"$in": sport_keys}
+
+    docs = (await db.pick_tracking
+            .find(base)
+            .sort("tracked_at", -1)
+            .limit(limit * 3)   # over-fetch to absorb dedup losses
+            .to_list(length=limit * 3))
+    cleaned = _clean_list(docs)
+
+    # ── Defensive deduplication ────────────────────────────────────
+    # Keep the most-recent row per canonical key. Two keys are checked:
+    #   1) pick_uid (when present) — exact idempotency.
+    #   2) (sport, anchor_id, market, selection, line) — recovers old
+    #      rows that never received a stable pick_uid.
+    seen_uids:  set[str] = set()
+    seen_keys:  set[tuple] = set()
+    deduped: list[dict] = []
+    for row in cleaned:
+        uid = row.get("pick_uid") or row.get("pick_id")
+        anchor = row.get("game_pk") or row.get("match_id")
+        key = (
+            (row.get("sport") or "football"),
+            str(anchor or ""),
+            (row.get("market") or "").lower(),
+            (row.get("selection") or "").lower(),
+            row.get("line"),
+        )
+        if uid and uid in seen_uids:
+            continue
+        if key in seen_keys:
+            continue
+        if uid:
+            seen_uids.add(uid)
+        seen_keys.add(key)
+        deduped.append(row)
+        if len(deduped) >= limit:
+            break
+    return {"count": len(deduped), "items": deduped}
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -3219,6 +3362,48 @@ async def settle_mlb_pick(pick_id: str, payload: MLBSettleIn,
             v2_snapshot=payload.v2_snapshot,
             pick_doc=payload.pick_doc,
         )
+
+        # ── History UI mirror — final_score + settled_at ─────────
+        # Even though `record_mlb_pick_outcome` already updates the
+        # margin/totalRuns metrics, the History page reads ``final_score``
+        # and ``settled_at`` at the row level. Mirror them here so the
+        # UI always shows a readable "5-3" badge per settled pick.
+        try:
+            if payload.final_home_runs is not None and payload.final_away_runs is not None:
+                final_score_block = {
+                    "home":    int(payload.final_home_runs),
+                    "away":    int(payload.final_away_runs),
+                    "display": f"{int(payload.final_home_runs)}-{int(payload.final_away_runs)}",
+                }
+            else:
+                final_score_block = None
+            settled_at_iso = datetime.now(timezone.utc).isoformat()
+            mirror_set: dict = {
+                "result":     payload.outcome,
+                "settled_at": settled_at_iso,
+            }
+            if final_score_block:
+                mirror_set["final_score"] = final_score_block
+            # Best-effort: also surface the canonical teams when the
+            # caller passed them in pick_doc.
+            if isinstance(payload.pick_doc, dict):
+                if payload.pick_doc.get("home_team"):
+                    mirror_set["home_team"] = payload.pick_doc["home_team"]
+                if payload.pick_doc.get("away_team"):
+                    mirror_set["away_team"] = payload.pick_doc["away_team"]
+                if payload.pick_doc.get("match_date"):
+                    mirror_set["match_date"] = payload.pick_doc["match_date"]
+                if payload.pick_doc.get("game_pk"):
+                    mirror_set["game_pk"] = str(payload.pick_doc["game_pk"])
+            await db.pick_tracking.update_one(
+                {"user_id": user["id"], "pick_id": payload.pick_id},
+                {"$set": mirror_set},
+            )
+        except Exception as _mirror_exc:
+            log.warning(
+                "History mirror failed for pick %s: %s",
+                payload.pick_id, _mirror_exc,
+            )
         # F6B — Persist a script-break event for the future learning loop.
         # Fail-soft: a storage error must not block the settle response.
         try:

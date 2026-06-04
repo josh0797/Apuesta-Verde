@@ -1,38 +1,22 @@
 [
   {
-    "content": "Forward NB telemetry en smart_total_line_selector y build_v2_payload",
+    "content": "FEATURE 1 - Backend + tests bucket dispersion activation",
     "status": "completed"
   },
   {
-    "content": "Inyectar telemetría NB en pick_payload en mlb_day_orchestrator",
+    "content": "FIX 2 - Backend: /picks/tracked acepta ?sport=; track_pick enriched + dedup",
     "status": "completed"
   },
   {
-    "content": "Persistir NB telemetry y bucket dimensions en mlb_run_evaluations",
+    "content": "FIX 2 - Backend: settle_mlb_pick guarda final_score, match_date, settled_at en pick_tracking",
     "status": "completed"
   },
   {
-    "content": "Ajustar confidence/fragility según delta de calibración",
+    "content": "FIX 2 - Frontend HistoryPage: sport tabs, columnas, badge, dedup defensivo, mobile cards",
     "status": "completed"
   },
   {
-    "content": "Agregar bucket-based dispersion calibration en mlb_run_evaluations_summary.py",
-    "status": "completed"
-  },
-  {
-    "content": "Crear MLBCalibrationPanel.jsx",
-    "status": "completed"
-  },
-  {
-    "content": "Integrar MLBCalibrationPanel en HistoryPage.jsx",
-    "status": "completed"
-  },
-  {
-    "content": "Ejecutar pytest completo y verificar regresiones (>855 tests)",
-    "status": "completed"
-  },
-  {
-    "content": "Llamar testing_agent para validar end-to-end",
+    "content": "Tests + verificación end-to-end",
     "status": "completed"
   }
 ]
