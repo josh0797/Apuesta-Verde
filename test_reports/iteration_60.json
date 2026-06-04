@@ -1,0 +1,94 @@
+{
+  "summary": "Completed testing of Negative-Binomial totals model feedback loop implementation for MLB picks. All backend APIs, pytest suite, and frontend UI components verified successfully.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Backend: All 855 pytest tests pass (including 16 NB-specific tests in test_totals_negative_binomial.py)",
+    "Backend: GET /api/mlb/run-evaluations/summary returns new fields (totals_dispersion_by_bucket with pressure/f5/fragility/park dimensions, nb_vs_poisson_aggregate, headline)",
+    "Backend: All bucket dimensions present with correct structure (available=false when empty, n=0)",
+    "Backend: smart_total_line_selector returns NB telemetry (dispersionRatio, poissonProbUnder, nbProbUnder, underCalibrationDeltaPts)",
+    "Backend: probabilityModel='NegativeBinomial' (NOT hardcoded 'Poisson') - verified",
+    "Backend: build_v2_payload returns complete totalsModel block with all 8 required fields",
+    "Backend: NB fragility bump applies ONLY to UNDER picks with positive delta_pts (OVER picks untouched)",
+    "Backend: mlb_run_storage.build_run_evaluation_document persists totals_model, expected_total, actual_total, pressure_tier, fragility_tier, park_runs_mult, is_f5_market fields",
+    "Frontend: MLBCalibrationPanel renders on /history page when baseball picks exist",
+    "Frontend: Panel shows all 4 KPI cards (current-ratio, empirical-ratio, hit-rate, nb-delta)",
+    "Frontend: Panel shows insight block with appropriate message",
+    "Frontend: Panel shows all 4 bucket tables (pressure, f5, fragility, park) with correct structure",
+    "Frontend: Graceful handling when sample_size=0 (KPIs show '—', bucket tables show n=0, insight shows 'Aún no hay suficientes liquidaciones')",
+    "Frontend: Login flow with demo@valuebet.app / demo1234 works correctly",
+    "Frontend: No console errors on /history page",
+    "Frontend: Conditional rendering works (panel only shows when tracked picks include baseball)"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_totals_negative_binomial.py",
+    "/app/.screenshots/mlb-calibration-panel.png",
+    "/app/.screenshots/history-with-mlb-panel.png"
+  ],
+  "success_percentage": {
+    "backend": "100% (855/855 tests pass, all new fields present and correct)",
+    "frontend": "100% (all UI components render correctly, graceful degradation works)"
+  },
+  "updated_files": [],
+  "action_item_for_main_agent": "",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  "detailed_verification": {
+    "backend_api_fields": {
+      "totals_dispersion_by_bucket": {
+        "pressure": ["LOW_PRESSURE", "MODERATE_PRESSURE", "HIGH_PRESSURE", "CHAOTIC_PRESSURE"],
+        "f5": ["F5", "FULL_GAME"],
+        "fragility": ["LOW", "MEDIUM", "HIGH"],
+        "park": ["HITTER_FRIENDLY", "NEUTRAL_PARK", "PITCHER_FRIENDLY", "UNKNOWN_PARK"]
+      },
+      "nb_vs_poisson_aggregate": {
+        "fields": ["available", "sample_size", "avg_delta_pts", "nb_picks_total", "poisson_picks_total", "share_under_corrected", "share_significant"]
+      },
+      "headline": {
+        "fields": ["hit_rate", "total_settled", "won", "lost", "push"]
+      }
+    },
+    "smart_total_line_selector_output": {
+      "probabilityModel": "NegativeBinomial",
+      "dispersionRatio": 1.5,
+      "poissonProbUnder": 38.6,
+      "nbProbUnder": 42.4,
+      "underCalibrationDeltaPts": -3.8,
+      "coverProbability": 57.6
+    },
+    "build_v2_payload_totalsModel": {
+      "model_used": "NegativeBinomial",
+      "dispersion_ratio": 1.5,
+      "expected_total": 8.5,
+      "book_total": 8.0,
+      "poisson_prob_under": 38.6,
+      "nb_prob_under": 42.4,
+      "under_calibration_delta_pts": -3.8,
+      "recommended_line": "OVER 7.5"
+    },
+    "mlb_run_storage_persistence": {
+      "totals_model": "persisted",
+      "expected_total": "persisted",
+      "actual_total": "persisted (null when pending)",
+      "pressure_tier": "persisted",
+      "fragility_tier": "persisted",
+      "park_runs_mult": "persisted",
+      "is_f5_market": "persisted"
+    },
+    "frontend_ui_components": {
+      "MLBCalibrationPanel": "renders correctly",
+      "KPI_cards": "4/4 present (current-ratio, empirical-ratio, hit-rate, nb-delta)",
+      "insight_block": "present with appropriate message",
+      "bucket_tables": "4/4 present (pressure, f5, fragility, park)",
+      "graceful_degradation": "works (n=0 shows '—' placeholders)",
+      "conditional_rendering": "works (only shows when baseball picks exist)"
+    }
+  }
+}

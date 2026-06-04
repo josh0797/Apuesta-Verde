@@ -1298,6 +1298,38 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 "result_placeholder": None,   # populated by feedback loop in P2
             }
 
+            # ── Negative-Binomial calibration telemetry ──────────────────
+            # Surfaced at TOP LEVEL of the pick_payload so the History tab,
+            # mlb_run_evaluations docs and the calibration panel can read
+            # them without descending into _mlb_script_v2. Per the NB
+            # feedback-loop spec (poisson vs NB tracking).
+            _tm = v2_payload.get("totalsModel") or {}
+            _rec_market_lower = (
+                (v2_payload.get("recommendedLine") or "").lower()
+            )
+            _is_totals_market = bool(
+                "over" in _rec_market_lower or "under" in _rec_market_lower
+            )
+            _book_total_v = conf.get("book_total")
+            if _is_totals_market and (_tm.get("model_used") or _tm.get("dispersion_ratio") is not None):
+                pick_payload["totals_model_used"]            = _tm.get("model_used")
+                pick_payload["dispersion_ratio"]             = _tm.get("dispersion_ratio")
+                pick_payload["expected_total"]               = _tm.get("expected_total") or v2_payload.get("expectedRuns")
+                pick_payload["book_total"]                   = _book_total_v
+                pick_payload["poisson_prob_under"]           = _tm.get("poisson_prob_under")
+                pick_payload["nb_prob_under"]                = _tm.get("nb_prob_under")
+                pick_payload["under_calibration_delta_pts"]  = _tm.get("under_calibration_delta_pts")
+            else:
+                # Non-totals markets still expose the model context so the
+                # calibration panel knows the engine ran NB-aware code.
+                pick_payload["totals_model_used"]            = _tm.get("model_used") or "NegativeBinomial"
+                pick_payload["dispersion_ratio"]             = _tm.get("dispersion_ratio")
+                pick_payload["expected_total"]               = v2_payload.get("expectedRuns")
+                pick_payload["book_total"]                   = _book_total_v
+                pick_payload["poisson_prob_under"]           = None
+                pick_payload["nb_prob_under"]                = None
+                pick_payload["under_calibration_delta_pts"]  = None
+
         # ── Recent-form split (L5 vs L15) + on-base pressure ────────────
         # 4 HTTP calls per game (2 teams × 2 windows) — cheap thanks to
         # the 12h cache in mlb_recent_form_split._CACHE. Fail-soft: a
@@ -2880,6 +2912,40 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                             "explosive_action":       _action,
                             "market_scope":           _market_scope,
                         }
+                        # ── NB calibration + bucket dimensions ──────────
+                        # Persisted INSIDE _run_eval so the storage layer
+                        # passes them through verbatim. The summary endpoint
+                        # uses these to bucket dispersion by pressure tier,
+                        # F5 vs Full Game, fragility and park factor.
+                        _totals_model_block = {
+                            "model_used":                   pick_payload.get("totals_model_used"),
+                            "dispersion_ratio":             pick_payload.get("dispersion_ratio"),
+                            "expected_total":               pick_payload.get("expected_total"),
+                            "book_total":                   pick_payload.get("book_total"),
+                            "poisson_prob_under":           pick_payload.get("poisson_prob_under"),
+                            "nb_prob_under":                pick_payload.get("nb_prob_under"),
+                            "under_calibration_delta_pts":  pick_payload.get("under_calibration_delta_pts"),
+                        }
+                        _run_eval["totals_model"] = _totals_model_block
+                        _run_eval["expected_total"] = pick_payload.get("expected_total")
+                        _run_eval["book_total"]     = pick_payload.get("book_total")
+                        # Bucket dimensions — read from the moneyball pipeline
+                        # outputs that are already attached to pick_payload.
+                        _pressure_tier = (
+                            ((pick_payload.get("pressure_base") or {}).get("combined") or {}).get("pressure_tier")
+                        )
+                        _fragility_tier = (
+                            (pick_payload.get("fragility_score") or {}).get("tier")
+                            or (pick_payload.get("fragility_score") or {}).get("level")
+                        )
+                        _park_runs_mult = (
+                            (ctx.get("park") or {}).get("park_runs_mult")
+                            or (ctx.get("park") or {}).get("run_factor")
+                        )
+                        _run_eval["pressure_tier"]  = _pressure_tier
+                        _run_eval["fragility_tier"] = _fragility_tier
+                        _run_eval["park_runs_mult"] = _park_runs_mult
+                        _run_eval["is_f5_market"]   = (_market_scope == "f5")
                         _eval_id = await store_run_evaluation(
                             db,
                             user_id="_slate",

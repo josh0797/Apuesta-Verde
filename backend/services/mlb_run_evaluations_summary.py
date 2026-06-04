@@ -442,6 +442,13 @@ async def compute_run_evaluations_summary(db,
     # samples (≥30), we expose a *suggested* dispersion_ratio so the
     # operator can update MLB_TOTALS_DISPERSION_RATIO with confidence.
     totals_dispersion = _compute_totals_dispersion_calibration(settled_docs)
+    # Bucketed dispersion calibration — same math broken down by
+    # pressure tier, F5 vs Full Game, fragility tier and park factor
+    # so the UI can spot WHICH context drives the overdispersion.
+    totals_dispersion_by_bucket = _compute_totals_dispersion_by_buckets(settled_docs)
+    # Aggregate Poisson-vs-NB delta stats from the per-pick telemetry
+    # (independent of expected vs actual — works pregame too).
+    nb_vs_poisson_aggregate = _compute_nb_vs_poisson_aggregate(settled_docs)
 
     return {
         "ok":           True,
@@ -471,6 +478,8 @@ async def compute_run_evaluations_summary(db,
         "manual_odds_review_outcomes": manual_odds_review_outcomes,
         "pattern_memory_performance":  pattern_memory_performance,
         "totals_dispersion_calibration": totals_dispersion,
+        "totals_dispersion_by_bucket":   totals_dispersion_by_bucket,
+        "nb_vs_poisson_aggregate":       nb_vs_poisson_aggregate,
         # Schema version (UI can branch on this)
         "summary_schema_version":  "moneyball.2",
     }
@@ -713,6 +722,218 @@ def _dispersion_recommendation(suggested: float) -> str:
     if suggested < 1.4:
         return "tighten_dispersion_lower"
     return "loosen_dispersion_higher"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Bucketed dispersion calibration (NB feedback loop, per-context view)
+# ─────────────────────────────────────────────────────────────────────
+def _park_bucket(mult: Any) -> str:
+    """Categorise the park factor multiplier."""
+    try:
+        m = float(mult)
+    except (TypeError, ValueError):
+        return "UNKNOWN_PARK"
+    if m >= 1.05:
+        return "HITTER_FRIENDLY"
+    if m <= 0.95:
+        return "PITCHER_FRIENDLY"
+    return "NEUTRAL_PARK"
+
+
+def _f5_bucket(doc: dict) -> str:
+    """F5 vs Full Game bucket — read from either the boolean flag or
+    the recommended market name."""
+    if doc.get("is_f5_market") is True:
+        return "F5"
+    if doc.get("is_f5_market") is False:
+        # We trust the flag once set.
+        market = _extract_recommended_market(doc) or ""
+        return "F5" if "f5" in market.lower() else "FULL_GAME"
+    market = _extract_recommended_market(doc) or ""
+    return "F5" if "f5" in market.lower() else "FULL_GAME"
+
+
+def _compute_totals_dispersion_by_buckets(docs: list[dict]) -> dict:
+    """Empirical variance/mean ratio broken down by:
+      * pressure_tier (LOW_PRESSURE / MODERATE_PRESSURE / HIGH_PRESSURE / CHAOTIC_PRESSURE)
+      * f5_vs_full_game (F5 / FULL_GAME)
+      * fragility_tier (LOW / MEDIUM / HIGH)
+      * park bucket (HITTER_FRIENDLY / NEUTRAL_PARK / PITCHER_FRIENDLY)
+
+    Each bucket returns the same shape as the global calibration block,
+    PLUS a ``hit_rate`` derived from the doc results so the UI can plot
+    "dispersion vs. accuracy" per context.
+
+    Fail-soft: buckets with fewer than 10 docs surface
+    ``{available: False, sample_size: N}`` instead of crashing.
+    """
+    buckets: dict[str, dict[str, list[dict]]] = {
+        "pressure":  {b: [] for b in PRESSURE_ENVIRONMENT_BUCKETS},
+        "f5":        {"F5": [], "FULL_GAME": []},
+        "fragility": {b: [] for b in FRAGILITY_TIER_BUCKETS},
+        "park":      {"HITTER_FRIENDLY": [], "NEUTRAL_PARK": [],
+                       "PITCHER_FRIENDLY": [], "UNKNOWN_PARK": []},
+    }
+    for d in docs:
+        tier = _extract_pressure_tier(d)
+        if tier in buckets["pressure"]:
+            buckets["pressure"][tier].append(d)
+        buckets["f5"][_f5_bucket(d)].append(d)
+        ftier = _extract_fragility_tier(d)
+        if ftier in buckets["fragility"]:
+            buckets["fragility"][ftier].append(d)
+        buckets["park"][_park_bucket(d.get("park_runs_mult"))].append(d)
+
+    def _bucket_summary(subset: list[dict]) -> dict:
+        n = len(subset)
+        if n == 0:
+            return {"available": False, "sample_size": 0, "reason": "empty_bucket"}
+        # Hit rate (Under hit ratio) — fail-soft if no results.
+        won  = sum(1 for d in subset if d.get("result") == "won")
+        lost = sum(1 for d in subset if d.get("result") == "lost")
+        push = sum(1 for d in subset if d.get("result") == "push")
+        hit_rate = (round((won / n) * 100, 2)) if n > 0 else None
+        # Avg Poisson-vs-NB delta from the per-pick telemetry.
+        deltas = [
+            float(_get_nested(d, "totals_model", "under_calibration_delta_pts") or 0.0)
+            for d in subset
+            if _get_nested(d, "totals_model", "under_calibration_delta_pts") is not None
+        ]
+        avg_delta = round(sum(deltas) / len(deltas), 2) if deltas else None
+        # Dispersion estimate — only when ≥10 settled pairs available.
+        disp = _compute_totals_dispersion_calibration(subset)
+        # Inflate the min-samples threshold to 10 for buckets (the global
+        # default is 30 — too strict at the bucket level).
+        if disp.get("available") is False and n >= 10:
+            # Recompute with relaxed min samples.
+            disp = _compute_totals_dispersion_for_bucket(subset)
+        return {
+            "available":          disp.get("available", False),
+            "sample_size":        n,
+            "won":                won,
+            "lost":               lost,
+            "push":               push,
+            "hit_rate":           hit_rate,
+            "avg_calibration_delta_pts": avg_delta,
+            "suggested_ratio":    disp.get("suggested_ratio"),
+            "raw_ratio":          disp.get("raw_ratio"),
+            "mean_expected_total": disp.get("mean_expected_total"),
+            "confidence_tier":    disp.get("confidence_tier"),
+            "recommendation":     disp.get("recommendation"),
+        }
+
+    out: dict[str, dict] = {"pressure": {}, "f5": {}, "fragility": {}, "park": {}}
+    for dim, sub in buckets.items():
+        for key, subset in sub.items():
+            out[dim][key] = _bucket_summary(subset)
+    return out
+
+
+def _compute_totals_dispersion_for_bucket(docs: list[dict]) -> dict:
+    """Same math as ``_compute_totals_dispersion_calibration`` but with
+    a relaxed min-sample threshold (10) for bucket-level estimates."""
+    pairs: list[tuple[float, float]] = []
+    for d in docs:
+        exp_total = (
+            d.get("expected_total")
+            or _get_nested(d, "totals_model", "expected_total")
+            or _get_nested(d, "totals_model", "lambda")
+            or _get_nested(d, "smart_total_line", "expected_runs")
+        )
+        actual_total = (
+            d.get("actual_total")
+            or d.get("final_total")
+            or d.get("final_total_runs")
+            or _get_nested(d, "final_score", "total")
+        )
+        if exp_total is None or actual_total is None:
+            continue
+        try:
+            e = float(exp_total)
+            a = float(actual_total)
+        except (TypeError, ValueError):
+            continue
+        if e <= 0 or a < 0:
+            continue
+        pairs.append((e, a))
+    n = len(pairs)
+    if n < 10:
+        return {"available": False, "sample_size": n,
+                "reason": "insufficient_bucket_samples"}
+    mean_exp = sum(e for e, _ in pairs) / n
+    if mean_exp <= 0:
+        return {"available": False, "sample_size": n, "reason": "non_positive_mean"}
+    residuals = [(a - e) for e, a in pairs]
+    mean_res = sum(residuals) / n
+    var_res  = sum((x - mean_res) ** 2 for x in residuals) / max(1, n - 1)
+    exp_var  = sum((e - mean_exp) ** 2 for e, _ in pairs) / max(1, n - 1)
+    total_var = var_res + exp_var
+    raw_ratio = total_var / mean_exp if mean_exp > 0 else 1.0
+    suggested = max(1.0, min(2.5, raw_ratio))
+    if n >= 50:
+        conf_tier = "USEFUL"
+    else:
+        conf_tier = "LOW_SAMPLE"
+    return {
+        "available":             True,
+        "sample_size":           n,
+        "mean_expected_total":   round(mean_exp, 3),
+        "empirical_variance":    round(total_var, 3),
+        "raw_ratio":             round(raw_ratio, 3),
+        "suggested_ratio":       round(suggested, 3),
+        "confidence_tier":       conf_tier,
+        "recommendation":        _dispersion_recommendation(suggested),
+    }
+
+
+def _compute_nb_vs_poisson_aggregate(docs: list[dict]) -> dict:
+    """Aggregate the per-pick `under_calibration_delta_pts` so the
+    UI can show "on average, NB pulled the Under down by X pts" plus
+    counts of picks where the model swung the recommendation.
+
+    Fail-soft: returns ``{available: False, sample_size: 0}`` when no
+    pick carries the NB telemetry.
+    """
+    deltas: list[float] = []
+    nb_picks = 0
+    poisson_picks = 0
+    for d in docs:
+        tm = d.get("totals_model") or {}
+        if not isinstance(tm, dict):
+            continue
+        model = (tm.get("model_used") or "").lower()
+        delta = tm.get("under_calibration_delta_pts")
+        if model == "negativebinomial":
+            nb_picks += 1
+        elif model == "poisson":
+            poisson_picks += 1
+        if delta is not None:
+            try:
+                deltas.append(float(delta))
+            except (TypeError, ValueError):
+                continue
+    n = len(deltas)
+    if n == 0:
+        return {
+            "available":      False,
+            "sample_size":    0,
+            "nb_picks_total": nb_picks,
+            "poisson_picks_total": poisson_picks,
+        }
+    mean_delta = sum(deltas) / n
+    positives  = [d for d in deltas if d > 0]
+    significant = [d for d in deltas if abs(d) >= 3.0]
+    return {
+        "available":            True,
+        "sample_size":          n,
+        "nb_picks_total":       nb_picks,
+        "poisson_picks_total":  poisson_picks,
+        "avg_delta_pts":        round(mean_delta, 2),
+        "max_delta_pts":        round(max(deltas), 2),
+        "min_delta_pts":        round(min(deltas), 2),
+        "share_under_corrected": round(len(positives) / n * 100, 1),
+        "share_significant":     round(len(significant) / n * 100, 1),
+    }
 
 
 __all__ = [

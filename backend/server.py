@@ -3432,16 +3432,81 @@ async def mlb_run_evaluations_summary(
     ``user_id=...`` to scope to a specific user. Settled outcomes filter
     is fixed to ``{won, lost, push}`` — ``void`` is treated as a legacy
     backward-compat input only.
+
+    Response shape: ``{"ok": True, "summary": {...}}`` — the summary
+    includes derived UI-friendly fields (headline, f5_under/full_game_under,
+    enriched dispersion calibration) on top of the raw breakdowns so the
+    MLBCalibrationPanel can render without further adapters.
     """
     try:
         from services.mlb_run_evaluations_summary import (
             compute_run_evaluations_summary,
         )
+        days = max(7, min(90, int(days)))
         cohort = user_id or "_slate"
         result = await compute_run_evaluations_summary(
             db, days=days, user_id=cohort,
         )
-        return result
+        # ── UI-friendly derived fields ───────────────────────────────────
+        # The MLBCalibrationPanel reads `summary.headline`, `summary.f5_vs_full_game_under.{f5_under,full_game_under}`,
+        # and dispersion fields named `current_ratio/empirical_ratio/under_hit_rate/nb_mean_delta`.
+        # Compute them here so the panel works without touching the
+        # back-compat shape consumed by the pytest suite.
+        overall = (result.get("overall") or {})
+        result["headline"] = {
+            "hit_rate":       overall.get("hit_rate"),
+            "total_settled":  overall.get("total") or 0,
+            "won":            overall.get("won") or 0,
+            "lost":           overall.get("lost") or 0,
+            "push":           overall.get("push") or 0,
+            "total_pending":  None,  # not currently tracked; UI tolerates null
+        }
+        # F5 Under / Full Game Under per-market hit-rate (derived from
+        # by_market_selected so the panel can render BucketCards).
+        by_mkt = result.get("by_market_selected") or {}
+        f5_block = result.get("f5_vs_full_game_under") or {}
+        f5_block["f5_under"]        = by_mkt.get("F5 Under") or {}
+        f5_block["full_game_under"] = by_mkt.get("Full Game Under") or {}
+        result["f5_vs_full_game_under"] = f5_block
+        # Enrich dispersion calibration with the field names the panel reads.
+        disp = result.get("totals_dispersion_calibration") or {}
+        if disp.get("available"):
+            disp["current_ratio"]   = disp.get("current_default", 1.5)
+            disp["empirical_ratio"] = disp.get("suggested_ratio")
+            # Under hit rate from the by_market_selected bucket (F5+Full).
+            under_total = (
+                (by_mkt.get("F5 Under")        or {}).get("total", 0)
+                + (by_mkt.get("Full Game Under") or {}).get("total", 0)
+            )
+            under_won = (
+                (by_mkt.get("F5 Under")        or {}).get("won", 0)
+                + (by_mkt.get("Full Game Under") or {}).get("won", 0)
+            )
+            disp["under_hit_rate"] = (
+                round(under_won / under_total, 4) if under_total > 0 else None
+            )
+            # Mean Poisson-vs-NB delta in points (synthetic estimate based
+            # on the suggested ratio); falls back to None if not enough info.
+            disp["nb_mean_delta"] = None
+            try:
+                from services.mlb_pregame_analytics_v2 import totals_probability
+                lam = disp.get("mean_expected_total")
+                if lam is not None and lam > 0:
+                    sample = totals_probability(
+                        float(lam), float(lam) + 1.5,
+                        dispersion_ratio=disp["empirical_ratio"],
+                    )
+                    disp["nb_mean_delta"] = sample.get("under_calibration_delta_pts")
+            except Exception:
+                pass
+        else:
+            disp.setdefault("current_ratio", 1.5)
+            disp.setdefault("empirical_ratio", None)
+            disp.setdefault("under_hit_rate", None)
+            disp.setdefault("nb_mean_delta", None)
+        result["totals_dispersion_calibration"] = disp
+
+        return {"ok": True, "summary": result}
     except Exception as exc:
         log.exception("mlb_run_evaluations_summary failed")
         raise HTTPException(

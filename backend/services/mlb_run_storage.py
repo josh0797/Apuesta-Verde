@@ -398,6 +398,25 @@ def build_run_evaluation_document(*,
         "miss_type":                   None,
         "reference_profile_tag":       None,  # se setea abajo
 
+        # ── Negative-Binomial calibration telemetry ─────────────────
+        # The orchestrator already enriches `_run_eval` with these fields
+        # so we just shuttle them into the doc. Used by the summary
+        # endpoint to break down dispersion by buckets.
+        "totals_model":                re_.get("totals_model") or {},
+        "expected_total":              (
+            _safe_float(re_.get("expected_total"))
+            if re_.get("expected_total") is not None
+            else _safe_float(mx_.get("expected_runs"))
+        ),
+        "actual_total":                (
+            _safe_float(final_total) if final_total is not None else None
+        ),
+        # Bucket dimensions (read by mlb_run_evaluations_summary)
+        "pressure_tier":               _safe_str(re_.get("pressure_tier")),
+        "fragility_tier":              _safe_str(re_.get("fragility_tier")),
+        "park_runs_mult":              _safe_float(re_.get("park_runs_mult")),
+        "is_f5_market":                bool(re_.get("is_f5_market")),
+
         "generated_at":                datetime.now(timezone.utc).isoformat(),
         "resolved_at":                 None,
         "_v":                          1,
@@ -502,6 +521,10 @@ async def update_run_evaluation_result(db, *,
                 "final_runs_home":         fh,
                 "final_runs_away":         fa,
                 "final_total":             final_total,
+                # Mirror final_total into the canonical NB-calibration field
+                # so `_compute_totals_dispersion_calibration` can pair it
+                # with `expected_total` once the game settles.
+                "actual_total":            final_total,
                 "result":                  result,
                 "miss_type":               miss_type,
                 "reference_profile_tag":   tag,

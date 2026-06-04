@@ -585,16 +585,38 @@ def smart_total_line_selector(
     for ln in ladder:
         s, f = _score_line(ln, side)
         probs = totals_probability(er, ln)
+        # ── NB calibration penalty on Under fragility ───────────────
+        # The NB model corrects Poisson's UNDER-estimation of high
+        # totals. The bigger the calibration delta (`poisson - NB`),
+        # the more the legacy model was over-stating the Under, so
+        # we add a *proportional* fragility penalty — but ONLY for
+        # Under picks AND capped at +15. We never amplify Over
+        # fragility (NB makes Overs MORE likely, not less). This
+        # keeps small-delta Unders fully alive while flagging the
+        # ones where Poisson would have lied.
+        delta_pts = probs.get("under_calibration_delta_pts") or 0.0
+        if side == "UNDER" and delta_pts > 0:
+            f_adj = min(15.0, max(0.0, float(delta_pts) * 1.2))
+            f = min(100.0, f + f_adj)
         candidates.append({
             "line":              ln,
             "side":              side,
             "safety":            round(s, 1),
             "fragility":         round(f, 1),
             "diff":              round(er - ln if side == "OVER" else ln - er, 2),
-            # BUGFIX — Poisson totals model.
-            "prob_under":        probs["prob_under"],
-            "prob_over":         probs["prob_over"],
-            "prob_model":        probs["model"],
+            # Probabilities under the active Negative-Binomial model,
+            # plus full telemetry vs the legacy Poisson model so the
+            # feedback loop / UI can audit calibration drift.
+            "prob_under":                  probs["prob_under"],
+            "prob_over":                   probs["prob_over"],
+            "prob_model":                  probs["model"],
+            "dispersion_ratio":            probs.get("dispersion_ratio"),
+            "poisson_prob_under":          probs.get("poisson_prob_under"),
+            "nb_prob_under":               (
+                probs["prob_under"]
+                if probs.get("model") == "NegativeBinomial" else None
+            ),
+            "under_calibration_delta_pts": probs.get("under_calibration_delta_pts"),
         })
     # Sort by safety desc to pick safeLine; sort by line desc to pick aggressive.
     by_safety = sorted(candidates, key=lambda c: c["safety"], reverse=True)
@@ -641,6 +663,11 @@ def smart_total_line_selector(
             "probabilityUnder":   None,
             "probabilityOver":    None,
             "probabilityModel":   None,
+            # NB calibration telemetry (None when no candidate).
+            "dispersionRatio":           None,
+            "poissonProbUnder":          None,
+            "nbProbUnder":               None,
+            "underCalibrationDeltaPts":  None,
         }
 
     reason_parts = [
@@ -652,7 +679,7 @@ def smart_total_line_selector(
         reason_parts.append(f"agresiva={side} {aggressive['line'] if aggressive else best['line']}")
         reason_parts.append(f"protegida={side} {safe['line']}")
 
-    # BUGFIX — surface the Poisson probability for the RECOMMENDED side.
+    # BUGFIX — surface the totals probability for the RECOMMENDED side.
     rec_prob_under = recommended.get("prob_under") or 0.0
     rec_prob_over  = recommended.get("prob_over")  or 0.0
     cover_probability = (rec_prob_over if side == "OVER" else rec_prob_under) * 100.0
@@ -670,13 +697,23 @@ def smart_total_line_selector(
         "reason":           " · ".join(reason_parts),
         "signalTag":        "SMART_OVER_LINE_SELECTED" if abs(recommended["diff"]) >= 0.8 else None,
         "ladder":           candidates,
-        # BUGFIX — Poisson-derived totals probabilities (used by the UI
-        # whenever the final pickType is a totals market).
+        # Probabilities for the recommended line (NB by default).
         "coverProbability":  round(cover_probability, 1),
         "edgeVsLine":        edge_vs_line,
         "probabilityUnder":  round(rec_prob_under * 100.0, 1),
         "probabilityOver":   round(rec_prob_over  * 100.0, 1),
-        "probabilityModel":  "Poisson",
+        "probabilityModel":  recommended.get("prob_model") or "NegativeBinomial",
+        # ── NB calibration telemetry (see totals_probability docs) ──
+        "dispersionRatio":           recommended.get("dispersion_ratio"),
+        "poissonProbUnder":          (
+            round(recommended["poisson_prob_under"] * 100.0, 1)
+            if recommended.get("poisson_prob_under") is not None else None
+        ),
+        "nbProbUnder":               (
+            round(recommended["nb_prob_under"] * 100.0, 1)
+            if recommended.get("nb_prob_under") is not None else None
+        ),
+        "underCalibrationDeltaPts":  recommended.get("under_calibration_delta_pts"),
     }
 
 
@@ -1315,6 +1352,20 @@ def build_v2_payload(
         "runLineCoverProbability": rldom.get("coverProbability"),   # legacy reference
         "reasons":              rldom.get("reasons") or [],
         "risks":                rldom.get("risks") or [],
+        # ── Negative-Binomial calibration block (totals only) ──────
+        # Surfaced for pick payloads AND the MLBCalibrationPanel so the
+        # user can audit how much NB widened/narrowed the Under tail
+        # versus the legacy Poisson model.
+        "totalsModel": {
+            "model_used":                   line_sel.get("probabilityModel"),
+            "dispersion_ratio":             line_sel.get("dispersionRatio"),
+            "expected_total":               expected_runs,
+            "book_total":                   book_total,
+            "poisson_prob_under":           line_sel.get("poissonProbUnder"),
+            "nb_prob_under":                line_sel.get("nbProbUnder"),
+            "under_calibration_delta_pts":  line_sel.get("underCalibrationDeltaPts"),
+            "recommended_line":             line_sel.get("recommendedLine"),
+        },
     }
 
 

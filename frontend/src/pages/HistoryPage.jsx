@@ -7,6 +7,7 @@ import { BadgeCheck, ThumbsDown, Equal, Clock, Download, DollarSign, TrendingUp,
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { WinRateChart } from '@/components/WinRateChart';
+import MLBCalibrationPanel from '@/components/MLBCalibrationPanel';
 import { toast } from 'sonner';
 
 export default function HistoryPage() {
@@ -168,6 +169,13 @@ export default function HistoryPage() {
           })}
         </div>
       </section>
+
+      {/* MLB Negative-Binomial calibration panel — rendered when the user
+          has any baseball pick tracked (won/lost/push/pending) so they can
+          audit how the NB model is correcting Poisson on their slate. */}
+      {tracked.some((row) => (row.sport || 'football').toLowerCase() === 'baseball') && (
+        <MLBCalibrationPanel days={30} />
+      )}
 
       {tracked.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card/40 p-8 text-center" data-testid="history-empty">

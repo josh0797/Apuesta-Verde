@@ -1,38 +1,38 @@
 [
   {
-    "content": "Crear package services/injury_intelligence/ con __init__, schema, normalizer",
+    "content": "Forward NB telemetry en smart_total_line_selector y build_v2_payload",
     "status": "completed"
   },
   {
-    "content": "Crear nba_star_registry.py (superstars/stars hardcoded) + role classifier",
+    "content": "Inyectar telemetría NB en pick_payload en mlb_day_orchestrator",
     "status": "completed"
   },
   {
-    "content": "Crear multi-source fetcher: API-Sports + TheStatsAPI + Bright Data ESPN/Rotowire",
+    "content": "Persistir NB telemetry y bucket dimensions en mlb_run_evaluations",
     "status": "completed"
   },
   {
-    "content": "Crear basketball_injury_impact.py con scoring + reason_codes",
+    "content": "Ajustar confidence/fragility según delta de calibración",
     "status": "completed"
   },
   {
-    "content": "Crear orchestrator público fetch_basketball_injury_intelligence(home, away) con match_edge",
+    "content": "Agregar bucket-based dispersion calibration en mlb_run_evaluations_summary.py",
     "status": "completed"
   },
   {
-    "content": "Tests backend completos",
+    "content": "Crear MLBCalibrationPanel.jsx",
     "status": "completed"
   },
   {
-    "content": "Integrar en basketball pipeline + analyst_engine prompt",
+    "content": "Integrar MLBCalibrationPanel en HistoryPage.jsx",
     "status": "completed"
   },
   {
-    "content": "UI: crear InjuryIntelligencePanel.jsx + integrar en MatchCard",
+    "content": "Ejecutar pytest completo y verificar regresiones (>855 tests)",
     "status": "completed"
   },
   {
-    "content": "Verificar pytest 839+ sin regresiones, esbuild OK",
-    "status": "completed"
+    "content": "Llamar testing_agent para validar end-to-end",
+    "status": "in_progress"
   }
 ]
