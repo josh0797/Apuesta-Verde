@@ -44,7 +44,7 @@
     "status": "completed"
   },
   {
-    "content": "Phase 18: Testing agent backend para verificación endpoint + integración",
-    "status": "in_progress"
+    "content": "Phase 18: Testing agent backend — 100% verde: 979 tests, 16 índices, endpoint OK, MLB/Basketball intactos",
+    "status": "completed"
   }
 ]
