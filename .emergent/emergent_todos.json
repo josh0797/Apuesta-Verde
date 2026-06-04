@@ -20,7 +20,7 @@
     "status": "completed"
   },
   {
-    "content": "Pieza 5.1: Wiring resolución parámetros en analyst_engine (Phase 8.9, propagado a todos los matches)",
+    "content": "Pieza 5.1: Wiring resolución parámetros en analyst_engine (Phase 8.9)",
     "status": "completed"
   },
   {
@@ -28,15 +28,15 @@
     "status": "completed"
   },
   {
-    "content": "Pieza 5.3: football_backtest_runner.py (cohort _slate_backtest, fail-soft per fixture)",
+    "content": "Pieza 5.3: football_backtest_runner.py (cohort _slate_backtest)",
     "status": "completed"
   },
   {
-    "content": "Tests pytest 1004 passing (25 nuevos DC+NB + 979 anteriores, cero regresiones)",
+    "content": "Tests pytest 1004 passing (25 nuevos + 979 anteriores, cero regresiones)",
     "status": "completed"
   },
   {
-    "content": "Testing agent backend verifica end-to-end",
-    "status": "in_progress"
+    "content": "Testing agent backend 100% verde (11/11 integration + 1004/1004 unit, 0 bugs)",
+    "status": "completed"
   }
 ]
