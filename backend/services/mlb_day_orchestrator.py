@@ -64,6 +64,91 @@ MLB_PROBABLE_PAGE = "https://www.mlb.com/probable-pitchers/{date}"   # date YYYY
 ROTOWIRE_DAILY    = "https://www.rotowire.com/baseball/daily-lineups.php"
 
 
+def _resolve_bucket_ratio(
+    *,
+    pressure_tier: Optional[str],
+    park_code: Optional[str],
+    park_runs_mult: Optional[float],
+    summary: Optional[dict],
+) -> Optional[tuple[float, str]]:
+    """Resolve a bucket-specific NB dispersion ratio for the current game.
+
+    Returns ``(ratio, bucket_name)`` when the resolved bucket is
+    ``apply_eligible`` (n≥100 settled samples) AND whitelisted by the
+    summary's ``bucket_application_policy.buckets_eligible_for_apply``.
+    Returns ``None`` otherwise — caller falls back to the global ratio.
+
+    Alignment with the summary
+    --------------------------
+    * ``_park_bucket`` in ``mlb_run_evaluations_summary`` classifies parks
+      by ``park_runs_mult >= 1.05 → HITTER_FRIENDLY`` (and ``<= 0.95 →
+      PITCHER_FRIENDLY``). We accept BOTH the explicit ``park_code`` and
+      the raw multiplier so this works whether the orchestrator passed
+      the live park dict or the static park factor.
+    * Bucket-name format: ``"{dim}.{key}"`` (e.g. ``"pressure.HIGH_PRESSURE"``)
+      — matches what the policy whitelist emits.
+
+    Precedence: pressure first, then park. Output ratio clamped to
+    ``[1.1, 2.5]`` to defend against pathological empirical fits.
+    """
+    if not summary:
+        return None
+    by_bucket = summary.get("totals_dispersion_by_bucket") or {}
+    policy = (
+        (summary.get("totals_dispersion_calibration") or {})
+        .get("bucket_application_policy") or {}
+    )
+    eligible_names = set(policy.get("buckets_eligible_for_apply") or [])
+    if not eligible_names:
+        return None   # short-circuit when no bucket is APPLY-eligible
+
+    def _clamp(r):
+        try:
+            return max(1.1, min(2.5, float(r)))
+        except (TypeError, ValueError):
+            return None
+
+    # Park key resolution — mirrors _park_bucket() in the summary.
+    park_key: Optional[str] = None
+    pcode = (park_code or "").upper() or None
+    if pcode in ("OFFENSIVE", "HITTER_FRIENDLY"):
+        park_key = "HITTER_FRIENDLY"
+    elif pcode in ("PITCHER_FRIENDLY",):
+        park_key = "PITCHER_FRIENDLY"
+    elif pcode in ("NEUTRAL",):
+        park_key = "NEUTRAL_PARK"
+    elif park_runs_mult is not None:
+        try:
+            m = float(park_runs_mult)
+            if m >= 1.05:
+                park_key = "HITTER_FRIENDLY"
+            elif m <= 0.95:
+                park_key = "PITCHER_FRIENDLY"
+            else:
+                park_key = "NEUTRAL_PARK"
+        except (TypeError, ValueError):
+            park_key = None
+
+    # Pressure first, then park.
+    candidates: list[tuple[str, str]] = []
+    if pressure_tier:
+        candidates.append(("pressure", pressure_tier))
+    if park_key:
+        candidates.append(("park", park_key))
+
+    for dim, key in candidates:
+        name = f"{dim}.{key}"
+        if name not in eligible_names:
+            continue
+        bucket = (by_bucket.get(dim) or {}).get(key) or {}
+        if not bucket.get("apply_eligible"):
+            continue
+        r = _clamp(bucket.get("suggested_ratio"))
+        if r is not None:
+            return (r, name)
+    return None
+
+
 def _f(v, default=0.0):
     """Safe float coercion used by F6A bullpen-swap logic."""
     try:
@@ -304,6 +389,20 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
     except Exception as exc:
         log.debug("get_active_weights failed (using defaults): %s", exc)
         active_weights = {}
+
+    # Summary de calibración NB cargado una sola vez (no por partido).
+    # Guard db is not None para no romper tests que llaman
+    # analyze_mlb_day(db=None). Cohort _slate = picks reales.
+    active_calibration_summary: dict = {}
+    if db is not None:
+        try:
+            from .mlb_run_evaluations_summary import compute_run_evaluations_summary
+            active_calibration_summary = await compute_run_evaluations_summary(
+                db, days=90, user_id="_slate", cohort_priority="real_first",
+            )
+        except Exception as exc:
+            log.debug("calibration summary load failed (bucket recalc off): %s", exc)
+            active_calibration_summary = {}
 
     picks: list[dict]       = []
     rescued: list[dict]     = []
@@ -2279,6 +2378,121 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 pick_payload["park_factor_live"] = park_dyn
             except Exception as exc_pf:
                 log.debug("park_factor_live compute failed: %s", exc_pf)
+
+            # ── Recalibración NB por bucket (PASIVO hasta n≥100) ─────
+            # El NB de la primera pasada usó el ratio GLOBAL porque al
+            # proyectar aún no se conocía el bucket. Aquí, con presión
+            # y parque ya calculados, recalculamos SI el bucket es
+            # apply_eligible. Hoy ningún bucket llega a n≥100 → no-op.
+            #
+            # IMPORTANTE: este bloque NO modifica confidence_score.
+            # Solo guarda telemetría completa (global + bucket) para
+            # que storage/feedback loop/UI vean ambas pasadas. La
+            # aplicación al confidence queda preparada en Fase 2 (abajo).
+            try:
+                _exp_total  = pick_payload.get("expected_total")
+                _book_total = pick_payload.get("book_total")
+                if _exp_total is not None and _book_total:
+                    _pressure_tier = (
+                        ((pick_payload.get("pressure_base") or {})
+                         .get("combined") or {}).get("pressure_tier")
+                    )
+                    _park_dyn_local = pick_payload.get("park_factor_live") or {}
+                    _park_mult = (
+                        _park_dyn_local.get("dynamic")
+                        or _park_dyn_local.get("park_runs_mult")
+                    )
+                    _resolved = _resolve_bucket_ratio(
+                        pressure_tier  = _pressure_tier,
+                        park_code      = _park_dyn_local.get("code"),
+                        park_runs_mult = _park_mult,
+                        summary        = active_calibration_summary,
+                    )
+                    if _resolved is not None:
+                        _bucket_ratio, _bucket_name = _resolved
+                        from .mlb_pregame_analytics_v2 import totals_probability
+                        _recalc = totals_probability(
+                            expected_runs    = _exp_total,
+                            line             = _book_total,
+                            dispersion_ratio = _bucket_ratio,
+                        )
+                        _recalc["bucket_ratio_used"] = _bucket_ratio
+                        _recalc["bucket_name"]       = _bucket_name
+                        _recalc["_source"]           = "bucket_recalibration"
+                        pick_payload["totals_probability_bucket"] = _recalc
+
+                        # Auditoría completa: conservar el global, exponer
+                        # ambos valores nombrados explícitamente.
+                        _global_nb    = pick_payload.get("nb_prob_under")
+                        _global_ratio = pick_payload.get("dispersion_ratio")
+                        pick_payload["nb_prob_under_global"]    = _global_nb
+                        pick_payload["dispersion_ratio_global"] = _global_ratio
+                        pick_payload["nb_prob_under_bucket"]    = _recalc.get("prob_under")
+                        pick_payload["dispersion_ratio_bucket"] = _bucket_ratio
+
+                        # Sobrescribir los campos que persisten (storage
+                        # + feedback loop leen estos). El confidence NO
+                        # los usa hoy, así que esto no altera la decisión.
+                        pick_payload["nb_prob_under"]    = _recalc.get("prob_under")
+                        pick_payload["dispersion_ratio"] = _bucket_ratio
+                        pick_payload["under_calibration_delta_pts"] = _recalc.get("under_calibration_delta_pts")
+
+                        # Bloque de auditoría que la UI / feedback loop
+                        # leen para explicar que hubo segunda pasada.
+                        _bucket_delta_pts = None
+                        try:
+                            if _global_nb is not None and _recalc.get("prob_under") is not None:
+                                _bucket_delta_pts = round(
+                                    (float(_global_nb) - float(_recalc["prob_under"])) * 100, 1
+                                )
+                        except (TypeError, ValueError):
+                            _bucket_delta_pts = None
+                        pick_payload["totals_dispersion_bucket_recalc"] = {
+                            "applied":          True,
+                            "bucket_name":      _bucket_name,
+                            "bucket_ratio":     _bucket_ratio,
+                            "global_ratio":     _global_ratio,
+                            "bucket_delta_pts": _bucket_delta_pts,
+                            "source":           "bucket_recalibration",
+                        }
+
+                        log.info(
+                            "Bucket NB recalc game=%s bucket=%s ratio=%.2f prob_under %.3f→%.3f (Δ%.1fpts)",
+                            conf.get("game_pk"), _bucket_name, _bucket_ratio,
+                            _global_nb or 0, _recalc.get("prob_under") or 0,
+                            _bucket_delta_pts or 0,
+                        )
+
+                        # ── FASE 2 (PREPARADA, NO ACTIVA) ───────────
+                        # Cuando se valide en producción, descomentar
+                        # para penalizar conservadoramente el confidence
+                        # del Under cuando el bucket NB reduce la prob
+                        # del Under en ≥5 pts. Ubicación correcta: aquí,
+                        # antes de que el pick entre a picks/rescued/
+                        # watchlist. Requiere confirmar is_under_pick.
+                        #
+                        # _is_under_pick = "under" in str(
+                        #     (pick_payload.get("recommendation") or {}).get("market") or ""
+                        # ).lower()
+                        # if _is_under_pick and (_bucket_delta_pts or 0) >= 5:
+                        #     _rec = pick_payload.get("recommendation") or {}
+                        #     _penalty = min(5, (_bucket_delta_pts or 0) * 0.5)
+                        #     if "confidence_score" in _rec:
+                        #         _rec["confidence_score"] = max(
+                        #             0, float(_rec["confidence_score"]) - _penalty
+                        #         )
+                        #     _rec.setdefault("reason_codes", []).append(
+                        #         "BUCKET_NB_UNDER_PROBABILITY_REDUCED"
+                        #     )
+                        #     pick_payload["recommendation"] = _rec
+                        pick_payload["_phase2_bucket_penalty_eligible"] = bool(
+                            (_bucket_delta_pts or 0) >= 5
+                            and "under" in str(
+                                (pick_payload.get("recommendation") or {}).get("market") or ""
+                            ).lower()
+                        )
+            except Exception as _exc_brc:
+                log.debug("bucket NB recalc failed (non-fatal): %s", _exc_brc)
 
             # ── M4: Verify model inputs ──────────────────────────────
             try:
