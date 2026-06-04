@@ -2429,6 +2429,103 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
         except Exception as exc:
             log.warning("football_moneyball Phase 12a-FM failed: %s", exc)
 
+        # ── Phase 12a-FM (cont.) — Totals Model + Over Support normalize ──
+        # After the Moneyball attach, build the canonical
+        # `football_totals_model` and `football_over_support` blocks on
+        # every football entry. Reads DC/NB telemetry already produced
+        # by statsbomb_features.compute_match_features + the calibration
+        # summary cached in pipeline_meta. Strictly fail-soft.
+        try:
+            from .football_moneyball.football_totals_model_normalizer import (
+                build_football_totals_model as _build_totals_model,
+            )
+            from .football_moneyball.football_over_support import (
+                calculate_football_over_support as _calc_over_support,
+            )
+            by_id_fm2 = {m.get("match_id"): m for m in matches_payload}
+            calibration_summary = (pipeline_meta or {}).get("football_totals_calibration") or {}
+            audit_tm = {"totals_model_attached": 0, "over_support_attached": 0}
+            buckets_tm = [
+                parsed.get("picks") or [],
+                (parsed.get("summary") or {}).get("discarded_market")    or [],
+                (parsed.get("summary") or {}).get("discarded_motivation") or [],
+                (parsed.get("summary") or {}).get("rescued_picks")       or [],
+                (parsed.get("summary") or {}).get("watchlist")           or [],
+                (parsed.get("summary") or {}).get("protected_acceptable") or [],
+            ]
+            for bucket in buckets_tm:
+                for entry in bucket:
+                    if not isinstance(entry, dict):
+                        continue
+                    mid = entry.get("match_id")
+                    src = by_id_fm2.get(mid) or {}
+                    # Use the calibration block from Phase 8.9 (which is
+                    # closer to a runtime summary than the lookback one
+                    # cached in pipeline_meta). Fall back to pipeline_meta.
+                    cs = {
+                        "available":      bool(calibration_summary.get("available")),
+                        "global_applies": bool(calibration_summary.get("global_applies")),
+                        "sample_size":    int(calibration_summary.get("sample_size") or 0),
+                    } if isinstance(calibration_summary, dict) else None
+                    try:
+                        tm = _build_totals_model(
+                            entry,
+                            match=src,
+                            calibration_summary=cs,
+                            league_tier=(src.get("_league_tier")
+                                          or entry.get("league_tier")
+                                          or "UNKNOWN_LEAGUE"),
+                            offense_bucket=(entry.get("offense_bucket")
+                                              or src.get("_offense_bucket")),
+                        )
+                        if isinstance(tm, dict):
+                            entry["football_totals_model"] = tm
+                            if tm.get("available"):
+                                audit_tm["totals_model_attached"] += 1
+                    except Exception as _exc:
+                        log.debug("totals_model build failed for %s: %s", mid, _exc)
+
+                    # Over Support reads the totals model so it must come
+                    # AFTER the totals_model attach. Merge match payload
+                    # references so the calculator can read all signals
+                    # in a single source.
+                    try:
+                        merged_for_over = dict(src)
+                        # Surface pick-level fields the calculator expects
+                        # to find at the top level.
+                        if entry.get("football_totals_model"):
+                            merged_for_over["football_totals_model"] = entry["football_totals_model"]
+                        if entry.get("goal_pressure_profile"):
+                            merged_for_over["goal_pressure_profile"] = entry["goal_pressure_profile"]
+                        if entry.get("match_features") or src.get("match_features"):
+                            merged_for_over["match_features"] = (
+                                entry.get("match_features") or src.get("match_features")
+                            )
+                        if entry.get("_statsbomb_features") or src.get("_statsbomb_features"):
+                            merged_for_over["_statsbomb_features"] = (
+                                entry.get("_statsbomb_features")
+                                or src.get("_statsbomb_features")
+                            )
+                        over = _calc_over_support(merged_for_over)
+                        if isinstance(over, dict) and over.get("football_over_support"):
+                            entry["football_over_support"] = over["football_over_support"]
+                            if over["football_over_support"].get("available"):
+                                audit_tm["over_support_attached"] += 1
+                    except Exception as _exc:
+                        log.debug("over_support build failed for %s: %s", mid, _exc)
+
+            parsed.setdefault("_pipeline", {})
+            parsed["_pipeline"]["football_totals_model"] = {
+                **audit_tm,
+                "engine_version": "football_totals_model.normalizer.1",
+            }
+            log.info(
+                "Analyst[football]: totals_model=%d over_support=%d entries attached",
+                audit_tm["totals_model_attached"], audit_tm["over_support_attached"],
+            )
+        except Exception as exc:
+            log.warning("football_totals_model Phase 12a-FM cont failed: %s", exc)
+
     # ── Phase 12b — Basketball Historical Profile annotation ────────────
     # When the basketball pre-fetch produced a profile (Phase 10b), copy it
     # into the user-facing payload entries (picks, discarded_market,

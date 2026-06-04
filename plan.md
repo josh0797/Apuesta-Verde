@@ -1,4 +1,4 @@
-# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration (plan.md)
+# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration + Live Recommendation History (plan.md)
 
 ## 1) Objectives
 
@@ -43,8 +43,21 @@
 - ✅ Wiring en orquestador (analyst_engine Phase 8.9): load 1 vez por run y propagar `match["_dc_rho"]` + `match["_goals_dispersion_ratio"]` antes de cualquier `compute_match_features`.
 - ✅ Endpoint público fail-soft: `GET /api/football/totals-calibration/summary?days=90`.
 - ✅ Backtest runner: `football_backtest_runner.py` (cohort `_slate_backtest`) para poblar `football_market_results` sin contaminar el cohort live.
-- ✅ Persistencia extendida en `football_market_results` para calibración sin recomputar:
-  - `league_tier`, `offense_bucket`, `lambda_total/lam_h/lam_a`, `dc_rho_used`, `goals_dispersion_ratio`, `p_under_*_poisson`, `p_under_*_dc_nb`, `dc_nb_delta_*_pts`.
+- ✅ Persistencia extendida en `football_market_results` para calibración sin recomputar.
+
+### Objetivos completados (UI Football DC/NB + Over Support)
+- ✅ Crear `FootballDcNbPanels.jsx` con:
+  - `FootballTotalsModelPanel` (Poisson vs DC/NB, ρ, NB ratio, deltas, modo defaults/empirical)
+  - `FootballOverSupportPanel` (soportes Over 1.5/2.5, presión 0–30, fragilidad)
+- ✅ Integración en `MatchCard.jsx` (gated por `sport === 'football'`, fail-soft por `available`).
+
+### Objetivo nuevo (P0): Live Recommendation History / Timeline
+- Implementar un historial/auditoría de **recomendaciones live** que:
+  - guarde eventos (auto + manual) **solo cuando cambie realmente la recomendación** (dedupe)
+  - permita settlement MVP (BTTS y Totals) y/o confirmación/edición manual posterior
+  - exponga endpoints de consulta con filtros completos
+  - muestre un timeline en UI + formulario de entrada manual
+  - sea **fail-soft**: nunca rompe el motor live si falla DB
 
 ---
 
@@ -94,7 +107,7 @@ Entregables:
 - ✅ Suite backend sin regresiones.
 - ✅ Nuevos tests Moneyball + live polish.
 
-**Estado tests (post Football DC/NB):** ✅ `pytest` 1004 passing.
+**Estado tests (actual):** ✅ `pytest` **1025 passing** (backend 100% verde).
 
 ---
 
@@ -112,7 +125,7 @@ Estrategia roles:
 - Lista hardcodeada de superstars/estrellas por equipo + fallback heurístico (minutos/usage/ppg si player-stats existen)
 
 ### Phase 5 — Injury Intelligence (Basketball) — Backend (NEW)
-(Se mantiene el plan existente; no es el foco inmediato de Football Moneyball / DC-NB.)
+(Se mantiene el plan existente; no es el foco inmediato de Football Moneyball / DC-NB / Timeline.)
 
 ### Phase 6 — Injury Intelligence (Basketball) — Frontend/UI (NEW)
 
@@ -130,63 +143,28 @@ Estrategia roles:
   - `football_match_intelligence_snapshots`
   - `football_market_results`
   - `football_pattern_memory`
-- **Índices sugeridos por el usuario:** implementados best-effort (**16 índices** creados en startup).
 - **Importante:** pattern memory NO fuerza picks automáticamente.
-- **Reutilizar módulos existentes:** `football_quality.py`, `football_market_trace.py`, `football_live_aggregator.py`, `football_corner_pregame.py`, etc.
 
-### Phase 8 — Football Moneyball (Backend) — Scaffolding + DB Warehouse ✅
-**Entregado:** `services/football_moneyball/` con módulos:
-- ✅ `football_intelligence_warehouse.py` (IO Mongo: perfiles, snapshots, results, pattern memory)
-- ✅ `ensure_football_indexes(db)` llamado en `server.py` startup
-- ✅ Esquema fail-soft + writes idempotentes (replace_one upsert)
-
-### Phase 9 — Football Goal Pressure Profile ✅
-- ✅ Implementado `football_goal_pressure_profile.py` (pure, determinista, explicable)
-- ✅ Señales: under rates, btts, clean sheets, gf/ga avg, early goal profile; live override con tiros a puerta.
-
-### Phase 10 — Snapshot Builder (Pregame + Live) ✅
-- ✅ Implementado `football_snapshot_builder.py` (pure)
-- ✅ Persistencia idempotente en `football_match_intelligence_snapshots`.
-
-### Phase 11 — Pattern Memory (derive + lookup + conservative adjustment) ✅
-- ✅ Implementado `football_pattern_memory.py` (derive keys conservador)
-- ✅ Lookup + attach en warehouse con gates (n<20 sin ajuste; 20≤n<50 moderado; n≥50 fuerte con ROI>0; caps conservadores).
-
-### Phase 12 — Football Market Selection Layer ✅
-- ✅ Implementado `football_market_selection.py` (pure)
-- ✅ Política conservadora: preferencia por mercados protegidos (ej: Under 3.5 como protección), evita over/agresivos por defecto.
-
-### Phase 13 — Feedback Loop + Market Results ✅
-- ✅ Implementado `football_feedback_loop.py` + persistencia `persist_football_market_result`.
-- ✅ Actualiza `football_pattern_memory` (sample_size, wins, hit_rate, roi, ledger, best_market).
-
-### Phase 14 — Live vs Pregame Comparison ✅
-- ✅ Extendido `live_reevaluation.py` con `football_live_vs_pregame` (KEEP/REDUCE/AVOID) fail-soft.
-
-### Phase 15 — Endpoint `/api/football/pattern-memory/summary` ✅
-- ✅ Implementado `GET /api/football/pattern-memory/summary` (fail-soft HTTP 200).
-
-### Phase 15a-FM — Integración en `analyst_engine.py` ✅
-- ✅ Integrado en Phase 12a-FM (gated por `sport == 'football'`).
-- ✅ Adjunta: `goal_pressure_profile`, `football_pregame_snapshot`, `football_pattern_keys`, `historical_pattern_match`, `market_selection`.
-
-### Phase 16 — Tests (Football Moneyball Backend) ✅
-- ✅ `tests/test_football_moneyball.py` (36 tests).
-- ✅ Testing agent verificó backend 100% verde.
+(Phases 8–16 completadas; ver historial en el plan previo.)
 
 ---
 
-## 5) UI mínima viable (Football Moneyball) ✅ COMPLETADA
+## 5) UI mínima viable (Football Moneyball + DC/NB + Over Support) ✅ COMPLETADA
 
 ### Phase 17 — Frontend: MatchCard panels ✅
 - ✅ UI integrada en `MatchCard.jsx` (gated por `sport === 'football'`).
-- ✅ Paneles:
+- ✅ Paneles Moneyball:
   - `FootballIntelligencePanel`
   - `FootballPatternMemoryPanel`
   - `FootballLiveVsPregamePanel`
+- ✅ Paneles Totals/Over Support:
+  - `FootballTotalsModelPanel`
+  - `FootballOverSupportPanel`
 
 ### Phase 18 — Frontend: consumo endpoint summary (Opcional / pendiente)
-- (Opcional) Consumir `GET /api/football/pattern-memory/summary` para vista agregada.
+- (Opcional) Consumir:
+  - `GET /api/football/pattern-memory/summary`
+  - `GET /api/football/totals-calibration/summary`
 
 ### Phase 19 — Tests frontend (RTL) (Pendiente)
 - (Pendiente) Tests RTL para render condicional de paneles football y no-regresión en MLB/Basketball.
@@ -195,115 +173,219 @@ Estrategia roles:
 
 ## 6) Football Totals Calibration — Dixon-Coles + NB Conditional (P0) ✅ COMPLETADO
 
+(Phases 20–26 completadas; ver historial en el plan previo.)
+
+---
+
+## 7) Live Recommendation History / Timeline (P0) (NUEVO)
+
 ### Context
-El modelo anterior colapsaba el marcador a `lambda_total` y aplicaba Poisson al total, destruyendo la estructura de marcador conjunto necesaria para Dixon–Coles. Se corrigió implementando matriz bivariada + tau DC + NB condicional por lado.
+Se requiere un sistema persistente para registrar eventos de recomendación (auto y manual) durante el live:
+- Debe crear una **línea de tiempo** por partido.
+- Debe permitir **settlement MVP** para BTTS y Totals.
+- Debe permitir que el usuario **confirme/cambie** posteriormente si una recomendación fue acertada (sin perder el histórico).
+- Debe ser **fail-soft**: si DB falla o falta match doc, nunca debe romper el engine live ni devolver 500.
 
-### Phase 20 — `statsbomb_features.py`: DC matrix + NB conditional ✅
-- ✅ Añadido:
-  - `DIXON_COLES_RHO_DEFAULT = -0.05`
-  - clamps asimétricos: `_DC_RHO_MIN=-0.20`, `_DC_RHO_MAX=0.0`
-  - `build_score_matrix()` con renormalización
-  - `under_prob_from_matrix()` (Under 2.5/3.5 por suma de celdas)
-  - `FOOTBALL_GOALS_DISPERSION_RATIO_DEFAULT = 1.0`
-  - `build_score_matrix_nb()` (NB conditional + DC)
-  - `derive_offense_bucket()` con umbrales 2.25/2.85
-- ✅ Garantía clave: `dispersion_ratio==1.0` → NB **inert** (equivale a Poisson por lado).
-
-### Phase 21 — Integración `compute_match_features` ✅
-- ✅ Reemplazo del cálculo `poisson_total_under(lam_total, line)` por:
-  - `score_matrix = build_score_matrix_nb(lam_h, lam_a, rho, ratio)`
-  - `p_under_25/35 = under_prob_from_matrix(score_matrix, line)`
-- ✅ Telemetría para calibración y debugging:
-  - `p_under_2_5_poisson`, `p_under_3_5_poisson`
-  - `dc_nb_delta_2_5_pts`, `dc_nb_delta_3_5_pts`
-  - `dc_rho_used`, `goals_dispersion_ratio`
-
-### Phase 22 — `football_totals_calibration.py` ✅
-- ✅ Implementado `compute_football_totals_calibration(db, days=90, user_id="_slate")`.
-- ✅ Regla codificada (más conservadora):
-  - **n global < 100 → defaults** (ρ=-0.05, ratio=1.0)
-  - **n global ≥ 100 → aplicar empírico global** (con clamps)
-  - buckets por liga/ofensa: **siempre OBSERVE_ONLY** hasta n≥100 propios
-- ✅ Helper `apply_calibration_to_match(match, calibration)`.
-
-### Phase 23 — Wiring en orquestador + endpoint ✅
-- ✅ `analyst_engine.py` Phase 8.9:
-  - carga summary 1 vez por run
-  - propaga `match["_dc_rho"]` + `match["_goals_dispersion_ratio"]` a todos los matches football antes de `compute_match_features`.
-- ✅ Endpoint fail-soft:
-  - `GET /api/football/totals-calibration/summary?days=90`
-
-### Phase 24 — Persistencia extendida en settle ✅
-- ✅ `persist_football_market_result()` extendido para guardar:
-  - buckets: `league_tier`, `offense_bucket`
-  - lambdas: `lambda_total`, `lambda_home`, `lambda_away`
-  - DC/NB: `dc_rho_used`, `goals_dispersion_ratio`
-  - probs: `p_under_2_5_poisson`, `p_under_3_5_poisson`, `p_under_2_5_dc_nb`, `p_under_3_5_dc_nb`
-  - deltas: `dc_nb_delta_2_5_pts`, `dc_nb_delta_3_5_pts`
-- ✅ `record_football_pick_outcome()` deriva `offense_bucket` automáticamente si falta.
-
-### Phase 25 — Backtest runner ✅
-- ✅ `football_backtest_runner.py`:
-  - descarga fixtures finalizados (API-Sports) por rango de fechas
-  - ejecuta `compute_match_features` con defaults (ρ=-0.05, ratio=1.0)
-  - persiste en `football_market_results` con cohort `user_id="_slate_backtest"`
-
-### Phase 26 — Tests + Verificación ✅
-- ✅ 25 tests nuevos `tests/test_football_dc_nb_calibration.py`.
-- ✅ Suite total: **1004 tests passing**.
-- ✅ Testing agent backend: 100% verde (endpoints + regresiones + matemática NB inert + clamps).
+### Decisiones confirmadas (del usuario)
+- ✅ Esquema: **mínimo** + extensiones (ver abajo).
+- ✅ Auto-save: **solo cambios reales**, con deduplicación (no guardar recomendaciones idénticas).
+- ✅ Auto-settle MVP: solo mercados BTTS/Totals (lista específica).
+- ✅ Endpoints: `POST manual` + `GET` con filtros completos + defaults de orden/limit.
+- ✅ Regla clave: si una recomendación cambia **después** de haberse cumplido, **la anterior sigue siendo `hit`** y puede registrar `superseded_by_event_id`.
+- ✅ Manual entry: permitir guardar aunque **no exista `match_id` real** (usar `match_label`).
 
 ---
 
-## 7) Next Actions (Actualizado)
+### Phase 27 — Backend: Colección + Servicio + Auto-save (NEW)
 
-### Inmediato
-1. (Opcional) UI: añadir vista agregada en dashboard consumiendo:
-   - `/api/football/pattern-memory/summary`
-   - `/api/football/totals-calibration/summary`
-2. Implementar/confirmar flujo de **settle football end-to-end** (si se desea exponer al usuario) para alimentar calibración/pattern memory sin intervención manual.
-3. Ejecutar el backtest runner en rango controlado (si hay quota API-Sports) para acelerar `n` hacia 100 en cohort `_slate_backtest`.
+#### 27.1 MongoDB: nueva colección `live_recommendation_events`
+- Crear colección y `ensure_live_recommendation_indexes(db)` (best-effort en startup).
+- Índices (propuestos):
+  - `{ match_id: 1, sport: 1, created_at: 1 }`
+  - `{ match_id: 1, minute: 1, created_at: 1 }` (timeline)
+  - `{ sport: 1, status: 1, created_at: -1 }`
+  - `{ sport: 1, source: 1, created_at: -1 }`
+  - `{ sport: 1, event_type: 1, created_at: -1 }`
+  - `{ settled: 1, created_at: -1 }`
+  - (Opcional) unique parcial para dedupe (si aplica):
+    - clave lógica: `dedupe_key` = hash de `(match_id|match_label, sport, state/event_type, recommendation.market, recommendation.selection)`
 
-### Posterior
-4. Retomar Injury Intelligence Basketball (Phase 1) según el plan existente.
-5. Frontend tests RTL para paneles football + no-regresión en MLB/Basketball.
+#### 27.2 Esquema de documento (mínimo + extensible)
+- Campos mínimos (MVP):
+  - `event_id` (uuid)
+  - `sport` (default: `football` si falta)
+  - `match_id` (string; puede ser manual)
+  - `match_label` (string; requerido si no existe match real)
+  - `league` (string opcional)
+  - `minute` (int opcional)
+  - `score` `{ home, away, label }` (opcional)
+  - `recommendation` `{ title, market, selection, confidence, risk_level, recommended_action }`
+  - `reason` (string opcional)
+  - `reason_codes` (array opcional)
+  - `status` (enum: `open`, `hit`, `miss`, `push`, `void`, `watchlist`, `superseded`)
+  - `source` (enum: `engine`, `manual`, `system`) — manual por `POST`, engine por autosave
+  - `event_type` (enum: `PREGAME`, `LIVE_REEVALUATED`, `MANUAL_ENTRY`, `SETTLED`) (o equivalente)
+  - `settled` (bool)
+  - `outcome` (obj opcional):
+    - `result` (`hit`/`miss`/`push`/`void`)
+    - `settled_minute` (int)
+    - `settled_score` (string)
+    - `settlement_reason` (string)
+  - `superseded_by_event_id` (string uuid opcional)
+  - `notes` (string opcional)
+  - `created_at`, `updated_at`
+
+#### 27.3 Servicio `services/live_recommendation_history.py`
+- Funciones:
+  - `create_manual_event(db, payload)` (valida mínimo; fail-soft)
+  - `list_events(db, filters)` (filtros completos; sorting por reglas)
+  - `maybe_append_engine_event(db, match, recommendation, state, minute, score_snapshot)`
+    - **dedupe**: no insertar si el evento anterior (para el mismo match) tiene mismo `market+selection+event_type/state` (o mismo `dedupe_key`).
+  - `settle_live_event_from_score(event, score, minute, is_final=False)`
+    - retorna `{settled, status/result, outcome}` sin excepción
+  - `apply_manual_override(event_id, new_status/outcome/notes)` (permitir “confirm/change” posterior)
+
+#### 27.4 Integración autosave (engine)
+- En `live_reevaluation.py` / `analyst_engine.py`:
+  - Al computar recomendación live, llamar `maybe_append_engine_event(...)`.
+  - Guardar solo cuando:
+    - cambia `recommendation.market` o `recommendation.selection` o `event_type/state`.
+    - (Opcional) cambio de `recommended_action` relevante.
+- Fail-soft:
+  - cualquier fallo de DB → log warning y continuar (sin afectar picks).
 
 ---
 
-## 8) Success Criteria (Actualizado)
+### Phase 28 — Backend: Endpoints (NEW)
+
+#### 28.1 `POST /api/live/recommendation-events/manual`
+- Permite registrar evento manual incluso si no existe match doc.
+- Payload mínimo válido (confirmado):
+  - `sport` (default football si falta)
+  - `match_id`
+  - `match_label` (obligatorio si match_id no existe en DB; en práctica lo aceptamos siempre)
+  - `league` (opcional)
+  - `minute` (opcional)
+  - `score` (opcional)
+  - `recommendation` (obligatorio)
+  - `reason`/`reason_codes` (opcionales)
+  - `outcome` (opcional: permite backfill ya settled)
+  - `notes` (opcional)
+- Respuesta: doc insertado + `event_id`.
+
+#### 28.2 `GET /api/live/recommendation-events`
+- Filtros completos:
+  - `match_id`, `sport`, `status`, `result`, `source`, `event_type`, `settled=true|false`, `date_from`, `date_to`, `limit`.
+- Defaults:
+  - `sport="football"` si no viene
+  - `limit=50`
+  - Sorting:
+    - si `match_id` viene: `minute asc`, luego `created_at asc`
+    - si consulta general: `created_at desc`
+
+---
+
+### Phase 29 — Settlement MVP (BTTS + Totals) (NEW)
+- Implementar settlement automático (cuando haya score/minute):
+  - **BTTS YES**
+  - **Over 0.5**, **Over 1.5**, **Over 2.5**, **Over 3.5**
+  - **Under 2.5**, **Under 3.5**
+- Reglas:
+  - Si el mercado se cumple (ej BTTS YES cuando ambos marcan) → `status/result = hit` y `settled=true`.
+  - Si cambia la recomendación posteriormente:
+    - no convertir el evento anterior en `miss`
+    - mantener `hit` y usar `superseded_by_event_id` si corresponde.
+
+---
+
+### Phase 30 — Backfill Francia vs Costa de Marfil + UI Manual Entry (NEW)
+
+#### 30.1 Lookup match real (best-effort)
+- Antes de usar placeholder, buscar match real en DB por:
+  - `home_team.name ∈ ["France", "Francia"]`
+  - `away_team.name ∈ ["Ivory Coast", "Costa de Marfil"]`
+  - `league` contiene `"Friendlies"` o `"Amistosos"`
+  - fecha `2026-06-04`
+  - incluir current/live/archived
+- Si existe → usar su `match_id`.
+- Si no → usar `match_id = "manual-france-ivory-coast-2026-06-04"`.
+
+#### 30.2 Backfill manual inicial
+- Insertar (vía endpoint o servicio) el evento manual con:
+  - minute estimado `42` (editable luego en UI)
+  - score `1-0`
+  - recommendation BTTS YES
+  - outcome: `hit`, settled_minute `53`, settled_score `1-1`
+  - notes: referencia a marcador final observado `1-2` y que el hit fue antes del empate
+
+---
+
+### Phase 31 — Frontend: Timeline UI + Form (P1) (NEW)
+- Crear `LiveRecommendationTimeline.jsx`:
+  - lista por match_id, orden por `minute asc, created_at asc`
+  - chips: status, source, event_type
+  - mostrar recommendation + score + reason_codes
+  - mostrar outcome (hit/miss/push/void) y settlement info
+  - permitir “confirm/change” (manual override) si se habilita endpoint PATCH/POST adicional
+- Crear formulario `ManualRecommendationEventForm`:
+  - validaciones mínimas
+  - permite match_id + match_label (no bloquea si no hay match real)
+  - permite outcome opcional (backfill settled)
+- Integración en vista live match (MatchCard o modal) sin afectar otros deportes.
+
+---
+
+### Phase 32 — Tests + Verificación (NEW)
+- Backend tests (`pytest`):
+  - inserción manual mínima válida
+  - dedupe: no duplica por market+selection+state
+  - list con filtros + orden
+  - settle BTTS YES y totals
+  - supersede: hit permanece hit aunque luego haya otro evento
+  - fail-soft: DB errors no rompen endpoints ni engine (200 con vacío o logging)
+- Frontend:
+  - render timeline vacío vs con data
+  - submit manual ok
+  - no-regresión en MatchCard para otros sports
+
+---
+
+## 8) Next Actions (Actualizado)
+
+### Inmediato (P0)
+1. Implementar Phase 27–29 (colección + servicio + endpoints + settlement MVP).
+2. Añadir backfill inicial Francia vs Costa de Marfil (Phase 30) + habilitar edición posterior desde UI.
+3. Integrar UI timeline + form (Phase 31).
+
+### Posterior (P1/P2)
+4. Tests frontend RTL para paneles football + timeline + no-regresión.
+5. (Opcional) Extender settlement a más mercados (córners/handicap) si se desea.
+6. Retomar Injury Intelligence Basketball (Phase 1) según el plan existente.
+
+---
+
+## 9) Success Criteria (Actualizado)
 
 ### Moneyball MLB (ya cumplido)
 - ✅ Market Selection decide el pick final.
 - ✅ Missing odds → buckets manuales, no discard automático.
 - ✅ Payload contract fail-soft; editorial confirmación; UI explicable; live sin contradicciones.
 
-### Injury Intelligence Basketball (Phase 1)
-- Injury Intelligence fail-soft: missing → `available:false` y no altera engine.
-- Multi-source con provenance, conflictos conservadores.
-- Roles NBA: superstars hardcoded + fallback heurístico.
-- Ajustes conservadores con caps (±12 confidence, +15 fragility).
-- HIGH/CRITICAL bloquea picks agresivos (sin forzar picks).
-- Payload incluye `injury_intelligence` en basketball.
-- UI muestra bajas y edge neto en <5s, no rompe picks viejos.
-- Tests pasan: backend sin regresiones + nuevos tests injury.
+### Football Moneyball + DC/NB + Over Support (cumplido)
+- ✅ Moneyball football con warehouse/snapshots/pattern memory/market selection + UI.
+- ✅ Totals DC/NB (matriz bivariada + tau + NB condicional) + calibración global-antes-de-bucket.
+- ✅ UI DC/NB + Over Support integrada en MatchCard, fail-soft.
 
-### Football Moneyball Intelligence Layer + Pattern Memory (cumplido)
-- ✅ Backend completo en `services/football_moneyball/` con arquitectura estilo MLB.
-- ✅ 4 colecciones Mongo nuevas + índices best-effort (16 creados).
-- ✅ Snapshots pregame/live persistidos idempotentemente.
-- ✅ Goal pressure profile operativo con datos parciales y explicable.
-- ✅ Pattern memory conservadora: no fuerza picks; solo ajusta levemente + sugiere protección.
-- ✅ Market selection football prefiere mercados protegidos.
-- ✅ Feedback loop actualiza `football_pattern_memory` tras settle.
-- ✅ Live vs pregame comparison disponible y fail-soft.
-- ✅ Endpoint `/api/football/pattern-memory/summary` funcional y fail-soft.
-
-### Football Totals Calibration (DC + NB condicional) (cumplido)
-- ✅ Totals calculados desde **matriz bivariada** con DC tau y NB condicional (no Poisson total simplificado).
-- ✅ NB ratio=1.0 es **inert** (no distorsiona partido típico).
-- ✅ Clamps conservadores (ρ≤0, ratio≥1) evitan invertir DC o forzar overs.
-- ✅ Regla global-antes-de-bucket codificada: n<100 → defaults; buckets OBSERVE_ONLY.
-- ✅ Wiring aplicado antes de `compute_match_features` en flujo football.
-- ✅ Persistencia de telemetría completa para calibración sin recomputar.
-- ✅ Endpoint `/api/football/totals-calibration/summary` funcional y fail-soft.
-- ✅ Tests: `pytest` 1004 passing, sin regresiones (MLB/Basketball intactos).
+### Live Recommendation History / Timeline (nuevo)
+- Guardado de eventos:
+  - ✅ Manual: permite registrar aunque no exista match doc (usa `match_label`).
+  - ✅ Auto: se guardan solo **cambios reales** (dedupe), no spam.
+- Consulta:
+  - ✅ `GET /api/live/recommendation-events` con filtros completos, defaults y orden correctos.
+- Settlement MVP:
+  - ✅ BTTS YES + Over/Under especificados se auto-settlean cuando aplica.
+  - ✅ Si una recomendación se cumple y luego cambia, el evento original permanece `hit` (puede tener `superseded_by_event_id`).
+- UI:
+  - ✅ Timeline visible por partido + formulario de entrada manual + posibilidad de ajustar minute/outcome.
+- Robustez:
+  - ✅ Fail-soft total: fallos de DB no rompen engine live ni tiran 500; retornos conservadores.

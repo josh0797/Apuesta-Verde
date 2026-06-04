@@ -1,42 +1,42 @@
 [
   {
-    "content": "Pieza 1+2: DC bivariate matrix + NB conditional en statsbomb_features.py",
+    "content": "Actualizar plan.md con Fase 27 Live Recommendation History",
     "status": "completed"
   },
   {
-    "content": "Pieza 3: DC+NB integrado en compute_match_features + telemetría completa",
+    "content": "Crear services/live_recommendation_history.py (write/read/dedupe/settle/lookup)",
     "status": "completed"
   },
   {
-    "content": "Pieza 4: football_totals_calibration.py con regla global-antes-de-bucket (n>=100)",
+    "content": "Definir índices Mongo para live_recommendation_events en server.py startup",
     "status": "completed"
   },
   {
-    "content": "Extender persist_football_market_result() con league_tier + offense_bucket + DC/NB telemetría",
+    "content": "Endpoints POST /api/live/recommendation-events/manual y GET /api/live/recommendation-events",
     "status": "completed"
   },
   {
-    "content": "derive_offense_bucket() automático desde lambda_total (2.25 / 2.85)",
+    "content": "Integrar auto-save en analyst_engine.py y live_reevaluation.py (solo cambios reales)",
     "status": "completed"
   },
   {
-    "content": "Pieza 5.1: Wiring resolución parámetros en analyst_engine (Phase 8.9)",
+    "content": "Implementar settle_live_event_from_score (BTTS, Over/Under)",
     "status": "completed"
   },
   {
-    "content": "Pieza 5.2: Endpoint GET /api/football/totals-calibration/summary",
+    "content": "Tests backend pytest para live_recommendation_history",
     "status": "completed"
   },
   {
-    "content": "Pieza 5.3: football_backtest_runner.py (cohort _slate_backtest)",
+    "content": "Backfill manual France vs Ivory Coast (lookup real -> fallback placeholder)",
     "status": "completed"
   },
   {
-    "content": "Tests pytest 1004 passing (25 nuevos + 979 anteriores, cero regresiones)",
+    "content": "Frontend LiveRecommendationTimeline.jsx + Manual Entry Form + integrar en MatchCard",
     "status": "completed"
   },
   {
-    "content": "Testing agent backend 100% verde (11/11 integration + 1004/1004 unit, 0 bugs)",
-    "status": "completed"
+    "content": "Testing agent backend + frontend final",
+    "status": "in_progress"
   }
 ]

@@ -8,7 +8,7 @@ import httpx
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, List
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -91,6 +91,20 @@ async def on_startup() -> None:
             )
     except Exception as exc:
         log.warning("[FOOTBALL_MONEYBALL] ensure indexes failed: %s", exc)
+    # Live Recommendation History — ensure indexes (best-effort).
+    try:
+        from services.live_recommendation_history import (
+            ensure_live_recommendation_indexes,
+        )
+        live_idx = await ensure_live_recommendation_indexes(db)
+        if isinstance(live_idx, dict):
+            log.info(
+                "[LIVE_RECO_HISTORY] indexes ensured: created=%d errors=%d",
+                len(live_idx.get("created") or []),
+                len(live_idx.get("errors") or []),
+            )
+    except Exception as exc:
+        log.warning("[LIVE_RECO_HISTORY] ensure indexes failed: %s", exc)
     log.info("Startup complete")
 
 
@@ -737,6 +751,24 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
             await db.live_reevaluations.delete_many({"_id": {"$in": [d["_id"] for d in old]}})
     except Exception as exc:
         log.warning("live reeval persist failed: %s", exc)
+
+    # Live Recommendation History — snapshot every actionable live
+    # recommendation (fail-soft; never blocks the response).
+    try:
+        if sport == "football":
+            from services.live_recommendation_history import (
+                persist_live_recommendation_event,
+            )
+            await persist_live_recommendation_event(
+                db,
+                user_id=user.get("id"),
+                match=match,
+                reeval_result=result,
+                interpreter=result.get("interpreter"),
+                source="engine",
+            )
+    except Exception as exc:
+        log.debug("live recommendation history persist failed: %s", exc)
 
     return {"result": result, "match_id": req.match_id, "sport": sport}
 
@@ -4073,6 +4105,154 @@ async def football_totals_calibration_summary(
     except Exception as exc:
         log.exception("football_totals_calibration_summary failed: %s", exc)
         return {"ok": False, "summary": {"available": False, "reason": "exception"}}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Live Recommendation History — timeline + manual backfill + auto-settle
+# ════════════════════════════════════════════════════════════════════════════
+@api.get("/live/recommendation-events")
+async def live_recommendation_events_timeline(
+    user: dict = Depends(get_current_user),
+    match_id: str | None = None,
+    sport: str = "football",
+    status: str | None = None,
+    result: str | None = None,
+    source: str | None = None,
+    event_type: str | None = None,
+    settled: bool | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 50,
+    auto_settle: bool = True,
+):
+    """Return the live recommendation timeline with full filter support.
+
+    Filters: ``match_id``, ``sport``, ``status``, ``result``, ``source``,
+    ``event_type``, ``settled``, ``date_from``, ``date_to``, ``limit``.
+
+    Defaults:
+      * ``sport`` defaults to ``football`` when omitted.
+      * ``limit`` defaults to 50 (clamped to [1, 200]).
+      * Sorting:
+        - If ``match_id`` is provided → ``(minute asc, created_at asc)``.
+        - Otherwise → ``created_at desc``.
+
+    Fail-soft: returns ``{ok:false, items:[]}`` on any DB error.
+
+    When ``auto_settle=True`` (default) AND ``match_id`` is supplied,
+    open BTTS / Over / Under events are re-evaluated against the current
+    match score so the UI shows HIT / MISS without requiring an explicit
+    settlement call.
+    """
+    try:
+        from services.live_recommendation_history import (
+            query_live_recommendation_events,
+            settle_live_recommendation_event,
+            settle_live_event_from_score,
+        )
+        items = await query_live_recommendation_events(
+            db,
+            user_id=user.get("id"),
+            sport=sport or "football",
+            match_id=match_id,
+            status=status,
+            result=result,
+            source=source,
+            event_type=event_type,
+            settled=settled,
+            date_from=date_from,
+            date_to=date_to,
+            limit=max(1, min(200, int(limit or 50))),
+        )
+
+        # Auto-settle open events against current match state.
+        if auto_settle and match_id:
+            try:
+                current = await db.matches.find_one({"match_id": match_id}) or {}
+                live = current.get("live_stats") or {}
+                cur_score = {
+                    "home": live.get("goals_home") or live.get("home_goals")
+                              or (live.get("score") or {}).get("home"),
+                    "away": live.get("goals_away") or live.get("away_goals")
+                              or (live.get("score") or {}).get("away"),
+                }
+                cur_minute = live.get("minute") or (live.get("status") or {}).get("elapsed")
+                match_ended = (
+                    (current.get("status") or live.get("status") or "")
+                    in ("FT", "AET", "PEN", "FINISHED")
+                )
+                for ev in items:
+                    if ev.get("status") not in ("open", "manual_recorded"):
+                        continue
+                    settlement = settle_live_event_from_score(
+                        ev, cur_score, minute=cur_minute, match_ended=match_ended,
+                    )
+                    if settlement.get("result") in ("hit", "miss", "void"):
+                        await settle_live_recommendation_event(
+                            db,
+                            event_id=ev["event_id"],
+                            result=settlement["result"],
+                            settled_score=settlement.get("settled_score"),
+                            settled_minute=settlement.get("settled_minute"),
+                            settlement_reason=settlement.get("settlement_reason"),
+                        )
+                        ev["status"] = "hit" if settlement["result"] == "hit" else (
+                            "miss" if settlement["result"] == "miss" else "void"
+                        )
+                        ev["outcome"] = {
+                            "result":            settlement["result"],
+                            "settled_minute":    settlement.get("settled_minute"),
+                            "settled_score":     settlement.get("settled_score"),
+                            "settlement_reason": settlement.get("settlement_reason"),
+                        }
+            except Exception as exc:
+                log.debug("auto_settle timeline failed: %s", exc)
+
+        return {
+            "ok":       True,
+            "sport":    sport,
+            "match_id": match_id,
+            "count":    len(items),
+            "items":    items,
+        }
+    except Exception as exc:
+        log.exception("live_recommendation_events timeline failed: %s", exc)
+        return {"ok": False, "items": [], "count": 0}
+
+
+class _ManualRecommendationBody(BaseModel):
+    sport: str = "football"
+    match_id: str
+    match_label: Optional[str] = None
+    league: Optional[str] = None
+    minute: Optional[int] = None
+    score: Optional[dict] = None
+    recommendation: dict
+    reason: Optional[str] = None
+    reason_codes: Optional[List[str]] = None
+    outcome: Optional[dict] = None
+    live_context: Optional[dict] = None
+    notes: Optional[str] = None
+
+
+@api.post("/live/recommendation-events/manual")
+async def live_recommendation_events_manual(
+    body: _ManualRecommendationBody,
+    user: dict = Depends(get_current_user),
+):
+    """Backfill a live recommendation event manually. Fail-soft."""
+    try:
+        from services.live_recommendation_history import record_manual_live_event
+        payload = body.dict()
+        doc = await record_manual_live_event(
+            db, user_id=user.get("id"), payload=payload,
+        )
+        if doc is None:
+            return {"ok": False, "reason": "invalid_or_duplicate", "event": None}
+        return {"ok": True, "event": doc}
+    except Exception as exc:
+        log.exception("manual live recommendation event failed: %s", exc)
+        return {"ok": False, "reason": "exception", "event": None}
 
 
 @api.post("/mlb/engine/recompute")

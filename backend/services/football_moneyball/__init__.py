@@ -76,6 +76,13 @@ from .football_pattern_matcher import (
     attach_football_intelligence_to_payload,
     compare_live_vs_pregame,
 )
+from .football_totals_model_normalizer import (
+    build_football_totals_model,
+    TOTALS_MODEL_SOURCE,
+)
+from .football_over_support import (
+    calculate_football_over_support,
+)
 
 __all__ = [
     # Collections
@@ -118,4 +125,8 @@ __all__ = [
     # Orchestrator facade
     "attach_football_intelligence_to_payload",
     "compare_live_vs_pregame",
+    # Totals Model + Over Support
+    "build_football_totals_model",
+    "calculate_football_over_support",
+    "TOTALS_MODEL_SOURCE",
 ]

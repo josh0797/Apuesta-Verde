@@ -46,6 +46,7 @@ log = logging.getLogger("derived_early_goal")
 
 
 _EARLY_MAX_MIN     = 15
+_EARLY_30_MAX_MIN  = 30  # Over Support Layer — extended early window.
 _FIRST_HALF_MAX_MIN = 45
 
 
@@ -68,9 +69,14 @@ def derive_early_goal_profile_from_fixtures(
 
     gf_total = ga_total = 0
     gf_0_15  = ga_0_15  = 0
+    gf_0_30  = ga_0_30  = 0
     gf_fh    = ga_fh    = 0
     fixtures_with_fh_goal_for     = 0
     fixtures_with_fh_goal_against = 0
+    # Over Support Layer (extended 0–30 metrics).
+    fixtures_with_0_30_goal_for     = 0
+    fixtures_with_0_30_goal_against = 0
+    fixtures_with_any_0_30_goal     = 0
     used = 0
 
     for f in fixtures:
@@ -81,6 +87,9 @@ def derive_early_goal_profile_from_fixtures(
             continue
         scored_fh = False
         conceded_fh = False
+        scored_0_30 = False
+        conceded_0_30 = False
+        any_0_30 = False
         for ev in events:
             if not isinstance(ev, dict):
                 continue
@@ -102,6 +111,10 @@ def derive_early_goal_profile_from_fixtures(
                 gf_total += 1
                 if minute <= _EARLY_MAX_MIN:
                     gf_0_15 += 1
+                if minute <= _EARLY_30_MAX_MIN:
+                    gf_0_30 += 1
+                    scored_0_30 = True
+                    any_0_30 = True
                 if minute <= _FIRST_HALF_MAX_MIN:
                     gf_fh += 1
                     scored_fh = True
@@ -109,6 +122,10 @@ def derive_early_goal_profile_from_fixtures(
                 ga_total += 1
                 if minute <= _EARLY_MAX_MIN:
                     ga_0_15 += 1
+                if minute <= _EARLY_30_MAX_MIN:
+                    ga_0_30 += 1
+                    conceded_0_30 = True
+                    any_0_30 = True
                 if minute <= _FIRST_HALF_MAX_MIN:
                     ga_fh += 1
                     conceded_fh = True
@@ -120,6 +137,12 @@ def derive_early_goal_profile_from_fixtures(
                 fixtures_with_fh_goal_for += 1
             if conceded_fh:
                 fixtures_with_fh_goal_against += 1
+            if scored_0_30:
+                fixtures_with_0_30_goal_for += 1
+            if conceded_0_30:
+                fixtures_with_0_30_goal_against += 1
+            if any_0_30:
+                fixtures_with_any_0_30_goal += 1
 
     if used == 0 or (gf_total + ga_total) == 0:
         return None
@@ -143,6 +166,15 @@ def derive_early_goal_profile_from_fixtures(
         "first_half_goal_pct":         _ratio(gf_fh, gf_total),
         "team_scored_first_half_pct":  _ratio(fixtures_with_fh_goal_for, used),
         "team_conceded_first_half_pct":_ratio(fixtures_with_fh_goal_against, used),
+        # Extended 1–30 metrics for the Over Support Layer.
+        "early_goal_30_pct":              _ratio(gf_0_30, gf_total),
+        "early_concede_30_pct":           _ratio(ga_0_30, ga_total),
+        "early_goal_involvement_30_pct":  _ratio(gf_0_30 + ga_0_30, gf_total + ga_total),
+        "team_scored_0_30_pct":           _ratio(fixtures_with_0_30_goal_for, used),
+        "team_conceded_0_30_pct":         _ratio(fixtures_with_0_30_goal_against, used),
+        "first_30_goal_presence_pct":     _ratio(fixtures_with_any_0_30_goal, used),
+        "goals_for_0_30":                 gf_0_30,
+        "goals_against_0_30":             ga_0_30,
         "goals_for_0_15":              gf_0_15,
         "goals_against_0_15":          ga_0_15,
         "goals_for_first_half":        gf_fh,

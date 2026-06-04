@@ -76,8 +76,15 @@ class _FakeCursor:
         self._limit = None
 
     def sort(self, key, direction=1):
-        self._sort_key = key
-        self._sort_dir = direction
+        # Support both .sort("key", 1) and .sort([("k1", 1), ("k2", 1)])
+        if isinstance(key, list):
+            # Multi-key sort: sort by first key for the fake; good enough.
+            if key:
+                self._sort_key = key[0][0]
+                self._sort_dir = key[0][1]
+        else:
+            self._sort_key = key
+            self._sort_dir = direction
         return self
 
     def limit(self, n):

@@ -23,6 +23,8 @@ import { MLBScriptPanel } from './MLBScriptPanel';
 import { MLBScriptV3Panel, MLBDiversityBadge, MLBBullpenSwapBadge, MLBOverSwapBadge, MLBFalseCompetitiveUnderdogBadge } from './MLBScriptV3Panel';
 import { MLBAdvancedStatsPanel } from './MLBAdvancedStatsPanel';
 import { FootballIntelligencePanel, FootballPatternMemoryPanel, FootballLiveVsPregamePanel } from './FootballMoneyballPanels';
+import { FootballTotalsModelPanel, FootballOverSupportPanel } from './FootballDcNbPanels';
+import { LiveRecommendationTimeline } from './LiveRecommendationTimeline';
 import { InlineManualOddsInput } from './InlineManualOddsInput';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -415,6 +417,26 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           <FootballLiveVsPregamePanel
             diff={m.football_live_vs_pregame || m._live_reeval?.football_live_vs_pregame}
             testId={`football-live-vs-pregame-${m.match_id}`}
+          />
+          <FootballTotalsModelPanel
+            totalsModel={m.football_totals_model}
+            recommendation={m.recommendation}
+            testId={`football-totals-model-${m.match_id}`}
+          />
+          <FootballOverSupportPanel
+            overSupport={m.football_over_support}
+            testId={`football-over-support-${m.match_id}`}
+          />
+          <LiveRecommendationTimeline
+            matchId={m.match_id}
+            matchLabel={
+              (m.home_team?.name && m.away_team?.name)
+                ? `${m.home_team.name} vs ${m.away_team.name}`
+                : null
+            }
+            league={m.league?.name || m.league || null}
+            sport="football"
+            testId={`live-reco-timeline-${m.match_id}`}
           />
         </>
       )}
