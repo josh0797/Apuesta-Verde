@@ -1,50 +1,42 @@
 [
   {
-    "content": "Phase 8: Crear package services/football_moneyball/ + football_intelligence_warehouse.py (4 colecciones + índices + IO fail-soft)",
+    "content": "Pieza 1+2: DC bivariate matrix + NB conditional en statsbomb_features.py",
     "status": "completed"
   },
   {
-    "content": "Phase 9: Implementar football_goal_pressure_profile.py (pure, thresholds football-specific)",
+    "content": "Pieza 3: DC+NB integrado en compute_match_features + telemetría completa",
     "status": "completed"
   },
   {
-    "content": "Phase 10: Implementar football_snapshot_builder.py (pregame + live digest, idempotente)",
+    "content": "Pieza 4: football_totals_calibration.py con regla global-antes-de-bucket (n>=100)",
     "status": "completed"
   },
   {
-    "content": "Phase 11: Implementar football_pattern_memory.py (derive keys + lookup + attach con gates conservadores)",
+    "content": "Extender persist_football_market_result() con league_tier + offense_bucket + DC/NB telemetría",
     "status": "completed"
   },
   {
-    "content": "Phase 12: Implementar football_market_selection.py (capa final protegida)",
+    "content": "derive_offense_bucket() automático desde lambda_total (2.25 / 2.85)",
     "status": "completed"
   },
   {
-    "content": "Phase 13: Implementar football_feedback_loop.py + persist_football_market_result",
+    "content": "Pieza 5.1: Wiring resolución parámetros en analyst_engine (Phase 8.9, propagado a todos los matches)",
     "status": "completed"
   },
   {
-    "content": "Phase 14: Extender live_reevaluation.py con football_live_vs_pregame",
+    "content": "Pieza 5.2: Endpoint GET /api/football/totals-calibration/summary",
     "status": "completed"
   },
   {
-    "content": "Phase 15: Integrar football_moneyball en analyst_engine.py (fail-soft, sport==football only)",
+    "content": "Pieza 5.3: football_backtest_runner.py (cohort _slate_backtest, fail-soft per fixture)",
     "status": "completed"
   },
   {
-    "content": "Phase 15b: Endpoint GET /api/football/pattern-memory/summary + ensure_football_indexes en startup",
+    "content": "Tests pytest 1004 passing (25 nuevos DC+NB + 979 anteriores, cero regresiones)",
     "status": "completed"
   },
   {
-    "content": "Phase 16: Tests pytest backend football_moneyball (36 nuevos + 943 existentes = 979 total)",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 17: UI mínima — 3 paneles en MatchCard.jsx (Intelligence, PatternMemory, LiveVsPregame)",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 18: Testing agent backend — 100% verde: 979 tests, 16 índices, endpoint OK, MLB/Basketball intactos",
-    "status": "completed"
+    "content": "Testing agent backend verifica end-to-end",
+    "status": "in_progress"
   }
 ]

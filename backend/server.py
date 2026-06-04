@@ -4045,6 +4045,36 @@ async def football_pattern_memory_summary(
         return {"available": False, "reason": "exception", "items": []}
 
 
+@api.get("/football/totals-calibration/summary")
+async def football_totals_calibration_summary(
+    user: dict = Depends(get_current_user),
+    days: int = 90,
+):
+    """Return the football DC + NB calibration summary.
+
+    Mirror of ``/api/mlb/run-evaluations/summary`` for football totals.
+
+    Codified rules (see `football_totals_calibration.py`):
+      • global n < 100  → defaults (rho=-0.05, ratio=1.0)
+      • global n ≥ 100  → empirical values applied
+      • buckets always OBSERVE_ONLY until n ≥ 100 of their own
+
+    Fail-soft: returns ``{available:false, reason:...}`` with HTTP 200.
+    """
+    try:
+        from services.football_moneyball.football_totals_calibration import (
+            compute_football_totals_calibration,
+        )
+        days = max(7, min(365, int(days or 90)))
+        summary = await compute_football_totals_calibration(
+            db, days=days, user_id="_slate",
+        )
+        return {"ok": True, "summary": summary}
+    except Exception as exc:
+        log.exception("football_totals_calibration_summary failed: %s", exc)
+        return {"ok": False, "summary": {"available": False, "reason": "exception"}}
+
+
 @api.post("/mlb/engine/recompute")
 async def mlb_engine_recompute(user: dict = Depends(get_current_user)):
     """Force a recalibration cycle (still respects the batch_size_required

@@ -134,6 +134,211 @@ def poisson_total_under(lam: float, line: float) -> float:
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# Dixon-Coles correction — fixes the Poisson defect on the four low-score
+# joint cells of the bivariate score matrix.
+#
+# Dixon-Coles (1997) adds a dependence factor tau(i,j) controlled by rho:
+#
+#   tau(0,0) = 1 - lam_h * lam_a * rho
+#   tau(0,1) = 1 + lam_h * rho
+#   tau(1,0) = 1 + lam_a * rho
+#   tau(1,1) = 1 - rho
+#   tau(i,j) = 1   for all other cells
+#
+# IMPORTANT — direction of effect:
+# With rho < 0 (the empirically calibrated range for football), the cell
+# (0,0) ALWAYS rises and (1,1) ALWAYS falls in absolute terms. The cells
+# (0,1) and (1,0) move OPPOSITE to (0,0): they fall when rho is negative.
+# The NET effect on P(Under 2.5) and P(Under 3.5) is therefore NOT a
+# monotone function of rho — it depends on the lambdas. Validate via
+# empirical calibration, not by assuming "negative rho ⇒ more Unders".
+#
+# Empirical rho for football is small and NEGATIVE (~ -0.13 to -0.02).
+# A positive rho would invert the correction (lower 0-0, higher 1-1)
+# which contradicts the football literature; we clamp the upper bound at
+# 0.0 so a noisy small-sample calibration cannot flip the sign.
+# rho = 0 recovers pure Poisson exactly.
+# ────────────────────────────────────────────────────────────────────────────
+
+DIXON_COLES_RHO_DEFAULT = -0.05
+
+# Asymmetric clamp: empirical football rho is documented as negative.
+# Allowing positive values would invert the DC direction (likely noise
+# from small samples). Upper bound 0 = "no correction at most".
+_DC_RHO_MIN = -0.20
+_DC_RHO_MAX = 0.0
+
+_SCORE_MATRIX_MAX_GOALS = 10  # truncate at 10 per side
+
+
+def _dc_tau(i: int, j: int, lam_h: float, lam_a: float, rho: float) -> float:
+    """Dixon-Coles dependence factor on the four low-score cells."""
+    if i == 0 and j == 0:
+        return 1.0 - (lam_h * lam_a * rho)
+    if i == 0 and j == 1:
+        return 1.0 + (lam_h * rho)
+    if i == 1 and j == 0:
+        return 1.0 + (lam_a * rho)
+    if i == 1 and j == 1:
+        return 1.0 - rho
+    return 1.0
+
+
+def build_score_matrix(
+    lam_h: float,
+    lam_a: float,
+    *,
+    rho: float = DIXON_COLES_RHO_DEFAULT,
+    max_goals: int = _SCORE_MATRIX_MAX_GOALS,
+) -> list[list[float]]:
+    """Bivariate (home, away) score-probability matrix with DC applied
+    to the four low-score cells. Renormalised to sum to 1 (DC slightly
+    perturbs total mass)."""
+    rho = max(_DC_RHO_MIN, min(_DC_RHO_MAX, float(rho)))
+    matrix: list[list[float]] = []
+    total = 0.0
+    for i in range(max_goals + 1):
+        ph = _poisson_pmf(i, lam_h)
+        row = []
+        for j in range(max_goals + 1):
+            pa = _poisson_pmf(j, lam_a)
+            cell = ph * pa * _dc_tau(i, j, lam_h, lam_a, rho)
+            cell = max(0.0, cell)
+            row.append(cell)
+            total += cell
+        matrix.append(row)
+    if total > 0:
+        for i in range(max_goals + 1):
+            for j in range(max_goals + 1):
+                matrix[i][j] /= total
+    return matrix
+
+
+def under_prob_from_matrix(matrix: list[list[float]], line: float) -> float:
+    """P(total goals < line) summed from the bivariate matrix.
+
+    Convention matches `poisson_total_under`: Under 2.5 ⇒ sum cells where
+    i+j ≤ 2 (i.e. total goals strictly less than 2.5).
+    """
+    cap = int(math.floor(line))
+    p = 0.0
+    for i, row in enumerate(matrix):
+        for j, cell in enumerate(row):
+            if i + j <= cap:
+                p += cell
+    return max(0.0, min(1.0, p))
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Conditional Negative-Binomial dispersion layer (MLB-mirror).
+#
+# Football goals are near-Poisson (dispersion ratio ≈ 1.0), so this layer
+# is INERT by default (ratio=1.0 → pure Poisson per side). It only widens
+# the per-side marginal when the feedback loop detects genuine
+# overdispersion in a specific bucket. Mirrors the MLB NB architecture
+# without distorting the typical match.
+#
+# Why NB and DC don't cancel:
+#   • NB widens the per-side MARGINAL distributions (separate for home
+#     and away). It affects the cola alta of each side independently.
+#   • DC adjusts the JOINT low-score cells (the dependence between sides
+#     at scores 0 and 1). It affects the esquina baja of the joint.
+# The two corrections operate on different objects of the matrix.
+# ────────────────────────────────────────────────────────────────────────────
+
+FOOTBALL_GOALS_DISPERSION_RATIO_DEFAULT = 1.0   # = pure Poisson, inert
+
+_RATIO_CLAMP_MIN = 1.0
+_RATIO_CLAMP_MAX = 2.0
+
+
+def _nb_pmf_from_mean(k: int, mu: float, ratio: float) -> float:
+    """NegBinom pmf with mean mu and variance = ratio*mu. ratio<=1 falls
+    back to Poisson (no overdispersion to model)."""
+    if ratio <= 1.0001 or mu <= 0:
+        return _poisson_pmf(k, mu)
+    r = mu / (ratio - 1.0)
+    p = r / (r + mu)
+    try:
+        log_pmf = (
+            math.lgamma(k + r) - math.lgamma(r) - math.lgamma(k + 1.0)
+            + r * math.log(p) + k * math.log(1.0 - p)
+        )
+        return max(0.0, min(1.0, math.exp(log_pmf)))
+    except (ValueError, OverflowError):
+        return _poisson_pmf(k, mu)
+
+
+def build_score_matrix_nb(
+    lam_h: float,
+    lam_a: float,
+    *,
+    rho: float = DIXON_COLES_RHO_DEFAULT,
+    dispersion_ratio: float = FOOTBALL_GOALS_DISPERSION_RATIO_DEFAULT,
+    max_goals: int = _SCORE_MATRIX_MAX_GOALS,
+) -> list[list[float]]:
+    """Bivariate matrix with BOTH Dixon-Coles (low-score dependence) AND
+    conditional NB dispersion (high-score per-side widening).
+
+    When dispersion_ratio == 1.0 the NB term collapses to Poisson and the
+    output equals build_score_matrix(). The two corrections target
+    different cells (NB → marginals; DC → joint low-score cells), so
+    they do not cancel.
+    """
+    rho = max(_DC_RHO_MIN, min(_DC_RHO_MAX, float(rho)))
+    ratio = max(_RATIO_CLAMP_MIN, min(_RATIO_CLAMP_MAX, float(dispersion_ratio)))
+    matrix: list[list[float]] = []
+    total = 0.0
+    for i in range(max_goals + 1):
+        ph = _nb_pmf_from_mean(i, lam_h, ratio)
+        row = []
+        for j in range(max_goals + 1):
+            pa = _nb_pmf_from_mean(j, lam_a, ratio)
+            cell = ph * pa * _dc_tau(i, j, lam_h, lam_a, rho)
+            cell = max(0.0, cell)
+            row.append(cell)
+            total += cell
+        matrix.append(row)
+    if total > 0:
+        for i in range(max_goals + 1):
+            for j in range(max_goals + 1):
+                matrix[i][j] /= total
+    return matrix
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Offense bucket helper — used by the feedback loop to bucketise settled
+# results. Thresholds confirmed by user: 2.25 / 2.85.
+# ────────────────────────────────────────────────────────────────────────────
+LOW_OFFENSE_MAX  = 2.25   # lambda_total < 2.25 → LOW
+HIGH_OFFENSE_MIN = 2.85   # lambda_total > 2.85 → HIGH
+
+
+def derive_offense_bucket(
+    lambda_total: float | None,
+    *,
+    fallback_combined_gf: float | None = None,
+) -> str:
+    """Return one of LOW_OFFENSE / MODERATE_OFFENSE / HIGH_OFFENSE.
+
+    Falls back to ``fallback_combined_gf`` when ``lambda_total`` is None.
+    When neither is available, returns ``"MODERATE_OFFENSE"``.
+    """
+    val: float | None = None
+    if isinstance(lambda_total, (int, float)) and lambda_total > 0:
+        val = float(lambda_total)
+    elif isinstance(fallback_combined_gf, (int, float)) and fallback_combined_gf > 0:
+        val = float(fallback_combined_gf)
+    if val is None:
+        return "MODERATE_OFFENSE"
+    if val < LOW_OFFENSE_MAX:
+        return "LOW_OFFENSE"
+    if val > HIGH_OFFENSE_MIN:
+        return "HIGH_OFFENSE"
+    return "MODERATE_OFFENSE"
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # Public — main entry point
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -222,9 +427,30 @@ def compute_match_features(match: dict) -> Optional[dict]:
     lam_a = max(0.30, min(3.8, lam_a))
     lam_total = lam_h + lam_a
 
-    # ── Probabilities ────────────────────────────────────────────────────
-    p_under_25 = poisson_total_under(lam_total, 2.5)
-    p_under_35 = poisson_total_under(lam_total, 3.5)
+    # ── Probabilities — Dixon-Coles + conditional NB matrix ──────────────
+    # Operator may pass calibrated rho/ratio via match["_dc_rho"] and
+    # match["_goals_dispersion_ratio"] (set by the orchestrator from the
+    # football_totals_calibration summary, mirror of MLB).
+    _rho = match.get("_dc_rho") if isinstance(match.get("_dc_rho"), (int, float)) else DIXON_COLES_RHO_DEFAULT
+    _ratio = (
+        match.get("_goals_dispersion_ratio")
+        if isinstance(match.get("_goals_dispersion_ratio"), (int, float))
+        else FOOTBALL_GOALS_DISPERSION_RATIO_DEFAULT
+    )
+
+    score_matrix = build_score_matrix_nb(
+        lam_h, lam_a, rho=_rho, dispersion_ratio=_ratio,
+    )
+    p_under_25 = under_prob_from_matrix(score_matrix, 2.5)
+    p_under_35 = under_prob_from_matrix(score_matrix, 3.5)
+
+    # Legacy pure-Poisson values for telemetry / calibration delta.
+    # Delta convention: POSITIVE means the new (DC+NB) model gives MORE
+    # Under probability than pure Poisson; negative means LESS.
+    p_under_25_poisson = poisson_total_under(lam_total, 2.5)
+    p_under_35_poisson = poisson_total_under(lam_total, 3.5)
+    dc_nb_delta_2_5_pts = round((p_under_25 - p_under_25_poisson) * 100, 1)
+    dc_nb_delta_3_5_pts = round((p_under_35 - p_under_35_poisson) * 100, 1)
 
     # ── Side-feature scores (for the UI) ─────────────────────────────────
     # Higher = better for Under.
@@ -338,6 +564,13 @@ def compute_match_features(match: dict) -> Optional[dict]:
         "lambda_home":           round(lam_h, 3),
         "lambda_away":           round(lam_a, 3),
         "lambda_total":          round(lam_total, 3),
+        # Dixon-Coles + conditional NB telemetry (Pieza 3).
+        "dc_rho_used":           round(_rho, 4),
+        "goals_dispersion_ratio": round(_ratio, 3),
+        "p_under_2_5_poisson":   round(p_under_25_poisson, 4),
+        "p_under_3_5_poisson":   round(p_under_35_poisson, 4),
+        "dc_nb_delta_2_5_pts":   dc_nb_delta_2_5_pts,
+        "dc_nb_delta_3_5_pts":   dc_nb_delta_3_5_pts,
         "confidence":            confidence,
         "sample_size":           {"home": h_n, "away": a_n},
         "defensive_solidity":    {

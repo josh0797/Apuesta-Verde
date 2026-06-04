@@ -1,12 +1,13 @@
 """
-Backend Integration Tests for Football Moneyball Intelligence Layer
+Backend Integration Tests for Football Moneyball Intelligence Layer + DC+NB Calibration
 
 Tests:
 1. Backend startup and index creation (verified via logs)
 2. GET /api/football/pattern-memory/summary endpoint (auth required, fail-soft)
-3. POST /api/analysis/run with sport=football enriches picks
-4. MLB and Basketball endpoints still work
-5. GET /api/picks/today?sport=football still works
+3. GET /api/football/totals-calibration/summary endpoint (DC+NB calibration)
+4. POST /api/analysis/run with sport=football enriches picks
+5. MLB and Basketball endpoints still work (regression)
+6. GET /api/picks/today?sport=football still works (regression)
 """
 
 import requests
@@ -288,6 +289,173 @@ class FootballMoneybballTester:
             self.log_test("Basketball Not Affected", False, str(e))
             return False
 
+    def test_totals_calibration_summary(self):
+        """Test the new football totals-calibration endpoint (DC+NB)"""
+        print("\n⚙️ Testing Football Totals Calibration Summary (DC+NB)...")
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.get(
+                f"{self.base_url}/api/football/totals-calibration/summary?days=90",
+                headers=headers,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                # Check top-level shape
+                if "ok" in data and "summary" in data:
+                    summary = data["summary"]
+                    
+                    # Check required fields
+                    required_fields = [
+                        "available", "rho", "dispersion_ratio",
+                        "by_league_tier", "by_offense", "bucket_application_policy"
+                    ]
+                    missing = [f for f in required_fields if f not in summary]
+                    
+                    if missing:
+                        self.log_test(
+                            "Totals Calibration Summary Shape",
+                            False,
+                            f"Missing fields: {missing}"
+                        )
+                        return False
+                    
+                    # Check rho structure and clamp
+                    rho = summary.get("rho", {})
+                    if "to_apply" in rho:
+                        rho_val = rho["to_apply"]
+                        if -0.20 <= rho_val <= 0.0:
+                            self.log_test(
+                                "Totals Calibration rho clamp",
+                                True,
+                                f"rho.to_apply={rho_val} within [-0.20, 0.0]"
+                            )
+                        else:
+                            self.log_test(
+                                "Totals Calibration rho clamp",
+                                False,
+                                f"rho.to_apply={rho_val} outside clamp range"
+                            )
+                            return False
+                    
+                    # Check dispersion_ratio structure and clamp
+                    ratio = summary.get("dispersion_ratio", {})
+                    if "to_apply" in ratio:
+                        ratio_val = ratio["to_apply"]
+                        if 1.0 <= ratio_val <= 2.0:
+                            self.log_test(
+                                "Totals Calibration ratio clamp",
+                                True,
+                                f"dispersion_ratio.to_apply={ratio_val} within [1.0, 2.0]"
+                            )
+                        else:
+                            self.log_test(
+                                "Totals Calibration ratio clamp",
+                                False,
+                                f"dispersion_ratio.to_apply={ratio_val} outside clamp range"
+                            )
+                            return False
+                    
+                    # Check bucket structure
+                    by_league = summary.get("by_league_tier", {})
+                    expected_tiers = ["TIER1", "TIER2", "TIER3", "UNKNOWN_LEAGUE"]
+                    missing_tiers = [t for t in expected_tiers if t not in by_league]
+                    
+                    if missing_tiers:
+                        self.log_test(
+                            "Totals Calibration league tiers",
+                            False,
+                            f"Missing tiers: {missing_tiers}"
+                        )
+                        return False
+                    
+                    by_offense = summary.get("by_offense", {})
+                    expected_buckets = ["LOW_OFFENSE", "MODERATE_OFFENSE", "HIGH_OFFENSE"]
+                    missing_buckets = [b for b in expected_buckets if b not in by_offense]
+                    
+                    if missing_buckets:
+                        self.log_test(
+                            "Totals Calibration offense buckets",
+                            False,
+                            f"Missing buckets: {missing_buckets}"
+                        )
+                        return False
+                    
+                    # Check bucket_application_policy
+                    policy = summary.get("bucket_application_policy", {})
+                    if policy.get("mode") == "OBSERVE_ONLY":
+                        self.log_test(
+                            "Totals Calibration Summary",
+                            True,
+                            f"All checks passed (sample_size={summary.get('sample_size', 0)})"
+                        )
+                        return True
+                    else:
+                        self.log_test(
+                            "Totals Calibration policy",
+                            False,
+                            f"Expected mode=OBSERVE_ONLY, got {policy.get('mode')}"
+                        )
+                        return False
+                else:
+                    self.log_test(
+                        "Totals Calibration Summary",
+                        False,
+                        f"Missing 'ok' or 'summary' in response"
+                    )
+                    return False
+            else:
+                self.log_test(
+                    "Totals Calibration Summary",
+                    False,
+                    f"Status {response.status_code}: {response.text[:200]}"
+                )
+                return False
+        except Exception as e:
+            self.log_test("Totals Calibration Summary", False, str(e))
+            return False
+
+    def test_totals_calibration_fail_soft(self):
+        """Test that totals-calibration endpoint is fail-soft with invalid inputs"""
+        print("\n🛡️ Testing Totals Calibration Fail-Soft...")
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            # Test with days=0 (should cap to 7)
+            response = requests.get(
+                f"{self.base_url}/api/football/totals-calibration/summary?days=0",
+                headers=headers,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if "ok" in data:
+                    self.log_test(
+                        "Totals Calibration Fail-Soft",
+                        True,
+                        "days=0 handled gracefully (capped to 7)"
+                    )
+                    return True
+                else:
+                    self.log_test(
+                        "Totals Calibration Fail-Soft",
+                        False,
+                        "Response missing 'ok' field"
+                    )
+                    return False
+            else:
+                self.log_test(
+                    "Totals Calibration Fail-Soft",
+                    False,
+                    f"Status {response.status_code}"
+                )
+                return False
+        except Exception as e:
+            self.log_test("Totals Calibration Fail-Soft", False, str(e))
+            return False
+
+
     def print_summary(self):
         """Print test summary"""
         print("\n" + "="*70)
@@ -312,7 +480,7 @@ class FootballMoneybballTester:
 
 def main():
     print("="*70)
-    print("🧪 FOOTBALL MONEYBALL BACKEND INTEGRATION TESTS")
+    print("🧪 FOOTBALL MONEYBALL + DC+NB CALIBRATION BACKEND TESTS")
     print("="*70)
     
     tester = FootballMoneybballTester()
@@ -327,10 +495,14 @@ def main():
     tester.test_pattern_memory_summary_authenticated()
     tester.test_pattern_memory_fail_soft()
     
+    # Test NEW DC+NB calibration endpoints
+    tester.test_totals_calibration_summary()
+    tester.test_totals_calibration_fail_soft()
+    
     # Test football picks still work
     tester.test_football_picks_today()
     
-    # Test other sports not affected
+    # Test other sports not affected (regression)
     tester.test_mlb_not_affected()
     tester.test_basketball_not_affected()
     

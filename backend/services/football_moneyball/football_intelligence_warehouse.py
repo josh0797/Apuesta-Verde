@@ -178,6 +178,7 @@ async def load_team_profile(
             return None
         if not _is_fresh(doc.get("updated_at"), max_age_hours):
             return None
+        doc.pop("_id", None)
         return doc
     except Exception as exc:
         log.debug("load_team_profile failed: %s", exc)
@@ -271,7 +272,11 @@ async def load_match_intelligence_snapshot(
         doc = await db[COLL_MATCH_SNAPSHOTS].find_one(
             query, sort=[("updated_at", -1)],
         )
-        return doc
+        if not doc:
+            return None
+        doc.pop("_id", None)
+        clean: dict = dict(doc)
+        return clean
     except Exception as exc:
         log.debug("load_match_intelligence_snapshot failed: %s", exc)
         return None
@@ -486,8 +491,27 @@ async def persist_football_market_result(
     result: str | None = None,
     final_score: dict | None = None,
     snapshot_ref: dict | None = None,
+    league_tier: str | None = None,
+    offense_bucket: str | None = None,
+    lambda_total: float | None = None,
+    lambda_home: float | None = None,
+    lambda_away: float | None = None,
+    dc_rho_used: float | None = None,
+    goals_dispersion_ratio: float | None = None,
+    p_under_2_5_poisson: float | None = None,
+    p_under_3_5_poisson: float | None = None,
+    p_under_2_5_dc_nb: float | None = None,
+    p_under_3_5_dc_nb: float | None = None,
+    dc_nb_delta_2_5_pts: float | None = None,
+    dc_nb_delta_3_5_pts: float | None = None,
 ) -> bool:
     """Insert a settled football market result and update pattern memory.
+
+    Extended (Pieza 4 / 5):
+      * ``league_tier``     defaults to ``"UNKNOWN_LEAGUE"`` (fail-soft)
+      * ``offense_bucket``  defaults to ``"MODERATE_OFFENSE"`` (fail-soft)
+      * full DC/NB telemetry persisted so the calibration loop never has
+        to recompute lambdas from scratch.
 
     Fail-soft: if anything raises, returns False and logs at debug level.
     """
@@ -497,6 +521,7 @@ async def persist_football_market_result(
         payload = {
             "match_id":     str(match_id),
             "user_id":      user_id,
+            "sport":        "football",
             "market":       market,
             "selection":    selection,
             "odds":         float(odds) if odds is not None else None,
@@ -507,6 +532,21 @@ async def persist_football_market_result(
             "result":       result,
             "final_score":  final_score,
             "snapshot_ref": snapshot_ref,
+            # Calibration buckets (Pieza 4 / 5)
+            "league_tier":   league_tier or "UNKNOWN_LEAGUE",
+            "offense_bucket": offense_bucket or "MODERATE_OFFENSE",
+            # DC + NB telemetry
+            "lambda_total":          lambda_total,
+            "lambda_home":           lambda_home,
+            "lambda_away":           lambda_away,
+            "dc_rho_used":           dc_rho_used,
+            "goals_dispersion_ratio": goals_dispersion_ratio,
+            "p_under_2_5_poisson":   p_under_2_5_poisson,
+            "p_under_3_5_poisson":   p_under_3_5_poisson,
+            "p_under_2_5_dc_nb":     p_under_2_5_dc_nb,
+            "p_under_3_5_dc_nb":     p_under_3_5_dc_nb,
+            "dc_nb_delta_2_5_pts":   dc_nb_delta_2_5_pts,
+            "dc_nb_delta_3_5_pts":   dc_nb_delta_3_5_pts,
             "settled_at":   _now_iso(),
         }
         await db[COLL_MARKET_RESULTS].insert_one(payload)

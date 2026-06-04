@@ -2004,6 +2004,48 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
     from . import moneyball_layer as _mb
     parsed = _mb.apply_moneyball_layer(parsed, sport=sport, stake=10.0)
 
+    # ── Phase 8.9 — Football DC + NB Calibration Wiring ──────────────────
+    # Load the football totals calibration ONCE per run and propagate the
+    # rho / dispersion_ratio knobs onto every football match doc so
+    # downstream callers of `statsbomb_features.compute_match_features`
+    # (under_market_scan, alternative_rescue, etc.) use the calibrated
+    # values automatically. Fail-soft: if anything fails, picks keep
+    # using safe defaults (rho=-0.05, ratio=1.0 → pure DC, no NB widening).
+    if sport == "football":
+        try:
+            from .football_moneyball.football_totals_calibration import (
+                compute_football_totals_calibration,
+                apply_calibration_to_match,
+            )
+            football_calibration = await compute_football_totals_calibration(
+                db, days=90, user_id="_slate",
+            )
+            applied_count = 0
+            if isinstance(football_calibration, dict) and football_calibration.get("available"):
+                for m in matches_payload:
+                    if isinstance(m, dict):
+                        apply_calibration_to_match(m, football_calibration)
+                        applied_count += 1
+            pipeline_meta["football_totals_calibration"] = {
+                "available":       bool(isinstance(football_calibration, dict)
+                                          and football_calibration.get("available")),
+                "global_applies":  bool(isinstance(football_calibration, dict)
+                                          and football_calibration.get("global_applies")),
+                "sample_size":     (football_calibration or {}).get("sample_size", 0),
+                "rho_to_apply":    ((football_calibration or {}).get("rho") or {}).get("to_apply"),
+                "ratio_to_apply":  ((football_calibration or {}).get("dispersion_ratio") or {}).get("to_apply"),
+                "matches_wired":   applied_count,
+            }
+            log.info(
+                "Analyst[football]: DC+NB calibration loaded — applies=%s sample=%d wired=%d",
+                pipeline_meta["football_totals_calibration"]["global_applies"],
+                pipeline_meta["football_totals_calibration"]["sample_size"],
+                applied_count,
+            )
+        except Exception as exc:
+            log.debug("football_totals_calibration wiring skipped: %s", exc)
+            pipeline_meta["football_totals_calibration"] = {"available": False, "reason": str(exc)[:120]}
+
     # ── Phase 9 — Protected Alternative Market Scan (football only) ──────
     # For every Tier 1/2 match that the analyst dropped to discarded_market
     # without finding value in 1X2 / DC / DNB, see if there's value hiding

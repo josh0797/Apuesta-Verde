@@ -109,7 +109,7 @@ class _FakeColl:
                 return dict(d)
         return None
 
-    def find(self, q):
+    def find(self, q, projection=None):
         out = []
         for d in self.docs:
             ok = True
@@ -119,6 +119,10 @@ class _FakeColl:
                         ok = False; break
                 elif isinstance(v, dict) and "$ne" in v:
                     if d.get(k) == v["$ne"]:
+                        ok = False; break
+                elif isinstance(v, dict) and "$gte" in v:
+                    val = d.get(k)
+                    if val is None or val < v["$gte"]:
                         ok = False; break
                 else:
                     if d.get(k) != v:
@@ -150,6 +154,13 @@ class _FakeDB:
         if name not in self._colls:
             self._colls[name] = _FakeColl()
         return self._colls[name]
+
+    def __getattr__(self, name):
+        # Support `db.football_market_results` attribute access used by
+        # the calibration module (mirrors Motor's collection access).
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self.__getitem__(name)
 
 
 @pytest.fixture

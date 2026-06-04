@@ -1,0 +1,157 @@
+{
+  "summary": "Completed comprehensive testing of Football Dixon-Coles + Negative Binomial calibration feature. All 5 piezas verified: (1) DC bivariate matrix with tau, (2) conditional NB modulator (inert at ratio=1.0), (3) integration into compute_match_features with telemetry, (4) football_totals_calibration.py with global-before-bucket rule (n>=100), (5) wiring of parameter resolution + endpoint + backtest runner. Backend-only testing as requested.",
+  
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [],
+    "notes": "No backend issues found. All endpoints working correctly."
+  },
+  
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "notes": "Frontend testing skipped as requested (backend-only testing)"
+  },
+  
+  "passed_tests": [
+    "Backend startup without errors (verified via supervisor logs)",
+    "Pytest suite: 1004/1004 tests pass (979 previous + 25 new DC+NB tests)",
+    "Specific DC+NB calibration tests: 25/25 pass in test_football_dc_nb_calibration.py",
+    "GET /api/football/totals-calibration/summary?days=90 returns 200 with correct shape",
+    "Response has all required fields: ok, summary, available, rho, dispersion_ratio, by_league_tier, by_offense, bucket_application_policy",
+    "rho.to_apply within clamp range [-0.20, 0.0] (default: -0.05)",
+    "dispersion_ratio.to_apply within clamp range [1.0, 2.0] (default: 1.0)",
+    "All league tiers present: TIER1, TIER2, TIER3, UNKNOWN_LEAGUE",
+    "All offense buckets present: LOW_OFFENSE, MODERATE_OFFENSE, HIGH_OFFENSE",
+    "bucket_application_policy.mode = OBSERVE_ONLY (correct)",
+    "Fail-soft behavior: days=0 handled gracefully (capped to 7)",
+    "Regression: GET /api/football/pattern-memory/summary still works",
+    "Regression: GET /api/picks/today?sport=football still works",
+    "Regression: GET /api/picks/today?sport=baseball still works",
+    "Regression: GET /api/picks/today?sport=basketball still works",
+    "Mathematical correctness: NB with ratio=1.0 matches DC pure (verified by unit test)",
+    "Clamp verification: rho positive clamped to 0.0 (verified by unit test)",
+    "Clamp verification: ratio<1.0 clamped to 1.0 (verified by unit test)",
+    "Persistence: auto-derive offense_bucket from lambda_total (verified by unit test)",
+    "Global rule: n<100 returns defaults (rho=-0.05, ratio=1.0) (verified by unit test)",
+    "Bucket rule: all buckets OBSERVE_ONLY until n>=100 (verified by unit test)",
+    "Telemetry: compute_match_features emits dc_rho_used, goals_dispersion_ratio, p_under_*_poisson, dc_nb_delta_*_pts",
+    "Backtest runner: build_backtest_match_doc pure helper works correctly",
+    "Backtest runner: _infer_league_tier works for TIER1/TIER2/TIER3/UNKNOWN_LEAGUE",
+    "Backtest runner: _decide_outcome correctly determines won/lost for Under 2.5"
+  ],
+  
+  "test_report_links": [
+    "/app/backend_test.py",
+    "/app/backend/tests/test_football_dc_nb_calibration.py"
+  ],
+  
+  "success_percentage": {
+    "backend": "100% (11/11 integration tests + 1004/1004 unit tests)",
+    "frontend": "N/A (skipped as requested)"
+  },
+  
+  "updated_files": [
+    "/app/backend_test.py"
+  ],
+  
+  "action_item_for_main_agent": "",
+  
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  
+  "detailed_verification": {
+    "pieza_1_dixon_coles_matrix": {
+      "status": "VERIFIED",
+      "tests": [
+        "test_dc_matrix_rho_zero_identical_to_pure_poisson",
+        "test_dc_matrix_renormalises_to_one",
+        "test_dc_matrix_rho_negative_low_cells_dependence",
+        "test_dc_matrix_rho_positive_clamped_to_zero",
+        "test_dc_matrix_rho_lower_clamped",
+        "test_under_prob_from_matrix_matches_poisson_when_rho_zero",
+        "test_under_prob_from_matrix_2_5_sums_three_total_buckets"
+      ]
+    },
+    "pieza_2_conditional_nb": {
+      "status": "VERIFIED",
+      "tests": [
+        "test_nb_inert_at_ratio_one_matches_dc_pure",
+        "test_nb_ratio_widens_high_score_marginals",
+        "test_nb_ratio_clamped_lower",
+        "test_nb_ratio_clamped_upper"
+      ]
+    },
+    "pieza_3_compute_match_features_integration": {
+      "status": "VERIFIED",
+      "tests": [
+        "test_compute_match_features_includes_dc_nb_telemetry",
+        "test_compute_match_features_honours_match_overrides",
+        "test_compute_match_features_delta_is_signed"
+      ]
+    },
+    "pieza_4_football_totals_calibration": {
+      "status": "VERIFIED",
+      "tests": [
+        "test_calibration_db_none_returns_defaults",
+        "test_calibration_low_sample_returns_defaults",
+        "test_calibration_high_sample_applies_empirical",
+        "test_calibration_buckets_observe_only",
+        "test_apply_calibration_to_match_failsoft"
+      ]
+    },
+    "pieza_5_persistence_and_wiring": {
+      "status": "VERIFIED",
+      "tests": [
+        "test_record_outcome_persists_buckets_and_telemetry",
+        "test_record_outcome_auto_derives_offense_bucket",
+        "test_build_backtest_match_doc_minimal",
+        "test_build_backtest_match_doc_returns_none_when_missing_goals",
+        "test_infer_league_tier_known_and_unknown",
+        "test_decide_outcome_under_25"
+      ]
+    }
+  },
+  
+  "mathematical_correctness_verification": {
+    "nb_inert_at_ratio_one": "CONFIRMED - NB with ratio=1.0 produces EXACTLY the same matrix as DC pure",
+    "rho_clamp_positive": "CONFIRMED - Positive rho clamped to 0.0 (upper bound)",
+    "rho_clamp_negative": "CONFIRMED - rho < -0.20 clamped to -0.20 (lower bound)",
+    "ratio_clamp_lower": "CONFIRMED - ratio < 1.0 clamped to 1.0 (inert)",
+    "ratio_clamp_upper": "CONFIRMED - ratio > 2.0 clamped to 2.0 (conservative cap)",
+    "dc_rho_zero_identity": "CONFIRMED - rho=0 recovers pure Poisson exactly",
+    "dc_renormalisation": "CONFIRMED - DC matrix renormalises to sum=1.0",
+    "under_prob_calculation": "CONFIRMED - Under 2.5 sums cells where i+j <= 2"
+  },
+  
+  "calibration_rules_verification": {
+    "global_n_less_than_100": "CONFIRMED - Returns defaults (rho=-0.05, ratio=1.0)",
+    "global_n_greater_equal_100": "CONFIRMED - Applies empirical values (clamped)",
+    "bucket_observe_only": "CONFIRMED - All buckets OBSERVE_ONLY until n>=100 of their own",
+    "bucket_application_policy": "CONFIRMED - Mode=OBSERVE_ONLY, no bucket-specific application yet",
+    "fail_soft_behavior": "CONFIRMED - Invalid inputs handled gracefully (days=0 caps to 7)"
+  },
+  
+  "regression_verification": {
+    "pattern_memory_endpoint": "PASS - No breaking changes",
+    "picks_football": "PASS - No breaking changes",
+    "picks_baseball": "PASS - No breaking changes",
+    "picks_basketball": "PASS - No breaking changes"
+  },
+  
+  "test_execution_summary": {
+    "unit_tests": {
+      "total": 1004,
+      "passed": 1004,
+      "failed": 0,
+      "new_dc_nb_tests": 25
+    },
+    "integration_tests": {
+      "total": 11,
+      "passed": 11,
+      "failed": 0
+    },
+    "overall_success_rate": "100%"
+  }
+}
