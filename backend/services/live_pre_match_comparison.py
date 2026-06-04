@@ -121,6 +121,49 @@ def _classify_script(score_delta: Optional[float], sport: str) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# P4 — Pick-direction-aware deviation classifier
+# ──────────────────────────────────────────────────────────────────────────
+def _pick_direction_vs_deviation(
+    *,
+    market: str,
+    selection: str,
+    score_delta: Optional[float],
+    sport: str,
+) -> str:
+    """Decide whether ``score_delta`` is FAVOURABLE or ADVERSE for the pick.
+
+    Returns one of ``"favorable" | "adverse" | "neutral"``.
+
+    Logic (universal across sports — uses "Over/Under/Mas/Menos" tokens):
+
+    * ``Over``   pick + ``score_delta < 0`` → adverse  (pace below expected)
+    * ``Over``   pick + ``score_delta > 0`` → favorable
+    * ``Under``  pick + ``score_delta < 0`` → favorable (game running cold)
+    * ``Under``  pick + ``score_delta > 0`` → adverse
+    * ML / spread / no-direction → neutral
+    """
+    if score_delta is None:
+        return "neutral"
+    text = f"{market or ''} {selection or ''}".lower()
+    is_over  = ("over" in text) or ("más de" in text) or ("mas de" in text)
+    is_under = ("under" in text) or ("menos de" in text)
+    # Run-Line / spread / moneyline don't depend on pace.
+    if not (is_over or is_under):
+        return "neutral"
+    # Team-total Over/Under works the same way as game total wrt pace,
+    # since the script's expected_total compares to the GAME total. For
+    # team totals we'd ideally check the team's contribution alone, but
+    # the legacy script doesn't track per-side projections — keep neutral
+    # in that case to avoid mislabeling.
+    if "team" in text and ("total" in text or "tt" in text):
+        return "neutral"
+    if is_over:
+        return "favorable" if score_delta > 0 else "adverse"
+    # Under
+    return "favorable" if score_delta < 0 else "adverse"
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Live verdict — the actionable chip the user sees on the live page
 # ──────────────────────────────────────────────────────────────────────────
 # Verdicts canonicalised per user spec (2026-06):
@@ -144,14 +187,31 @@ def _derive_live_verdict(
         return "PICK_ALREADY_WON"
     if pregame_status == "already_lost":
         return "PICK_ALREADY_LOST"
+    if pregame_status == "not_evaluable":
+        # P4: no valid pregame base → tell user to use live reading only.
+        return "USE_LIVE_READ_ONLY"
     if is_final:
         return "NO_ACTIONABLE"
     if pregame_status == "not_actionable":
         return "NO_ACTIONABLE"
+    if pregame_status == "at_risk":
+        # P4: adverse hard-dev / broken → CASHOUT first, then directional advice.
+        market_lc = (market or "").lower()
+        is_under = "under" in market_lc or "menos de" in market_lc
+        is_over  = "over"  in market_lc or "más de"   in market_lc or "mas de" in market_lc
+        if is_under and actual_total is not None and expected_through is not None and actual_total > expected_through:
+            return "AVOID_UNDER_OR_LOOK_OVER"
+        if is_over and actual_total is not None and expected_through is not None and actual_total < expected_through:
+            return "AVOID_OVER_OR_CASHOUT"
+        return "CASHOUT"
 
     market_lc = (market or "").lower()
     is_under = "under" in market_lc or "menos de" in market_lc
     is_over  = "over"  in market_lc or "más de"   in market_lc or "mas de" in market_lc
+
+    # P4: favourable hard-deviation variants — pick is alive, just don't add exposure.
+    if script_status in ("hard_deviation_favorable", "broken_script_favorable"):
+        return "MAINTAIN"
 
     if script_status == "broken_script":
         # Game blown out vs pregame projection — if pregame was Under and
@@ -186,8 +246,17 @@ def _live_reco_from(
         return "avoid"
     if pregame_status == "not_actionable":
         return "wait"
+    if pregame_status == "not_evaluable":
+        # P4: no valid pregame base → user must rely on live reading only.
+        return "wait"
+    if pregame_status == "at_risk":
+        # Adverse hard-deviation / broken script → suggest cashout / hedge.
+        return "hedge"
     if script_status == "broken_script":
         return "avoid"
+    if script_status in ("hard_deviation_favorable", "broken_script_favorable"):
+        # Favourable strong deviation → keep but don't add exposure.
+        return "actionable"
     if script_status == "hard_deviation":
         return "hedge"
     if script_status == "soft_deviation" and market_state == "still_playable":
@@ -309,6 +378,46 @@ def compare_pregame_vs_live(
             script_status = "final_settled"
 
     # ── 3) Pregame pick status (uses validator state) ────────────────────
+    #
+    # P4 polish: the legacy mapping below produced contradictory chips
+    # when the script was in HARD_DEVIATION / BROKEN against the pick
+    # (e.g. "Over 5.99" with 1 run in inning 7 → still_playable yet the
+    # script is "hard_deviation"). We now classify whether the deviation
+    # is FAVOURABLE or ADVERSE for the pick and:
+    #
+    #   * adverse + (hard_deviation | broken_script) → ``at_risk``
+    #     (the UI renders "EN RIESGO" instead of "AÚN JUGABLE")
+    #   * favourable + (hard_deviation | broken_script) → keeps
+    #     ``still_playable`` but tags the script as
+    #     ``hard_deviation_favorable`` / ``broken_script_favorable``
+    #     so the UI shows the favourable variant.
+    #   * pregame pick lacking odds/market → ``not_evaluable``
+    #     (the UI renders "NO EVALUABLE" instead of an actionable chip).
+    #
+    # The function `_pick_direction_vs_deviation` returns:
+    #   * "favorable"    — the deviation helps the pick
+    #   * "adverse"      — the deviation hurts the pick
+    #   * "neutral"      — couldn't decide / no directional pick
+    deviation_dir = _pick_direction_vs_deviation(
+        market=market, selection=selection,
+        score_delta=score_delta, sport=sport,
+    )
+
+    # Detect an incomplete / unusable pregame base: no odds, no market, or
+    # the pick is a structural lean awaiting odds. These must NOT be
+    # rendered as "Aún jugable" — the user wants "NO EVALUABLE".
+    has_market   = bool(market)
+    has_odds     = bool(rec.get("odds_range") or rec.get("odds")
+                         or rec.get("recommended_odds"))
+    structural_only = bool(pregame_pick.get("manual_odds_review", {}).get("required")) \
+                      or pregame_pick.get("_bucket") in (
+                          "structural_lean_requires_odds",
+                          "watchlist_manual_odds",
+                      )
+    pregame_incomplete = (not has_market) or (
+        structural_only and not has_odds and not is_final
+    )
+
     if validator.get("state") == "already_resolved_win":
         pregame_status = "already_won"
     elif validator.get("state") == "already_resolved_loss":
@@ -318,12 +427,30 @@ def compare_pregame_vs_live(
     elif is_final and validator.get("state") == "still_playable":
         # Final but validator can't be sure → mark as not_actionable.
         pregame_status = "not_actionable"
+    elif pregame_incomplete and is_live:
+        # P4: surface the "no valid pregame base" state — the UI maps
+        # this to "NO EVALUABLE" and shows only the live reading.
+        pregame_status = "not_evaluable"
+    elif is_live and validator.get("actionable") and \
+         script_status in ("broken_script", "hard_deviation") and \
+         deviation_dir == "adverse":
+        # Adverse hard-dev / broken script → the chip must reflect risk,
+        # not "Aún jugable". UI renders "EN RIESGO".
+        pregame_status = "at_risk"
     elif is_live and validator.get("actionable"):
         pregame_status = "still_playable"
     elif is_live and not validator.get("actionable"):
         pregame_status = "not_actionable"
     else:
         pregame_status = "pending"
+
+    # P4: promote the script_status to its FAVORABLE variant when the
+    # deviation is favourable to the pick. This avoids confusing chips
+    # like "DESVIACIÓN FUERTE → SIGUE VIVO" without context.
+    if deviation_dir == "favorable" and script_status in (
+        "broken_script", "hard_deviation",
+    ):
+        script_status = f"{script_status}_favorable"
 
     # ── 4) Confidence adjustment + risk / fragility deltas ───────────────
     confidence_adjustment = 0

@@ -26,13 +26,21 @@ function pillClasses(state) {
       return 'bg-amber-500/15 text-amber-200 border-amber-500/40';
     case 'hard_deviation':
       return 'bg-orange-500/15 text-orange-200 border-orange-500/40';
+    case 'hard_deviation_favorable':
+      return 'bg-emerald-500/15 text-emerald-200 border-emerald-500/40';
     case 'broken_script':
       return 'bg-rose-500/15 text-rose-200 border-rose-500/40';
+    case 'broken_script_favorable':
+      return 'bg-cyan-500/15 text-cyan-200 border-cyan-500/40';
     case 'final_settled':
       return 'bg-slate-500/15 text-slate-200 border-slate-500/30';
     // pregame_pick_status
     case 'still_playable':
       return 'bg-emerald-500/15 text-emerald-200 border-emerald-500/40';
+    case 'at_risk':
+      return 'bg-rose-500/15 text-rose-200 border-rose-500/40';
+    case 'not_evaluable':
+      return 'bg-slate-500/15 text-slate-300 border-slate-500/40';
     case 'pending':
       return 'bg-slate-500/15 text-slate-200 border-slate-500/30';
     case 'already_won':
@@ -83,7 +91,9 @@ const LABELS = {
       on_script:         'En guion',
       soft_deviation:    'Desviación leve',
       hard_deviation:    'Desviación fuerte',
+      hard_deviation_favorable: 'Desviación fuerte (favorable)',
       broken_script:     'Guion roto',
+      broken_script_favorable: 'Guion roto (favorable)',
       final_settled:     'Partido finalizado',
       insufficient_data: 'Datos insuficientes',
     },
@@ -92,6 +102,8 @@ const LABELS = {
       already_won:       'Ya ganó',
       already_lost:      'Ya perdió',
       still_playable:    'Aún jugable',
+      at_risk:           'En riesgo',
+      not_evaluable:     'No evaluable',
       not_actionable:    'No accionable',
     },
     live: {
@@ -108,6 +120,7 @@ const LABELS = {
       AVOID_OVER_OR_CASHOUT:    'Evitar Over · cashout',
       MAINTAIN:                 'Mantener pick',
       CASHOUT:                  'Considerar cashout',
+      USE_LIVE_READ_ONLY:       'Sin base pregame — usar solo lectura live',
       NO_ACTIONABLE:            'No accionable',
     },
   },
@@ -136,7 +149,9 @@ const LABELS = {
       on_script:         'On script',
       soft_deviation:    'Soft deviation',
       hard_deviation:    'Hard deviation',
+      hard_deviation_favorable: 'Hard deviation (favorable)',
       broken_script:     'Broken script',
+      broken_script_favorable: 'Broken script (favorable)',
       final_settled:     'Game finished',
       insufficient_data: 'Insufficient data',
     },
@@ -145,6 +160,8 @@ const LABELS = {
       already_won:       'Already won',
       already_lost:      'Already lost',
       still_playable:    'Still playable',
+      at_risk:           'At risk',
+      not_evaluable:     'Not evaluable',
       not_actionable:    'Not actionable',
     },
     live: {
@@ -161,6 +178,7 @@ const LABELS = {
       AVOID_OVER_OR_CASHOUT:    'Avoid Over · cashout',
       MAINTAIN:                 'Maintain pick',
       CASHOUT:                  'Consider cashout',
+      USE_LIVE_READ_ONLY:       'No pregame base — use live read only',
       NO_ACTIONABLE:            'Not actionable',
     },
   },
@@ -173,6 +191,7 @@ const VERDICT_CLASSES = {
   AVOID_OVER_OR_CASHOUT:    'bg-orange-500/15 text-orange-100 border-orange-500/40',
   MAINTAIN:                 'bg-emerald-500/15 text-emerald-100 border-emerald-500/40',
   CASHOUT:                  'bg-amber-500/15 text-amber-100 border-amber-500/40',
+  USE_LIVE_READ_ONLY:       'bg-slate-500/15 text-slate-200 border-slate-500/40',
   NO_ACTIONABLE:            'bg-slate-500/15 text-slate-200 border-slate-500/30',
 };
 

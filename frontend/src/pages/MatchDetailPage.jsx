@@ -319,11 +319,22 @@ export default function MatchDetailPage() {
 
               {/* MLB-V8 Live Intelligence (Volatility + Script Break + Cashout).
                   Triple gate enforced inside the component:
-                  sport==='baseball' && match.is_live && llmPick._mlb_script_v3.
+                  sport==='baseball' && (effective live state) && llmPick._mlb_script_v3.
                   This means the panel ONLY appears for MLB picks that PASSED
                   the pregame filter AND the match is currently live — never
-                  for the full live list. */}
-              <MLBLiveIntelPanel sport={sport} match={match} llmPick={llmPick} />
+                  for the full live list.
+
+                  P4 polish: we now pass `liveDetail` (canonical snapshot
+                  from /api/matches/{id}/live-refresh) so the panel can
+                  detect inning/score/is_live even when the matches doc
+                  hasn't been refreshed yet. */}
+              <MLBLiveIntelPanel
+                sport={sport}
+                match={match}
+                llmPick={llmPick}
+                liveDetail={liveCtx?.live}
+                effectiveIsLive={effectiveIsLive}
+              />
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-border bg-card/40 p-5" data-testid="no-llm-pick">

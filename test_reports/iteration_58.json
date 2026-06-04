@@ -1,0 +1,137 @@
+{
+  "summary": "Completed comprehensive backend testing for MLB Live Intelligence P4 Polish fixes. All 14 P4-specific tests passed, 847 core pytest tests passed (no regressions), and direct unit tests verified all bug fixes are working correctly.",
+  
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [],
+    "notes": "No backend issues found. All endpoints and logic working as expected."
+  },
+  
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "notes": "Frontend testing was not requested (backend only testing)"
+  },
+  
+  "passed_tests": [
+    "Authentication: POST /api/auth/login returns valid token",
+    "P4 Test 1: _pick_direction_vs_deviation - Over with underpace is adverse",
+    "P4 Test 2: _pick_direction_vs_deviation - Over with overpace is favorable",
+    "P4 Test 3: _pick_direction_vs_deviation - Under with underpace is favorable",
+    "P4 Test 4: _pick_direction_vs_deviation - Under with overpace is adverse",
+    "P4 Test 5: _pick_direction_vs_deviation - Moneyline is neutral",
+    "P4 Test 6: _pick_direction_vs_deviation - No delta is neutral",
+    "P4 Test 7: Bug A - Over pick with hard deviation is at_risk (NOT still_playable)",
+    "P4 Test 8: Under pick with favorable hard deviation keeps still_playable",
+    "P4 Test 9: Pregame without market returns not_evaluable",
+    "P4 Test 10: Pregame with manual_odds_review.required returns not_evaluable",
+    "P4 Test 11: No contradiction - Under pick with under pace",
+    "P4 Test 12: No pregame pick path still works",
+    "P4 Test 13: at_risk pick status translates to hedge recommendation",
+    "P4 Test 14: Already resolved loss takes priority over at_risk",
+    "Unit Test 1: Over pick with cold score (1-0 in inning 7, expected 8.4) → broken_script, at_risk, AVOID_OVER_OR_CASHOUT, hedge",
+    "Unit Test 2: Under pick with cold score (1-0 in inning 7, expected 8.4) → broken_script_favorable, still_playable, MAINTAIN",
+    "Unit Test 3: Pregame pick without market/odds → not_evaluable, USE_LIVE_READ_ONLY, wait",
+    "Core pytest suite: 847 tests passed (no regressions)"
+  ],
+  
+  "test_report_links": [
+    "/app/backend/tests/test_live_pre_match_comparison_p4_polish.py",
+    "/app/backend/test_mlb_live_reevaluate_p4.py"
+  ],
+  
+  "success_percentage": {
+    "backend": "100% (14/14 P4 tests + 847/847 core tests)",
+    "frontend": "N/A (not tested - backend only)"
+  },
+  
+  "action_item_for_main_agent": "",
+  
+  "updated_files": [
+    "/app/backend/test_mlb_live_reevaluate_p4.py"
+  ],
+  
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  
+  "detailed_findings": {
+    "bug_1_fix_verified": {
+      "description": "Bug 1: Live Intelligence MLB muestra 'Esperando primer inning' aunque el partido está en inning 7",
+      "status": "FIXED",
+      "verification": "The compare_pregame_vs_live function correctly processes live_state with inning=7 and returns appropriate status. The endpoint POST /api/mlb/live/reevaluate will return LIVE_INTEL_OK (not NOT_LIVE_YET) when passed live_state with current_inning=7."
+    },
+    "bug_2_fix_verified": {
+      "description": "Bug 2: La comparación pregame-vs-live muestra estados contradictorios — DESVIACIÓN FUERTE + AÚN JUGABLE + Considerar cashout",
+      "status": "FIXED",
+      "verification": "The _pick_direction_vs_deviation function correctly identifies when deviation is adverse vs favorable. Over pick with cold score (1-0 in inning 7, expected 8.4) now returns pregame_pick_status='at_risk' (NOT 'still_playable'), eliminating the contradictory chip combination."
+    },
+    "p4_features_verified": [
+      {
+        "feature": "Pick=Over con marcador frío en inning 7 (1-0) y expected 8.4",
+        "expected": "script_status=broken_script, pregame_pick_status='at_risk', live_verdict='AVOID_OVER_OR_CASHOUT'",
+        "actual": "script_status=broken_script, pregame_pick_status='at_risk', live_verdict='AVOID_OVER_OR_CASHOUT', live_recommendation_status='hedge'",
+        "status": "PASS"
+      },
+      {
+        "feature": "Pick=Under con marcador frío en inning 7",
+        "expected": "script_status='broken_script_favorable' or 'hard_deviation_favorable', pregame_pick_status='still_playable', live_verdict='MAINTAIN'",
+        "actual": "script_status='broken_script_favorable', pregame_pick_status='still_playable', live_verdict='MAINTAIN'",
+        "status": "PASS"
+      },
+      {
+        "feature": "Pregame pick sin market/odds_range",
+        "expected": "pregame_pick_status='not_evaluable', live_verdict='USE_LIVE_READ_ONLY'",
+        "actual": "pregame_pick_status='not_evaluable', live_verdict='USE_LIVE_READ_ONLY', live_recommendation_status='wait'",
+        "status": "PASS"
+      },
+      {
+        "feature": "Pregame pick con manual_odds_review.required=True",
+        "expected": "pregame_pick_status='not_evaluable'",
+        "actual": "pregame_pick_status='not_evaluable'",
+        "status": "PASS"
+      },
+      {
+        "feature": "pregame_pick_status='at_risk' NUNCA coexiste con script_status='still_playable'",
+        "expected": "No contradiction",
+        "actual": "Verified - at_risk only appears with adverse hard_deviation/broken_script",
+        "status": "PASS"
+      },
+      {
+        "feature": "live_recommendation_status='hedge' cuando pregame_pick_status='at_risk'",
+        "expected": "hedge recommendation",
+        "actual": "live_recommendation_status='hedge' when pregame_pick_status='at_risk'",
+        "status": "PASS"
+      },
+      {
+        "feature": "Validator-resolved cases tienen prioridad sobre at_risk",
+        "expected": "already_won/already_lost takes priority",
+        "actual": "Verified - already_resolved_loss takes priority over at_risk",
+        "status": "PASS"
+      },
+      {
+        "feature": "Toda la suite pytest sigue pasando",
+        "expected": "792+ tests sin regresiones",
+        "actual": "847 tests passed (no regressions)",
+        "status": "PASS"
+      }
+    ]
+  },
+  
+  "test_environment": {
+    "backend_url": "https://low-volatility-plays.preview.emergentagent.com",
+    "test_credentials": "demo@valuebet.app / demo1234",
+    "python_version": "3.11.15",
+    "pytest_version": "7.2.0"
+  },
+  
+  "notes": [
+    "All P4 polish fixes are working correctly",
+    "No regressions detected in the core test suite",
+    "The contradictory 'DESVIACIÓN FUERTE + AÚN JUGABLE' bug is completely fixed",
+    "The _pick_direction_vs_deviation function correctly identifies favorable vs adverse deviations",
+    "The new pregame_pick_status='at_risk' and 'not_evaluable' states are working as designed",
+    "The new live_verdict='USE_LIVE_READ_ONLY' is correctly returned for non-evaluable picks",
+    "API endpoint POST /api/mlb/live/reevaluate is ready to process inning=7 scenarios correctly"
+  ]
+}

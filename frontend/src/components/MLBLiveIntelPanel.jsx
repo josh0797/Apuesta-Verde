@@ -78,7 +78,33 @@ const VOL_STYLES = {
   HIGH:   'bg-rose-500/10 border-rose-500/35 text-rose-200',
 };
 
-function deriveLiveState(match) {
+function deriveLiveState(match, liveDetail) {
+  // P4 polish: prefer the canonical snapshot from
+  // /api/matches/{id}/live-refresh (liveDetail) — it's always fresh
+  // and uses the normalised shape from mlb_live_state.fetch_live_state.
+  // Fall back to the `match` doc only when liveDetail is unavailable
+  // (e.g. during the first render before the hook resolves).
+  if (liveDetail && (liveDetail.inning || liveDetail.score)) {
+    const inning   = liveDetail.inning?.number ?? null;
+    const half     = (liveDetail.inning?.half || 'top').toLowerCase();
+    const homeRuns = liveDetail.score?.home;
+    const awayRuns = liveDetail.score?.away;
+    if (inning != null) {
+      return {
+        current_inning: Number(inning),
+        is_top_half:    half === 'top',
+        home_runs:      Number(homeRuns) || 0,
+        away_runs:      Number(awayRuns) || 0,
+        home_starter_runs_allowed: null,
+        away_starter_runs_allowed: null,
+        home_starter_pulled:       null,
+        away_starter_pulled:       null,
+        bullpen_runs_allowed_home: null,
+        bullpen_runs_allowed_away: null,
+      };
+    }
+  }
+
   if (!match) return null;
   // Best-effort normalisation — supports several shapes the matches API may produce.
   const live = match.live || match.linescore || {};
@@ -157,11 +183,29 @@ function VolatilityChip({ side, vol, name }) {
   );
 }
 
-export function MLBLiveIntelPanel({ sport, match, llmPick }) {
+export function MLBLiveIntelPanel({ sport, match, llmPick, liveDetail, effectiveIsLive }) {
   // Triple-gate — render nothing if conditions aren't met.
+  // P4 polish: prefer `effectiveIsLive` from the live-refresh hook
+  // (it doesn't rely on stale `match.is_live`). Also accept any of:
+  //   * liveDetail.is_live === true
+  //   * liveDetail.state === 'live-data-ready' | 'live-data-partial'
+  //   * liveDetail.inning?.number >= 1
+  //   * sum(liveDetail.score.{home,away}) > 0
+  // so the panel activates even when the matches doc hasn't refreshed.
+  const liveScoreSum = (liveDetail?.score?.home ?? 0) + (liveDetail?.score?.away ?? 0);
+  const liveInning   = liveDetail?.inning?.number ?? null;
+  const isLiveDerived =
+    effectiveIsLive === true ||
+    liveDetail?.is_live === true ||
+    liveDetail?.state === 'live-data-ready' ||
+    liveDetail?.state === 'live-data-partial' ||
+    (liveInning != null && liveInning >= 1) ||
+    liveScoreSum > 0 ||
+    Boolean(match?.is_live);
+
   const gateOk =
     String(sport || '').toLowerCase() === 'baseball' &&
-    Boolean(match?.is_live) &&
+    isLiveDerived &&
     Boolean(llmPick && llmPick._mlb_script_v3);
 
   const [data, setData]       = useState(null);
@@ -174,9 +218,9 @@ export function MLBLiveIntelPanel({ sport, match, llmPick }) {
     setLoading(true);
     setError(null);
     try {
-      const liveState = deriveLiveState(match);
+      const liveState = deriveLiveState(match, liveDetail);
       const body = {
-        match_id:     String(match.match_id ?? match.id ?? ''),
+        match_id:     String(match?.match_id ?? match?.id ?? liveDetail?.game_pk ?? ''),
         pregame_pick: llmPick,
         live_state:   liveState || null,
       };
@@ -189,7 +233,7 @@ export function MLBLiveIntelPanel({ sport, match, llmPick }) {
     } finally {
       setLoading(false);
     }
-  }, [gateOk, match, llmPick]);
+  }, [gateOk, match, llmPick, liveDetail]);
 
   useEffect(() => {
     if (!gateOk) return;
@@ -201,8 +245,11 @@ export function MLBLiveIntelPanel({ sport, match, llmPick }) {
   if (!gateOk) return null;
 
   // Status handling — backend may return NOT_LIVE_YET when match is between
-  // pregame and first pitch.
+  // pregame and first pitch. P4 polish: distinguish the case where we
+  // already have score/inning > 0 (so it's actually a "live feed
+  // incomplete" situation, NOT a pre-game wait).
   if (data?.status === 'NOT_LIVE_YET') {
+    const liveButFeedIncomplete = liveScoreSum > 0 || (liveInning != null && liveInning >= 1);
     return (
       <section className="rounded-xl border border-border/50 bg-card/40 p-4" data-testid="mlb-live-intel-panel-pending">
         <header className="flex items-center justify-between gap-3 mb-2">
@@ -212,12 +259,16 @@ export function MLBLiveIntelPanel({ sport, match, llmPick }) {
               Live Intelligence MLB
             </h3>
           </div>
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground" data-testid="mlb-live-intel-pending-chip">
             <Clock className="h-3 w-3" />
-            Esperando primer inning
+            {liveButFeedIncomplete ? 'Live feed incompleto' : 'Esperando inicio del partido'}
           </span>
         </header>
-        <p className="text-xs text-muted-foreground">{data.detail}</p>
+        <p className="text-xs text-muted-foreground">
+          {liveButFeedIncomplete
+            ? `El partido está en curso (inning ${liveInning ?? '—'}, ${liveScoreSum} carrera${liveScoreSum === 1 ? '' : 's'}) pero faltan datos canónicos del live feed. Reintentando…`
+            : (data.detail || 'El partido aún no está en vivo; live intelligence se activará al primer inning.')}
+        </p>
       </section>
     );
   }
