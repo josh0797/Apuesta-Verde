@@ -177,7 +177,7 @@ Estrategia roles:
 
 ---
 
-## 7) Live Recommendation History / Timeline (P0) (NUEVO)
+## 7) Live Recommendation History / Timeline (P0) ✅ COMPLETADO
 
 ### Context
 Se requiere un sistema persistente para registrar eventos de recomendación (auto y manual) durante el live:
@@ -186,181 +186,71 @@ Se requiere un sistema persistente para registrar eventos de recomendación (aut
 - Debe permitir que el usuario **confirme/cambie** posteriormente si una recomendación fue acertada (sin perder el histórico).
 - Debe ser **fail-soft**: si DB falla o falta match doc, nunca debe romper el engine live ni devolver 500.
 
-### Decisiones confirmadas (del usuario)
-- ✅ Esquema: **mínimo** + extensiones (ver abajo).
-- ✅ Auto-save: **solo cambios reales**, con deduplicación (no guardar recomendaciones idénticas).
-- ✅ Auto-settle MVP: solo mercados BTTS/Totals (lista específica).
-- ✅ Endpoints: `POST manual` + `GET` con filtros completos + defaults de orden/limit.
-- ✅ Regla clave: si una recomendación cambia **después** de haberse cumplido, **la anterior sigue siendo `hit`** y puede registrar `superseded_by_event_id`.
-- ✅ Manual entry: permitir guardar aunque **no exista `match_id` real** (usar `match_label`).
+### Decisiones confirmadas (del usuario) — entregadas
+- ✅ Esquema: **mínimo** + extensiones (`match_label`, `league`, `reason`, `reason_codes`, `outcome`, `notes`, `superseded_by_event_id`, `source`, `event_type`, `status`).
+- ✅ Auto-save: **solo cambios reales**, con deduplicación por `(user_id|sport|match_id|minute|score|market|selection)`.
+- ✅ Auto-settle MVP: BTTS YES/NO + Over/Under 0.5/1.5/2.5/3.5 (función pura `settle_live_event_from_score`).
+- ✅ Endpoints: `POST /api/live/recommendation-events/manual` + `GET /api/live/recommendation-events` con filtros completos.
+- ✅ Regla preservación HIT: si una rec previa es `hit` y luego cambia, el evento original **permanece `hit`** y solo agrega `superseded_by_event_id` (sin tocar el status).
+- ✅ Manual entry: permite guardar aunque **no exista `match_id` real** (usa `match_label`).
 
 ---
 
-### Phase 27 — Backend: Colección + Servicio + Auto-save (NEW)
+### Phase 27 — Backend: Colección + Servicio + Auto-save ✅
+- ✅ Colección `live_recommendation_events` + 5 índices best-effort en startup.
+- ✅ `services/live_recommendation_history.py`:
+  - `ensure_live_recommendation_indexes(db)`
+  - `settle_live_event_from_score(event, score, minute, match_ended)` (puro)
+  - `persist_live_recommendation_event(...)` (engine autosave + dedupe + supersede)
+  - `record_manual_live_event(...)` (manual backfill sin match doc real)
+  - `settle_live_recommendation_event(...)` (override manual)
+  - `query_live_recommendation_events(...)` (filtros completos + sort condicional)
+  - `link_supersede_only(...)` (link superseded_by_event_id sin cambiar status)
+- ✅ Autosave en `server.py` `/live/reevaluate` (football-only).
 
-#### 27.1 MongoDB: nueva colección `live_recommendation_events`
-- Crear colección y `ensure_live_recommendation_indexes(db)` (best-effort en startup).
-- Índices (propuestos):
-  - `{ match_id: 1, sport: 1, created_at: 1 }`
-  - `{ match_id: 1, minute: 1, created_at: 1 }` (timeline)
-  - `{ sport: 1, status: 1, created_at: -1 }`
-  - `{ sport: 1, source: 1, created_at: -1 }`
-  - `{ sport: 1, event_type: 1, created_at: -1 }`
-  - `{ settled: 1, created_at: -1 }`
-  - (Opcional) unique parcial para dedupe (si aplica):
-    - clave lógica: `dedupe_key` = hash de `(match_id|match_label, sport, state/event_type, recommendation.market, recommendation.selection)`
+### Phase 28 — Backend: Endpoints ✅
+- ✅ `POST /api/live/recommendation-events/manual` (Pydantic body, fail-soft, devuelve 422 ante payload mal formado).
+- ✅ `GET /api/live/recommendation-events` con filtros:
+  - `match_id`, `sport`, `status`, `result`, `source`, `event_type`, `settled`, `date_from`, `date_to`, `limit`.
+  - Defaults: `sport=football`, `limit=50` clamp [1, 200].
+  - Sorting: `(minute asc, created_at asc)` si viene match_id; `(created_at desc)` en caso contrario.
+  - `auto_settle=true` (default) re-evalúa eventos abiertos contra el score actual del partido.
 
-#### 27.2 Esquema de documento (mínimo + extensible)
-- Campos mínimos (MVP):
-  - `event_id` (uuid)
-  - `sport` (default: `football` si falta)
-  - `match_id` (string; puede ser manual)
-  - `match_label` (string; requerido si no existe match real)
-  - `league` (string opcional)
-  - `minute` (int opcional)
-  - `score` `{ home, away, label }` (opcional)
-  - `recommendation` `{ title, market, selection, confidence, risk_level, recommended_action }`
-  - `reason` (string opcional)
-  - `reason_codes` (array opcional)
-  - `status` (enum: `open`, `hit`, `miss`, `push`, `void`, `watchlist`, `superseded`)
-  - `source` (enum: `engine`, `manual`, `system`) — manual por `POST`, engine por autosave
-  - `event_type` (enum: `PREGAME`, `LIVE_REEVALUATED`, `MANUAL_ENTRY`, `SETTLED`) (o equivalente)
-  - `settled` (bool)
-  - `outcome` (obj opcional):
-    - `result` (`hit`/`miss`/`push`/`void`)
-    - `settled_minute` (int)
-    - `settled_score` (string)
-    - `settlement_reason` (string)
-  - `superseded_by_event_id` (string uuid opcional)
-  - `notes` (string opcional)
-  - `created_at`, `updated_at`
+### Phase 29 — Settlement MVP ✅
+- ✅ Implementado para: BTTS YES, BTTS NO, Over 0.5/1.5/2.5/3.5/4.5/5.5, Under 0.5/1.5/2.5/3.5/4.5/5.5.
+- ✅ Hit cuando el mercado se cumple; miss si no se cumple al cierre del partido; pending en cualquier otro caso.
+- ✅ Preservación HIT: nuevos eventos no degradan a `miss` un evento previo ya en `hit`.
 
-#### 27.3 Servicio `services/live_recommendation_history.py`
-- Funciones:
-  - `create_manual_event(db, payload)` (valida mínimo; fail-soft)
-  - `list_events(db, filters)` (filtros completos; sorting por reglas)
-  - `maybe_append_engine_event(db, match, recommendation, state, minute, score_snapshot)`
-    - **dedupe**: no insertar si el evento anterior (para el mismo match) tiene mismo `market+selection+event_type/state` (o mismo `dedupe_key`).
-  - `settle_live_event_from_score(event, score, minute, is_final=False)`
-    - retorna `{settled, status/result, outcome}` sin excepción
-  - `apply_manual_override(event_id, new_status/outcome/notes)` (permitir “confirm/change” posterior)
+### Phase 30 — Backfill France vs Ivory Coast ✅
+- ✅ Lookup en DB encontró match real: `match_id=1536931, France vs Ivory Coast (Friendlies)`.
+- ✅ Backfill manual realizado: BTTS YES @ minuto 42, score 1-0, outcome=hit settled@53 1-1.
+- ✅ Event ID resultante: `b85a5144-75ea-4cd1-92b4-163c0516898a`.
 
-#### 27.4 Integración autosave (engine)
-- En `live_reevaluation.py` / `analyst_engine.py`:
-  - Al computar recomendación live, llamar `maybe_append_engine_event(...)`.
-  - Guardar solo cuando:
-    - cambia `recommendation.market` o `recommendation.selection` o `event_type/state`.
-    - (Opcional) cambio de `recommended_action` relevante.
-- Fail-soft:
-  - cualquier fallo de DB → log warning y continuar (sin afectar picks).
+### Phase 31 — Frontend: Timeline + Manual Entry Form ✅
+- ✅ `LiveRecommendationTimeline.jsx`:
+  - Lista por match_id ordenada cronológicamente.
+  - Status badges (HIT/MISS/OPEN/MANUAL/SUPERSEDED/VOID).
+  - Source chips (engine/manual), reason codes, outcome info.
+  - Form inline para registro manual + backfill (validación mínima).
+  - Usa `api` axios + token JWT correcto (`vbi_token`).
+- ✅ Integrado en `MatchCard.jsx` gated por `sport === 'football'`.
 
----
+### Phase 32 — Tests + Verificación ✅
+- ✅ 18 tests `tests/test_live_recommendation_history.py` (pytest local: 100% verde).
+- ✅ Suite backend total: **1043 tests passing** (sin regresiones, +18 desde 1025).
+- ✅ Testing agent backend: **30/30 tests passed (100%)** (`/app/test_reports/iteration_63.json`).
+- ✅ No regresiones en endpoints existentes (`/api/picks/today`, `/api/live/reevaluate`, `/api/football/*`).
 
-### Phase 28 — Backend: Endpoints (NEW)
-
-#### 28.1 `POST /api/live/recommendation-events/manual`
-- Permite registrar evento manual incluso si no existe match doc.
-- Payload mínimo válido (confirmado):
-  - `sport` (default football si falta)
-  - `match_id`
-  - `match_label` (obligatorio si match_id no existe en DB; en práctica lo aceptamos siempre)
-  - `league` (opcional)
-  - `minute` (opcional)
-  - `score` (opcional)
-  - `recommendation` (obligatorio)
-  - `reason`/`reason_codes` (opcionales)
-  - `outcome` (opcional: permite backfill ya settled)
-  - `notes` (opcional)
-- Respuesta: doc insertado + `event_id`.
-
-#### 28.2 `GET /api/live/recommendation-events`
-- Filtros completos:
-  - `match_id`, `sport`, `status`, `result`, `source`, `event_type`, `settled=true|false`, `date_from`, `date_to`, `limit`.
-- Defaults:
-  - `sport="football"` si no viene
-  - `limit=50`
-  - Sorting:
-    - si `match_id` viene: `minute asc`, luego `created_at asc`
-    - si consulta general: `created_at desc`
-
----
-
-### Phase 29 — Settlement MVP (BTTS + Totals) (NEW)
-- Implementar settlement automático (cuando haya score/minute):
-  - **BTTS YES**
-  - **Over 0.5**, **Over 1.5**, **Over 2.5**, **Over 3.5**
-  - **Under 2.5**, **Under 3.5**
-- Reglas:
-  - Si el mercado se cumple (ej BTTS YES cuando ambos marcan) → `status/result = hit` y `settled=true`.
-  - Si cambia la recomendación posteriormente:
-    - no convertir el evento anterior en `miss`
-    - mantener `hit` y usar `superseded_by_event_id` si corresponde.
-
----
-
-### Phase 30 — Backfill Francia vs Costa de Marfil + UI Manual Entry (NEW)
-
-#### 30.1 Lookup match real (best-effort)
-- Antes de usar placeholder, buscar match real en DB por:
-  - `home_team.name ∈ ["France", "Francia"]`
-  - `away_team.name ∈ ["Ivory Coast", "Costa de Marfil"]`
-  - `league` contiene `"Friendlies"` o `"Amistosos"`
-  - fecha `2026-06-04`
-  - incluir current/live/archived
-- Si existe → usar su `match_id`.
-- Si no → usar `match_id = "manual-france-ivory-coast-2026-06-04"`.
-
-#### 30.2 Backfill manual inicial
-- Insertar (vía endpoint o servicio) el evento manual con:
-  - minute estimado `42` (editable luego en UI)
-  - score `1-0`
-  - recommendation BTTS YES
-  - outcome: `hit`, settled_minute `53`, settled_score `1-1`
-  - notes: referencia a marcador final observado `1-2` y que el hit fue antes del empate
-
----
-
-### Phase 31 — Frontend: Timeline UI + Form (P1) (NEW)
-- Crear `LiveRecommendationTimeline.jsx`:
-  - lista por match_id, orden por `minute asc, created_at asc`
-  - chips: status, source, event_type
-  - mostrar recommendation + score + reason_codes
-  - mostrar outcome (hit/miss/push/void) y settlement info
-  - permitir “confirm/change” (manual override) si se habilita endpoint PATCH/POST adicional
-- Crear formulario `ManualRecommendationEventForm`:
-  - validaciones mínimas
-  - permite match_id + match_label (no bloquea si no hay match real)
-  - permite outcome opcional (backfill settled)
-- Integración en vista live match (MatchCard o modal) sin afectar otros deportes.
-
----
-
-### Phase 32 — Tests + Verificación (NEW)
-- Backend tests (`pytest`):
-  - inserción manual mínima válida
-  - dedupe: no duplica por market+selection+state
-  - list con filtros + orden
-  - settle BTTS YES y totals
-  - supersede: hit permanece hit aunque luego haya otro evento
-  - fail-soft: DB errors no rompen endpoints ni engine (200 con vacío o logging)
-- Frontend:
-  - render timeline vacío vs con data
-  - submit manual ok
-  - no-regresión en MatchCard para otros sports
-
----
 
 ## 8) Next Actions (Actualizado)
 
-### Inmediato (P0)
-1. Implementar Phase 27–29 (colección + servicio + endpoints + settlement MVP).
-2. Añadir backfill inicial Francia vs Costa de Marfil (Phase 30) + habilitar edición posterior desde UI.
-3. Integrar UI timeline + form (Phase 31).
+### Inmediato
+- ✅ Live Recommendation History / Timeline (Phase 27–32) completado.
 
 ### Posterior (P1/P2)
-4. Tests frontend RTL para paneles football + timeline + no-regresión.
-5. (Opcional) Extender settlement a más mercados (córners/handicap) si se desea.
-6. Retomar Injury Intelligence Basketball (Phase 1) según el plan existente.
+1. Tests frontend RTL para paneles football + timeline + no-regresión.
+2. (Opcional) Extender settlement a más mercados (córners/handicap) si se desea.
+3. Retomar Injury Intelligence Basketball (Phase 1) según el plan existente.
 
 ---
 
