@@ -278,16 +278,31 @@ def _reevaluate_football(
     # passed to the interpreter so it can pick the right total line instead
     # of over-reaching to Over 3.5 on one-sided xG (France 1-2 IVC bug).
     openness = None
+    unilateral_dominance = None
     try:
         from . import game_openness as _go
         openness = _go.compute_game_openness(
             home_stats, away_stats,
             minute=minute, current_total=current_total,
         )
+        # Unilateral-dominance profile: complements bilateral openness
+        # for cases where one side crushes the other with defensive
+        # collapse signals (e.g. Mexico 5-1 Serbia). The interpreter
+        # uses this to surface a *team total* instead of Over 3.5 when
+        # openness says is_one_sided=True.
+        unilateral_dominance = _go.compute_unilateral_dominance_over_profile(
+            home_stats, away_stats,
+            match_context={
+                "minute":         minute,
+                "score_diff":     abs(score_diff),
+                "current_total":  current_total,
+            },
+        )
     except Exception as _exc:
         import logging
         logging.getLogger("live_reeval").debug("game_openness failed: %s", _exc)
         openness = None
+        unilateral_dominance = None
 
     reeval_for_interpreter = {
         "live_state":           state,
@@ -302,6 +317,7 @@ def _reevaluate_football(
         "manual_odds_used":     (implied_source == "manual"),
         "reason":               reason,
         "game_openness":        openness,
+        "unilateral_dominance": unilateral_dominance,
     }
     try:
         from . import human_live_interpreter as hli
@@ -360,6 +376,7 @@ def _reevaluate_football(
         interpreter=interpreter,
         football_live_vs_pregame=fb_live_vs_pregame,
         game_openness=openness,
+        unilateral_dominance=unilateral_dominance,
     )
 
 
@@ -550,6 +567,7 @@ def _build_response(**kwargs) -> dict:
         "interpreter":         kwargs.get("interpreter"),
         "football_live_vs_pregame": kwargs.get("football_live_vs_pregame"),
         "game_openness":       kwargs.get("game_openness"),
+        "unilateral_dominance": kwargs.get("unilateral_dominance"),
     }
 
 

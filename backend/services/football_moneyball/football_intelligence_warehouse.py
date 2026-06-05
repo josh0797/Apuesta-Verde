@@ -396,6 +396,25 @@ def _compute_pattern_adjustment(
     return adjustment, codes, warning
 
 
+_VOID_OUTCOMES = {"void", "push", "refund", "refunded", "cancelled", "canceled"}
+
+
+def _normalise_result_outcome(outcome: str | None, won: bool) -> str:
+    """Return a canonical warehouse outcome.
+
+    Back-compat: callers that have not been updated still pass only
+    ``won``. In that case we preserve the old won/lost behavior.
+    """
+    o = (outcome or "").strip().lower()
+    if o in _VOID_OUTCOMES:
+        return "void"
+    if o in {"won", "win", "hit", "w"}:
+        return "won"
+    if o in {"lost", "loss", "miss", "l"}:
+        return "lost"
+    return "won" if won else "lost"
+
+
 async def update_pattern_memory_from_result(
     db,
     *,
@@ -404,16 +423,34 @@ async def update_pattern_memory_from_result(
     stake: float,
     won: bool,
     payout: float = 0.0,
+    outcome: str | None = None,
 ) -> bool:
-    """Increment pattern memory using a settled bet result. Fail-soft."""
+    """Increment pattern memory using a settled bet result. Fail-soft.
+
+    ``outcome`` fixes the void/push/refund path: void-like outcomes are
+    financially neutral but are NOT valid attempts for hit-rate purposes.
+    They therefore increment ``voids`` plus stake/payout, but do not
+    increment ``sample_size``/``wins`` nor market-ledger ``samples``.
+    """
     if db is None or not pattern_keys:
         return False
     try:
         ts = _now_iso()
+        normalized_outcome = _normalise_result_outcome(outcome, won)
+        is_void = normalized_outcome == "void"
+        is_win = normalized_outcome == "won"
+
         for pk in pattern_keys:
             existing = await db[COLL_PATTERN_MEMORY].find_one({"pattern_key": pk}) or {}
-            sample_size = int(existing.get("sample_size") or 0) + 1
-            wins = int(existing.get("wins") or 0) + (1 if won else 0)
+
+            prev_sample_size = int(existing.get("sample_size") or 0)
+            prev_wins = int(existing.get("wins") or 0)
+            prev_voids = int(existing.get("voids") or 0)
+
+            sample_size = prev_sample_size + (0 if is_void else 1)
+            wins = prev_wins + (1 if is_win else 0)
+            voids = prev_voids + (1 if is_void else 0)
+
             total_stake = float(existing.get("total_stake") or 0.0) + float(stake)
             total_payout = float(existing.get("total_payout") or 0.0) + float(payout)
             hit_rate = round(wins / sample_size, 4) if sample_size else 0.0
@@ -424,12 +461,20 @@ async def update_pattern_memory_from_result(
 
             market_ledger = existing.get("market_ledger") or {}
             if market:
-                ml = market_ledger.get(market) or {
-                    "samples": 0, "wins": 0, "stake": 0.0, "payout": 0.0,
+                ml_existing = market_ledger.get(market) or {}
+                ml = {
+                    "samples": int(ml_existing.get("samples") or 0),
+                    "wins":    int(ml_existing.get("wins") or 0),
+                    "voids":   int(ml_existing.get("voids") or 0),
+                    "stake":   float(ml_existing.get("stake") or 0.0),
+                    "payout":  float(ml_existing.get("payout") or 0.0),
                 }
-                ml["samples"] += 1
-                if won:
-                    ml["wins"] += 1
+                if is_void:
+                    ml["voids"] += 1
+                else:
+                    ml["samples"] += 1
+                    if is_win:
+                        ml["wins"] += 1
                 ml["stake"]  += float(stake)
                 ml["payout"] += float(payout)
                 market_ledger[market] = ml
@@ -437,13 +482,14 @@ async def update_pattern_memory_from_result(
             best_market = None
             best_score = -1e9
             for mname, m in (market_ledger or {}).items():
-                if m.get("samples", 0) < 5:
+                samples = int(m.get("samples") or 0)
+                # Skip all-void/no-attempt markets and low valid samples.
+                if samples == 0 or samples < 5:
                     continue
-                m_hr = (m["wins"] / m["samples"]) if m["samples"] else 0
-                m_roi = (
-                    (m["payout"] - m["stake"]) / m["stake"]
-                    if m["stake"] > 0 else 0
-                )
+                m_hr = (int(m.get("wins") or 0) / samples) if samples else 0
+                m_stake = float(m.get("stake") or 0.0)
+                m_payout = float(m.get("payout") or 0.0)
+                m_roi = ((m_payout - m_stake) / m_stake) if m_stake > 0 else 0
                 score = m_hr * (1 + max(0.0, m_roi))
                 if score > best_score:
                     best_score = score
@@ -457,6 +503,7 @@ async def update_pattern_memory_from_result(
                     "enabled":      bool(existing.get("enabled", True)),
                     "sample_size":  sample_size,
                     "wins":         wins,
+                    "voids":        voids,
                     "hit_rate":     hit_rate,
                     "total_stake":  total_stake,
                     "total_payout": total_payout,
@@ -557,6 +604,7 @@ async def persist_football_market_result(
             stake=stake,
             won=won,
             payout=payout,
+            outcome=result,
         )
         return True
     except Exception as exc:
@@ -643,6 +691,7 @@ async def summarize_pattern_memory(
                 "wins":         int(d.get("wins") or 0),
                 "hit_rate":     d.get("hit_rate"),
                 "roi":          d.get("roi"),
+                "voids":       int(d.get("voids") or 0),
                 "best_market":  d.get("best_market"),
                 "last_updated": d.get("last_updated"),
             })

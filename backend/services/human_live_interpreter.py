@@ -967,6 +967,7 @@ def interpret_live(
     # actionable. This is the live-side companion to Phase 33's pregame
     # Over Support layer.
     game_openness = (reeval or {}).get("game_openness") if isinstance(reeval, dict) else None
+    unilateral_dominance = (reeval or {}).get("unilateral_dominance") if isinstance(reeval, dict) else None
     if suggested_market:
         # 1) BTTS guard: never recommend BTTS if both teams have already
         #    scored. We use the *current score* as truth — the openness
@@ -992,29 +993,54 @@ def interpret_live(
 
         # 2) Strict OVER gates against openness flags. Even if openness
         #    says supports_over_35=False or supports_over_25=False, the
-        #    interpreter must NOT surface those markets.
+        #    interpreter must NOT surface those markets — UNLESS the
+        #    unilateral-dominance profile says one side is crushing the
+        #    other with defensive collapse signals (Phase 35 Fix 1.5).
         if game_openness and suggested_market:
             sm_lower = (suggested_market or "").lower()
             is_over_35 = "over 3.5" in sm_lower or "más de 3.5" in sm_lower or "mas de 3.5" in sm_lower
             is_over_25 = "over 2.5" in sm_lower or "más de 2.5" in sm_lower or "mas de 2.5" in sm_lower
 
             if is_over_35 and not game_openness.get("supports_over_35"):
-                # Try the guard's fallback first.
-                try:
-                    from . import game_openness as _go_mod
-                    g = _go_mod.guard_total_recommendation(suggested_market, game_openness)
-                    if g.get("downgraded") and g.get("market"):
-                        if g.get("reason_es") and g["reason_es"] not in why:
-                            why.insert(0, g["reason_es"])
-                        suggested_market = g["market"]
-                    else:
-                        if g.get("reason_es") and g["reason_es"] not in why:
-                            why.insert(0, g["reason_es"])
+                # 2a) Unilateral-dominance escape hatch BEFORE we kill the
+                # market. If one side is dominating with defensive collapse
+                # signals, the Over high is still supported — just via the
+                # dominance route. If only dominance (no collapse), degrade
+                # to the dominant side's team total instead.
+                dom = unilateral_dominance if isinstance(unilateral_dominance, dict) else None
+                dom_handled = False
+                if dom and dom.get("supports_match_over_high"):
+                    # Keep Over 3.5 but switch the reason to dominance + collapse.
+                    if dom.get("reason_es") and dom["reason_es"] not in why:
+                        why.insert(0, dom["reason_es"])
+                    dom_handled = True
+                elif dom and dom.get("supports_team_total") and dom.get("dominant_side"):
+                    # Degrade to team total of the dominant side.
+                    dom_side = dom["dominant_side"]
+                    dom_name = home_name if dom_side == "home" else away_name
+                    suggested_market = f"Over equipo — {dom_name} (>1.5)"
+                    if dom.get("reason_es") and dom["reason_es"] not in why:
+                        why.insert(0, dom["reason_es"])
+                    dom_handled = True
+
+                if not dom_handled:
+                    # No dominance route — fall back to bilateral guard
+                    # (degrade to Over 2.5 / BTTS or kill the market).
+                    try:
+                        from . import game_openness as _go_mod
+                        g = _go_mod.guard_total_recommendation(suggested_market, game_openness)
+                        if g.get("downgraded") and g.get("market"):
+                            if g.get("reason_es") and g["reason_es"] not in why:
+                                why.insert(0, g["reason_es"])
+                            suggested_market = g["market"]
+                        else:
+                            if g.get("reason_es") and g["reason_es"] not in why:
+                                why.insert(0, g["reason_es"])
+                            suggested_market = None
+                    except Exception:
+                        if game_openness.get("reason_es") and game_openness["reason_es"] not in why:
+                            why.insert(0, game_openness["reason_es"])
                         suggested_market = None
-                except Exception:
-                    if game_openness.get("reason_es") and game_openness["reason_es"] not in why:
-                        why.insert(0, game_openness["reason_es"])
-                    suggested_market = None
 
             elif is_over_25 and not game_openness.get("supports_over_25"):
                 if game_openness.get("reason_es") and game_openness["reason_es"] not in why:
@@ -1055,8 +1081,9 @@ def interpret_live(
         "why":              why[:4],
         "narration":        narration,
         "trap":             trap,
-        # ── Expose openness so the UI can render an "Evidencia Live" chip ─
+        # ── Expose openness + dominance so the UI can render chips ──
         "game_openness":    game_openness,
+        "unilateral_dominance": unilateral_dominance,
         # ── P1 fix: structured scoreboard context for the UI badges ──
         # This lets the LiveCopilotCard render badges like "Ventaja clara"
         # / "Control por marcador" without re-deriving the state.
