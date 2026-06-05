@@ -1,4 +1,4 @@
-# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration + Live Recommendation History + Over Support Market Selection + RTL Tests + Game Openness Guard (plan.md)
+# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration + Live Recommendation History + Over Support Market Selection + RTL Tests + Game Openness Guard + Unilateral Dominance + Corner Settlement (plan.md)
 
 ## 1) Objectives
 
@@ -11,7 +11,7 @@
 - ✅ Live MLB: corregido gating y contradicciones en comparación pregame vs live.
 
 ### Objetivos en curso (Injury Intelligence Layer)
-- Implementar **Injury Intelligence Layer** para **Basketball (Phase 1)** y luego Football (Phase 2), sin tocar MLB.
+- ⏳ Implementar **Injury Intelligence Layer** para **Basketball (Phase 1)** y luego Football (Phase 2), sin tocar MLB.
 - Arquitectura: **fail-soft**, multi-source, cache-aware, sport-specific, explicable, conservadora.
 - Entregar un bloque `injury_intelligence` en el payload que ajuste (conservadoramente) confidence/fragility/market warnings **sin forzar picks**.
 - UI: `InjuryIntelligencePanel` para football/basketball (no MLB por ahora) mostrando bajas clave, severidad, impacto y freshness.
@@ -95,7 +95,7 @@
 ### Phase 4 — Comprehensive Testing & Regression ✅ COMPLETADO
 - ✅ Suite backend sin regresiones.
 
-> **Estado tests (actual):** ✅ `pytest tests/` **1100 passing**.
+> **Estado tests (actual):** ✅ `pytest tests/` **1118 passing**.
 
 ---
 
@@ -203,34 +203,76 @@
 - ✅ Expone `game_openness` en la respuesta final del reeval.
 
 ### 34.5 Integración en `human_live_interpreter.py` ✅
-- ✅ Después de fijar `suggested_market`, aplica `guard_total_recommendation()` usando `reeval.game_openness`:
-  - `downgraded=True` → reemplaza `suggested_market` + inserta `reason_es` en `why`.
-  - `not_actionable=True` → `suggested_market=None` + inserta `reason_es` en `why`.
+- ✅ Después de fijar `suggested_market`, aplica `guard_total_recommendation()` usando `reeval.game_openness`.
 - ✅ Expone `game_openness` en el output del interpreter (para UI “Evidencia Live”).
 
 ### 34.6 Tests ✅
-- ✅ `tests/test_game_openness.py` (11 tests): compute + guard + integración interpreter + fail-soft.
+- ✅ `tests/test_game_openness.py` (base).
 - ✅ Testing agent backend: **1089/1089** (100%): `/app/test_reports/iteration_65.json`.
-
-### 34.7 Validación (casos reales)
-- ✅ Francia (1.85 vs 0.50) → ratio=0.213 < 0.22 → Over 3.5 rechazado.
-- ✅ México (1.40 vs 1.10) → ratio=0.44 > 0.22 → Over 2.5/BTTS soportado.
 
 ---
 
-## 10) Next Actions (Actualizado)
+## 10) Phase 35 — P1: Tres fixes integrados ✅ COMPLETADO
+
+### Fix 1 — Game Openness: dominancia unilateral vs apertura bilateral ✅
+- ✅ Test Mexico–Serbia 5-1 **corregido**: es **UNILATERAL DOMINANCE + colapso**, no bilateral openness.
+- ✅ Renombrado:
+  - `test_mexico_serbia_supports_balanced_totals` → `test_mexico_serbia_is_unilateral_dominance_not_bilateral_openness`.
+- ✅ Aserciones ahora obligatorias (Moneyball strict):
+  - `is_one_sided=True`
+  - `is_bilateral=False`
+  - `supports_btts=False`
+  - `supports_over_35=False`
+- ✅ Nuevo helper puro: `compute_unilateral_dominance_over_profile(home_stats, away_stats, match_context=None)`:
+  - gates: `dom_xg≥1.75`, `dom_shots≥14`, `dom_sot≥5`, `opp_shots≤5`
+  - colapso (cualquiera): own goals, errors_to_shot/goal, red cards, GK saves≥4, late fatigue, score_diff≥2, set-piece flood, high_total_snowball.
+  - output:
+    - `profile_type="UNILATERAL_DOMINANCE_OVER"`
+    - `supports_team_total` (si is_dominant)
+    - `supports_match_over_high` (solo si is_dominant AND has_collapse)
+    - `reason_codes`, `reason_es`
+- ✅ 6 tests nuevos: Mexico–Serbia positive, dominance sin colapso (team total only), France–IVC no pasa gates, opponent crea demasiado (fail), fail-soft, jamás sugiere BTTS.
+
+### Fix 2 — Wire final game_openness + BTTS/Over guards en interpreter ✅
+- ✅ `human_live_interpreter.py`:
+  - si `suggested_market` es BTTS y **current_score ya es 1-1** → strip BTTS + “BTTS ya ocurrió” en `why`.
+  - si `suggested_market` es **Over 3.5** y `supports_over_35=False` → aplicar guard fallback o strip.
+  - si `suggested_market` es **Over 2.5** y `supports_over_25=False` → strip.
+  - fail-soft si `game_openness` falta.
+- ✅ 2 tests nuevos: BTTS strip cuando 1-1; Over 2.5 strip cuando unsupported.
+
+### Fix 3 — Settlement extendido para córners ✅
+- ✅ Nuevo módulo puro/fail-soft: `services/live_recommendation_settlement.py`.
+- ✅ `settle_corner_market(event, final_match_stats)`:
+  - total corners Over/Under (X.5 e integer con push)
+  - team corners Over/Under (EN/ES + detección por nombre de equipo)
+  - corner handicap simple (half/integer con void)
+  - Asian ¼ (±0.25/±0.75) → `requires_manual_settlement`
+  - missing stats → `pending` (nunca miss)
+- ✅ Dispatcher: `settle_event_extended(event, final_match_stats)` retorna None si no es corners.
+- ✅ Integración: `settle_open_live_events_for_match` prueba settlement extendido primero y cae a legacy BTTS/Over-Under.
+- ✅ 21 tests nuevos cubren todos los casos solicitados.
+
+### Tests y verificación (Phase 35) ✅
+- ✅ `pytest tests/` verde: **1118 passing**.
+- ✅ Focused tests: **96/96** verdes (game_openness + over_support + market_selection + corners + lrh).
+- ✅ Testing agent backend: **100%** (0 critical bugs): `/app/test_reports/iteration_66.json`.
+
+---
+
+## 11) Next Actions (Actualizado)
 
 ### En curso
 - (P0/P1) Injury Intelligence Basketball (Phase 5–7).
 
 ### Pendiente / futuro
 - (P2) Tests end-to-end live → settlement (con partidos live reales).
-- (P2) Settlement extendido a córners/handicap.
+- (P2) Extender settlement a más mercados (handicap asiático completo, tarjetas, etc.).
 - (P2) Retomar Injury Intelligence Football (Phase 2) cuando Basketball Phase 1 esté estable.
 
 ---
 
-## 11) Success Criteria (Actualizado)
+## 12) Success Criteria (Actualizado)
 
 ### Football Over Support en Market Selection (P1)
 - Over Support participa en market selection **sin forzar picks**.
@@ -245,10 +287,18 @@
 - Si el marcador cumple (1-1), el evento se auto-settlea como HIT.
 - Un evento HIT no se marca superseded por nuevas recomendaciones.
 
-### Game Openness Guard (P1)
+### Game Openness Guard (P1) + Dominancia unilateral (Phase 35)
 - Over 3.5 **no** se recomienda si el juego es one-sided y el total no tiene respaldo bilateral.
-- El interpreter degrada o elimina `suggested_market` para Totals cuando `guard_total_recommendation` lo marca.
+- Mexico–Serbia 5-1 se clasifica como dominancia unilateral (no bilateral openness).
+- Over 3.5 en dominancia unilateral solo se respalda vía `UNILATERAL_DOMINANCE_OVER` cuando existe colapso defensivo.
+- El interpreter bloquea BTTS si ya ocurrió (1-1) y bloquea Over 2.5/3.5 si openness no lo soporta.
 - `game_openness` queda expuesto para UI en modo explicable.
+
+### Settlement córners (Phase 35)
+- Corner settlement es determinista y auditable.
+- Missing stats no marca miss.
+- Asian ¼ routes a `requires_manual_settlement`.
+- Integrado en auto-settle sin romper BTTS/totales legacy.
 
 ### Frontend RTL
 - Timeline live tiene tests RTL.

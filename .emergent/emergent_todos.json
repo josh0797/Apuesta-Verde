@@ -1,18 +1,14 @@
 [
   {
-    "content": "Fix 1: 17 tests game_openness verde",
+    "content": "Fix 1: 17 tests game_openness + 6 unilateral dominance verde",
     "status": "completed"
   },
   {
-    "content": "Fix 2: BTTS guard + Over gates strictos (19 tests verde)",
+    "content": "Fix 2: BTTS guard + Over 2.5/3.5 gates strictos (19 tests verde)",
     "status": "completed"
   },
   {
-    "content": "Fix 3: services/live_recommendation_settlement.py creado",
-    "status": "completed"
-  },
-  {
-    "content": "Fix 3: 21 tests corners verde",
+    "content": "Fix 3: services/live_recommendation_settlement.py creado + 21 tests verde",
     "status": "completed"
   },
   {
@@ -20,11 +16,15 @@
     "status": "completed"
   },
   {
-    "content": "Run focused tests pedidos por usuario",
-    "status": "in_progress"
+    "content": "Focused tests + suite completa: 1118 verde, 96/96 focused",
+    "status": "completed"
   },
   {
-    "content": "Testing agent backend + plan.md update",
-    "status": "pending"
+    "content": "Testing agent backend: 100% / 0 critical bugs",
+    "status": "completed"
+  },
+  {
+    "content": "Plan.md actualizado",
+    "status": "completed"
   }
 ]
