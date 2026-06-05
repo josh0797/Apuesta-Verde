@@ -961,6 +961,47 @@ async def settle_open_live_events_for_match(
         cursor = db[COLLECTION].find(q)
         async for ev in cursor:
             try:
+                # ── Extended branch: corners / future markets ─────────
+                # Try the extended settlement first. If it doesn't apply
+                # (returns None), fall back to the legacy BTTS/Over-Under
+                # path. The extended branch never re-settles already-hit
+                # events because we don't even reach this code path for
+                # them (status filter above excludes hit/miss).
+                ext_settlement = None
+                try:
+                    from . import live_recommendation_settlement as _lrs
+                    fms = {
+                        # Surface anything that could carry corner stats.
+                        "corners_home":  live.get("corners_home"),
+                        "corners_away":  live.get("corners_away"),
+                        "home_corners":  live.get("home_corners"),
+                        "away_corners":  live.get("away_corners"),
+                        "stats":         live.get("stats") or match.get("stats"),
+                        "final_stats":   match.get("final_stats"),
+                        "corners":       live.get("corners") or match.get("corners"),
+                        "home_team":     match.get("home_team"),
+                        "away_team":     match.get("away_team"),
+                    }
+                    ext_settlement = _lrs.settle_event_extended(ev, fms)
+                except Exception as _exc:
+                    log.debug("extended settlement dispatch failed: %s", _exc)
+
+                if ext_settlement is not None:
+                    if ext_settlement.get("status") in ("hit", "miss", "void"):
+                        ok = await settle_live_recommendation_event(
+                            db,
+                            event_id=ev["event_id"],
+                            result=ext_settlement["status"],
+                            settled_score=_score_label(score),
+                            settled_minute=minute_int,
+                            settlement_reason=ext_settlement.get("reason_es"),
+                        )
+                        if ok:
+                            result["updated"] += 1
+                    # pending / requires_manual_settlement → leave event alone.
+                    continue
+
+                # ── Legacy BTTS / total goals settlement ──────────────
                 settlement = settle_live_event_from_score(
                     ev, score, minute=minute_int, match_ended=bool(match_ended),
                 )

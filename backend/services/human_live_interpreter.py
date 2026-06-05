@@ -967,27 +967,78 @@ def interpret_live(
     # actionable. This is the live-side companion to Phase 33's pregame
     # Over Support layer.
     game_openness = (reeval or {}).get("game_openness") if isinstance(reeval, dict) else None
-    if game_openness and suggested_market:
+    if suggested_market:
+        # 1) BTTS guard: never recommend BTTS if both teams have already
+        #    scored. We use the *current score* as truth — the openness
+        #    layer doesn't know who has scored, only who is creating.
+        sm_lower = (suggested_market or "").lower()
+        is_btts_market = (
+            "btts" in sm_lower
+            or "ambos marcan" in sm_lower
+            or "ambos equipos marcan" in sm_lower
+            or "both teams to score" in sm_lower
+        )
         try:
-            from . import game_openness as _go_mod
-            guard = _go_mod.guard_total_recommendation(suggested_market, game_openness)
-            if guard.get("downgraded"):
-                # Replace the market with the safer one and surface the
-                # explanation in the "why" list so the LiveCopilotCard shows it.
-                old_market = suggested_market
-                suggested_market = guard["market"]
-                reason_text = guard.get("reason_es") or ""
-                if reason_text and reason_text not in why:
-                    why.insert(0, reason_text)
-            elif guard.get("not_actionable"):
-                # No safe total fallback → strip the suggested market so the
-                # UI doesn't show "Mercado ofensivo: Over X.5" without backing.
-                reason_text = guard.get("reason_es") or ""
-                if reason_text and reason_text not in why:
-                    why.insert(0, reason_text)
+            cur_h = int(h_score or 0)
+            cur_a = int(a_score or 0)
+        except (TypeError, ValueError):
+            cur_h, cur_a = 0, 0
+        if is_btts_market and cur_h > 0 and cur_a > 0:
+            # Already cashed — no new BTTS entry.
+            reason_btts = "BTTS ya ocurrió: ambos equipos ya anotaron, mercado cerrado."
+            if reason_btts not in why:
+                why.insert(0, reason_btts)
+            suggested_market = None
+
+        # 2) Strict OVER gates against openness flags. Even if openness
+        #    says supports_over_35=False or supports_over_25=False, the
+        #    interpreter must NOT surface those markets.
+        if game_openness and suggested_market:
+            sm_lower = (suggested_market or "").lower()
+            is_over_35 = "over 3.5" in sm_lower or "más de 3.5" in sm_lower or "mas de 3.5" in sm_lower
+            is_over_25 = "over 2.5" in sm_lower or "más de 2.5" in sm_lower or "mas de 2.5" in sm_lower
+
+            if is_over_35 and not game_openness.get("supports_over_35"):
+                # Try the guard's fallback first.
+                try:
+                    from . import game_openness as _go_mod
+                    g = _go_mod.guard_total_recommendation(suggested_market, game_openness)
+                    if g.get("downgraded") and g.get("market"):
+                        if g.get("reason_es") and g["reason_es"] not in why:
+                            why.insert(0, g["reason_es"])
+                        suggested_market = g["market"]
+                    else:
+                        if g.get("reason_es") and g["reason_es"] not in why:
+                            why.insert(0, g["reason_es"])
+                        suggested_market = None
+                except Exception:
+                    if game_openness.get("reason_es") and game_openness["reason_es"] not in why:
+                        why.insert(0, game_openness["reason_es"])
+                    suggested_market = None
+
+            elif is_over_25 and not game_openness.get("supports_over_25"):
+                if game_openness.get("reason_es") and game_openness["reason_es"] not in why:
+                    why.insert(0, game_openness["reason_es"])
                 suggested_market = None
-        except Exception:
-            pass
+
+            else:
+                # Non-aggressive total or supported — run the regular guard
+                # for back-compat (it can still mark as not_actionable).
+                try:
+                    from . import game_openness as _go_mod
+                    guard = _go_mod.guard_total_recommendation(suggested_market, game_openness)
+                    if guard.get("downgraded"):
+                        suggested_market = guard["market"]
+                        reason_text = guard.get("reason_es") or ""
+                        if reason_text and reason_text not in why:
+                            why.insert(0, reason_text)
+                    elif guard.get("not_actionable"):
+                        reason_text = guard.get("reason_es") or ""
+                        if reason_text and reason_text not in why:
+                            why.insert(0, reason_text)
+                        suggested_market = None
+                except Exception:
+                    pass
 
     return {
         "title":            title,
