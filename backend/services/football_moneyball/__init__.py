@@ -68,6 +68,7 @@ from .football_pattern_memory import (
 )
 from .football_market_selection import (
     select_football_market,
+    is_total_line_already_hit,
 )
 from .football_feedback_loop import (
     record_football_pick_outcome,
@@ -120,6 +121,7 @@ __all__ = [
     "derive_pattern_keys",
     # Market selection
     "select_football_market",
+    "is_total_line_already_hit",
     # Feedback loop
     "record_football_pick_outcome",
     # Orchestrator facade

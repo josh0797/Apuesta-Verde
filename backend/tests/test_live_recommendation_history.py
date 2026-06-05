@@ -39,18 +39,59 @@ def fake_db():
     return db
 
 
-# Monkey-patch FakeColl.update_one if missing.
+# Monkey-patch FakeColl.update_one if missing — respect $in / $ne for
+# accurate "only-update-open" semantics in the supersede path.
 from tests.test_football_moneyball import _FakeColl  # type: ignore
 
-if not hasattr(_FakeColl, "update_one"):
-    async def _update_one(self, q, update):
-        for d in self.docs:
-            if all(d.get(k) == v for k, v in q.items() if not isinstance(v, dict)):
-                if "$set" in update:
-                    d.update(update["$set"])
-                return None
+
+def _match_query_with_ops(doc, q):
+    for k, v in q.items():
+        if isinstance(v, dict):
+            if "$in" in v:
+                if doc.get(k) not in v["$in"]:
+                    return False
+                continue
+            if "$ne" in v:
+                if doc.get(k) == v["$ne"]:
+                    return False
+                continue
+            # Unsupported op → skip (matches old behavior).
+            continue
+        if doc.get(k) != v:
+            return False
+    return True
+
+
+async def _update_one(self, q, update):
+    for d in self.docs:
+        if _match_query_with_ops(d, q):
+            if "$set" in update:
+                d.update(update["$set"])
+            return None
+    return None
+
+
+_FakeColl.update_one = _update_one  # type: ignore
+
+# Also upgrade find_one to honor $in / $ne so `_find_open_event_for_match`
+# only returns currently-open events (instead of any doc for the match).
+_orig_find_one = _FakeColl.find_one
+
+
+async def _find_one_with_ops(self, q, sort=None):
+    matches = [d for d in self.docs if _match_query_with_ops(d, q)]
+    if not matches:
         return None
-    _FakeColl.update_one = _update_one  # type: ignore
+    if sort:
+        for key, direction in reversed(sort):
+            matches.sort(
+                key=lambda d, k=key: (d.get(k) is None, d.get(k)),
+                reverse=(direction == -1),
+            )
+    return dict(matches[0])
+
+
+_FakeColl.find_one = _find_one_with_ops  # type: ignore
 
 
 # ─────────────────────────────────────────────────────────────────────

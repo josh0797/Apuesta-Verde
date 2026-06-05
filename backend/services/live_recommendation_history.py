@@ -105,6 +105,141 @@ def _market_lower(s: Any) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Market normalization (BTTS + Totals) — robust against any text source
+# ─────────────────────────────────────────────────────────────────────
+# Canonical normalized labels (machine-readable). The display labels
+# (e.g. "BTTS YES", "Ambos equipos marcan: Sí") are decoupled so the
+# UI can render in the user's locale.
+NORM_BTTS_YES   = "BTTS_YES"
+NORM_BTTS_NO    = "BTTS_NO"
+NORM_OVER_05    = "OVER_0_5"
+NORM_OVER_15    = "OVER_1_5"
+NORM_OVER_25    = "OVER_2_5"
+NORM_OVER_35    = "OVER_3_5"
+NORM_OVER_45    = "OVER_4_5"
+NORM_UNDER_15   = "UNDER_1_5"
+NORM_UNDER_25   = "UNDER_2_5"
+NORM_UNDER_35   = "UNDER_3_5"
+
+# Canonical display per normalized label (Spanish-first; selectable in UI).
+NORM_DISPLAY = {
+    NORM_BTTS_YES:  ("BTTS YES",   "Ambos equipos marcan: Sí"),
+    NORM_BTTS_NO:   ("BTTS NO",    "Ambos equipos marcan: No"),
+    NORM_OVER_05:   ("Over 0.5",   "Más de 0.5 goles"),
+    NORM_OVER_15:   ("Over 1.5",   "Más de 1.5 goles"),
+    NORM_OVER_25:   ("Over 2.5",   "Más de 2.5 goles"),
+    NORM_OVER_35:   ("Over 3.5",   "Más de 3.5 goles"),
+    NORM_OVER_45:   ("Over 4.5",   "Más de 4.5 goles"),
+    NORM_UNDER_15:  ("Under 1.5",  "Menos de 1.5 goles"),
+    NORM_UNDER_25:  ("Under 2.5",  "Menos de 2.5 goles"),
+    NORM_UNDER_35:  ("Under 3.5",  "Menos de 3.5 goles"),
+}
+
+_BTTS_YES_PATTERNS = (
+    "btts yes",
+    "btts sí",
+    "btts si",
+    "btts (sí)",
+    "btts (si)",
+    "ambos marcan",
+    "ambos equipos marcan",
+    "ambos equipos anotan",
+    "both teams score",
+    "both teams to score",
+    "btts (ambos marcan)",
+    "btts (ambos equipos marcan)",
+)
+_BTTS_NO_PATTERNS = (
+    "btts no",
+    "btts (no)",
+    "ambos no marcan",
+    "ambos equipos no marcan",
+    "both teams don't score",
+)
+# Bare "btts" mention is interpreted as BTTS YES unless an explicit
+# negative pattern is detected — this matches how the engine emits
+# "BTTS (Ambos marcan)" without an explicit "yes" token.
+
+
+def _contains_any(text: str, patterns) -> bool:
+    return any(p in text for p in patterns)
+
+
+def normalize_live_market_label(
+    market: Any = None,
+    selection: Any = None,
+    title: Any = None,
+    *extra_texts: Any,
+) -> str | None:
+    """Detect a canonical normalized market label across heterogeneous text.
+
+    Returns one of ``NORM_*`` constants or ``None`` when no supported
+    market is found. Pure & fail-soft.
+
+    Resolution order (each text is scanned):
+      1. Explicit "Over X.5" / "Under X.5" mentions (more specific first).
+      2. BTTS YES patterns (including bare "btts" w/o "no").
+      3. BTTS NO patterns.
+    """
+    chunks: list[str] = []
+    for raw in (market, selection, title, *extra_texts):
+        if raw is None:
+            continue
+        if isinstance(raw, (list, tuple, set)):
+            for r in raw:
+                if r is not None:
+                    chunks.append(_market_lower(r))
+            continue
+        chunks.append(_market_lower(raw))
+
+    combined = " | ".join(c for c in chunks if c)
+    if not combined:
+        return None
+
+    # ── Totals first (most specific) ─────────────────────────────────
+    is_over = "over" in combined or "más de" in combined or "mas de" in combined
+    is_under = "under" in combined or "menos de" in combined
+    if is_over or is_under:
+        # Find the largest line mentioned (so "Over 2.5" beats "Over 0.5"
+        # when both happen to appear in narrative).
+        line_to_norm = {
+            "0.5":  (NORM_OVER_05, None),
+            "1.5":  (NORM_OVER_15, NORM_UNDER_15),
+            "2.5":  (NORM_OVER_25, NORM_UNDER_25),
+            "3.5":  (NORM_OVER_35, NORM_UNDER_35),
+            "4.5":  (NORM_OVER_45, None),
+        }
+        # Scan the more specific markets first when both Over/Under share text.
+        for cand in ("3.5", "2.5", "1.5", "4.5", "0.5"):
+            if cand in combined:
+                over_norm, under_norm = line_to_norm[cand]
+                if is_over and over_norm:
+                    return over_norm
+                if is_under and under_norm:
+                    return under_norm
+
+    # ── BTTS NO (must be checked before bare BTTS YES) ────────────────
+    if _contains_any(combined, _BTTS_NO_PATTERNS):
+        return NORM_BTTS_NO
+
+    # ── BTTS YES (explicit patterns OR bare "btts" mention) ──────────
+    if _contains_any(combined, _BTTS_YES_PATTERNS):
+        return NORM_BTTS_YES
+    if "btts" in combined and " no" not in combined:
+        return NORM_BTTS_YES
+
+    return None
+
+
+def display_market_for(normalized: str | None) -> tuple[str | None, str | None]:
+    """Return ``(market_display, selection_display)`` for a canonical
+    normalized label, or ``(None, None)`` if unknown."""
+    if normalized and normalized in NORM_DISPLAY:
+        return NORM_DISPLAY[normalized]
+    return (None, None)
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Auto-settlement from current score (pure)
 # ─────────────────────────────────────────────────────────────────────
 def settle_live_event_from_score(
@@ -118,6 +253,12 @@ def settle_live_event_from_score(
 
     Returns ``{result: 'hit'|'miss'|'pending'|'void', minute, score, reason}``.
     Pure: never touches the DB.
+
+    The function consults ``recommendation.normalized_market`` first
+    (set by ``persist_live_recommendation_event`` or manual entry) and
+    falls back to a free-form text scan when it is missing — this
+    guarantees deterministic settling for engine-generated events while
+    staying backwards-compatible with older docs.
     """
     out: dict[str, Any] = {
         "result":            "pending",
@@ -139,10 +280,20 @@ def settle_live_event_from_score(
     total = h + a
 
     rec = event.get("recommendation") or {}
-    market = _market_lower(rec.get("market") or rec.get("suggested_market"))
+    normalized = (
+        rec.get("normalized_market")
+        or event.get("normalized_market")
+        or normalize_live_market_label(
+            rec.get("market"),
+            rec.get("selection"),
+            rec.get("title"),
+            rec.get("suggested_market"),
+            event.get("reason"),
+        )
+    )
 
     # ── BTTS YES ────────────────────────────────────────────────────
-    if "btts" in market and ("yes" in market or "sí" in market or "si" in market):
+    if normalized == NORM_BTTS_YES:
         if h > 0 and a > 0:
             out.update({
                 "result":            "hit",
@@ -156,7 +307,7 @@ def settle_live_event_from_score(
         return out
 
     # ── BTTS NO ─────────────────────────────────────────────────────
-    if "btts" in market and ("no" in market):
+    if normalized == NORM_BTTS_NO:
         if h > 0 and a > 0:
             out.update({
                 "result":            "miss",
@@ -170,18 +321,15 @@ def settle_live_event_from_score(
         return out
 
     # ── Over / Under X.5 ────────────────────────────────────────────
-    line: float | None = None
-    for cand in ("0.5", "1.5", "2.5", "3.5", "4.5", "5.5"):
-        if cand in market:
-            line = float(cand)
-            break
-    if line is None:
-        return out
-
-    is_over = "over" in market or "más de" in market or "mas de" in market
-    is_under = "under" in market or "menos de" in market
-
-    if is_over:
+    OVER_LINES = {
+        NORM_OVER_05: 0.5, NORM_OVER_15: 1.5, NORM_OVER_25: 2.5,
+        NORM_OVER_35: 3.5, NORM_OVER_45: 4.5,
+    }
+    UNDER_LINES = {
+        NORM_UNDER_15: 1.5, NORM_UNDER_25: 2.5, NORM_UNDER_35: 3.5,
+    }
+    if normalized in OVER_LINES:
+        line = OVER_LINES[normalized]
         if total > line:
             out.update({
                 "result":            "hit",
@@ -194,7 +342,8 @@ def settle_live_event_from_score(
             })
         return out
 
-    if is_under:
+    if normalized in UNDER_LINES:
+        line = UNDER_LINES[normalized]
         if total > line:
             out.update({
                 "result":            "miss",
@@ -224,6 +373,26 @@ def _should_persist_engine_event(
         isinstance(interpreter, dict)
         and (interpreter.get("suggested_market") or interpreter.get("market"))
     )
+    # ── New (Phase 33 P0 fix): persist when the offensive market shows up
+    # only in narrative fields. The engine sometimes leaves `suggested_market`
+    # empty but encodes BTTS / Over X.5 in `interpreter.reason`/`why`/
+    # `narrative` (rendered as the "Mercado ofensivo: …" badge in the UI).
+    if not has_interp_market and isinstance(interpreter, dict):
+        narrative_texts = []
+        for fld in ("reason", "why", "narrative", "context",
+                     "reason_pre", "headline", "title"):
+            v = interpreter.get(fld)
+            if isinstance(v, str):
+                narrative_texts.append(v)
+        for fld in ("reasons", "reason_codes", "reasons_list"):
+            v = interpreter.get(fld)
+            if isinstance(v, (list, tuple)):
+                for it in v:
+                    if isinstance(it, str):
+                        narrative_texts.append(it)
+        if narrative_texts and normalize_live_market_label(*narrative_texts):
+            has_interp_market = True
+
     if action and action != "PASS":
         return action in _PERSIST_ACTIONS or has_interp_market
     if state and state in _PERSIST_STATES:
@@ -311,11 +480,62 @@ async def persist_live_recommendation_event(
         rec_action = (live.get("recommended_action") or (interpreter or {}).get("recommended_action") or "").upper() or None
         rec_title = (interpreter or {}).get("title") or rec_market
 
+        # ── Detect a normalized market across all UI-visible texts ────
+        # The engine occasionally surfaces the offensive market only in
+        # narrative fields (e.g. `interpreter.reason`, `interpreter.why`,
+        # `live.reason`, `live.suggested_market_label`) while `market`
+        # itself remains "momentum local". We must still register the
+        # event because that's what the user sees as the "Mercado ofensivo:
+        # BTTS (Ambos marcan)" badge in the UI.
+        interp = interpreter or {}
+        live_reasons_text: list[str] = []
+        for fld in ("reason", "why", "narrative", "context",
+                     "reason_pre", "headline", "suggested_market_label"):
+            v = interp.get(fld)
+            if isinstance(v, str) and v:
+                live_reasons_text.append(v)
+            v = (live or {}).get(fld) if fld != "suggested_market_label" else None
+            if isinstance(v, str) and v:
+                live_reasons_text.append(v)
+        # reasons_list / reason_codes can carry BTTS as a code.
+        for fld in ("reasons", "reason_codes", "reasons_list"):
+            v = interp.get(fld)
+            if isinstance(v, (list, tuple)):
+                for it in v:
+                    if isinstance(it, str):
+                        live_reasons_text.append(it)
+
+        normalized_market = normalize_live_market_label(
+            rec_market, rec_selection, rec_title,
+            interp.get("suggested_market"),
+            interp.get("market"),
+            *live_reasons_text,
+        )
+        if normalized_market:
+            disp_market, disp_selection = display_market_for(normalized_market)
+            if disp_market:
+                # Surface the canonical market in the persisted document so
+                # the timeline and auto-settlement consume a consistent
+                # vocabulary instead of "momentum local".
+                rec_market = disp_market
+            if disp_selection and (
+                not rec_selection
+                or _market_lower(rec_selection) == _market_lower(rec_title or "")
+            ):
+                rec_selection = disp_selection
+            # Force a sensible title when the original is a status label.
+            if rec_title and _market_lower(rec_title) in (
+                "momentum local", "momentum visitante",
+                "partido abierto", "partido controlado",
+            ):
+                rec_title = disp_market or rec_title
+
         recommendation = {
             "title":               rec_title,
             "market":              rec_market,
             "selection":           rec_selection,
             "suggested_market":    (interpreter or {}).get("suggested_market"),
+            "normalized_market":   normalized_market,
             "confidence":          rec_confidence,
             "risk_level":          rec_risk,
             "recommended_action":  rec_action,
@@ -464,6 +684,14 @@ async def record_manual_live_event(
         outcome = payload.get("outcome") or {}
         result = (outcome.get("result") or "pending").lower()
 
+        # Detect normalized market across the recommendation/reason.
+        normalized_market = normalize_live_market_label(
+            rec.get("market"),
+            rec.get("selection"),
+            rec.get("title"),
+            payload.get("reason"),
+        )
+
         dedup_key = _build_dedup_key(
             user_id=user_id, sport=sport, match_id=match_id,
             minute=minute, score_label=score.get("label"),
@@ -497,6 +725,7 @@ async def record_manual_live_event(
                 "market":             rec.get("market"),
                 "selection":          rec.get("selection") or rec.get("market"),
                 "suggested_market":   rec.get("market"),
+                "normalized_market":  normalized_market,
                 "confidence":         rec.get("confidence"),
                 "risk_level":         rec.get("risk_level"),
                 "recommended_action": (rec.get("recommended_action") or "LIVE_ENTRY").upper(),
@@ -674,6 +903,87 @@ async def link_supersede_only(
         return False
 
 
+async def settle_open_live_events_for_match(
+    db,
+    *,
+    sport: str,
+    match: dict | None,
+    user_id: str | None = None,
+) -> dict:
+    """Find every open / watchlist event for ``match`` and auto-settle
+    those that resolve against the current score (BTTS / Over / Under).
+
+    Fail-soft: returns ``{"updated": 0, "errors": [...]}`` on errors.
+
+    Use cases:
+      * Called from ``/api/live/reevaluate`` right after persisting the
+        new live recommendation.
+      * Called from the timeline ``GET`` endpoint (already in place via
+        the ``auto_settle=true`` path).
+      * Could be called from a periodic sweeper / live ingest job.
+    """
+    result = {"updated": 0, "errors": []}
+    if db is None or not isinstance(match, dict):
+        return result
+    try:
+        match_id = match.get("match_id") or (match.get("fixture") or {}).get("id")
+        if not match_id:
+            return result
+        live = match.get("live_stats") if isinstance(match.get("live_stats"), dict) else {}
+        score_raw = live.get("score") if isinstance(live.get("score"), dict) else match.get("score")
+        if not isinstance(score_raw, dict):
+            score_raw = {
+                "home": live.get("goals_home") or live.get("home_goals"),
+                "away": live.get("goals_away") or live.get("away_goals"),
+            }
+        score = _normalize_score(score_raw)
+        if score.get("home") is None or score.get("away") is None:
+            return result
+
+        minute = live.get("minute") or (live.get("status") or {}).get("elapsed")
+        try:
+            minute_int = int(minute) if minute is not None else None
+        except (TypeError, ValueError):
+            minute_int = None
+        status_txt = (match.get("status") or live.get("status") or "")
+        match_ended = (
+            (isinstance(status_txt, str) and status_txt in ("FT", "AET", "PEN", "FINISHED"))
+            or (isinstance(status_txt, dict) and (status_txt.get("short") or status_txt.get("long")) in ("FT", "AET", "PEN", "FINISHED"))
+        )
+
+        q = {
+            "sport":    sport,
+            "match_id": str(match_id),
+            "status":   {"$in": ["open", "manual_recorded", "watchlist"]},
+        }
+        if user_id:
+            q["user_id"] = user_id
+        cursor = db[COLLECTION].find(q)
+        async for ev in cursor:
+            try:
+                settlement = settle_live_event_from_score(
+                    ev, score, minute=minute_int, match_ended=bool(match_ended),
+                )
+                if settlement.get("result") in ("hit", "miss", "void", "push"):
+                    ok = await settle_live_recommendation_event(
+                        db,
+                        event_id=ev["event_id"],
+                        result=settlement["result"],
+                        settled_score=settlement.get("settled_score"),
+                        settled_minute=settlement.get("settled_minute"),
+                        settlement_reason=settlement.get("settlement_reason"),
+                    )
+                    if ok:
+                        result["updated"] += 1
+            except Exception as exc:
+                result["errors"].append(str(exc)[:200])
+        return result
+    except Exception as exc:
+        log.debug("settle_open_live_events_for_match failed: %s", exc)
+        result["errors"].append(str(exc)[:200])
+        return result
+
+
 __all__ = [
     "COLLECTION",
     "ensure_live_recommendation_indexes",
@@ -683,4 +993,11 @@ __all__ = [
     "settle_live_recommendation_event",
     "query_live_recommendation_events",
     "link_supersede_only",
+    "settle_open_live_events_for_match",
+    # Market normalization API
+    "normalize_live_market_label",
+    "display_market_for",
+    "NORM_BTTS_YES", "NORM_BTTS_NO",
+    "NORM_OVER_05", "NORM_OVER_15", "NORM_OVER_25", "NORM_OVER_35", "NORM_OVER_45",
+    "NORM_UNDER_15", "NORM_UNDER_25", "NORM_UNDER_35",
 ]

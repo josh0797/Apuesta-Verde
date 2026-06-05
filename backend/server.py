@@ -758,6 +758,7 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
         if sport == "football":
             from services.live_recommendation_history import (
                 persist_live_recommendation_event,
+                settle_open_live_events_for_match,
             )
             await persist_live_recommendation_event(
                 db,
@@ -766,6 +767,11 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
                 reeval_result=result,
                 interpreter=result.get("interpreter"),
                 source="engine",
+            )
+            # Immediately try to settle any previously-open events for
+            # this match against the current score (BTTS / Over / Under).
+            await settle_open_live_events_for_match(
+                db, sport="football", match=match, user_id=user.get("id"),
             )
     except Exception as exc:
         log.debug("live recommendation history persist failed: %s", exc)

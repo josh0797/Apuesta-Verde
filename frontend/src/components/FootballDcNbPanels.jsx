@@ -329,6 +329,9 @@ export function FootballOverSupportPanel({ overSupport, testId }) {
           {recMarket === 'OVER_2_5' && (
             <Badge tone="emerald" testId="over-support-over-2-5">OVER 2.5 SUPPORTED</Badge>
           )}
+          {(recMarket === 'NONE' || overSupport.mode === 'observe_only') && (
+            <Badge tone="slate" testId="over-support-observe-only">OBSERVE ONLY</Badge>
+          )}
         </div>
       </header>
 

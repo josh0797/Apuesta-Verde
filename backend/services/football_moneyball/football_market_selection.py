@@ -44,7 +44,11 @@ MKT_DOUBLE_CHANCE_X2     = "Double Chance X2"
 MKT_DOUBLE_CHANCE_12     = "Double Chance 12"
 MKT_UNDER_25             = "Under 2.5"
 MKT_UNDER_35             = "Under 3.5"
+MKT_OVER_05              = "Over 0.5"
+MKT_OVER_15              = "Over 1.5"
 MKT_OVER_25              = "Over 2.5"
+MKT_OVER_35              = "Over 3.5"
+MKT_TEAM_TOTAL_OVER      = "Team Total Over"
 MKT_BTTS_NO              = "BTTS No"
 MKT_BTTS_YES             = "BTTS Yes"
 MKT_CORNERS_UNDER        = "Corners Under"
@@ -66,6 +70,20 @@ RC_MANUAL_ODDS_REVIEW_REQUIRED     = "FOOTBALL_MANUAL_ODDS_REVIEW_REQUIRED"
 RC_WATCHLIST_INSUFFICIENT_SUPPORT  = "FOOTBALL_WATCHLIST_INSUFFICIENT_SUPPORT"
 RC_NO_INPUTS_AVAILABLE             = "FOOTBALL_MARKET_SELECTION_NO_INPUTS"
 RC_PATTERN_MEMORY_PREFERRED_MARKET = "PATTERN_MEMORY_SUGGESTED_PROTECTED_ALT"
+
+# Over Support reason codes (Phase 33 — P1)
+RC_OVER_SUPPORT_CONFIRMED          = "OVER_SUPPORT_CONFIRMED"
+RC_OVER_1_5_PROTECTED_SELECTED     = "OVER_1_5_PROTECTED_SELECTED"
+RC_OVER_2_5_ALLOWED_LOW_FRAGILITY  = "OVER_2_5_ALLOWED_LOW_FRAGILITY"
+RC_OVER_2_5_DOWNGRADED_TO_OVER_1_5 = "OVER_2_5_DOWNGRADED_TO_OVER_1_5"
+RC_OVER_2_5_FRAGILE                = "OVER_2_5_FRAGILE"
+RC_DC_NB_UNDER_CONFLICT            = "DC_NB_UNDER_CONFLICT"
+RC_OVER_SUPPORT_WATCHLIST_ONLY     = "OVER_SUPPORT_WATCHLIST_ONLY"
+RC_OVER_LINE_ALREADY_HIT           = "OVER_LINE_ALREADY_HIT"
+RC_OVER_BLOCKED_BY_CONTROLLED      = "OVER_BLOCKED_BY_CONTROLLED_MATCH"
+RC_OVER_BLOCKED_BY_INJURY          = "OVER_BLOCKED_BY_OFFENSIVE_INJURY"
+RC_OVER_DEFENSE_INJURY_BOOST       = "OVER_SUPPORT_BOOSTED_BY_DEFENSIVE_INJURY"
+RC_OVER_LIVE_CONFIRMED             = "LIVE_OVER_CONFIRMED_BY_PRESSURE_APPLIED"
 
 
 def _safe_get(d: Any, *path, default=None):
@@ -103,6 +121,409 @@ def _is_over_market(m: str | None) -> bool:
 def _is_moneyline(m: str | None) -> bool:
     m = _market_lower(m)
     return "moneyline" in m or m in {"1", "x", "2", "home", "away", "draw"}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Over Support helpers (Phase 33 — P1)
+# ════════════════════════════════════════════════════════════════════════════
+
+# Over X.5 → minimum total goals that already make the line hit.
+_OVER_LINE_HIT_THRESHOLDS = {
+    "0.5": 1,
+    "1.5": 2,
+    "2.5": 3,
+    "3.5": 4,
+    "4.5": 5,
+    "5.5": 6,
+}
+
+
+def _extract_total_goals(source: Any) -> int | None:
+    """Best-effort extraction of the current total goals from a match doc
+    or pregame/live snapshot. Returns None if no signal is available
+    (pregame = 0 is also a valid return when score is explicitly 0-0)."""
+    if not isinstance(source, dict):
+        return None
+
+    # 1) Direct live_stats / score.
+    live = source.get("live_stats") if isinstance(source.get("live_stats"), dict) else {}
+    score = live.get("score") if isinstance(live.get("score"), dict) else source.get("score")
+    if isinstance(score, dict):
+        h, a = score.get("home"), score.get("away")
+        if h is not None and a is not None:
+            try:
+                return int(h) + int(a)
+            except (TypeError, ValueError):
+                pass
+        label = score.get("label")
+        if isinstance(label, str) and "-" in label:
+            parts = label.split("-")
+            try:
+                return int(parts[0].strip()) + int(parts[1].strip())
+            except (TypeError, ValueError):
+                pass
+
+    # 2) Flat fields.
+    for hk, ak in (
+        ("goals_home", "goals_away"),
+        ("home_goals", "away_goals"),
+        ("score_home", "score_away"),
+    ):
+        h = source.get(hk) if isinstance(source.get(hk), (int, float, str)) else live.get(hk)
+        a = source.get(ak) if isinstance(source.get(ak), (int, float, str)) else live.get(ak)
+        if h is not None and a is not None:
+            try:
+                return int(h) + int(a)
+            except (TypeError, ValueError):
+                continue
+
+    return None
+
+
+def is_total_line_already_hit(match_or_snapshot: Any, market_label: str | None) -> bool:
+    """Pure: returns True when the requested Over X.5 market has already
+    been satisfied by the current total goals on a *live* match.
+
+    Pregame matches with no observed score (or 0-0 not explicitly set)
+    return False because the market is still open.
+
+    Examples:
+        Over 1.5 with score 1-1 (total=2) → True (line already hit)
+        Over 2.5 with score 1-1 (total=2) → False
+        Over 3.5 with score 2-2 (total=4) → True
+
+    Unknown markets / non-Over labels return False (fail-soft).
+    """
+    if not market_label:
+        return False
+    m = _market_lower(market_label)
+    if not ("over" in m or "más de" in m or "mas de" in m):
+        return False
+    # Find the line embedded in the label.
+    line_str: str | None = None
+    for cand in _OVER_LINE_HIT_THRESHOLDS.keys():
+        if cand in m:
+            line_str = cand
+            break
+    if line_str is None:
+        return False
+    threshold = _OVER_LINE_HIT_THRESHOLDS[line_str]
+    total = _extract_total_goals(match_or_snapshot)
+    if total is None:
+        return False
+    return total >= threshold
+
+
+def _extract_over_support(pp: dict, snap: dict) -> dict:
+    """Locate the football_over_support payload regardless of where it
+    was attached (pick, snapshot.pregame, snapshot.live)."""
+    for src in (
+        pp.get("football_over_support"),
+        _safe_get(snap, "pregame", "football_over_support"),
+        _safe_get(snap, "live", "football_over_support"),
+        snap.get("football_over_support") if isinstance(snap, dict) else None,
+    ):
+        if isinstance(src, dict) and src.get("available"):
+            return src
+    # Fall back to ANY dict so consumers can still inspect reason_codes
+    # without crashing.
+    for src in (
+        pp.get("football_over_support"),
+        _safe_get(snap, "pregame", "football_over_support"),
+    ):
+        if isinstance(src, dict):
+            return src
+    return {}
+
+
+def _extract_totals_model(pp: dict, snap: dict) -> dict:
+    """Locate the football_totals_model payload (DC/NB)."""
+    for src in (
+        pp.get("football_totals_model"),
+        _safe_get(snap, "pregame", "football_totals_model"),
+        _safe_get(snap, "live", "football_totals_model"),
+        snap.get("football_totals_model") if isinstance(snap, dict) else None,
+    ):
+        if isinstance(src, dict) and src.get("available"):
+            return src
+    for src in (
+        pp.get("football_totals_model"),
+        _safe_get(snap, "pregame", "football_totals_model"),
+    ):
+        if isinstance(src, dict):
+            return src
+    return {}
+
+
+def _odds_available_for_over(pp: dict, snap: dict) -> bool:
+    """Best-effort odds availability check for Over markets."""
+    digest = _safe_get(snap, "pregame", "odds_digest")
+    if isinstance(digest, dict) and digest.get("available"):
+        return True
+    if pp.get("odds_snapshots"):
+        return True
+    # Also accept inline odds on the pick payload.
+    if isinstance(pp.get("recommendation"), dict):
+        if pp["recommendation"].get("odds") or pp["recommendation"].get("odds_range"):
+            return True
+    return False
+
+
+def _evaluate_over_support(
+    *,
+    pp: dict,
+    snap: dict,
+    current_market: str | None,
+    market_confidence: int,
+    fragility: int,
+    out_reasons: list[str],
+    why_not: list[str],
+) -> dict:
+    """Evaluate the Over Support layer.
+
+    Returns a dict::
+
+        {
+            "applied":            bool,
+            "recommended_market": str | None,  # overrides current_market
+            "protected_alt":      str | None,
+            "watchlist":          bool,
+            "requires_manual":    bool,
+            "confidence_delta":   int,
+            "fragility_delta":    int,
+        }
+
+    NEVER raises. NEVER forces a pick by itself: the orchestrator decides
+    how to combine this with editorial / quality / pressure layers.
+    """
+    over_support = _extract_over_support(pp, snap)
+    totals_model = _extract_totals_model(pp, snap)
+    result = {
+        "applied":            False,
+        "recommended_market": None,
+        "protected_alt":      None,
+        "watchlist":          False,
+        "requires_manual":    False,
+        "confidence_delta":   0,
+        "fragility_delta":    0,
+    }
+    if not over_support or not over_support.get("available"):
+        return result
+
+    sup_15 = _f(over_support.get("over_1_5_support_score")) or 0.0
+    sup_25 = _f(over_support.get("over_2_5_support_score")) or 0.0
+    over_fragility = _f(over_support.get("fragility_score"))
+    if over_fragility is None:
+        over_fragility = float(fragility)
+    rec_over_market = (over_support.get("recommended_over_market") or "").upper()
+    reasons = set((over_support.get("reason_codes") or []))
+
+    # DC/NB conflict signal.
+    dc_nb_under_35 = _f(_safe_get(totals_model, "under_3_5", "dc_nb")) or 0.0
+    dc_nb_conflict = dc_nb_under_35 >= 0.70
+
+    # Live confirmation flag.
+    live_confirmed = "LIVE_OVER_CONFIRMED_BY_PRESSURE" in reasons
+
+    # Hard blocks.
+    controlled = "CONTROLLED_MATCH_BLOCKS_OVER" in reasons
+    top_scorer_out = "TOP_SCORER_OUT_WEAKENS_OVER" in reasons
+    defense_injury = "INJURY_DEFENSE_WEAKENED_OVER_SUPPORT" in reasons
+
+    # Lambda / offense signals (for Over 2.5 gate).
+    lambda_total = _f(over_support.get("lambda_total"))
+    if lambda_total is None:
+        lambda_total = _f(totals_model.get("lambda_total"))
+    early_goal = _f(over_support.get("early_goal_pressure_score")) or 0.0
+
+    # Odds availability.
+    odds_ok = _odds_available_for_over(pp, snap)
+
+    # Source for "line already hit" check. Prefer match doc, then live snap.
+    match_like = pp.get("_match") or pp or {}
+
+    def _line_hit(market_label: str) -> bool:
+        return (
+            is_total_line_already_hit(match_like, market_label)
+            or is_total_line_already_hit(_safe_get(snap, "live") or {}, market_label)
+        )
+
+    current_is_over_25 = "2.5" in (current_market or "").lower() and (
+        "over" in (current_market or "").lower() or "más de" in (current_market or "").lower()
+    )
+    current_is_over_15 = "1.5" in (current_market or "").lower() and (
+        "over" in (current_market or "").lower() or "más de" in (current_market or "").lower()
+    )
+
+    # ── Hard blockers ────────────────────────────────────────────────
+    if controlled:
+        out_reasons.append(RC_OVER_BLOCKED_BY_CONTROLLED)
+        why_not.append("CONTROLLED_MATCH_BLOCKS_OVER: el contexto bloquea mercados Over.")
+        if current_is_over_25 or current_is_over_15:
+            # Strip the Over recommendation and bucket to watchlist.
+            result.update({
+                "applied":            True,
+                "recommended_market": MKT_WATCHLIST,
+                "protected_alt":      None,
+                "watchlist":          True,
+                "confidence_delta":   -8,
+                "fragility_delta":    +8,
+            })
+        return result
+
+    # ── Try Over 2.5 first (strict gates) ────────────────────────────
+    over_25_supported = (
+        sup_25 >= 80
+        and over_fragility <= 45
+        and (lambda_total is None or lambda_total >= 2.85)
+        and early_goal >= 60
+        and not dc_nb_conflict
+        and not top_scorer_out
+    )
+    if over_25_supported and not _line_hit(MKT_OVER_25):
+        # Final reality check: live confirmation OR strong pregame support.
+        out_reasons.append(RC_OVER_SUPPORT_CONFIRMED)
+        out_reasons.append(RC_OVER_2_5_ALLOWED_LOW_FRAGILITY)
+        if defense_injury:
+            out_reasons.append(RC_OVER_DEFENSE_INJURY_BOOST)
+        if live_confirmed:
+            out_reasons.append(RC_OVER_LIVE_CONFIRMED)
+        if not odds_ok:
+            result["requires_manual"] = True
+            out_reasons.append(RC_MANUAL_ODDS_REVIEW_REQUIRED)
+        result.update({
+            "applied":            True,
+            "recommended_market": MKT_OVER_25,
+            "protected_alt":      MKT_OVER_15,
+            "confidence_delta":   +5,
+            "fragility_delta":    -3,
+        })
+        return result
+
+    # ── Over 2.5 had support but failed a gate → trace + degrade ─────
+    over_25_almost = (sup_25 >= 80) and not over_25_supported
+    over_25_was_recommended = current_is_over_25
+    will_downgrade_to_15 = False
+
+    if over_25_almost or (over_25_was_recommended and (
+        over_fragility > 45 or dc_nb_conflict or top_scorer_out
+    )):
+        if over_fragility > 45:
+            out_reasons.append(RC_OVER_2_5_FRAGILE)
+        out_reasons.append(RC_OVER_2_5_DOWNGRADED_TO_OVER_1_5)
+        why_not.append("Over 2.5 con soporte pero gates fallidos: se intenta degradar a Over 1.5 o watchlist.")
+        will_downgrade_to_15 = True
+
+    if dc_nb_conflict:
+        out_reasons.append(RC_DC_NB_UNDER_CONFLICT)
+        why_not.append("DC/NB favorece Under 3.5 (≥0.70): se bloquea Over 2.5; Over 1.5 con gates estrictos.")
+
+    if top_scorer_out:
+        out_reasons.append(RC_OVER_BLOCKED_BY_INJURY)
+        why_not.append("TOP_SCORER_OUT_WEAKENS_OVER: Over 2.5 bloqueado salvo soporte extremo.")
+        will_downgrade_to_15 = True
+
+    # ── Over 1.5 evaluation ──────────────────────────────────────────
+    # Stricter thresholds when DC/NB conflicts or when degrading from
+    # a blocked Over 2.5.
+    strict_mode = dc_nb_conflict or top_scorer_out
+    if strict_mode:
+        sup_threshold = 75
+        frag_threshold = 55
+    else:
+        sup_threshold = 70
+        frag_threshold = 60
+
+    # When we're explicitly downgrading from Over 2.5, only require the
+    # numeric thresholds — `recommended_over_market` may legitimately be
+    # OVER_2_5 even though we now want Over 1.5 as the protected fallback.
+    needs_explicit_15_signal = not (will_downgrade_to_15 or dc_nb_conflict)
+
+    over_15_passes_numeric = (
+        sup_15 >= sup_threshold and over_fragility <= frag_threshold
+    )
+    over_15_has_explicit_signal = (
+        rec_over_market == "OVER_1_5"
+        or "OVER_1_5_PROTECTED" in reasons
+        or defense_injury
+    )
+    over_15_supported = over_15_passes_numeric and (
+        (not needs_explicit_15_signal) or over_15_has_explicit_signal
+    )
+
+    if over_15_supported and not _line_hit(MKT_OVER_15):
+        out_reasons.append(RC_OVER_SUPPORT_CONFIRMED)
+        out_reasons.append(RC_OVER_1_5_PROTECTED_SELECTED)
+        if defense_injury:
+            out_reasons.append(RC_OVER_DEFENSE_INJURY_BOOST)
+        if live_confirmed:
+            out_reasons.append(RC_OVER_LIVE_CONFIRMED)
+        if not odds_ok:
+            # Structural support is strong → keep in watchlist + manual.
+            out_reasons.append(RC_OVER_SUPPORT_WATCHLIST_ONLY)
+            out_reasons.append(RC_MANUAL_ODDS_REVIEW_REQUIRED)
+            result.update({
+                "applied":            True,
+                "recommended_market": MKT_OVER_15,
+                "protected_alt":      MKT_OVER_15,
+                "watchlist":          True,
+                "requires_manual":    True,
+                "confidence_delta":   -3,
+                "fragility_delta":    +2,
+            })
+            return result
+        result.update({
+            "applied":            True,
+            "recommended_market": MKT_OVER_15,
+            "protected_alt":      MKT_OVER_15,
+            "confidence_delta":   +3,
+            "fragility_delta":    -2,
+        })
+        return result
+
+    # ── If we wanted to downgrade Over 2.5 but Over 1.5 didn't pass ──
+    # we must still strip the Over 2.5 recommendation (otherwise the
+    # caller keeps an unprotected aggressive market).
+    if will_downgrade_to_15 and over_25_was_recommended:
+        out_reasons.append(RC_OVER_SUPPORT_WATCHLIST_ONLY)
+        result.update({
+            "applied":            True,
+            "recommended_market": MKT_WATCHLIST,
+            "protected_alt":      MKT_OVER_15 if sup_15 >= 60 else None,
+            "watchlist":          True,
+            "confidence_delta":   -5,
+            "fragility_delta":    +4,
+        })
+        return result
+
+    # ── Line already hit → block (return marker) ─────────────────────
+    for candidate in (MKT_OVER_25, MKT_OVER_15, MKT_OVER_05, MKT_OVER_35):
+        if _line_hit(candidate) and (candidate.lower() in (current_market or "").lower()):
+            out_reasons.append(RC_OVER_LINE_ALREADY_HIT)
+            why_not.append(f"{candidate}: la línea ya está cumplida; no se recomienda como nueva entrada.")
+            result.update({
+                "applied":            True,
+                "recommended_market": MKT_WATCHLIST,
+                "watchlist":          True,
+                "confidence_delta":   -5,
+                "fragility_delta":    +5,
+            })
+            return result
+
+    # ── Defensive injury can boost Over 1.5 even below main threshold ─
+    if defense_injury and sup_15 >= 60 and over_fragility <= 65 and not _line_hit(MKT_OVER_15):
+        out_reasons.append(RC_OVER_DEFENSE_INJURY_BOOST)
+        out_reasons.append(RC_OVER_SUPPORT_WATCHLIST_ONLY)
+        result.update({
+            "applied":            True,
+            "protected_alt":      MKT_OVER_15,
+            "watchlist":          True,
+            "confidence_delta":   0,
+            "fragility_delta":    0,
+        })
+        return result
+
+    return result
 
 
 def select_football_market(
@@ -227,6 +648,35 @@ def select_football_market(
     elif tier == UNAVAILABLE:
         # No pressure signal → no override.
         pass
+
+    # ── Over Support evaluation (Phase 33 — P1) ────────────────────────
+    # NEVER forces a pick. It can:
+    #   * promote Over 1.5 as protected alternative
+    #   * promote Over 2.5 ONLY with strict gates (support+fragility+lambda)
+    #   * downgrade Over 2.5 → Over 1.5 / watchlist when fragility blocks it
+    #   * block Over recommendations when the line is already hit
+    over_eval = _evaluate_over_support(
+        pp=pp,
+        snap=snap,
+        current_market=current_market,
+        market_confidence=market_confidence,
+        fragility=fragility,
+        out_reasons=out_reasons,
+        why_not=why_not,
+    )
+    if over_eval.get("applied"):
+        if over_eval.get("recommended_market"):
+            recommended = over_eval["recommended_market"]
+        if over_eval.get("protected_alt"):
+            # Don't overwrite a stronger Under protection already set.
+            if not (protected_alt and protected_alt in (MKT_UNDER_35, MKT_BTTS_NO)):
+                protected_alt = over_eval["protected_alt"]
+        if over_eval.get("watchlist"):
+            watchlist = True
+        if over_eval.get("requires_manual"):
+            requires_manual_odds = True
+        market_confidence = max(5, min(95, market_confidence + int(over_eval.get("confidence_delta") or 0)))
+        fragility = max(5, min(95, fragility + int(over_eval.get("fragility_delta") or 0)))
 
     # ── Moneyline vs Double Chance safety ──
     if _is_moneyline(current_market):
@@ -367,11 +817,13 @@ __all__ = [
     # Market labels
     "MKT_MONEYLINE_HOME", "MKT_MONEYLINE_AWAY", "MKT_MONEYLINE_DRAW",
     "MKT_DOUBLE_CHANCE_1X", "MKT_DOUBLE_CHANCE_X2", "MKT_DOUBLE_CHANCE_12",
-    "MKT_UNDER_25", "MKT_UNDER_35", "MKT_OVER_25",
+    "MKT_UNDER_25", "MKT_UNDER_35",
+    "MKT_OVER_05", "MKT_OVER_15", "MKT_OVER_25", "MKT_OVER_35",
+    "MKT_TEAM_TOTAL_OVER",
     "MKT_BTTS_NO", "MKT_BTTS_YES",
     "MKT_CORNERS_UNDER", "MKT_CORNERS_OVER",
     "MKT_WATCHLIST", "MKT_MANUAL_ODDS",
-    # Reason codes
+    # Reason codes (legacy)
     "RC_PROTECTED_MARKET_SELECTED",
     "RC_UNDER_3_5_PREFERRED_OVER_2_5",
     "RC_OVER_REQUIRES_EXPLICIT_SUPPORT",
@@ -385,6 +837,20 @@ __all__ = [
     "RC_WATCHLIST_INSUFFICIENT_SUPPORT",
     "RC_NO_INPUTS_AVAILABLE",
     "RC_PATTERN_MEMORY_PREFERRED_MARKET",
+    # Reason codes (Phase 33 — Over Support)
+    "RC_OVER_SUPPORT_CONFIRMED",
+    "RC_OVER_1_5_PROTECTED_SELECTED",
+    "RC_OVER_2_5_ALLOWED_LOW_FRAGILITY",
+    "RC_OVER_2_5_DOWNGRADED_TO_OVER_1_5",
+    "RC_OVER_2_5_FRAGILE",
+    "RC_DC_NB_UNDER_CONFLICT",
+    "RC_OVER_SUPPORT_WATCHLIST_ONLY",
+    "RC_OVER_LINE_ALREADY_HIT",
+    "RC_OVER_BLOCKED_BY_CONTROLLED",
+    "RC_OVER_BLOCKED_BY_INJURY",
+    "RC_OVER_DEFENSE_INJURY_BOOST",
+    "RC_OVER_LIVE_CONFIRMED",
     # API
     "select_football_market",
+    "is_total_line_already_hit",
 ]

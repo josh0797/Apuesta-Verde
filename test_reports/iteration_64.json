@@ -1,0 +1,71 @@
+{
+  "summary": "Completed comprehensive backend testing for BTTS detection fix and Over Support P1 features. All 71 tests passed (18 API tests + 19 BTTS unit tests + 16 Over Support unit tests + 18 live recommendation history unit tests). Mexico vs Serbia backfill event verified. All endpoints working correctly with no regressions.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Login with demo@valuebet.app credentials",
+    "Mexico vs Serbia backfill event verified (ID: 277b754d-7ebe-42e6-8a51-ec2893b129ad, status=hit, normalized_market=BTTS_YES, settled_score=1-1)",
+    "normalize_live_market_label detects BTTS YES from 'BTTS (Ambos marcan)', 'Ambos equipos marcan', 'Both teams to score', bare 'BTTS'",
+    "normalize_live_market_label detects BTTS NO from 'BTTS NO', 'Ambos equipos no marcan'",
+    "normalize_live_market_label detects Over 1.5, 2.5, 3.5 from 'Más de X.5 goles', 'Over X.5'",
+    "normalize_live_market_label detects Under 1.5, 2.5, 3.5 from 'Menos de X.5', 'Under X.5'",
+    "Manual event creation with BTTS detection (normalized_market=BTTS_YES)",
+    "Manual event creation with Over 2.5 detection (normalized_market=OVER_2_5)",
+    "Manual event creation with Under 3.5 detection (normalized_market=UNDER_3_5)",
+    "Manual event creation with BTTS NO detection (normalized_market=BTTS_NO)",
+    "Manual event creation with Over 1.5 detection (normalized_market=OVER_1_5)",
+    "Manual event creation with Under 2.5 detection (normalized_market=UNDER_2_5)",
+    "Manual event creation with 'Both teams to score' English detection (normalized_market=BTTS_YES)",
+    "GET /live/recommendation-events with status=hit filter (9 events found, all verified)",
+    "GET /live/recommendation-events with result=hit filter (9 events found, all verified)",
+    "GET /live/recommendation-events with source=manual filter (10 events found, all verified)",
+    "GET /live/recommendation-events with settled=true filter (10 events found, all verified)",
+    "GET /live/recommendation-events with limit=5 parameter (5 events returned)",
+    "Fail-soft with invalid payload (422 validation error returned correctly)",
+    "settle_live_event_from_score with normalized_market=BTTS_YES and score 1-1 → result=hit",
+    "settle_live_event_from_score with normalized_market=BTTS_YES and score 0-1 → result=pending",
+    "settle_live_event_from_score with normalized_market=BTTS_YES and score 0-1 match_ended=True → result=miss",
+    "settle_live_event_from_score with normalized_market=OVER_2_5 and total=3 → result=hit",
+    "settle_live_event_from_score with normalized_market=UNDER_3_5 and total=3 match_ended=True → result=hit",
+    "settle_open_live_events_for_match auto-settles BTTS YES from 0-1 to 1-1 → status=hit",
+    "Hit events remain hit when new recommendation is persisted (superseded_by_event_id link only)",
+    "is_total_line_already_hit with score 1-1 → True for Over 0.5 and Over 1.5, False for Over 2.5 and Over 3.5",
+    "select_football_market Over 1.5 selected when sup_15>=70 and fragility<=60",
+    "select_football_market Over 2.5 selected when sup_25>=80, fragility<=45, lambda_total>=2.85, early_goal>=60",
+    "select_football_market Over 2.5 downgraded when fragility>45 (RC_OVER_2_5_FRAGILE + RC_OVER_2_5_DOWNGRADED_TO_OVER_1_5)",
+    "select_football_market dc_nb_under_3_5>=0.70 blocks Over 2.5 (RC_DC_NB_UNDER_CONFLICT)",
+    "select_football_market CONTROLLED_MATCH_BLOCKS_OVER blocks any Over (RC_OVER_BLOCKED_BY_CONTROLLED)",
+    "select_football_market TOP_SCORER_OUT_WEAKENS_OVER blocks Over 2.5 (RC_OVER_BLOCKED_BY_INJURY)",
+    "select_football_market INJURY_DEFENSE_WEAKENED_OVER_SUPPORT boosts Over 1.5 (RC_OVER_DEFENSE_INJURY_BOOST)",
+    "select_football_market Over line already hit blocks recommendation (RC_OVER_LINE_ALREADY_HIT)",
+    "No regression: /picks/today?sport=football returns 200 OK",
+    "No regression: /football/pattern-memory/summary returns 200 OK",
+    "No regression: /football/totals-calibration/summary returns 200 OK"
+  ],
+  "test_report_links": [
+    "/app/tests/backend_test_btts_over_support.py",
+    "/app/backend/tests/test_btts_detection_fix.py",
+    "/app/backend/tests/test_football_over_support_market_selection.py",
+    "/app/backend/tests/test_live_recommendation_history.py"
+  ],
+  "success_percentage": {
+    "backend_api": "100% (18/18 tests passed)",
+    "btts_detection_fix_unit": "100% (19/19 tests passed)",
+    "over_support_unit": "100% (16/16 tests passed)",
+    "live_recommendation_history_unit": "100% (18/18 tests passed)",
+    "overall": "100% (71/71 tests passed)"
+  },
+  "action_item_for_main_agent": "",
+  "updated_files": [
+    "/app/tests/backend_test_btts_over_support.py"
+  ],
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false
+}

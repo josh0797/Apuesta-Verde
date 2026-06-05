@@ -1,42 +1,38 @@
 [
   {
-    "content": "Actualizar plan.md con Fase 27 Live Recommendation History",
+    "content": "BUG FIX: normalize_live_market_label + persist BTTS desde narrative + settle_open_live_events_for_match",
     "status": "completed"
   },
   {
-    "content": "Crear services/live_recommendation_history.py (write/read/dedupe/settle/lookup)",
+    "content": "Backend tests bug BTTS (19 nuevos casos verde)",
     "status": "completed"
   },
   {
-    "content": "Definir índices Mongo para live_recommendation_events en server.py startup",
+    "content": "Backfill manual Mexico vs Serbia (match_id real 1528284)",
     "status": "completed"
   },
   {
-    "content": "Endpoints POST /api/live/recommendation-events/manual y GET /api/live/recommendation-events",
+    "content": "RTL tests: FootballTotalsModelPanel (11 verde)",
     "status": "completed"
   },
   {
-    "content": "Integrar auto-save en analyst_engine.py y live_reevaluation.py (solo cambios reales)",
+    "content": "RTL tests: FootballOverSupportPanel (7 verde + OBSERVE ONLY badge añadido)",
     "status": "completed"
   },
   {
-    "content": "Implementar settle_live_event_from_score (BTTS, Over/Under)",
+    "content": "RTL tests: LiveRecommendationTimeline (9 verde)",
     "status": "completed"
   },
   {
-    "content": "Tests backend pytest para live_recommendation_history",
+    "content": "RTL tests: MatchCard gating (4 verde)",
     "status": "completed"
   },
   {
-    "content": "Backfill manual France vs Ivory Coast (lookup real -> fallback placeholder)",
-    "status": "completed"
+    "content": "Testing agent backend (BTTS fix + Over Support market selection + line-hit)",
+    "status": "in_progress"
   },
   {
-    "content": "Frontend LiveRecommendationTimeline.jsx + Manual Entry Form + integrar en MatchCard",
-    "status": "completed"
-  },
-  {
-    "content": "Testing agent backend + frontend final",
-    "status": "completed"
+    "content": "Actualizar plan.md (cerrar Fase 33 + bug fix)",
+    "status": "pending"
   }
 ]
