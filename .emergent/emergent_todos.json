@@ -12,27 +12,19 @@
     "status": "completed"
   },
   {
-    "content": "RTL tests: FootballTotalsModelPanel (11 verde)",
+    "content": "Over Support en football_market_selection (16 tests verde)",
     "status": "completed"
   },
   {
-    "content": "RTL tests: FootballOverSupportPanel (7 verde + OBSERVE ONLY badge añadido)",
+    "content": "RTL tests: 31 casos verde (Totals/Over/Timeline/Gating)",
     "status": "completed"
   },
   {
-    "content": "RTL tests: LiveRecommendationTimeline (9 verde)",
+    "content": "Testing agent backend: 71/71 (100%)",
     "status": "completed"
   },
   {
-    "content": "RTL tests: MatchCard gating (4 verde)",
+    "content": "Plan.md actualizado",
     "status": "completed"
-  },
-  {
-    "content": "Testing agent backend (BTTS fix + Over Support market selection + line-hit)",
-    "status": "in_progress"
-  },
-  {
-    "content": "Actualizar plan.md (cerrar Fase 33 + bug fix)",
-    "status": "pending"
   }
 ]

@@ -127,7 +127,7 @@
 
 ---
 
-## 8) Phase 33 — P1: Football Over Support Market Selection + RTL Tests (NUEVO)
+## 8) Phase 33 — P1: Football Over Support Market Selection + RTL Tests ✅ COMPLETADO + Bug Fix BTTS
 
 ### 33.1 Backend — Integración Over Support en `football_market_selection.py`
 **Objetivo:** permitir que Over Support influya **de forma conservadora** en la selección final, sin forzar picks.
@@ -298,15 +298,17 @@ Añadir tests (≈11 casos):
 
 ## 9) Next Actions (Actualizado)
 
-### Inmediato (P1)
-1. Implementar Phase 33.1 (Over Support → Market Selection) + helper líneas muertas.
-2. Añadir tests backend Phase 33.2.
-3. Instalar RTL stack + setupTests.js (Phase 33.3).
-4. Añadir suite RTL (Phase 33.4) + correr `craco test`.
+### Entregado en esta sesión
+- ✅ **Bug fix BTTS detection (P0):** `normalize_live_market_label` + persist desde narrative + `settle_open_live_events_for_match` + backfill Mexico vs Serbia.
+- ✅ **Phase 33.1 Backend** — Over Support en `football_market_selection.py` (16 tests verde).
+- ✅ **Phase 33.2 Backend tests** — `tests/test_btts_detection_fix.py` (19) + `tests/test_football_over_support_market_selection.py` (16).
+- ✅ **Phase 33.3 Frontend RTL** — `@testing-library/react` instalado, `setupTests.js`, 31 RTL tests verde.
+- ✅ **Testing agent backend:** 71/71 tests (100%), 0 regresiones.
 
-### Posterior (P2)
-- Extender settlement a córners/handicap si se desea.
-- Retomar Injury Intelligence Basketball (Phase 1).
+### Pendiente / futuro
+- (P2) Settlement extendido a córners/handicap.
+- (P2) Tests integration end-to-end live → settlement.
+- (P2) Retomar Injury Intelligence Basketball (Phase 1).
 
 ---
 
