@@ -959,6 +959,36 @@ def interpret_live(
             narration_parts.append(incident_note)
     narration = " ".join(p for p in narration_parts if p).strip()
 
+    # ── Game-openness guard for TOTAL markets ───────────────────────────
+    # The reeval pipeline computes a bilateral live-threat report. If the
+    # interpreter is about to recommend an aggressive total (Over 3.5)
+    # while only one side is generating xG, the guard either degrades the
+    # market to a supported line (Over 2.5 / BTTS) or marks it as not
+    # actionable. This is the live-side companion to Phase 33's pregame
+    # Over Support layer.
+    game_openness = (reeval or {}).get("game_openness") if isinstance(reeval, dict) else None
+    if game_openness and suggested_market:
+        try:
+            from . import game_openness as _go_mod
+            guard = _go_mod.guard_total_recommendation(suggested_market, game_openness)
+            if guard.get("downgraded"):
+                # Replace the market with the safer one and surface the
+                # explanation in the "why" list so the LiveCopilotCard shows it.
+                old_market = suggested_market
+                suggested_market = guard["market"]
+                reason_text = guard.get("reason_es") or ""
+                if reason_text and reason_text not in why:
+                    why.insert(0, reason_text)
+            elif guard.get("not_actionable"):
+                # No safe total fallback → strip the suggested market so the
+                # UI doesn't show "Mercado ofensivo: Over X.5" without backing.
+                reason_text = guard.get("reason_es") or ""
+                if reason_text and reason_text not in why:
+                    why.insert(0, reason_text)
+                suggested_market = None
+        except Exception:
+            pass
+
     return {
         "title":            title,
         "subtitle":         subtitle,
@@ -974,6 +1004,8 @@ def interpret_live(
         "why":              why[:4],
         "narration":        narration,
         "trap":             trap,
+        # ── Expose openness so the UI can render an "Evidencia Live" chip ─
+        "game_openness":    game_openness,
         # ── P1 fix: structured scoreboard context for the UI badges ──
         # This lets the LiveCopilotCard render badges like "Ventaja clara"
         # / "Control por marcador" without re-deriving the state.

@@ -272,6 +272,23 @@ def _reevaluate_football(
     # Siempre se llama DESPUÉS de clasificar el estado, para que el interpreter
     # reciba el reeval completo (edge, state, recommended_action) y actualice
     # el copilot card con la recomendación basada en la cuota del usuario.
+    # ── Game openness: bilateral live-threat for TOTAL markets ──────────
+    # The momentum score is directional (who wins). For Over/BTTS we need
+    # to know whether BOTH sides are threatening. Computed fail-soft and
+    # passed to the interpreter so it can pick the right total line instead
+    # of over-reaching to Over 3.5 on one-sided xG (France 1-2 IVC bug).
+    openness = None
+    try:
+        from . import game_openness as _go
+        openness = _go.compute_game_openness(
+            home_stats, away_stats,
+            minute=minute, current_total=current_total,
+        )
+    except Exception as _exc:
+        import logging
+        logging.getLogger("live_reeval").debug("game_openness failed: %s", _exc)
+        openness = None
+
     reeval_for_interpreter = {
         "live_state":           state,
         "recommended_action":   action,
@@ -284,6 +301,7 @@ def _reevaluate_football(
         "decimal_odds":         decimal_odds,
         "manual_odds_used":     (implied_source == "manual"),
         "reason":               reason,
+        "game_openness":        openness,
     }
     try:
         from . import human_live_interpreter as hli
@@ -341,6 +359,7 @@ def _reevaluate_football(
         trap=trap,
         interpreter=interpreter,
         football_live_vs_pregame=fb_live_vs_pregame,
+        game_openness=openness,
     )
 
 
@@ -530,6 +549,7 @@ def _build_response(**kwargs) -> dict:
         "trap":                kwargs.get("trap"),
         "interpreter":         kwargs.get("interpreter"),
         "football_live_vs_pregame": kwargs.get("football_live_vs_pregame"),
+        "game_openness":       kwargs.get("game_openness"),
     }
 
 

@@ -1,30 +1,26 @@
 [
   {
-    "content": "BUG FIX: normalize_live_market_label + persist BTTS desde narrative + settle_open_live_events_for_match",
+    "content": "Crear services/game_openness.py",
     "status": "completed"
   },
   {
-    "content": "Backend tests bug BTTS (19 nuevos casos verde)",
+    "content": "Integrar compute_game_openness en live_reevaluation.py (compute + pass to interpreter + expose en response)",
     "status": "completed"
   },
   {
-    "content": "Backfill manual Mexico vs Serbia (match_id real 1528284)",
+    "content": "Integrar guard_total_recommendation en human_live_interpreter.py + exponer game_openness en output",
     "status": "completed"
   },
   {
-    "content": "Over Support en football_market_selection (16 tests verde)",
+    "content": "Tests game_openness (compute + guard + interpreter integration)",
     "status": "completed"
   },
   {
-    "content": "RTL tests: 31 casos verde (Totals/Over/Timeline/Gating)",
-    "status": "completed"
+    "content": "Testing agent backend final (game_openness E2E)",
+    "status": "in_progress"
   },
   {
-    "content": "Testing agent backend: 71/71 (100%)",
-    "status": "completed"
-  },
-  {
-    "content": "Plan.md actualizado",
-    "status": "completed"
+    "content": "Plan.md update Phase 34",
+    "status": "pending"
   }
 ]
