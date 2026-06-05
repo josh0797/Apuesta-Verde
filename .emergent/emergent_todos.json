@@ -4,23 +4,23 @@
     "status": "completed"
   },
   {
-    "content": "Integrar compute_game_openness en live_reevaluation.py (compute + pass to interpreter + expose en response)",
+    "content": "Integrar compute_game_openness en live_reevaluation.py",
     "status": "completed"
   },
   {
-    "content": "Integrar guard_total_recommendation en human_live_interpreter.py + exponer game_openness en output",
+    "content": "Integrar guard_total_recommendation en human_live_interpreter.py",
     "status": "completed"
   },
   {
-    "content": "Tests game_openness (compute + guard + interpreter integration)",
+    "content": "Tests game_openness (11 verde local + integration)",
     "status": "completed"
   },
   {
-    "content": "Testing agent backend final (game_openness E2E)",
-    "status": "in_progress"
+    "content": "Testing agent backend: 1089 tests verde / 0 issues",
+    "status": "completed"
   },
   {
     "content": "Plan.md update Phase 34",
-    "status": "pending"
+    "status": "completed"
   }
 ]

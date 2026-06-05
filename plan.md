@@ -1,4 +1,4 @@
-# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration + Live Recommendation History + Over Support Market Selection + RTL Tests (plan.md)
+# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration + Live Recommendation History + Over Support Market Selection + RTL Tests + Game Openness Guard (plan.md)
 
 ## 1) Objectives
 
@@ -41,6 +41,7 @@
 - ✅ `FootballDcNbPanels.jsx`:
   - `FootballTotalsModelPanel` (Poisson vs DC/NB, ρ, NB ratio, deltas, modo defaults/empirical).
   - `FootballOverSupportPanel` (Over 1.5/2.5 support, presión 0–30, fragilidad, reason codes).
+  - ✅ Badge adicional: **OBSERVE ONLY** cuando `mode=observe_only` o `recommended_over_market` vacío.
 - ✅ Integración en `MatchCard.jsx` (gated por `sport === 'football'`, fail-soft por `available`).
 
 ### Objetivo completado (P0): Live Recommendation History / Timeline
@@ -52,13 +53,25 @@
   - UI timeline + formulario manual
   - fail-soft end-to-end
 
-### Objetivo nuevo (P1): Over Support Market Selection + Frontend RTL Tests
-- Integrar `football_over_support` en `football_market_selection.py` como señal **de soporte** para mercados Over, manteniendo **protected-market-first**.
-- Permitir **Over 1.5** como mercado protegido condicional.
-- Permitir **Over 2.5** solo en escenarios de soporte extremo y baja fragilidad, con gates por DC/NB y lesiones.
-- Bloquear recomendaciones de **líneas muertas** (ya cumplidas) para entradas live.
-- Añadir suite **frontend RTL** para timeline live y paneles football (incluye gating por deporte).
-- Añadir tests backend pytest para selección de mercado (Over Support integration).
+### Objetivo completado (P1): Over Support Market Selection + Frontend RTL Tests
+- ✅ Integrar `football_over_support` en `football_market_selection.py` como señal **de soporte** para mercados Over, manteniendo **protected-market-first**.
+- ✅ Permitir **Over 1.5** como mercado protegido condicional.
+- ✅ Permitir **Over 2.5** solo en escenarios de soporte extremo y baja fragilidad, con gates por DC/NB y lesiones.
+- ✅ Bloquear recomendaciones de **líneas muertas** (ya cumplidas) para entradas live.
+- ✅ Suite **frontend RTL** para timeline live y paneles football (incluye gating por deporte).
+- ✅ Tests backend pytest para selección de mercado (Over Support integration).
+
+### Objetivo completado (P1): Bug Fix BTTS live + auto-settle (desde “badge”/narrativa)
+- ✅ Normalización robusta de mercados (`normalize_live_market_label`) para detectar:
+  - BTTS (Ambos marcan) aunque el `title` sea “momentum local”
+  - Over/Under X.5 desde textos heterogéneos
+- ✅ Persist automático de recomendación live cuando BTTS/Over aparece en narrativa/why/reason.
+- ✅ `settle_open_live_events_for_match` invocado en `/api/live/reevaluate` para auto-settle inmediato.
+- ✅ Backfill manual México vs Serbia (`match_id=1528284`) insertado como HIT.
+
+### Objetivo completado (P1): Game Openness Guard (bilateral live-threat para TOTAL markets)
+- ✅ Nuevo guard para evitar **Over 3.5** cuando el juego es **one-sided** y el total no tiene respaldo bilateral.
+- ✅ Se usa para degradar Over 3.5 a Over 2.5 / BTTS cuando corresponde, o marcarlo como no accionable.
 
 ---
 
@@ -82,7 +95,7 @@
 ### Phase 4 — Comprehensive Testing & Regression ✅ COMPLETADO
 - ✅ Suite backend sin regresiones.
 
-> **Estado tests (actual):** ✅ `pytest tests/` **1043 passing**.
+> **Estado tests (actual):** ✅ `pytest tests/` **1100 passing**.
 
 ---
 
@@ -108,8 +121,8 @@
 ### Phase 18 — Frontend: consumo endpoint summary (opcional)
 - (Opcional) Consumir endpoints summary para dashboards agregados.
 
-### Phase 19 — Tests frontend (RTL) (P1)
-- ⏳ Ahora se eleva a **P1** y se extiende a timeline + paneles football (ver Phase 33).
+### Phase 19 — Tests frontend (RTL) ✅ COMPLETADO
+- ✅ RTL para timeline live + paneles football + gating por deporte (ver Phase 33.3–33.4).
 
 ---
 
@@ -130,189 +143,94 @@
 ## 8) Phase 33 — P1: Football Over Support Market Selection + RTL Tests ✅ COMPLETADO + Bug Fix BTTS
 
 ### 33.1 Backend — Integración Over Support en `football_market_selection.py`
-**Objetivo:** permitir que Over Support influya **de forma conservadora** en la selección final, sin forzar picks.
-
-#### 33.1.1 Inputs
-Leer en `select_football_market`:
-```python
-football_over_support = match.get("football_over_support") or pick.get("football_over_support") or {}
-football_totals_model = match.get("football_totals_model") or pick.get("football_totals_model") or {}
-```
-(En la práctica actual: `pick_payload` + `pregame_snapshot`; debe ser compatible con ambos.)
-
-#### 33.1.2 Helper “líneas muertas”
-Añadir helper puro:
-```python
-def is_total_line_already_hit(match_or_snapshot, market_label):
-    # Over 0.5 hit si total_goals>=1
-    # Over 1.5 hit si total_goals>=2
-    # Over 2.5 hit si total_goals>=3
-    # Over 3.5 hit si total_goals>=4
-```
-Regla: si ya está hit → no recomendar como nueva entrada; añadir `OVER_LINE_ALREADY_HIT`.
-
-#### 33.1.3 Over 1.5 como mercado protegido condicional
-Permitir **Over 1.5** cuando:
-- `football_over_support.available == True`
-- `over_1_5_support_score >= 70`
-- `recommended_over_market == "OVER_1_5"` **o** reason_codes contiene `OVER_1_5_PROTECTED`
-- `fragility_score <= 60`
-- NO reason `CONTROLLED_MATCH_BLOCKS_OVER`
-- odds disponibles y no demasiado bajas
-- si odds faltan pero soporte estructural es fuerte → **watchlist_manual_odds** + `MANUAL_ODDS_REVIEW_REQUIRED`
-
-Reason codes:
-- `OVER_SUPPORT_CONFIRMED`
-- `OVER_1_5_PROTECTED_SELECTED`
-- `OVER_SUPPORT_WATCHLIST_ONLY`
-- `MANUAL_ODDS_REVIEW_REQUIRED` (ya existe)
-
-#### 33.1.4 Over 2.5 como mercado agresivo
-Permitir **Over 2.5** solo si:
-- `over_2_5_support_score >= 80`
-- `fragility_score <= 45`
-- `lambda_total >= 2.85`
-- early goal pressure fuerte
-- NO `DC_NB_MODEL_PREFERS_UNDER`
-- NO `CONTROLLED_MATCH_BLOCKS_OVER`
-
-Si hay soporte pero fragilidad alta:
-- degradar a Over 1.5 (si cumple sus gates) o watchlist
-- reason `OVER_2_5_FRAGILE`, `OVER_2_5_DOWNGRADED_TO_OVER_1_5`
-
-Reason codes:
-- `OVER_2_5_ALLOWED_LOW_FRAGILITY`
-
-#### 33.1.5 Conflicto con DC/NB
-Si `football_totals_model.under_3_5.dc_nb >= 0.70` y Over Support sugiere Over:
-- **NO recomendar Over 2.5**
-- permitir Over 1.5 solo si `support >= 75` y `fragility <= 55`
-- reason `DC_NB_UNDER_CONFLICT`
-
-#### 33.1.6 Lesiones
-- `TOP_SCORER_OUT_WEAKENS_OVER`:
-  - reducir confianza Over
-  - bloquear Over 2.5 salvo soporte extremo
-  - reason `OVER_BLOCKED_BY_OFFENSIVE_INJURY`
-- `INJURY_DEFENSE_WEAKENED_OVER_SUPPORT`:
-  - puede reforzar Over 1.5 o Team Total Over
-  - nunca forzar Over 2.5 automáticamente
-
-#### 33.1.7 Live gating
-- `LIVE_OVER_CONFIRMED_BY_PRESSURE` habilita Over (1.5/2.5) **solo si la línea no está muerta**.
-- Nunca recomendar Over X.5 si ya se cumplió sin marcarlo como “ya ocurrió”.
-
-#### 33.1.8 Output canónico
-Alinear el shape actual a:
-```json
-{
-  "market_selection": {
-    "recommended_market": "Over 1.5",
-    "protected_alternative": "Over 1.5",
-    "market_confidence": 0,
-    "fragility": 0,
-    "requires_manual_odds": false,
-    "watchlist": false,
-    "why_this_market": "...",
-    "why_not_other_markets": [],
-    "reason_codes": []
-  }
-}
-```
-
+- ✅ Implementado `_evaluate_over_support` con gates conservadores.
+- ✅ Helper puro `is_total_line_already_hit(match_or_snapshot, market_label)`.
+- ✅ Conflictos DC/NB, lesiones, match controlado, odds faltantes → watchlist/manual.
 
 ### 33.2 Backend — Tests pytest (Market Selection)
-Añadir tests (≈11 casos):
-- Over 1.5 se selecciona cuando support≥70 y fragility≤60.
-- Over 2.5 solo cuando support≥80 y fragility≤45.
-- Over 2.5 se degrada a Over 1.5 si fragility alta.
-- DC/NB Under 3.5 ≥0.70 bloquea Over 2.5.
-- Controlled match bloquea Over.
-- Top scorer out bloquea/degrada Over.
-- Defensive injury refuerza Over 1.5 (sin forzar Over 2.5).
-- Score 1-1 bloquea Over 1.5 (línea ya hit).
-- Missing odds manda a manual review.
-- Missing football_over_support no rompe (fail-soft).
-- MLB/Basketball no afectados (gating por sport y/o ausencia de payload).
-
+- ✅ Añadido `tests/test_football_over_support_market_selection.py` (16 casos).
 
 ### 33.3 Frontend — Setup RTL (CRA/Jest)
-- Instalar:
+- ✅ Instalado:
   - `@testing-library/react@^16`
   - `@testing-library/jest-dom`
   - `@testing-library/user-event`
-- Añadir `src/setupTests.js`:
-  - `import '@testing-library/jest-dom';`
+  - `@testing-library/dom`
+- ✅ `src/setupTests.js` + mapeo jest para alias `@/*`.
 
+### 33.4 Frontend — RTL Tests ✅
+- ✅ `LiveRecommendationTimeline` (9 casos).
+- ✅ `FootballTotalsModelPanel` (11 casos).
+- ✅ `FootballOverSupportPanel` (7 casos).
+- ✅ MatchCard gating (4 casos).
 
-### 33.4 Frontend — RTL Tests
-
-#### A) `LiveRecommendationTimeline` (9 casos)
-- renderiza evento engine.
-- renderiza evento manual.
-- muestra HIT correctamente.
-- muestra OPEN/WATCHLIST correctamente.
-- muestra SUPERSEDED correctamente.
-- muestra empty state.
-- botón refresh llama endpoint.
-- form manual envía payload correcto.
-- endpoint fallido no rompe UI.
-
-#### B) `FootballTotalsModelPanel` (10 casos)
-- renderiza Poisson Under 3.5.
-- renderiza DC/NB Under 3.5.
-- muestra delta en puntos (no *100).
-- muestra ρ usado.
-- muestra NB ratio.
-- muestra DEFAULT CALIBRATION.
-- muestra EMPIRICAL CALIBRATION.
-- muestra NB INERT cuando ratio=1.0.
-- muestra NB ACTIVE cuando ratio>1.0.
-- no renderiza si `available=false`.
-
-#### C) `FootballOverSupportPanel` (6 casos)
-- renderiza Over 1.5 support score.
-- renderiza Over 2.5 support score.
-- muestra recommended_over_market.
-- muestra OBSERVE ONLY si sigue en observe mode (si aplica en payload).
-- muestra reason codes.
-- no renderiza si `available=false`.
-
-#### D) `MatchCard` integration (4 casos)
-- paneles aparecen solo en football.
-- paneles no aparecen en MLB.
-- paneles no aparecen en Basketball.
-- null payload no rompe.
-
-
-### 33.5 Validación y No-regresión
-- Ejecutar:
-  - `pytest tests/` (backend)
-  - `yarn test` / `craco test` (frontend)
-- Confirmar:
-  - no cambios en MLB/Basketball
-  - fail-soft: ausencia de odds/over_support/DCNB no rompe
-  - market selection sigue protected-first
+### 33.5 Validación y No-regresión ✅
+- ✅ Backend: `pytest tests/` verde.
+- ✅ Frontend: `craco test` verde.
+- ✅ Testing agent backend 71/71 (100%): `/app/test_reports/iteration_64.json`.
 
 ---
 
-## 9) Next Actions (Actualizado)
+## 9) Phase 34 — P1: Game Openness (bilateral live-threat for TOTAL markets) ✅ COMPLETADO
 
-### Entregado en esta sesión
-- ✅ **Bug fix BTTS detection (P0):** `normalize_live_market_label` + persist desde narrative + `settle_open_live_events_for_match` + backfill Mexico vs Serbia.
-- ✅ **Phase 33.1 Backend** — Over Support en `football_market_selection.py` (16 tests verde).
-- ✅ **Phase 33.2 Backend tests** — `tests/test_btts_detection_fix.py` (19) + `tests/test_football_over_support_market_selection.py` (16).
-- ✅ **Phase 33.3 Frontend RTL** — `@testing-library/react` instalado, `setupTests.js`, 31 RTL tests verde.
-- ✅ **Testing agent backend:** 71/71 tests (100%), 0 regresiones.
+### 34.1 Contexto / Bug atacado
+- Caso real: **France vs Ivory Coast** al min ~54.
+- El engine recomendaba **Over 3.5 @ 79%** porque el xG local era alto (1.85), pero el visitante aportaba muy poco (0.50).
+- `_momentum_score` ya calculaba `total = h_idx + a_idx`, pero el pipeline usaba principalmente el delta direccional y **descartaba** la señal bilateral necesaria para **Over/BTTS**.
+
+### 34.2 Backend — Nuevo módulo `services/game_openness.py` ✅
+- ✅ Módulo puro, sin IO, fail-soft.
+- ✅ `compute_game_openness(home_stats, away_stats, *, minute, current_total)`:
+  - `combined_xg`, `home_xg`, `away_xg`
+  - `one_sided_ratio` (= weaker_xg / combined)
+  - flags: `is_bilateral`, `is_one_sided`, `supports_over_35`, `supports_over_25`, `supports_btts`
+  - `recommended_total` (Over 3.5 / Over 2.5 / BTTS / None)
+  - `reason_es`
+- ✅ Umbrales calibrados con casos reales:
+  - `MIN_SIDE_XG_FOR_OPEN=0.55`
+  - `MIN_COMBINED_XG_FOR_OVER35=2.40`
+  - `MIN_COMBINED_XG_FOR_OVER25=1.60`
+  - `ONE_SIDED_RATIO_THRESHOLD=0.22`
+
+### 34.3 Backend — Guard `guard_total_recommendation()` ✅
+- ✅ `guard_total_recommendation(proposed_market, openness)`:
+  - si se propone **Over 3.5** y `supports_over_35` es falso → degrada a `recommended_total` (Over 2.5 / BTTS) o marca `not_actionable`.
+  - si se propone **Over 2.5** y `supports_over_25` es falso → `not_actionable=True`.
+
+### 34.4 Integración en `live_reevaluation.py` ✅
+- ✅ Compute openness antes del interpreter.
+- ✅ Inyecta `reeval_for_interpreter['game_openness']`.
+- ✅ Expone `game_openness` en la respuesta final del reeval.
+
+### 34.5 Integración en `human_live_interpreter.py` ✅
+- ✅ Después de fijar `suggested_market`, aplica `guard_total_recommendation()` usando `reeval.game_openness`:
+  - `downgraded=True` → reemplaza `suggested_market` + inserta `reason_es` en `why`.
+  - `not_actionable=True` → `suggested_market=None` + inserta `reason_es` en `why`.
+- ✅ Expone `game_openness` en el output del interpreter (para UI “Evidencia Live”).
+
+### 34.6 Tests ✅
+- ✅ `tests/test_game_openness.py` (11 tests): compute + guard + integración interpreter + fail-soft.
+- ✅ Testing agent backend: **1089/1089** (100%): `/app/test_reports/iteration_65.json`.
+
+### 34.7 Validación (casos reales)
+- ✅ Francia (1.85 vs 0.50) → ratio=0.213 < 0.22 → Over 3.5 rechazado.
+- ✅ México (1.40 vs 1.10) → ratio=0.44 > 0.22 → Over 2.5/BTTS soportado.
+
+---
+
+## 10) Next Actions (Actualizado)
+
+### En curso
+- (P0/P1) Injury Intelligence Basketball (Phase 5–7).
 
 ### Pendiente / futuro
+- (P2) Tests end-to-end live → settlement (con partidos live reales).
 - (P2) Settlement extendido a córners/handicap.
-- (P2) Tests integration end-to-end live → settlement.
-- (P2) Retomar Injury Intelligence Basketball (Phase 1).
+- (P2) Retomar Injury Intelligence Football (Phase 2) cuando Basketball Phase 1 esté estable.
 
 ---
 
-## 10) Success Criteria (Actualizado)
+## 11) Success Criteria (Actualizado)
 
 ### Football Over Support en Market Selection (P1)
 - Over Support participa en market selection **sin forzar picks**.
@@ -321,6 +239,16 @@ Añadir tests (≈11 casos):
 - Conflicto DC/NB (Under 3.5 alto) bloquea Over 2.5; Over 1.5 solo con gates más estrictos.
 - Líneas ya cumplidas nunca se recomiendan como nueva entrada (`OVER_LINE_ALREADY_HIT`).
 - Fail-soft total y sin regresión MLB/Basketball.
+
+### Live Recommendation History + BTTS bug fix (P0)
+- Cuando el engine sugiera BTTS en live (incluso como badge/narrativa), se guarda automáticamente.
+- Si el marcador cumple (1-1), el evento se auto-settlea como HIT.
+- Un evento HIT no se marca superseded por nuevas recomendaciones.
+
+### Game Openness Guard (P1)
+- Over 3.5 **no** se recomienda si el juego es one-sided y el total no tiene respaldo bilateral.
+- El interpreter degrada o elimina `suggested_market` para Totals cuando `guard_total_recommendation` lo marca.
+- `game_openness` queda expuesto para UI en modo explicable.
 
 ### Frontend RTL
 - Timeline live tiene tests RTL.
