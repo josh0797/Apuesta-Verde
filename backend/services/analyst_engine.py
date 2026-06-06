@@ -2593,6 +2593,51 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
                 }
             except Exception as exc_pa:
                 log.debug("basketball pattern_alignment failed: %s", exc_pa)
+
+            # ── Phase 12b.2 — Basketball Possession & Four Factors ──
+            # Builds an enriched profile based on Dean Oliver's Four
+            # Factors + pace + ORtg/DRtg/NetRtg on top of the historical
+            # block. When the raw per-game box-scores aren't available
+            # (current pipeline only exposes team-level aggregates), the
+            # layer falls back to the pace_proxy from basketball_historical
+            # — exactly the contract requested by product.
+            try:
+                from .basketball_possession_layer import (
+                    build_basketball_possession_profile,
+                )
+                possession_attached = 0
+                for bucket in buckets:
+                    for entry in bucket:
+                        if entry.get("basketball_possession_profile"):
+                            continue
+                        hp = entry.get("basketballHistoricalProfile") or {}
+                        if not hp.get("available"):
+                            continue
+                        home_block = hp.get("home") or {}
+                        away_block = hp.get("away") or {}
+                        if not home_block or not away_block:
+                            continue
+                        league_block = (hp.get("combined") or {})
+                        league_avg = league_block.get("leagueAvgTotalUsed")
+                        baseline = (
+                            {"league_total": league_avg} if league_avg else None
+                        )
+                        payload = build_basketball_possession_profile(
+                            None, None,
+                            home_fallback=home_block,
+                            away_fallback=away_block,
+                            league_baseline=baseline,
+                        )
+                        prof = payload.get("basketball_possession_profile") or {}
+                        if prof:
+                            entry["basketball_possession_profile"] = prof
+                            possession_attached += 1
+                parsed["_pipeline"]["basketball_possession_layer"] = {
+                    "entries_attached": possession_attached,
+                    "engine_version":   "basketball-possession.1",
+                }
+            except Exception as exc_pl:
+                log.debug("basketball possession layer failed: %s", exc_pl)
         except Exception as exc:
             log.warning("basketball historical annotation failed: %s", exc)
 

@@ -1,4 +1,4 @@
-# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration + Live Recommendation History + Over Support Market Selection + RTL Tests + Game Openness + Unilateral Dominance + Corner Settlement + Pattern Memory Voids (plan.md)
+# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration + Live Recommendation History + Over Support Market Selection + RTL Tests + Game Openness + Unilateral Dominance + Corner Settlement + Pattern Memory Voids + Basketball Possessions/Four Factors + Live Reeval UX (plan.md)
 
 ## 1) Objectives
 
@@ -15,6 +15,42 @@
 - Arquitectura: **fail-soft**, multi-source, cache-aware, sport-specific, explicable, conservadora.
 - Entregar un bloque `injury_intelligence` en el payload que ajuste (conservadoramente) confidence/fragility/market warnings **sin forzar picks**.
 - UI: `InjuryIntelligencePanel` para football/basketball (no MLB por ahora) mostrando bajas clave, severidad, impacto y freshness.
+
+### Objetivo nuevo (Basketball): Possessions + Pace + Efficiency + Four Factors (Fix 1)
+- 🎯 Crear una capa avanzada de basketball basada en **posesiones reales** y **Four Factors** para mejorar:
+  - Moneyline
+  - Spread
+  - Total Points
+  - Team Totals
+- Métricas objetivo (por equipo y por matchup):
+  - `possessions`, `pace`, `offensive_rating`, `defensive_rating`, `net_rating`
+  - Four Factors: `eFG%`, `TOV%`, `ORB%`, `FTr`
+  - Complementarias: `3PA rate`, `3P variance`, `free_throw_rate`, `pace_volatility`, `total_points_std`
+- Reglas de mercado (high-level):
+  - pace alto + eficiencia alta → soporte Over
+  - pace bajo + eFG bajo → soporte Under
+  - 3P variance alta → subir fragility
+  - TOV alto → bajar eficiencia ofensiva
+  - ORB alto → subir segundas oportunidades
+  - FTr alto → soporte puntos (reloj detenido)
+  - net rating edge fuerte → soporte Moneyline/Spread
+  - Spread solo si margin projection cubre la línea con colchón
+- Fail-soft estricto:
+  - si stats incompletas → fallback a `basketball_historical` y `pace_proxy`
+  - si API timeouts/rate-limit → `available:false` y el pipeline continúa
+
+### Objetivo nuevo (Live UX/Timeout): Reevaluación live con cuota manual + mercados 0.5 (Fix 2)
+- 🎯 Corregir el error de timeout UI (>20s) al reevaluar con cuota manual.
+- 🎯 Mejorar el input móvil:
+  - aceptar coma decimal (`1,20`) y punto (`1.20`) sin bloquear
+  - normalización consistente antes de enviar al backend
+- 🎯 Mejorar selección de mercados:
+  - añadir Over/Under **0.5** en fútbol
+- 🎯 Mejorar tracking de resultados:
+  - permitir registrar outcome también para selección manual cuando aplique
+- Fail-soft UI:
+  - no romper MatchCard si hay timeout
+  - no perder `manual_odds` / `manual_market` ingresados
 
 ### Objetivos completados (Football Moneyball Intelligence Layer + Pattern Memory)
 - ✅ Convertir el motor de fútbol de “análisis por partido” a un sistema tipo **Moneyball histórico** con:
@@ -67,11 +103,13 @@
   - Over/Under X.5 desde textos heterogéneos
 - ✅ Persist automático de recomendación live cuando BTTS/Over aparece en narrativa/why/reason.
 - ✅ `settle_open_live_events_for_match` invocado en `/api/live/reevaluate` para auto-settle inmediato.
-- ✅ Backfill manual México vs Serbia (`match_id=1528284`) insertado como HIT.
 
-### Objetivo completado (P1): Game Openness Guard (bilateral live-threat para TOTAL markets)
-- ✅ Nuevo guard para evitar **Over 3.5** cuando el juego es **one-sided** y el total no tiene respaldo bilateral.
-- ✅ Se usa para degradar Over 3.5 a Over 2.5 / BTTS cuando corresponde, o marcarlo como no accionable.
+### Objetivo completado (P1): Game Openness Guard + Unilateral Dominance + Corner Settlement + Pattern Memory Voids
+- ✅ Game openness (bilateral) + guard Over 3.5.
+- ✅ Dominancia unilateral computada y consultada por interpreter.
+- ✅ Corner settlement determinista.
+- ✅ Fix pattern memory: void/push/refund no incrementa sample_size.
+- ✅ Tests: `test_interpreter_dominance.py`, `test_pattern_memory_voids.py`, `test_game_openness.py`, `test_live_recommendation_corner_settlement.py`.
 
 ---
 
@@ -95,7 +133,7 @@
 ### Phase 4 — Comprehensive Testing & Regression ✅ COMPLETADO
 - ✅ Suite backend sin regresiones.
 
-> **Estado tests (actual):** ✅ `pytest tests/` **1129 passing**.
+> **Estado tests (actual):** ✅ Backend `pytest tests/` **1150 passing**. Frontend `craco test` **39 passing**.
 
 ---
 
@@ -122,7 +160,7 @@
 - (Opcional) Consumir endpoints summary para dashboards agregados.
 
 ### Phase 19 — Tests frontend (RTL) ✅ COMPLETADO
-- ✅ RTL para timeline live + paneles football + gating por deporte (ver Phase 33.3–33.4).
+- ✅ RTL para timeline live + paneles football + gating por deporte.
 
 ---
 
@@ -135,183 +173,152 @@
 
 ### Phase 27–32 ✅
 - ✅ Colección + índices + servicio + endpoints + auto-settle + UI timeline.
-- ✅ Backfill France vs Ivory Coast (match_id=1536931) insertado.
-- ✅ Testing agent backend 30/30 (100%): `/app/test_reports/iteration_63.json`.
 
 ---
 
 ## 8) Phase 33 — P1: Football Over Support Market Selection + RTL Tests ✅ COMPLETADO + Bug Fix BTTS
-
-### 33.1 Backend — Integración Over Support en `football_market_selection.py`
-- ✅ Implementado `_evaluate_over_support` con gates conservadores.
-- ✅ Helper puro `is_total_line_already_hit(match_or_snapshot, market_label)`.
-- ✅ Conflictos DC/NB, lesiones, match controlado, odds faltantes → watchlist/manual.
-
-### 33.2 Backend — Tests pytest (Market Selection)
-- ✅ Añadido `tests/test_football_over_support_market_selection.py` (16 casos).
-
-### 33.3 Frontend — Setup RTL (CRA/Jest)
-- ✅ Instalado:
-  - `@testing-library/react@^16`
-  - `@testing-library/jest-dom`
-  - `@testing-library/user-event`
-  - `@testing-library/dom`
-- ✅ `src/setupTests.js` + mapeo jest para alias `@/*`.
-
-### 33.4 Frontend — RTL Tests ✅
-- ✅ `LiveRecommendationTimeline` (9 casos).
-- ✅ `FootballTotalsModelPanel` (11 casos).
-- ✅ `FootballOverSupportPanel` (7 casos).
-- ✅ MatchCard gating (4 casos).
-
-### 33.5 Validación y No-regresión ✅
-- ✅ Backend: `pytest tests/` verde.
-- ✅ Frontend: `craco test` verde.
-- ✅ Testing agent backend 71/71 (100%): `/app/test_reports/iteration_64.json`.
+(33.1–33.5 completadas.)
 
 ---
 
 ## 9) Phase 34 — P1: Game Openness (bilateral live-threat for TOTAL markets) ✅ COMPLETADO
-
-### 34.1 Contexto / Bug atacado
-- Caso real: **France vs Ivory Coast** al min ~54.
-- El engine recomendaba **Over 3.5 @ 79%** porque el xG local era alto (1.85), pero el visitante aportaba muy poco.
-- `_momentum_score` ya calculaba el total, pero el pipeline **descartaba** la señal bilateral necesaria para **Over/BTTS**.
-
-### 34.2 Backend — Nuevo módulo `services/game_openness.py` ✅
-- ✅ `compute_game_openness(home_stats, away_stats, *, minute, current_total)`:
-  - `combined_xg`, `home_xg`, `away_xg`
-  - `one_sided_ratio` (= weaker_xg / combined)
-  - flags: `is_bilateral`, `is_one_sided`, `supports_over_35`, `supports_over_25`, `supports_btts`
-  - `recommended_total` (Over 3.5 / Over 2.5 / BTTS / None)
-  - `reason_es`
-- ✅ Umbrales calibrados:
-  - `MIN_SIDE_XG_FOR_OPEN=0.55`
-  - `MIN_COMBINED_XG_FOR_OVER35=2.40`
-  - `MIN_COMBINED_XG_FOR_OVER25=1.60`
-  - `ONE_SIDED_RATIO_THRESHOLD=0.22`
-
-### 34.3 Backend — Guard `guard_total_recommendation()` ✅
-- ✅ Si se propone Over 3.5 sin respaldo → degrada a Over 2.5/BTTS o `not_actionable`.
-
-### 34.4 Integración en `live_reevaluation.py` ✅
-- ✅ Compute openness antes del interpreter.
-- ✅ Inyecta `reeval_for_interpreter['game_openness']`.
-- ✅ Expone `game_openness` en la respuesta final del reeval.
-
-### 34.5 Integración en `human_live_interpreter.py` ✅
-- ✅ Aplica guard antes de surfacing de totales agresivos.
-- ✅ Expone `game_openness` en output del interpreter.
-
-### 34.6 Tests ✅
-- ✅ `tests/test_game_openness.py` (base).
-- ✅ Testing agent backend: **1089/1089** (100%): `/app/test_reports/iteration_65.json`.
+(34.1–34.6 completadas.)
 
 ---
 
 ## 10) Phase 35 — P1: Tres fixes integrados ✅ COMPLETADO
-
-### Fix 1 — Dominancia unilateral vs apertura bilateral ✅
-- ✅ Corrección del fixture Mexico–Serbia: no usarlo como señal bilateral.
-- ✅ Nuevo helper `compute_unilateral_dominance_over_profile(...)` + tests.
-
-### Fix 2 — Guards estrictos ✅
-- ✅ `human_live_interpreter.py`: BTTS strip si ya ocurrió (1-1); Over 2.5/3.5 strip si openness no lo soporta.
-
-### Fix 3 — Corner settlement ✅
-- ✅ `services/live_recommendation_settlement.py` + 21 tests.
-- ✅ Integración en `settle_open_live_events_for_match`.
+(Dominancia unilateral vs apertura bilateral, guards estrictos, corner settlement.)
 
 ---
 
 ## 11) Phase 36 — P1: Tres cambios integrados desde archivos subidos ✅ COMPLETADO
-
-### Cambio 1 — `live_reevaluation.py`: unilateral_dominance en payload ✅
-- ✅ Junto al `compute_game_openness()` ahora se computa **`compute_unilateral_dominance_over_profile()`**.
-- ✅ Se pasa al interpreter:
-  - `reeval_for_interpreter['unilateral_dominance']`.
-- ✅ Se expone en respuesta API:
-  - `unilateral_dominance` top-level.
-- ✅ Context usado:
-  - `{ minute, score_diff=abs(score_diff), current_total }`.
-
-### Cambio 2 — `human_live_interpreter.py`: dominancia antes de anular Over 3.5 ✅
-- ✅ Antes de anular Over 3.5 por `openness.supports_over_35=False`, consulta `unilateral_dominance`.
-- ✅ Comportamiento:
-  - si `supports_match_over_high=True` → **mantiene Over 3.5** y añade `dominance.reason_es` a `why`.
-  - si `supports_team_total=True` (sin colapso) → **degrada** a `Over equipo — {dom_name} (>1.5)`.
-  - si dominancia no aplica → fallback al guard genérico (downgrade o strip).
-- ✅ `unilateral_dominance` se expone también en el output del interpreter.
-
-### Cambio 3 — `football_intelligence_warehouse.update_pattern_memory_from_result`: voids/push/refund ✅
-- ✅ Se añadió `outcome: str | None` keyword.
-- ✅ Si `outcome ∈ {void, push, refund, refunded, cancelled, canceled, no_action}`:
-  - incrementa `voids`
-  - **NO** incrementa `sample_size`
-  - **NO** suma wins/losses
-  - ROI se mantiene neutro si payout=stake.
-- ✅ Se añade/propaga `voids: int` a:
-  - `market_ledger`
-  - `pattern_memory` doc
-- ✅ Evita inflar denominadores: ejemplo 6W/4L/5V → hit_rate=60% (10 intentos válidos) y no 40%.
-
-### Tests (Phase 36) ✅
-- ✅ Reescritos los tests aportados por el usuario para imports normales:
-  - `tests/test_interpreter_dominance.py` (4 casos)
-  - `tests/test_pattern_memory_voids.py` (7 casos)
-- ✅ Suite global: **1129 tests passing** (1118 → 1129, sin regresiones).
-- ✅ Focused tests: **85/85** verdes (dominance + voids + openness + settlement + selection + lrh).
+(unilateral_dominance payload, interpreter consulta dominancia, pattern memory voids.)
 
 ---
 
-## 12) Next Actions (Actualizado)
+## 12) Phase 37 — Fix 1: Basketball Possession & Four Factors Layer ✅ COMPLETADO
 
-### En curso
-- (P0/P1) Injury Intelligence Basketball (Phase 5–7).
+### 37.1 Backend — Nuevo módulo `services/basketball_possession_layer.py`
+- Crear funciones puras (testeables):
+  - `estimate_possessions(game_stats)`
+  - `calculate_four_factors(team_stats)`
+  - `calculate_team_efficiency_profile(team_games)`
+  - `calculate_matchup_possession_context(home_profile, away_profile)`
+  - `derive_basketball_market_adjustments(matchup_context)`
+- Contrato de salida (shape estable para UI/pipeline):
+  - `basketball_possession_profile.available`
+  - bloques `home`, `away`
+  - bloque `matchup`:
+    - `projected_possessions`, `projected_total_points`, `projected_margin`
+    - `pace_environment`, `efficiency_edge`, `total_points_lean`, `spread_support`
+    - `fragility_score`, `reason_codes`, `summary`
+
+### 37.2 Reglas + reason codes
+- Implementar reason codes requeridos:
+  - `HIGH_PACE_ENVIRONMENT`, `LOW_PACE_ENVIRONMENT`
+  - `STRONG_OFFENSIVE_RATING_EDGE`, `STRONG_DEFENSIVE_RATING_EDGE`
+  - `THREE_POINT_VARIANCE_RISK`, `TURNOVER_RISK`, `OFFENSIVE_REBOUND_EDGE`, `FREE_THROW_RATE_SUPPORT`
+  - `SPREAD_MARGIN_SUPPORTED`, `MONEYLINE_SAFER_THAN_SPREAD`
+  - `TOTAL_OVER_SUPPORTED`, `TOTAL_UNDER_SUPPORTED`
+  - `DATA_INSUFFICIENT_FALLBACK`
+
+### 37.3 Integraciones (sin romper MLB/football)
+- `historical_enrichment/basketball_historical.py`:
+  - exponer/usar `pace_proxy` como fallback.
+  - (opcional) enriquecer `total_points_std` desde histórico (ya hay `statistics`).
+- `basketball_pace_layer.py`:
+  - consumir `basketball_possession_profile` si está disponible como reemplazo/upgrade de proxies.
+- `basketball_trap_signals.py`:
+  - añadir fragility adicional por `THREE_POINT_VARIANCE_RISK` y/o `pace_volatility` cuando exista.
+- `basketball_intelligence_warehouse.py`:
+  - permitir persistir snapshot del nuevo bloque (sin hacerlo obligatorio).
+- `analyst_engine.py`:
+  - Phase 10b/10x: prefetch (best-effort) y attach al match entry.
+
+### 37.4 Fail-soft + performance
+- Si faltan stats (o API rate limit):
+  - `available:false`
+  - `reason_codes=['DATA_INSUFFICIENT_FALLBACK']`
+  - no abortar pipeline.
+- Evitar I/O dentro de funciones puras: separar “fetch” (si aplica) de “compute”.
+
+### 37.5 Tests (pytest)
+- Nuevo módulo: `backend/tests/test_basketball_possession_layer.py` con:
+  - estimación de posesiones (casos típicos + missing keys)
+  - cálculo four factors (eFG/TOV/ORB/FTr)
+  - derivación de leans (Over/Under) por reglas
+  - fragility + reason codes (3P variance, sample insufficiente)
+- Regresión: ejecutar `pytest` completo.
+
+---
+
+## 13) Phase 38 — Fix 2: LiveReevalPanel UX/timeout + mercados 0.5 + tracking manual ✅ COMPLETADO
+
+### 38.1 Frontend — Timeout y manejo fail-soft
+- Aumentar timeout en `LiveReevalPanel.jsx` para `/api/live/reevaluate` cuando `useManual=true`.
+  - recomendado: 45s–60s (mantener 20s para path normal si queremos).
+- No “romper” tarjeta:
+  - mantener `manualOdds` y `manualMarket` intactos tras error.
+  - mensaje más útil:
+    - “Estamos recalculando con tu cuota manual. Si tarda demasiado, puedes intentar de nuevo sin perder los datos ingresados.”
+- Mantener spinner/estado de carga visible.
+
+### 38.2 Frontend — Normalización coma decimal (helper)
+- Extraer helper en `frontend/src/lib/normalizeDecimalOdds.js` (o similar):
+  - aceptar `1.20`, `1,20`, `1.2`, `1,2`
+  - normalizar `,`→`.` y validar `>1.01`.
+- Reusar helper en `LiveReevalPanel` (y en cualquier otro input de odds manual).
+
+### 38.3 Frontend — Mercados Over/Under 0.5
+- Añadir a `DEFAULT_MARKETS_FOOTBALL`:
+  - `Under 0.5`, `Over 0.5`
+- Verificar que el backend parser de `manual_market` ya soporta 0.5 (si no, ajustar el parser en backend de forma fail-soft).
+
+### 38.4 Frontend — Registrar resultado para selección manual
+- Extender UI para que el tracking use:
+  - `result.*` cuando existe
+  - o `manual_market`/`manual_odds` como fallback si no hay recomendación clara.
+- Mantener compatibilidad con `/api/picks/track` actual.
+
+### 38.5 Tests (frontend)
+- Añadir RTL tests:
+  - timeout: mock de request que tarda más de 20s y validar mensaje + persistencia de inputs
+  - coma decimal: ingresar `1,35` y validar body enviado con `1.35`
+  - mercados 0.5: dropdown contiene Over/Under 0.5
+
+---
+
+## 14) Next Actions (Actualizado)
+
+### En curso (prioridad)
+- (P0/P1) Phase 37: Basketball Possession & Four Factors Layer.
+- (P0/P1) Phase 38: LiveReevalPanel UX/timeout + coma decimal + mercados 0.5 + tracking manual.
 
 ### Pendiente / futuro
+- (P1) Injury Intelligence Basketball (Phase 5–7) — retomar tras estabilizar Phase 37.
 - (P2) Tests end-to-end live → settlement (con partidos live reales).
 - (P2) Extender settlement a más mercados (handicap asiático completo, tarjetas, etc.).
-- (P2) Retomar Injury Intelligence Football (Phase 2) cuando Basketball Phase 1 esté estable.
+- (P2) Injury Intelligence Football (Phase 2) cuando Basketball Phase 1 esté estable.
 
 ---
 
-## 13) Success Criteria (Actualizado)
+## 15) Success Criteria (Actualizado)
 
-### Football Over Support en Market Selection (P1)
-- Over Support participa en market selection **sin forzar picks**.
-- Over 1.5 puede salir como **protected** condicional.
-- Over 2.5 solo con soporte fuerte y baja fragilidad; degradación/warning cuando aplique.
-- Conflicto DC/NB (Under 3.5 alto) bloquea Over 2.5; Over 1.5 solo con gates más estrictos.
-- Líneas ya cumplidas nunca se recomiendan como nueva entrada (`OVER_LINE_ALREADY_HIT`).
-- Fail-soft total y sin regresión MLB/Basketball.
+### Basketball Possession & Four Factors (Phase 37)
+- El payload incluye `basketball_possession_profile` con `available:true` cuando hay datos.
+- Reason codes correctos y consistentes con reglas.
+- Mejora de explicabilidad: summary en español y `fragility_score` coherente.
+- Fallback: si faltan datos, `available:false` y no se rompe el pipeline.
+- No-regresión: MLB y football permanecen intactos.
 
-### Live Recommendation History + BTTS bug fix (P0)
-- Cuando el engine sugiera BTTS en live (incluso como badge/narrativa), se guarda automáticamente.
-- Si el marcador cumple (1-1), el evento se auto-settlea como HIT.
-- Un evento HIT no se marca superseded por nuevas recomendaciones.
+### Live reevaluación con cuota manual (Phase 38)
+- No hay timeout UI fijo a 20s que bloquee el flujo (al menos para manual odds).
+- Mensaje útil y posibilidad de reintentar sin perder inputs.
+- Input acepta coma decimal en móvil y se normaliza correctamente.
+- Dropdown incluye Over/Under 0.5.
+- Tracking: se puede registrar outcome de recomendación o selección manual.
 
-### Game Openness + Unilateral Dominance (Phase 34–36)
-- Over 3.5 **no** se recomienda por xG unilateral sin respaldo.
-- Dominancia unilateral se usa para:
-  - permitir Over 3.5 solo con colapso (supports_match_over_high)
-  - o degradar a team total si hay dominancia sin colapso.
-- El interpreter bloquea:
-  - BTTS si ya ocurrió (1-1)
-  - Over 2.5/3.5 si openness no lo soporta (salvo escape hatch dominance).
-- `game_openness` y `unilateral_dominance` quedan expuestos para UI y auditoría.
-
-### Pattern memory: voids/push/refund
-- Voids/push/refund/cancelled **no** inflan `sample_size` ni degradan `hit_rate`.
-- `voids` queda persistido y visible en pattern_memory y market_ledger.
-
-### Settlement córners
-- Corner settlement es determinista y auditable.
-- Missing stats no marca miss.
-- Asian ¼ routes a `requires_manual_settlement`.
-- Integrado en auto-settle sin romper BTTS/totales legacy.
-
-### Frontend RTL
-- Timeline live tiene tests RTL.
-- Paneles football (DC/NB + Over Support) tienen tests RTL.
-- MatchCard gating por deporte validado.
+### Global
+- ✅ Backend: `pytest` completo en verde.
+- ✅ Frontend: `craco test` en verde.
+- Fail-soft mantenido en todas las rutas.

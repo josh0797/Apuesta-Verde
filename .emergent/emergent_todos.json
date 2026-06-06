@@ -1,22 +1,26 @@
 [
   {
-    "content": "Cambio 1: unilateral_dominance computado y surfaced en reeval payload",
+    "content": "Crear basketball_possession_layer.py con funciones puras",
     "status": "completed"
   },
   {
-    "content": "Cambio 2: interpreter consulta dominancia antes de anular Over 3.5 (keep / degrade to team total / strip)",
+    "content": "Crear tests pytest para basketball_possession_layer",
     "status": "completed"
   },
   {
-    "content": "Cambio 3: update_pattern_memory_from_result acepta outcome y no infla sample_size con voids",
+    "content": "Integrar basketball_possession_layer en analyst_engine (Phase 10b extension) y exponer en payload — fail-soft",
     "status": "completed"
   },
   {
-    "content": "Tests reescritos (dominance 4 + voids 7) + suite 1129 verde",
+    "content": "LiveReevalPanel: aumentar timeout para manual odds + mejorar mensaje + helper normalizeDecimalOdds + añadir Over/Under 0.5",
     "status": "completed"
   },
   {
-    "content": "Plan.md actualizado",
+    "content": "Tests RTL frontend para LiveReevalPanel (timeout, coma decimal, mercados 0.5)",
+    "status": "completed"
+  },
+  {
+    "content": "Correr pytest completo + craco test para regresiones",
     "status": "completed"
   }
 ]

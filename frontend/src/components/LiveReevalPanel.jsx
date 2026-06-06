@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
+import { normalizeDecimalOdds, isValidBookieOdds } from '@/lib/normalizeDecimalOdds';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -52,8 +53,8 @@ const RISK_BG = {
 };
 
 const DEFAULT_MARKETS_FOOTBALL = [
-  'Under 1.5', 'Under 2.5', 'Under 3.5',
-  'Over 1.5',  'Over 2.5',  'Over 3.5',
+  'Under 0.5', 'Under 1.5', 'Under 2.5', 'Under 3.5',
+  'Over 0.5',  'Over 1.5',  'Over 2.5',  'Over 3.5',
   'Resultado Final: home', 'Resultado Final: draw', 'Resultado Final: away',
 ];
 
@@ -108,23 +109,34 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
 
   const matchId = match.match_id;
 
+  // P5.1 — Re-eval timeouts:
+  // - Path normal (sin cuota manual): 20s (rápido, basta para refresco live).
+  // - Path con cuota manual: 45s. El backend a veces tarda más cuando tiene
+  //   que recargar API-Sports y re-correr el interpreter contra la cuota
+  //   exacta. Subir el timeout aquí evita el falso negativo "tardó >20s"
+  //   sin perder el feedback al usuario (spinner activo + mensaje útil al
+  //   final si efectivamente se cuelga).
+  const REEVAL_TIMEOUT_NORMAL_MS = 20000;
+  const REEVAL_TIMEOUT_MANUAL_MS = 45000;
+
   const run = async () => {
     setLoading(true);
     try {
       const body = { match_id: matchId, sport, refresh: true };
+      let timeoutMs = REEVAL_TIMEOUT_NORMAL_MS;
       if (useManual) {
-        // Accept both "1.85" and "1,85" — sanitize then parse.
-        const raw = String(manualOdds || '').trim().replace(',', '.');
-        const odds = parseFloat(raw);
-        if (!odds || isNaN(odds) || odds <= 1.01) {
+        // Accept both "1.85" and "1,85" via the shared helper.
+        const odds = normalizeDecimalOdds(manualOdds);
+        if (!isValidBookieOdds(manualOdds) || odds === null) {
           toast.error(lang === 'en' ? 'Enter decimal odds > 1.01' : 'Ingresa cuota decimal > 1.01');
           setLoading(false);
           return;
         }
         body.manual_odds = odds;
         body.manual_market = manualMarket;
+        timeoutMs = REEVAL_TIMEOUT_MANUAL_MS;
       }
-      const r = await api.post('/live/reevaluate', body, { timeout: 20000 });
+      const r = await api.post('/live/reevaluate', body, { timeout: timeoutMs });
       setResult(r.data?.result || null);
       // Reset tracking state every time we re-run.
       setTrackedOutcome(null);
@@ -141,12 +153,20 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
       const raw = err?.response?.data?.detail;
       let detail;
       if (err?.code === 'ECONNABORTED' || /timeout/i.test(err?.message || '')) {
-        // Bug-fix (P4.1): in production the reeval call can hang behind
-        // an API-Sports rate-limit retry. Surface a clear timeout instead
-        // of an infinite spinner.
-        detail = lang === 'en'
-          ? 'Re-evaluation timed out (>20s). Try again in a moment.'
-          : 'La reevaluación tardó demasiado (>20s). Intenta nuevamente en unos segundos.';
+        // Bug-fix (P4.1 → P5.1): in production the reeval call can hang
+        // behind an API-Sports rate-limit retry. Surface a clear timeout
+        // message and explicitly tell the user their inputs are PRESERVED
+        // so they can retry without losing their cuota/mercado.
+        const usedManual = useManual;
+        if (usedManual) {
+          detail = lang === 'en'
+            ? 'Re-evaluation took longer than expected. Your odds and market are preserved — try again in a few seconds.'
+            : 'Estamos recalculando con tu cuota manual. Si tarda demasiado, puedes intentar de nuevo sin perder los datos ingresados.';
+        } else {
+          detail = lang === 'en'
+            ? 'Re-evaluation timed out. Try again in a moment.'
+            : 'La reevaluación tardó más de lo esperado. Intenta nuevamente en unos segundos.';
+        }
       } else if (raw && typeof raw === 'object') {
         detail = raw.message || raw.error || JSON.stringify(raw);
       } else {
@@ -409,7 +429,7 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
           {result.live_snapshot && (
             <div className="text-[10px] text-muted-foreground/70 flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
               {result.live_snapshot.minute != null && (
-                <span>{lang === 'en' ? 'Min' : 'Min'}. {result.live_snapshot.minute}'</span>
+                <span>{lang === 'en' ? 'Min' : 'Min'}. {result.live_snapshot.minute}&apos;</span>
               )}
               {result.live_snapshot.score && (
                 <span>
