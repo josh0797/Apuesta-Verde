@@ -303,6 +303,19 @@ async def matches_live(refresh: bool = False, sport: Optional[str] = None, user:
                         alt = ums.scan_protected_alternatives(m, live_analysis=m.get("_live_analysis"))
                     except Exception:
                         alt = None
+                    # Fix 2 — preload the friendly-DNB learned pattern so the
+                    # interpreter can amplify/dampen its hard rule. Fail-soft.
+                    try:
+                        from services.friendly_dnb_rule import is_international_friendly
+                        if is_international_friendly(m):
+                            from services.football_moneyball.football_intelligence_warehouse import (
+                                lookup_friendly_dnb_pattern, FRIENDLY_DNB_PATTERN_KEY,
+                            )
+                            learned = await lookup_friendly_dnb_pattern(db)
+                            if learned:
+                                m.setdefault("learned_patterns", {})[FRIENDLY_DNB_PATTERN_KEY] = learned
+                    except Exception:
+                        pass
                     m["_live_interpreter"] = hli.interpret_live(
                         m, analysis=m["_live_analysis"], reeval=None, alt_market=alt,
                     )
@@ -638,6 +651,32 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
         )
     if req.manual_odds is not None and req.manual_odds <= 1.01:
         raise HTTPException(status_code=400, detail="manual_odds must be > 1.01.")
+
+    # P5.2 — manual_market whitelist (fail-soft).
+    # We accept the canonical goal-line markets the UI exposes (Over/Under
+    # 0.5, 1.5, 2.5, 3.5) and the 1X2 / Double Chance / DNB families. For
+    # any other market name we *do not reject* — the engine downstream
+    # treats it as a generic moneyline and the user keeps control. We just
+    # log a debug line for telemetry.
+    if req.manual_market is not None:
+        norm = (req.manual_market or "").strip().lower().replace("  ", " ")
+        _accepted = (
+            "over 0.5", "under 0.5",
+            "over 1.5", "under 1.5",
+            "over 2.5", "under 2.5",
+            "over 3.5", "under 3.5",
+            "btts yes", "btts no", "btts: yes", "btts: no",
+            "resultado final: home", "resultado final: draw", "resultado final: away",
+            "resultado final: local", "resultado final: empate", "resultado final: visita",
+            "dnb home", "dnb away", "empate no accion home", "empate no accion away",
+            "doble oportunidad 1x", "doble oportunidad x2", "doble oportunidad 12",
+        )
+        if not any(norm.startswith(p) for p in _accepted) and norm not in _accepted:
+            # Don't 4xx — just attach a soft warning the caller can surface.
+            log.info(
+                "live_reevaluate manual_market not in whitelist (fail-soft): %r",
+                req.manual_market,
+            )
 
     # Refresh the live doc (best-effort — if API-Sports / ESPN times out we
     # fall back to whatever's cached in db.matches).
@@ -3156,7 +3195,7 @@ class TrackIn(BaseModel):
     market: str
     selection: str
     confidence_score: int
-    outcome: str = Field(pattern="^(won|lost|push|pending|void)$")
+    outcome: str = Field(pattern="^(won|lost|push|pending|void|cancelled|refund)$")
     odds: Optional[float] = None
     league: Optional[str] = None
     match_label: Optional[str] = None
@@ -3175,6 +3214,12 @@ class TrackIn(BaseModel):
     settled_at:   Optional[str] = None
     pipeline_version: Optional[str] = None
     source:       Optional[str] = None        # engine | manual
+    # ── Live-entry context (Fix 5+6) — captured at the moment the
+    # user pasted the cuota / clicked "Reevaluar ahora". All optional.
+    entry_minute: Optional[int] = None        # match minute at entry
+    entry_score_home: Optional[int] = None    # score at entry
+    entry_score_away: Optional[int] = None
+    entry_score_display: Optional[str] = None # "1-0" precomputed
 
 
 @api.post("/picks/track")
@@ -3227,7 +3272,7 @@ async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
 
     # ── Settled-at: set automatically when outcome leaves pending ──
     settled_at = payload.settled_at
-    if settled_at is None and payload.outcome in ("won", "lost", "push", "void"):
+    if settled_at is None and payload.outcome in ("won", "lost", "push", "void", "cancelled", "refund"):
         settled_at = now.isoformat()
 
     doc = {
@@ -3259,6 +3304,19 @@ async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
         "settled_at":        settled_at,
         "source":            payload.source or "engine",
         "pipeline_version":  payload.pipeline_version,
+        # Live-entry context (Fix 5+6) — all optional.
+        "entry_minute":       payload.entry_minute,
+        "entry_score_home":   payload.entry_score_home,
+        "entry_score_away":   payload.entry_score_away,
+        "entry_score_display": (
+            payload.entry_score_display
+            if payload.entry_score_display is not None
+            else (
+                f"{payload.entry_score_home}-{payload.entry_score_away}"
+                if (payload.entry_score_home is not None and payload.entry_score_away is not None)
+                else None
+            )
+        ),
     }
 
     # ── One-time dedup of stale rows from prior recalibrations ──────
@@ -3288,6 +3346,100 @@ async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
         {"$set": doc},
         upsert=True,
     )
+
+    # Fix 5+6 — mirror live picks into live_recommendation_events.
+    # When `is_live=True`, we ALWAYS publish a snapshot to the event
+    # timeline carrying the source flag (engine|manual). When the user
+    # later updates the outcome to won/lost/push/void/refund/cancelled,
+    # we settle the matching event so the timeline reflects reality.
+    # Fail-soft: never block the track_pick response on history I/O.
+    try:
+        if doc.get("is_live"):
+            from services.live_recommendation_history import (
+                record_manual_live_event,
+                settle_live_recommendation_event,
+                COLLECTION as _LR_COLL,
+            )
+            source_flag = (payload.source or "engine").lower()
+            if source_flag not in ("engine", "manual"):
+                source_flag = "engine"
+            score_label = doc.get("entry_score_display")
+            entry_score = {
+                "label": score_label,
+                "home":  doc.get("entry_score_home"),
+                "away":  doc.get("entry_score_away"),
+            }
+            outcome_map = {
+                "won": "hit", "lost": "miss", "push": "push",
+                "void": "void", "refund": "void", "cancelled": "void",
+            }
+            event_payload = {
+                "sport":       sport,
+                "match_id":    str(payload.match_id),
+                "match_label": payload.match_label,
+                "league":      payload.league,
+                "minute":      doc.get("entry_minute"),
+                "score":       entry_score,
+                "recommendation": {
+                    "title":              payload.market,
+                    "market":             payload.market,
+                    "selection":          payload.selection,
+                    "confidence":         payload.confidence_score,
+                    "recommended_action": "LIVE_ENTRY",
+                },
+                "live_context": {
+                    "odds":           payload.odds,
+                    "pick_uid":       pick_uid,
+                    "source":         source_flag,
+                    "tracked_at":     now.isoformat(),
+                    "entry_minute":   doc.get("entry_minute"),
+                },
+                "reason":      payload.notes,
+                "notes":       payload.notes,
+                "outcome": {
+                    "result": outcome_map.get(payload.outcome, "pending"),
+                },
+            }
+            # Use record_manual_live_event() so the dedup window respects
+            # repeated saves of the SAME (match, minute, score, market).
+            evt = await record_manual_live_event(
+                db, user_id=user["id"], payload=event_payload,
+            )
+            # If recording was skipped due to dedup but the user is settling
+            # a previously-open snapshot, find the open event and settle it.
+            if not evt and payload.outcome in (
+                "won", "lost", "push", "void", "refund", "cancelled"
+            ):
+                open_evt = await db[_LR_COLL].find_one({
+                    "user_id":  user["id"],
+                    "sport":    sport,
+                    "match_id": str(payload.match_id),
+                    "status":   {"$in": ["open", "manual_recorded"]},
+                }, sort=[("created_at", -1)])
+                if open_evt:
+                    await settle_live_recommendation_event(
+                        db,
+                        event_id=open_evt["event_id"],
+                        result=payload.outcome,
+                        settled_minute=doc.get("entry_minute"),
+                        settled_score=score_label,
+                        settlement_reason="user-marked-outcome",
+                    )
+            # Patch the freshly-recorded event with the explicit source flag
+            # (record_manual_live_event always sets source="manual"; we
+            # override with the actual source so the UI distinguishes
+            # engine-driven vs user-chosen plays).
+            if evt and evt.get("event_id"):
+                try:
+                    await db[_LR_COLL].update_one(
+                        {"event_id": evt["event_id"]},
+                        {"$set": {"source": source_flag}},
+                    )
+                except Exception:
+                    pass
+    except Exception as exc_mirror:
+        log.debug("live_recommendation_events mirror failed (non-fatal): %s", exc_mirror)
+
     return {"ok": True, "pick_id": pick_uid, "outcome": payload.outcome, "sport": sport}
 
 

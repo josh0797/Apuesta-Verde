@@ -106,6 +106,12 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
   // mark Gané / Perdí / Devolución, the same way Picks del día works.
   const [tracking, setTracking] = useState(false);
   const [trackedOutcome, setTrackedOutcome] = useState(null);
+  // Fix 3 (Phase 39) — Source selection: after re-eval, the user can save
+  // either (a) the engine recommendation as-is, or (b) their OWN pick.
+  // The manual selection reuses the same `manualMarket` field from the
+  // bookie-odds form so the UX is consistent.
+  // Values: 'engine' | 'manual'.
+  const [playSource, setPlaySource] = useState('engine');
 
   const matchId = match.match_id;
 
@@ -184,29 +190,58 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
   // live re-eval picks show up in the same history as their daily picks.
   // We use a `run_id` prefixed with "live-reeval-" to keep them grouped
   // and searchable downstream.
+  // Fix 3 (Phase 39) — playSource decides whether the saved pick mirrors
+  // the engine recommendation or the user's own market+selection from
+  // the manual-odds form. Source is propagated to the backend so the
+  // history can show "Tuya" vs "Engine".
   const track = async (outcome) => {
     if (!result || tracking) return;
     setTracking(true);
     try {
       const runId = `live-reeval-${matchId}-${result.computed_at || Date.now()}`;
+      // Resolve market + selection + odds based on source.
+      const isManual = playSource === 'manual';
+      const useEngineMarket  = !isManual ? (result.market || 'Live') : (manualMarket || 'Live');
+      const useEngineSel     = !isManual ? (result.selection || result.market || 'Live') : (manualMarket || 'Live');
+      const useOdds          = isManual
+        ? (normalizeDecimalOdds(manualOdds) ?? result.decimal_odds)
+        : result.decimal_odds;
+      // Snapshot the live-entry context so we can reconstruct WHEN the
+      // user pulled the trigger even if the score changes later.
+      const snap = result.live_snapshot || {};
+      const entryMinute = snap.minute != null ? Number(snap.minute) : null;
+      const entryScoreHome = snap.score?.home != null ? Number(snap.score.home) : null;
+      const entryScoreAway = snap.score?.away != null ? Number(snap.score.away) : null;
+      const entryScoreDisplay =
+        entryScoreHome != null && entryScoreAway != null
+          ? `${entryScoreHome}-${entryScoreAway}` : null;
       await api.post('/picks/track', {
         run_id: runId,
         match_id: String(matchId),
         match_label: `${match?.home_team?.name || 'Home'} vs ${match?.away_team?.name || 'Away'}`,
         league: match?.league || '',
-        market: result.market || 'Live',
-        selection: result.selection || result.market || 'Live',
+        market: useEngineMarket,
+        selection: useEngineSel,
         confidence_score: result.confidence ?? 0,
-        outcome,                       // 'won' | 'lost' | 'push' | 'pending'
-        odds: result.decimal_odds,
-        notes: `Live re-eval @ ${result.live_snapshot?.minute ?? '—'} · ${result.market}`,
+        outcome,                       // 'won' | 'lost' | 'push' | 'void' | 'cancelled' | 'refund'
+        odds: useOdds,
+        notes: `Live re-eval @ ${snap.minute ?? '—'} · ${useEngineMarket}${isManual ? ' · selección propia' : ''}`,
         sport,
+        is_live: true,
+        source: isManual ? 'manual' : 'engine',
+        entry_minute: entryMinute,
+        entry_score_home: entryScoreHome,
+        entry_score_away: entryScoreAway,
+        entry_score_display: entryScoreDisplay,
       });
       setTrackedOutcome(outcome);
       const labels = {
-        won:  lang === 'en' ? 'Marked as WON' : 'Marcado como GANÉ',
-        lost: lang === 'en' ? 'Marked as LOST' : 'Marcado como PERDÍ',
-        push: lang === 'en' ? 'Marked as PUSH' : 'Marcado como DEVOLUCIÓN',
+        won:       lang === 'en' ? 'Marked as WON'    : 'Marcado como GANÉ',
+        lost:      lang === 'en' ? 'Marked as LOST'   : 'Marcado como PERDÍ',
+        push:      lang === 'en' ? 'Marked as PUSH'   : 'Marcado como DEVOLUCIÓN',
+        void:      lang === 'en' ? 'Marked as VOID'   : 'Marcado como VOID',
+        cancelled: lang === 'en' ? 'Marked as CANCELLED' : 'Marcada como CANCELADA',
+        refund:    lang === 'en' ? 'Marked as REFUND' : 'Marcada como REEMBOLSO',
       };
       toast.success(labels[outcome] || 'Tracked');
     } catch (err) {
@@ -446,6 +481,64 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
             </div>
           )}
 
+          {/* Fix 3 (Phase 39) — Source selector: engine recommendation
+              vs user's own manual selection. The buttons below save
+              with the chosen source. The manual market reuses the value
+              from the bookie-odds form (above) so the UX is consistent. */}
+          {!trackedOutcome && (
+            <div
+              className="rounded-md border border-cyan-500/20 bg-cyan-500/5 px-2 py-2 space-y-1.5"
+              data-testid={`reeval-source-toggle-${matchId}`}
+            >
+              <div className="text-[10px] uppercase tracking-wider opacity-70">
+                {lang === 'en' ? 'Save this play as' : 'Guardar esta jugada como'}
+              </div>
+              <div className="flex flex-wrap gap-2 text-[11px]">
+                <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`source-${matchId}`}
+                    value="engine"
+                    checked={playSource === 'engine'}
+                    onChange={() => setPlaySource('engine')}
+                    data-testid={`reeval-source-engine-${matchId}`}
+                    className="accent-cyan-400"
+                  />
+                  <span>
+                    {lang === 'en' ? 'Engine recommendation' : 'Recomendación del engine'}
+                    {result.market && (
+                      <span className="ml-1 opacity-70">({result.market})</span>
+                    )}
+                  </span>
+                </label>
+                <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`source-${matchId}`}
+                    value="manual"
+                    checked={playSource === 'manual'}
+                    onChange={() => setPlaySource('manual')}
+                    data-testid={`reeval-source-manual-${matchId}`}
+                    className="accent-amber-400"
+                  />
+                  <span>
+                    {lang === 'en' ? 'My own selection' : 'Mi selección propia'}
+                    {playSource === 'manual' && manualMarket && (
+                      <span className="ml-1 opacity-70">({manualMarket})</span>
+                    )}
+                  </span>
+                </label>
+              </div>
+              {playSource === 'manual' && (
+                <p className="text-[10px] text-amber-300/80 italic">
+                  {lang === 'en'
+                    ? 'Pick your market from the "paste your bookie odds" form above before saving.'
+                    : 'Elige tu mercado en el formulario "pegar cuota de tu bookie" arriba antes de guardar.'}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* P4 — Outcome tracking (Gané / Perdí / Devolución) — same as
               Picks del día. Saved through /api/picks/track with a
               live-reeval prefix so they appear in the user's history. */}
@@ -455,15 +548,19 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
                 className={`flex items-center justify-between gap-2 text-[11px] font-medium px-2 py-1.5 rounded-md ${
                   trackedOutcome === 'won'  ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/40' :
                   trackedOutcome === 'lost' ? 'bg-red-500/15 text-red-200 border border-red-500/40' :
+                  trackedOutcome === 'cancelled' ? 'bg-slate-500/15 text-slate-200 border border-slate-500/40' :
                                               'bg-amber-500/15 text-amber-200 border border-amber-500/40'
                 }`}
                 data-testid={`reeval-tracked-${matchId}`}
                 data-outcome={trackedOutcome}
               >
                 <span>
-                  {trackedOutcome === 'won' && (lang === 'en' ? '✅ Marked as WON' : '✅ Marcado como GANÉ')}
-                  {trackedOutcome === 'lost' && (lang === 'en' ? '❌ Marked as LOST' : '❌ Marcado como PERDÍ')}
-                  {trackedOutcome === 'push' && (lang === 'en' ? '↩ Marked as PUSH' : '↩ Marcado como DEVOLUCIÓN')}
+                  {trackedOutcome === 'won'       && (lang === 'en' ? '✅ Marked as WON' : '✅ Marcado como GANÉ')}
+                  {trackedOutcome === 'lost'      && (lang === 'en' ? '❌ Marked as LOST' : '❌ Marcado como PERDÍ')}
+                  {trackedOutcome === 'push'      && (lang === 'en' ? '↩ Marked as PUSH' : '↩ Marcado como DEVOLUCIÓN')}
+                  {trackedOutcome === 'void'      && (lang === 'en' ? '↩ Marked as VOID' : '↩ Marcado como VOID')}
+                  {trackedOutcome === 'cancelled' && (lang === 'en' ? '⊘ Marked as CANCELLED' : '⊘ Marcada como CANCELADA')}
+                  {trackedOutcome === 'refund'    && (lang === 'en' ? '⊘ Marked as REFUND' : '⊘ Marcada como REEMBOLSO')}
                 </span>
                 <button
                   type="button"
@@ -508,6 +605,16 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
                   data-testid={`reeval-track-push-${matchId}`}
                 >
                   ↩ {lang === 'en' ? 'Push' : 'Devolución'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={tracking}
+                  onClick={() => track('cancelled')}
+                  className="h-7 text-[11px] border-slate-500/40 hover:bg-slate-500/15 text-slate-200"
+                  data-testid={`reeval-track-cancelled-${matchId}`}
+                >
+                  ⊘ {lang === 'en' ? 'Cancelled' : 'Cancelada'}
                 </Button>
               </div>
             )}

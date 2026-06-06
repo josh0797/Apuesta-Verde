@@ -1,26 +1,42 @@
 [
   {
-    "content": "Crear basketball_possession_layer.py con funciones puras",
+    "content": "Fix 7: backend /api/live/reevaluate — validar Over/Under 0.5 + market whitelist fail-soft + outcomes 'cancelled'/'refund'",
     "status": "completed"
   },
   {
-    "content": "Crear tests pytest para basketball_possession_layer",
+    "content": "Fix 7: TrackIn extender con score_home/score_away/minute/score_display + outcomes cancelled/refund",
     "status": "completed"
   },
   {
-    "content": "Integrar basketball_possession_layer en analyst_engine (Phase 10b extension) y exponer en payload — fail-soft",
+    "content": "Fix 5+6: persistir pick en live_recommendation_events con source=engine|manual y outcome lifecycle",
     "status": "completed"
   },
   {
-    "content": "LiveReevalPanel: aumentar timeout para manual odds + mejorar mensaje + helper normalizeDecimalOdds + añadir Over/Under 0.5",
+    "content": "Fix 5+6: warehouse — void/push/refund/cancelled NUNCA degradan hit_rate ni pattern_memory",
     "status": "completed"
   },
   {
-    "content": "Tests RTL frontend para LiveReevalPanel (timeout, coma decimal, mercados 0.5)",
+    "content": "Fix 2: hard-coded rule en human_live_interpreter — amistoso internacional + favorito + DNB pequeño spread → preferir DNB",
     "status": "completed"
   },
   {
-    "content": "Correr pytest completo + craco test para regresiones",
+    "content": "Fix 2: dynamic pattern 'friendly_intl_dnb_preferred' en warehouse, activate>=60 muestras",
+    "status": "completed"
+  },
+  {
+    "content": "Fix 3: UI — LiveReevalPanel post-eval toggle 'Usar engine' vs 'Selección propia' + save play con source + register outcome",
+    "status": "completed"
+  },
+  {
+    "content": "Fix 1: módulo services/box_score_providers/ con API-Sports + TheStatsAPI/Balldontlie fail-over (basketball + baseball)",
+    "status": "completed"
+  },
+  {
+    "content": "Fix 1: wire al possession layer + a baseball xG/run model",
+    "status": "completed"
+  },
+  {
+    "content": "Tests pytest + RTL completos + correr full suite",
     "status": "completed"
   }
 ]

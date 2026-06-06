@@ -123,6 +123,97 @@ describe('LiveReevalPanel manual odds comma decimal', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
+// Fix 3 — Engine vs Manual source + register outcome
+// ─────────────────────────────────────────────────────────────────────
+describe('LiveReevalPanel engine vs manual source (Fix 3)', () => {
+  test('default source=engine; track WON sends source=engine + entry context', async () => {
+    mockPost.mockResolvedValueOnce({
+      data: {
+        result: {
+          live_state: 'LIVE_VALUE_WINDOW',
+          risk_level: 'LOW',
+          recommended_action: 'BET',
+          market: 'Under 2.5',
+          selection: 'Under 2.5',
+          confidence: 70,
+          decimal_odds: 1.85,
+          live_snapshot: { minute: 55, score: { home: 0, away: 1 } },
+        },
+      },
+    });
+    mockPost.mockResolvedValueOnce({ data: { ok: true } });
+    renderPanel();
+    fireEvent.click(screen.getByTestId('reeval-btn-m-77'));
+    await waitFor(() => expect(screen.getByTestId('reeval-track-m-77')).toBeInTheDocument());
+    expect(screen.getByTestId('reeval-source-engine-m-77')).toBeChecked();
+    fireEvent.click(screen.getByTestId('reeval-track-won-m-77'));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(2));
+    const [path, body] = mockPost.mock.calls[1];
+    expect(path).toBe('/picks/track');
+    expect(body.source).toBe('engine');
+    expect(body.is_live).toBe(true);
+    expect(body.entry_minute).toBe(55);
+    expect(body.entry_score_home).toBe(0);
+    expect(body.entry_score_away).toBe(1);
+    expect(body.entry_score_display).toBe('0-1');
+    expect(body.market).toBe('Under 2.5');
+  });
+
+  test('switching source=manual uses manualMarket + normalized manualOdds', async () => {
+    mockPost.mockResolvedValueOnce({
+      data: {
+        result: {
+          live_state: 'LIVE_VALUE_WINDOW',
+          risk_level: 'LOW',
+          recommended_action: 'BET',
+          market: 'Over 2.5',
+          selection: 'Over 2.5',
+          confidence: 60,
+          decimal_odds: 2.10,
+          live_snapshot: { minute: 30, score: { home: 1, away: 0 } },
+        },
+      },
+    });
+    mockPost.mockResolvedValueOnce({ data: { ok: true } });
+    renderPanel();
+    fireEvent.click(screen.getByTestId('reeval-toggle-manual-m-77'));
+    fireEvent.click(screen.getByTestId('reeval-use-manual-m-77'));
+    fireEvent.change(screen.getByTestId('reeval-manual-odds-m-77'), { target: { value: '1,55' } });
+    fireEvent.click(screen.getByTestId('reeval-btn-m-77'));
+    await waitFor(() => expect(screen.getByTestId('reeval-track-m-77')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('reeval-source-manual-m-77'));
+    fireEvent.click(screen.getByTestId('reeval-track-won-m-77'));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(2));
+    const [, body] = mockPost.mock.calls[1];
+    expect(body.source).toBe('manual');
+    expect(body.odds).toBe(1.55); // normalized from "1,55"
+    // Default football market in the dropdown is Under 2.5.
+    expect(body.market).toBe('Under 2.5');
+  });
+
+  test('Cancelled outcome is supported and sent verbatim', async () => {
+    mockPost.mockResolvedValueOnce({
+      data: {
+        result: {
+          live_state: 'WATCHLIST', risk_level: 'MEDIUM', recommended_action: 'WATCH',
+          market: 'Over 1.5', selection: 'Over 1.5', confidence: 50, decimal_odds: 1.40,
+          live_snapshot: { minute: 12, score: { home: 0, away: 0 } },
+        },
+      },
+    });
+    mockPost.mockResolvedValueOnce({ data: { ok: true } });
+    renderPanel();
+    fireEvent.click(screen.getByTestId('reeval-btn-m-77'));
+    await waitFor(() => expect(screen.getByTestId('reeval-track-cancelled-m-77')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('reeval-track-cancelled-m-77'));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(2));
+    const [, body] = mockPost.mock.calls[1];
+    expect(body.outcome).toBe('cancelled');
+    expect(body.source).toBe('engine');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // Timeout / fail-soft UX
 // ─────────────────────────────────────────────────────────────────────
 describe('LiveReevalPanel timeout UX', () => {

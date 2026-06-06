@@ -767,18 +767,26 @@ async def settle_live_recommendation_event(
     if db is None or not event_id:
         return False
     try:
-        status = (
-            "hit" if result == "hit"
-            else "miss" if result == "miss"
-            else "void" if result == "void"
-            else "open"
-        )
+        # Fix 5+6: void/push/refund/cancelled converge to status="void"
+        # so the UI renders a neutral row AND the pattern_memory layer
+        # downstream skips degradation (mirrors warehouse._VOID_OUTCOMES).
+        _r = (result or "").lower()
+        if _r in ("hit", "won", "win"):
+            status = "hit"
+        elif _r in ("miss", "lost", "lose"):
+            status = "miss"
+        elif _r in ("push",):
+            status = "push"
+        elif _r in ("void", "refund", "refunded", "cancelled", "canceled"):
+            status = "void"
+        else:
+            status = "open"
         await db[COLLECTION].update_one(
             {"event_id": event_id},
             {"$set": {
                 "status":  status,
                 "outcome": {
-                    "result":            result,
+                    "result":            _r or "pending",
                     "settled_minute":    settled_minute,
                     "settled_score":     settled_score,
                     "settlement_reason": settlement_reason,
@@ -793,10 +801,18 @@ async def settle_live_recommendation_event(
 
 
 _RESULT_TO_STATUS = {
-    "hit":  "hit",
-    "miss": "miss",
-    "push": "push",
-    "void": "void",
+    "hit":      "hit",
+    "won":      "hit",
+    "win":      "hit",
+    "miss":     "miss",
+    "lost":     "miss",
+    "lose":     "miss",
+    "push":     "push",
+    "void":     "void",
+    "refund":   "void",
+    "refunded": "void",
+    "cancelled": "void",
+    "canceled":  "void",
 }
 
 

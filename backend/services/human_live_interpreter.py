@@ -1066,6 +1066,77 @@ def interpret_live(
                 except Exception:
                     pass
 
+    # ── Phase 39 / Fix 2 — Friendly Internationals DNB preference ─────
+    # Hard rule (always evaluated). When the match is an international
+    # friendly with a clear favorite and the Moneyline premium over DNB
+    # is too small to justify the extra risk, override the suggested
+    # market with the DNB protection. The warehouse-learned pattern
+    # (≥60 samples) amplifies or dampens this decision.
+    friendly_dnb_decision = None
+    try:
+        from . import friendly_dnb_rule as _fdnb
+
+        # Pull the pre-match odds (1X2 + DNB) from the match doc. The
+        # schema varies slightly across ingestion paths so we try several
+        # well-known fields and fall back to None on any miss.
+        odds_book = match.get("odds") or {}
+        oh = (odds_book.get("home") or odds_book.get("1") or
+              odds_book.get("home_odds") or odds_book.get("ml_home"))
+        od = (odds_book.get("draw") or odds_book.get("X") or
+              odds_book.get("draw_odds") or odds_book.get("ml_draw"))
+        oa = (odds_book.get("away") or odds_book.get("2") or
+              odds_book.get("away_odds") or odds_book.get("ml_away"))
+        dnb_h = (odds_book.get("dnb_home") or odds_book.get("dnb_1") or
+                  (odds_book.get("dnb") or {}).get("home")
+                  if isinstance(odds_book.get("dnb"), dict) else None)
+        dnb_a = (odds_book.get("dnb_away") or odds_book.get("dnb_2") or
+                  (odds_book.get("dnb") or {}).get("away")
+                  if isinstance(odds_book.get("dnb"), dict) else None)
+
+        # Optional learned pattern from the warehouse — passed via the
+        # match doc by analyst_engine when it pre-fetched the row.
+        learned = (match.get("learned_patterns") or {}).get(
+            _fdnb.PATTERN_NAME
+        )
+
+        friendly_dnb_decision = _fdnb.evaluate_friendly_dnb_preference(
+            match=match,
+            odds_home=oh, odds_draw=od, odds_away=oa,
+            odds_dnb_home=dnb_h, odds_dnb_away=dnb_a,
+            learned_pattern=learned,
+        )
+
+        if friendly_dnb_decision.get("applies"):
+            fav = friendly_dnb_decision.get("favorite")
+            adv_team = home_name if fav == "home" else away_name
+            new_market = f"Draw No Bet — {adv_team}"
+            # Only override when the previous suggestion was the raw ML
+            # on the favorite — never override Over/Under/BTTS picks.
+            sm_lower = (suggested_market or "").lower()
+            is_ml_pick = (
+                ("moneyline" in sm_lower)
+                or ("resultado final" in sm_lower)
+                or (sm_lower == "" and action in ("LIVE_ENTRY", "WAIT", "WATCHLIST"))
+                or (adv_team and adv_team.lower() in sm_lower
+                    and "dnb" not in sm_lower and "no bet" not in sm_lower)
+            )
+            if is_ml_pick:
+                suggested_market = new_market
+                # Surface the reason as the TOP why so the UI badge reads it.
+                reason_es = friendly_dnb_decision.get("summary") or (
+                    f"Amistoso internacional con favorito {adv_team}: "
+                    "DNB protege contra rotación y volatilidad táctica."
+                )
+                if reason_es not in why:
+                    why.insert(0, reason_es)
+                # Bump confidence slightly — DNB is statistically safer.
+                try:
+                    confidence = max(int(confidence), 60)
+                except Exception:
+                    pass
+    except Exception as _exc_fdnb:
+        log.debug("friendly_dnb_rule failed: %s", _exc_fdnb)
+
     return {
         "title":            title,
         "subtitle":         subtitle,
@@ -1084,6 +1155,8 @@ def interpret_live(
         # ── Expose openness + dominance so the UI can render chips ──
         "game_openness":    game_openness,
         "unilateral_dominance": unilateral_dominance,
+        # ── Phase 39 / Fix 2 — Friendly DNB decision (UI badge) ──
+        "friendly_dnb":     friendly_dnb_decision,
         # ── P1 fix: structured scoreboard context for the UI badges ──
         # This lets the LiveCopilotCard render badges like "Ventaja clara"
         # / "Control por marcador" without re-deriving the state.

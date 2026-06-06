@@ -661,6 +661,95 @@ async def attach_pattern_match_to_payload(
     return summary
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Phase 39 / Fix 2 — Friendly Internationals DNB learning pattern
+# ─────────────────────────────────────────────────────────────────────
+# Public pattern key used by friendly_dnb_rule.py
+FRIENDLY_DNB_PATTERN_KEY = "friendly_intl_dnb_preferred"
+
+
+async def lookup_friendly_dnb_pattern(db) -> Optional[dict]:
+    """Return the learned ``friendly_intl_dnb_preferred`` pattern row.
+
+    Returns ``None`` if the warehouse is disabled / unavailable / the
+    pattern row does not yet exist. Caller uses ``sample_size`` and
+    ``hit_rate`` to decide whether to amplify or dampen the hard rule.
+    """
+    if db is None:
+        return None
+    try:
+        doc = await db[COLL_PATTERN_MEMORY].find_one(
+            {"pattern_key": FRIENDLY_DNB_PATTERN_KEY}
+        )
+        if not doc:
+            return None
+        return {
+            "pattern_key":  FRIENDLY_DNB_PATTERN_KEY,
+            "sample_size":  int(doc.get("sample_size") or 0),
+            "wins":         int(doc.get("wins") or 0),
+            "hit_rate":     doc.get("hit_rate"),
+            "roi":          doc.get("roi"),
+            "voids":        int(doc.get("voids") or 0),
+            "enabled":      bool(doc.get("enabled", True)),
+            "best_market":  doc.get("best_market"),
+            "last_updated": doc.get("last_updated"),
+        }
+    except Exception as exc:
+        log.debug("lookup_friendly_dnb_pattern failed: %s", exc)
+        return None
+
+
+async def record_friendly_dnb_outcome(
+    db,
+    *,
+    match: dict | None,
+    final_outcome: str | None,   # "home" | "draw" | "away"
+    favorite: str | None,        # "home" | "away"
+    used_dnb: bool,
+    stake: float = 1.0,
+    payout: float = 0.0,
+) -> bool:
+    """Feed the dynamic ``friendly_intl_dnb_preferred`` pattern memory.
+
+    Only ingests matches the rule applies to (international friendly +
+    clear favorite). Forwards the canonical outcome to
+    ``update_pattern_memory_from_result`` so the existing void / push
+    logic kicks in — i.e. a draw on a DNB pick is a ``push`` and does
+    not penalise the hit_rate.
+    """
+    if db is None or final_outcome is None or favorite is None:
+        return False
+    try:
+        from services.friendly_dnb_rule import (
+            build_learning_record,
+            PATTERN_NAME,
+        )
+        rec = build_learning_record(
+            match=match,
+            final_outcome=final_outcome,
+            favorite=favorite,
+            used_dnb=used_dnb,
+        )
+        if not rec:
+            return False
+        outcome = rec["outcome"]   # "won" / "lost" / "push"
+        won = outcome == "won"
+        return await update_pattern_memory_from_result(
+            db,
+            pattern_keys=[PATTERN_NAME],
+            market=rec["market"],
+            stake=float(stake),
+            won=won,
+            payout=float(payout),
+            outcome=outcome,
+        )
+    except Exception as exc:
+        log.debug("record_friendly_dnb_outcome failed: %s", exc)
+        return False
+
+
+
+
 async def summarize_pattern_memory(
     db,
     *,
@@ -738,4 +827,8 @@ __all__ = [
     "persist_football_market_result",
     "attach_pattern_match_to_payload",
     "summarize_pattern_memory",
+    # Phase 39 / Fix 2 — Friendly DNB pattern
+    "FRIENDLY_DNB_PATTERN_KEY",
+    "lookup_friendly_dnb_pattern",
+    "record_friendly_dnb_outcome",
 ]

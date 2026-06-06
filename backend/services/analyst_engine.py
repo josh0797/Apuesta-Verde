@@ -2601,6 +2601,11 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
             # (current pipeline only exposes team-level aggregates), the
             # layer falls back to the pace_proxy from basketball_historical
             # — exactly the contract requested by product.
+            #
+            # Fix 1 (Phase 40): when a caller has attached pre-fetched
+            # per-game box-scores via ``entry["_box_score_games"] = {"home":
+            # [...], "away": [...]}`` (see services.box_score_providers),
+            # those win over the historical fallback for true Four Factors.
             try:
                 from .basketball_possession_layer import (
                     build_basketball_possession_profile,
@@ -2622,8 +2627,12 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
                         baseline = (
                             {"league_total": league_avg} if league_avg else None
                         )
+                        # Real box-scores (if any) provided out-of-band.
+                        bs = entry.get("_box_score_games") or {}
+                        home_games = bs.get("home") if isinstance(bs, dict) else None
+                        away_games = bs.get("away") if isinstance(bs, dict) else None
                         payload = build_basketball_possession_profile(
-                            None, None,
+                            home_games, away_games,
                             home_fallback=home_block,
                             away_fallback=away_block,
                             league_baseline=baseline,

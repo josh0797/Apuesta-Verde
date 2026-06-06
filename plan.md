@@ -133,7 +133,7 @@
 ### Phase 4 — Comprehensive Testing & Regression ✅ COMPLETADO
 - ✅ Suite backend sin regresiones.
 
-> **Estado tests (actual):** ✅ Backend `pytest tests/` **1150 passing**. Frontend `craco test` **39 passing**.
+> **Estado tests (actual):** ✅ Backend `pytest tests/` **1182 passing**. Frontend `craco test` **42 passing**.
 
 ---
 
@@ -252,7 +252,18 @@
 
 ---
 
-## 13) Phase 38 — Fix 2: LiveReevalPanel UX/timeout + mercados 0.5 + tracking manual ✅ COMPLETADO
+## 14) Phase 39 — Fixes 7 + 3 + 5/6 + 2: live reeval UX + tracking source + DNB amistosos ✅ COMPLETADO
+- Fix 7: `/api/live/reevaluate` valida Over/Under 0.5 + market whitelist fail-soft; `TrackIn` acepta `cancelled`/`refund` + entry_minute/score.
+- Fix 3: `LiveReevalPanel` post-eval radio engine vs manual + nuevo botón "Cancelada"; tracking envía `source`, `is_live`, `entry_*`.
+- Fix 5/6: `track_pick` mirror automático a `live_recommendation_events` con source; `settle_live_recommendation_event` acepta cancelled/refund → status=void.
+- Fix 2: nuevo módulo `services/friendly_dnb_rule.py` (hard rule) + `lookup_friendly_dnb_pattern` / `record_friendly_dnb_outcome` en warehouse (≥60 muestras activa amplify/dampen). Interpreter consume el learned pattern vía `match["learned_patterns"]`.
+- Tests: 21 friendly_dnb + 3 RTL Fix 3 = 24 nuevos.
+
+## 15) Phase 40 — Fix 1: Box-score providers + wiring al possession layer ✅ COMPLETADO
+- Nuevo paquete `services/box_score_providers/` con API-Sports primary + Balldontlie/MLB StatsAPI fallback.
+- `fetch_basketball_team_games`, `fetch_baseball_team_games` (async, fail-soft).
+- `hydrate_match_with_box_scores(match)` attacha `_box_score_games` que `analyst_engine` Phase 12b.2 ya consume para mejorar Four Factors reales.
+- Tests pure-normalizer (sin red): 11 casos.
 
 ### 38.1 Frontend — Timeout y manejo fail-soft
 - Aumentar timeout en `LiveReevalPanel.jsx` para `/api/live/reevaluate` cuando `useManual=true`.
