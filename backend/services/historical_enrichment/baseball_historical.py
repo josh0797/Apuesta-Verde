@@ -899,6 +899,28 @@ async def prefetch_baseball_profiles(
         if profile.get("available"):
             enriched += 1
 
+        # ── Phase 40 / Fix 1 — Box-score hydration (opt-in, default ON).
+        # Pulls real per-game AB/H/BB/K/SB + OBP/SLG/ISO so downstream
+        # baseball Moneyball layers can use REAL numbers instead of the
+        # league-average proxy. Strict per-match timeout + fail-soft.
+        # Disable with ``BASEBALL_BOX_SCORES_HYDRATE=0``.
+        if os.environ.get("BASEBALL_BOX_SCORES_HYDRATE", "1") != "0":
+            try:
+                from services.box_score_providers import (
+                    hydrate_match_with_box_scores,
+                )
+                await asyncio.wait_for(
+                    hydrate_match_with_box_scores(m, last_n=10),
+                    timeout=float(os.environ.get(
+                        "BASEBALL_BOX_SCORES_HYDRATE_TIMEOUT_S", "5.0",
+                    )),
+                )
+            except (asyncio.TimeoutError, Exception) as _exc_hydrate:
+                log.debug(
+                    "baseball box-score hydration skipped for match %s: %s",
+                    m.get("match_id"), _exc_hydrate,
+                )
+
     try:
         await asyncio.wait_for(
             asyncio.gather(*[_one(m) for m in real_matches], return_exceptions=True),

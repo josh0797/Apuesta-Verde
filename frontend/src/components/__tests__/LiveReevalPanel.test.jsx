@@ -29,7 +29,7 @@ jest.mock('../LiveCopilotCard', () => ({
 }));
 
 import { LiveReevalPanel } from '../LiveReevalPanel';
-import { normalizeDecimalOdds, isValidBookieOdds } from '@/lib/normalizeDecimalOdds';
+import { normalizeDecimalOdds, normalizeManualOddsInput, isValidBookieOdds } from '@/lib/normalizeDecimalOdds';
 
 beforeEach(() => {
   mockPost.mockReset();
@@ -64,6 +64,8 @@ describe('normalizeDecimalOdds helper', () => {
     expect(normalizeDecimalOdds(null)).toBeNull();
     expect(normalizeDecimalOdds('')).toBeNull();
     expect(normalizeDecimalOdds('abc')).toBeNull();
+    expect(normalizeDecimalOdds('0')).toBeNull();
+    expect(normalizeDecimalOdds('-1.5')).toBeNull();
   });
 
   test('isValidBookieOdds floor at 1.01', () => {
@@ -71,6 +73,28 @@ describe('normalizeDecimalOdds helper', () => {
     expect(isValidBookieOdds('1,02')).toBe(true);
     expect(isValidBookieOdds('2.50')).toBe(true);
     expect(isValidBookieOdds('not-a-number')).toBe(false);
+  });
+
+  // Phase 41 / Fix 3 — Mobile keyboard normalization
+  test('normalizeManualOddsInput accepts mobile commas like "1,21"', () => {
+    expect(normalizeManualOddsInput('1,21')).toBe(1.21);
+    expect(normalizeManualOddsInput('1.21')).toBe(1.21);
+    expect(normalizeManualOddsInput(' 1,85 ')).toBe(1.85);
+    expect(normalizeManualOddsInput('2,05')).toBe(2.05);
+  });
+
+  test('normalizeManualOddsInput rejects values below 1.01 floor', () => {
+    expect(normalizeManualOddsInput('1.01')).toBeNull();
+    expect(normalizeManualOddsInput('1,01')).toBeNull();
+    expect(normalizeManualOddsInput('1.00')).toBeNull();
+    expect(normalizeManualOddsInput('0,50')).toBeNull();
+  });
+
+  test('normalizeManualOddsInput rejects malformed input', () => {
+    expect(normalizeManualOddsInput('')).toBeNull();
+    expect(normalizeManualOddsInput(null)).toBeNull();
+    expect(normalizeManualOddsInput('abc')).toBeNull();
+    expect(normalizeManualOddsInput('1,2,3')).toBeNull();
   });
 });
 
@@ -102,7 +126,7 @@ describe('LiveReevalPanel manual odds comma decimal', () => {
     fireEvent.click(screen.getByTestId('reeval-btn-m-77'));
     await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1));
     const [path, body, opts] = mockPost.mock.calls[0];
-    expect(path).toBe('/live/reevaluate');
+    expect(path).toBe('/analysis/live/reevaluate-one');
     expect(body.manual_odds).toBe(1.35);
     expect(typeof body.manual_odds).toBe('number');
     // Manual path uses the extended 45s timeout.
@@ -214,6 +238,74 @@ describe('LiveReevalPanel engine vs manual source (Fix 3)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
+// Phase 41 / Fix 3 — Per-card reevaluate endpoint + inline error UX
+// ─────────────────────────────────────────────────────────────────────
+describe('LiveReevalPanel per-card reanalysis (Fix 3)', () => {
+  test('default (non-manual) path hits the per-card alias endpoint and sends ONLY this match_id', async () => {
+    mockPost.mockResolvedValueOnce({
+      data: { result: { live_state: 'WATCHLIST', risk_level: 'LOW', recommended_action: 'WATCH' } },
+    });
+    renderPanel();
+    fireEvent.click(screen.getByTestId('reeval-btn-m-77'));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1));
+    const [path, body] = mockPost.mock.calls[0];
+    expect(path).toBe('/analysis/live/reevaluate-one');   // alias URL
+    expect(body.match_id).toBe('m-77');
+    // No batch sweep — the payload is scoped to this card only.
+    expect(Object.keys(body).sort()).toEqual(['match_id', 'refresh', 'sport'].sort());
+  });
+
+  test('error path shows inline banner with dismiss button — does NOT affect other cards', async () => {
+    mockPost.mockRejectedValueOnce({
+      response: { status: 500, data: { detail: 'Engine boom' } },
+    });
+    renderPanel();
+    fireEvent.click(screen.getByTestId('reeval-btn-m-77'));
+    await waitFor(() => expect(screen.getByTestId('reeval-error-m-77')).toBeInTheDocument());
+    expect(screen.getByTestId('reeval-error-m-77').textContent).toContain('Engine boom');
+    // Dismiss clears the banner.
+    fireEvent.click(screen.getByTestId('reeval-error-dismiss-m-77'));
+    expect(screen.queryByTestId('reeval-error-m-77')).toBeNull();
+  });
+
+  test('successful re-run clears any previous inline error banner', async () => {
+    mockPost.mockRejectedValueOnce({
+      response: { status: 500, data: { detail: 'transient failure' } },
+    });
+    mockPost.mockResolvedValueOnce({
+      data: { result: { live_state: 'WATCHLIST', risk_level: 'LOW', recommended_action: 'WATCH' } },
+    });
+    renderPanel();
+    fireEvent.click(screen.getByTestId('reeval-btn-m-77'));
+    await waitFor(() => expect(screen.getByTestId('reeval-error-m-77')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('reeval-btn-m-77'));
+    await waitFor(() => expect(screen.queryByTestId('reeval-error-m-77')).toBeNull());
+  });
+
+  test('blur on manual-odds field with invalid value triggers a toast (lazy validation)', async () => {
+    renderPanel();
+    fireEvent.click(screen.getByTestId('reeval-toggle-manual-m-77'));
+    fireEvent.click(screen.getByTestId('reeval-use-manual-m-77'));
+    const input = screen.getByTestId('reeval-manual-odds-m-77');
+    // User typed an invalid (<=1.01) odds. Validation only fires on blur.
+    fireEvent.change(input, { target: { value: '1,00' } });
+    expect(mockToastError).not.toHaveBeenCalled();   // not on change
+    fireEvent.blur(input);
+    expect(mockToastError).toHaveBeenCalledTimes(1); // fires on blur
+  });
+
+  test('input enforces inputMode=decimal + type=text for mobile compatibility', () => {
+    renderPanel();
+    fireEvent.click(screen.getByTestId('reeval-toggle-manual-m-77'));
+    const input = screen.getByTestId('reeval-manual-odds-m-77');
+    expect(input.getAttribute('inputmode')).toBe('decimal');
+    expect(input.getAttribute('type')).toBe('text');
+    // Pattern must allow both comma and dot as decimal separator.
+    expect(input.getAttribute('pattern')).toMatch(/[,.]/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // Timeout / fail-soft UX
 // ─────────────────────────────────────────────────────────────────────
 describe('LiveReevalPanel timeout UX', () => {
@@ -244,7 +336,8 @@ describe('LiveReevalPanel timeout UX', () => {
     renderPanel();
     fireEvent.click(screen.getByTestId('reeval-btn-m-77'));
     await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1));
-    const [, body, opts] = mockPost.mock.calls[0];
+    const [path, body, opts] = mockPost.mock.calls[0];
+    expect(path).toBe('/analysis/live/reevaluate-one');
     expect(body.manual_odds).toBeUndefined();
     expect(opts.timeout).toBe(20000);
   });

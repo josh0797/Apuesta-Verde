@@ -946,6 +946,29 @@ async def prefetch_basketball_profiles(
         if profile.get("available"):
             enriched += 1
 
+        # ── Phase 40 / Fix 1 — Box-score hydration (opt-in by default ON).
+        # Attaches REAL per-game Four Factors so the basketball_possession
+        # _layer can drop the historical fallback. Strict per-match timeout
+        # + fail-soft: any failure → silently skip, downstream layers
+        # degrade gracefully to the proxy path. Set ``BASKETBALL_BOX_SCORES
+        # _HYDRATE=0`` to disable in production if latency budget is tight.
+        if os.environ.get("BASKETBALL_BOX_SCORES_HYDRATE", "1") != "0":
+            try:
+                from services.box_score_providers import (
+                    hydrate_match_with_box_scores,
+                )
+                await asyncio.wait_for(
+                    hydrate_match_with_box_scores(m, last_n=8),
+                    timeout=float(os.environ.get(
+                        "BASKETBALL_BOX_SCORES_HYDRATE_TIMEOUT_S", "5.0",
+                    )),
+                )
+            except (asyncio.TimeoutError, Exception) as _exc_hydrate:
+                log.debug(
+                    "basketball box-score hydration skipped for match %s: %s",
+                    m.get("match_id"), _exc_hydrate,
+                )
+
     try:
         await asyncio.wait_for(
             asyncio.gather(*[_one(m) for m in real_matches], return_exceptions=True),

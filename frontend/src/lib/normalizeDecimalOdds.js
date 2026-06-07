@@ -17,6 +17,8 @@
  *   normalizeDecimalOdds("abc")   -> null
  *   normalizeDecimalOdds(null)    -> null
  *   normalizeDecimalOdds("")      -> null
+ *   normalizeDecimalOdds(0)       -> null   // odds must be > 1.01 anyway
+ *   normalizeDecimalOdds(-1.5)    -> null
  */
 export function normalizeDecimalOdds(value) {
   if (value === null || value === undefined) return null;
@@ -24,6 +26,22 @@ export function normalizeDecimalOdds(value) {
   if (!raw) return null;
   const n = Number(raw);
   if (!Number.isFinite(n)) return null;
+  if (n <= 0) return null;        // reject zero / negative explicitly
+  return n;
+}
+
+/**
+ * normalizeManualOddsInput — alias the live-reeval flow uses.
+ *
+ * Same contract as normalizeDecimalOdds. Kept separate so future
+ * tweaks to the manual-odds UX (e.g. clamping above 1.01, locale
+ * heuristics) live in one place without touching the generic helper.
+ */
+export function normalizeManualOddsInput(value) {
+  const n = normalizeDecimalOdds(value);
+  // Manual odds must be > 1.01 to be meaningful (a bookmaker can't
+  // price a market below "even money" plus the smallest tick).
+  if (n === null || n <= 1.01) return null;
   return n;
 }
 
@@ -33,8 +51,7 @@ export function normalizeDecimalOdds(value) {
  * the floor.
  */
 export function isValidBookieOdds(value) {
-  const n = normalizeDecimalOdds(value);
-  return n !== null && n > 1.01;
+  return normalizeManualOddsInput(value) !== null;
 }
 
 export default normalizeDecimalOdds;

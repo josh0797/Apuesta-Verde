@@ -1034,6 +1034,69 @@ async def settle_open_live_events_for_match(
                         result["updated"] += 1
             except Exception as exc:
                 result["errors"].append(str(exc)[:200])
+
+        # ── Phase 39 / Fix 2 — Friendly DNB pattern memory ingestion.
+        # When a football match has just ended AND it's an international
+        # friendly, feed the warehouse so the ``friendly_intl_dnb_preferred``
+        # pattern accumulates real samples. Fail-soft: never abort the
+        # settlement loop on a learning-pipeline hiccup.
+        if sport == "football" and bool(match_ended):
+            try:
+                from .friendly_dnb_rule import (
+                    is_international_friendly,
+                    detect_favorite_side,
+                )
+                if is_international_friendly(match):
+                    from .football_moneyball.football_intelligence_warehouse import (
+                        record_friendly_dnb_outcome,
+                    )
+                    # Map current score → 1X2 outcome.
+                    home_g = score.get("home")
+                    away_g = score.get("away")
+                    if home_g > away_g:
+                        final = "home"
+                    elif away_g > home_g:
+                        final = "away"
+                    else:
+                        final = "draw"
+                    # Pull pre-match 1X2 odds to detect favorite.
+                    odds_book = match.get("odds") or {}
+                    oh = (odds_book.get("home") or odds_book.get("1")
+                          or odds_book.get("home_odds") or odds_book.get("ml_home"))
+                    oa = (odds_book.get("away") or odds_book.get("2")
+                          or odds_book.get("away_odds") or odds_book.get("ml_away"))
+                    fav = detect_favorite_side(
+                        odds_home=oh if isinstance(oh, (int, float)) else None,
+                        odds_away=oa if isinstance(oa, (int, float)) else None,
+                    )
+                    if fav is not None:
+                        # The interpreter persists ``recommendation.suggested_market``
+                        # on the live event — when it contains DNB, the engine
+                        # acted on the rule. Use the first matching open/hit
+                        # event for this match to detect it (best-effort).
+                        used_dnb = False
+                        try:
+                            sample_ev = await db[COLLECTION].find_one({
+                                "sport":    "football",
+                                "match_id": str(match_id),
+                                "recommendation.market": {"$regex": "(?i)dnb|empate no acci"},
+                            })
+                            used_dnb = sample_ev is not None
+                        except Exception:
+                            used_dnb = False
+
+                        # Ingest BOTH possible records when ambiguous, so
+                        # the warehouse learns the comparative outcome.
+                        await record_friendly_dnb_outcome(
+                            db,
+                            match=match,
+                            final_outcome=final,
+                            favorite=fav,
+                            used_dnb=used_dnb,
+                        )
+            except Exception as exc_fdnb:
+                log.debug("friendly_dnb settlement ingestion skipped: %s", exc_fdnb)
+
         return result
     except Exception as exc:
         log.debug("settle_open_live_events_for_match failed: %s", exc)

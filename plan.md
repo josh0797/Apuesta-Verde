@@ -133,7 +133,7 @@
 ### Phase 4 — Comprehensive Testing & Regression ✅ COMPLETADO
 - ✅ Suite backend sin regresiones.
 
-> **Estado tests (actual):** ✅ Backend `pytest tests/` **1182 passing**. Frontend `craco test` **42 passing**.
+> **Estado tests (actual):** ✅ Backend `pytest tests/` **1188 passing**. Frontend `craco test` **50 passing**.
 
 ---
 
@@ -259,7 +259,13 @@
 - Fix 2: nuevo módulo `services/friendly_dnb_rule.py` (hard rule) + `lookup_friendly_dnb_pattern` / `record_friendly_dnb_outcome` en warehouse (≥60 muestras activa amplify/dampen). Interpreter consume el learned pattern vía `match["learned_patterns"]`.
 - Tests: 21 friendly_dnb + 3 RTL Fix 3 = 24 nuevos.
 
-## 15) Phase 40 — Fix 1: Box-score providers + wiring al possession layer ✅ COMPLETADO
+## 16) Phase 41 — Fix 1/2 wiring (hydrate prefetch + DNB settlement) + Fix 3 mobile UX ✅ COMPLETADO
+- **Fix 1**: `prefetch_basketball_profiles` y `prefetch_baseball_profiles` ahora invocan `hydrate_match_with_box_scores` con timeout estricto (5s default, configurable). Activado por defecto, deshabilitable con `BASKETBALL_BOX_SCORES_HYDRATE=0` o `BASEBALL_BOX_SCORES_HYDRATE=0`. Nuevo endpoint `POST /api/analysis/box-scores/hydrate` para hidratar manualmente y persistir en mongo.
+- **Fix 2**: `settle_open_live_events_for_match` ahora alimenta `record_friendly_dnb_outcome` cuando el partido es football amistoso y ya terminó. Detección de favorito vía pre-match 1X2; detección de `used_dnb` mirando si algún evento del match usó mercado DNB. Push automático cuando hay empate y DNB (sin penalizar pattern memory).
+- **Fix 3 mobile**: `normalizeManualOddsInput` helper agregado (alias estricto con floor 1.01). Input acepta tanto `1.21` como `1,21`. Validación lazy en `onBlur` (no rechaza intermediates como `1,`). Atributos `autoComplete/autoCapitalize/autoCorrect/spellCheck=false` para mobile clean. `inputMode=decimal` + `type=text` (no `number`) + `pattern=[0-9]+([.,][0-9]+)?`.
+- **Fix 3 per-card endpoint**: nuevo alias `POST /api/analysis/live/reevaluate-one` con el mismo contrato que `/live/reevaluate`. URL explícita para metrics y per-card flow. Frontend `LiveReevalPanel` ahora apunta al nuevo endpoint.
+- **Fix 3 inline error**: banner inline `reeval-error-${matchId}` con botón dismiss, persiste hasta el próximo run() exitoso. Otras cards no afectadas.
+- Tests: +6 backend (Phase 41 wiring) + 8 RTL (mobile + per-card + error) = 14 nuevos.
 - Nuevo paquete `services/box_score_providers/` con API-Sports primary + Balldontlie/MLB StatsAPI fallback.
 - `fetch_basketball_team_games`, `fetch_baseball_team_games` (async, fail-soft).
 - `hydrate_match_with_box_scores(match)` attacha `_box_score_games` que `analyst_engine` Phase 12b.2 ya consume para mejorar Four Factors reales.

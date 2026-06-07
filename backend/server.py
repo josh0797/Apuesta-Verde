@@ -818,6 +818,90 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
     return {"result": result, "match_id": req.match_id, "sport": sport}
 
 
+# Fix 3 (Phase 41) — Alias endpoint requested by product:
+# ``POST /api/analysis/live/reevaluate-one``. Identical contract to
+# ``/api/live/reevaluate``. The original path is kept for backwards
+# compatibility; the new path makes it explicit at the URL level that
+# the operation is **single-match scoped** (not a batch run).
+@api.post("/analysis/live/reevaluate-one")
+async def live_reevaluate_one(
+    req: LiveReevalRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Single-match live re-evaluation.
+
+    Same payload + same response as ``/api/live/reevaluate``. Use this
+    URL when implementing per-card "Reevaluar" buttons so the intent is
+    clear in metrics + traffic logs.
+    """
+    return await live_reevaluate(req, user=user)
+
+
+# Fix 1 (Phase 40) — manual box-score hydration endpoint.
+# Useful when the user wants to **force** Four Factors hydration outside
+# the normal prefetch path (e.g. a card that hit a hydration timeout).
+class BoxScoreHydrateRequest(BaseModel):
+    match_id:  str | int
+    sport:     str   # "basketball" | "baseball"
+    last_n:    int = 8
+
+
+@api.post("/analysis/box-scores/hydrate")
+async def box_scores_hydrate(
+    req: BoxScoreHydrateRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Force-fetch per-game box-scores for one match and persist them.
+
+    The hydrated games are stored on ``match["_box_score_games"]`` and
+    re-read by the analyst pipeline next time the match is parsed —
+    upgrading the Four Factors layer from proxy to real data.
+    """
+    sport = _norm_sport(req.sport or "basketball")
+    if sport not in ("basketball", "baseball"):
+        raise HTTPException(status_code=400, detail="sport must be basketball | baseball")
+
+    candidates = []
+    try:
+        candidates.append(int(req.match_id))
+    except (TypeError, ValueError):
+        pass
+    candidates.append(str(req.match_id))
+    match = await db.matches.find_one({"match_id": {"$in": candidates}})
+    if not match:
+        raise HTTPException(status_code=404, detail=f"match {req.match_id} not found")
+
+    try:
+        from services.box_score_providers import hydrate_match_with_box_scores
+        await hydrate_match_with_box_scores(match, last_n=req.last_n)
+    except Exception as exc:
+        # Fail-soft contract — never 5xx because of provider hiccups.
+        log.debug("manual box-score hydrate failed: %s", exc)
+        return {
+            "ok": False, "reason": str(exc),
+            "_box_score_games": match.get("_box_score_games") or {},
+        }
+
+    # Persist back to mongo so future reads pick it up.
+    try:
+        await db.matches.update_one(
+            {"match_id": match.get("match_id")},
+            {"$set": {"_box_score_games": match.get("_box_score_games") or {}}},
+        )
+    except Exception as exc:
+        log.debug("manual box-score persist failed: %s", exc)
+
+    bs = match.get("_box_score_games") or {}
+    return {
+        "ok":               True,
+        "sport":            sport,
+        "match_id":         req.match_id,
+        "home_games":       len((bs.get("home") or [])),
+        "away_games":       len((bs.get("away") or [])),
+        "provider_summary": bs.get("_provider_summary"),
+    }
+
+
 @api.get("/matches/{match_id}")
 async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
     """Get full detail of a single match (3 layers).

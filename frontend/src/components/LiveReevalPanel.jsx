@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { normalizeDecimalOdds, isValidBookieOdds } from '@/lib/normalizeDecimalOdds';
+import { normalizeDecimalOdds, normalizeManualOddsInput, isValidBookieOdds } from '@/lib/normalizeDecimalOdds';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -99,6 +99,9 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  // Phase 41 / Fix 3 — Per-card error state. Surfaces inline so OTHER
+  // cards on the screen keep working even when this one fails.
+  const [error, setError] = useState(null);
   const [manualOdds, setManualOdds] = useState('');
   const [manualMarket, setManualMarket] = useState(defaultMarketFor(sport));
   const [useManual, setUseManual] = useState(false);
@@ -127,13 +130,16 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
 
   const run = async () => {
     setLoading(true);
+    setError(null);   // Fix 3 — clear inline error each time
     try {
       const body = { match_id: matchId, sport, refresh: true };
       let timeoutMs = REEVAL_TIMEOUT_NORMAL_MS;
       if (useManual) {
-        // Accept both "1.85" and "1,85" via the shared helper.
-        const odds = normalizeDecimalOdds(manualOdds);
-        if (!isValidBookieOdds(manualOdds) || odds === null) {
+        // Accept both "1.85" and "1,85" via the shared helper. The
+        // manual-odds variant additionally clamps at > 1.01 (no value
+        // below that floor can be priced by a bookmaker).
+        const odds = normalizeManualOddsInput(manualOdds);
+        if (odds === null || !isValidBookieOdds(manualOdds)) {
           toast.error(lang === 'en' ? 'Enter decimal odds > 1.01' : 'Ingresa cuota decimal > 1.01');
           setLoading(false);
           return;
@@ -142,7 +148,11 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
         body.manual_market = manualMarket;
         timeoutMs = REEVAL_TIMEOUT_MANUAL_MS;
       }
-      const r = await api.post('/live/reevaluate', body, { timeout: timeoutMs });
+      // Phase 41 / Fix 3 — Per-card endpoint. Same contract as the
+      // legacy `/live/reevaluate` but the URL makes it explicit that
+      // ONLY this card is being re-analyzed (no batch sweep). Backend
+      // exposes both routes so older clients still work.
+      const r = await api.post('/analysis/live/reevaluate-one', body, { timeout: timeoutMs });
       setResult(r.data?.result || null);
       // Reset tracking state every time we re-run.
       setTrackedOutcome(null);
@@ -181,6 +191,9 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
       // eslint-disable-next-line no-console
       console.error('[LIVE_REEVAL_ERROR]', { match_id: matchId, status: err?.response?.status, code: err?.code, error: err });
       toast.error(detail);
+      // Fix 3 — surface error inline on THIS card so other cards
+      // remain usable. UI clears it on next successful run().
+      setError(typeof detail === 'string' ? detail : 'Error');
     } finally {
       setLoading(false);
     }
@@ -284,6 +297,29 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
         </button>
       </div>
 
+      {/* Fix 3 (Phase 41) — Inline per-card error banner. Stays visible
+          until the next successful run() clears it. Other cards on
+          the screen remain usable. */}
+      {error && !loading && (
+        <div
+          className="flex items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-200"
+          role="alert"
+          data-testid={`reeval-error-${matchId}`}
+        >
+          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span className="leading-snug">{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="ml-auto opacity-70 hover:opacity-100"
+            aria-label={lang === 'en' ? 'Dismiss error' : 'Cerrar error'}
+            data-testid={`reeval-error-dismiss-${matchId}`}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
       {/* Manual odds form */}
       {open && (
         <div className="rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3 space-y-2" data-testid={`reeval-manual-form-${matchId}`}>
@@ -317,13 +353,31 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
               placeholder={lang === 'en' ? 'Decimal odds, e.g. 1.85 or 1,85' : 'Cuota decimal, ej. 1.85 o 1,85'}
               value={manualOdds}
               onChange={(e) => {
-                // Allow only digits + one decimal separator (. or ,)
+                // Allow only digits + one decimal separator (. or ,).
+                // Do NOT validate on every keystroke — the user might
+                // be in the middle of typing "1," before the decimals.
                 const v = e.target.value.replace(/[^0-9.,]/g, '');
                 setManualOdds(v);
+              }}
+              onBlur={(e) => {
+                // Lazy validation only on blur — mobile keyboards finish
+                // entry then. Empty string is acceptable (treated as
+                // "no manual cuota").
+                const raw = (e.target.value || '').trim();
+                if (!raw) return;
+                if (normalizeManualOddsInput(raw) === null) {
+                  toast.error(lang === 'en'
+                    ? 'Invalid decimal odds (must be > 1.01)'
+                    : 'Cuota inválida (debe ser > 1.01)');
+                }
               }}
               disabled={!useManual}
               data-testid={`reeval-manual-odds-${matchId}`}
               className="h-9 text-xs"
+              autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck="false"
             />
           </div>
           <p className="text-[10px] text-muted-foreground italic">
