@@ -89,3 +89,45 @@ def test_trackin_accepts_live_entry_context_fields():
     assert payload.source == "manual"
     assert payload.entry_minute == 42
     assert payload.entry_score_display == "1-0"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase 42 — Line Learning Engine wiring
+# ─────────────────────────────────────────────────────────────────────
+def test_line_learning_routes_registered():
+    """Read-only endpoints exposed for the UI panel."""
+    from server import api
+    paths = {r.path for r in api.routes}
+    assert "/api/learning/line/samples" in paths
+    assert "/api/learning/line/cohort-bias" in paths
+
+
+def test_trackin_accepts_cashout_outcomes():
+    from server import TrackIn
+    for o in ("cashout_win", "cashout_loss"):
+        TrackIn(
+            run_id="r", match_id="m", market="x",
+            selection="y", confidence_score=50, outcome=o,
+        )
+
+
+def test_trackin_accepts_actual_bet_fields():
+    """The Line-Learning actual_* + projection + final_value fields."""
+    from server import TrackIn
+    payload = TrackIn(
+        run_id="r", match_id="m1", market="total_runs_under",
+        selection="Under 9.5", confidence_score=65, outcome="lost",
+        sport="baseball", line=9.5, odds=1.85,
+        actual_market="total_runs_under",
+        actual_selection="Under 10.0",
+        actual_line=10.0, actual_odds=1.26,
+        actual_outcome="push",
+        engine_projection=7.8, final_value=10.0,
+        market_type="total_runs",
+    )
+    assert payload.actual_line == 10.0
+    assert payload.actual_odds == 1.26
+    assert payload.actual_outcome == "push"
+    assert payload.engine_projection == 7.8
+    assert payload.final_value == 10.0
+    assert payload.market_type == "total_runs"

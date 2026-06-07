@@ -902,6 +902,88 @@ async def box_scores_hydrate(
     }
 
 
+# ── Phase 42 / Line Learning Engine — read endpoints ──────────────
+@api.get("/learning/line/samples")
+async def line_learning_samples(
+    sport:        Optional[str] = None,
+    market_type:  Optional[str] = None,
+    limit:        int = 50,
+    user: dict = Depends(get_current_user),
+):
+    """Return the user's most recent line-learning samples.
+
+    Powers the "Aprendizaje de líneas" UI panel — surfaces the
+    classification, reason codes and the bias status (observe-only vs
+    active).
+    """
+    q: dict = {"user_id": user["id"]}
+    if sport:
+        q["sport"] = sport.lower()
+    if market_type:
+        q["market_type"] = market_type
+    cursor = db.line_learning_samples.find(q).sort("created_at", -1).limit(max(1, min(200, limit)))
+    rows = [r async for r in cursor]
+    for r in rows:
+        r.pop("_id", None)
+    return {"samples": rows, "count": len(rows)}
+
+
+@api.get("/learning/line/cohort-bias")
+async def line_learning_cohort_bias(
+    sport:        str,
+    market_type:  str,
+    user: dict = Depends(get_current_user),
+):
+    """Aggregate the user's samples into a recommendation bias.
+
+    Returns the structure emitted by
+    ``compute_weighted_recommendation_bias`` so the UI can show whether
+    the engine is currently being biased toward PROTECTED / VALUE /
+    NEUTRAL lines for that cohort. ``active=False`` while we are below
+    the observe-only threshold.
+    """
+    from services import line_learning_engine as lle
+
+    cursor = db.line_learning_samples.find({
+        "user_id":     user["id"],
+        "sport":       sport.lower(),
+        "market_type": market_type,
+    })
+    total = 0
+    agg = {"aggressive_line_miss": 0, "push_saved": 0, "near_miss": 0,
+           "safe_line_hit":         0, "profile_wrong": 0, "exact_hit": 0}
+    line_adjustments: list[float] = []
+    async for r in cursor:
+        total += 1
+        cls = (r.get("classification") or "").upper()
+        if cls == lle.CLASS_AGGRESSIVE_LINE_MISS: agg["aggressive_line_miss"] += 1
+        elif cls == lle.CLASS_PUSH_SAVED:          agg["push_saved"] += 1
+        elif cls == lle.CLASS_NEAR_MISS:           agg["near_miss"] += 1
+        elif cls == lle.CLASS_SAFE_LINE_HIT:       agg["safe_line_hit"] += 1
+        elif cls == lle.CLASS_PROFILE_WRONG:       agg["profile_wrong"] += 1
+        elif cls == lle.CLASS_EXACT_HIT:           agg["exact_hit"] += 1
+        ld = r.get("line_distance")
+        if isinstance(ld, (int, float)):
+            line_adjustments.append(float(ld))
+
+    if total == 0:
+        cohort = {"sample_size": 0}
+    else:
+        avg_adj = sum(line_adjustments) / len(line_adjustments) if line_adjustments else 0.0
+        cohort = {
+            "sample_size":               total,
+            "aggressive_line_miss_rate": agg["aggressive_line_miss"] / total,
+            "push_saved_rate":           agg["push_saved"] / total,
+            "near_miss_rate":            agg["near_miss"] / total,
+            "safe_line_hit_rate":        agg["safe_line_hit"] / total,
+            "profile_wrong_rate":        agg["profile_wrong"] / total,
+            "exact_hit_rate":            agg["exact_hit"] / total,
+            "average_line_adjustment":   avg_adj,
+        }
+    bias = lle.compute_weighted_recommendation_bias(cohort_stats=cohort)
+    return {"cohort": cohort, "bias": bias, "engine_version": lle.ENGINE_VERSION}
+
+
 @api.get("/matches/{match_id}")
 async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
     """Get full detail of a single match (3 layers).
@@ -3279,7 +3361,7 @@ class TrackIn(BaseModel):
     market: str
     selection: str
     confidence_score: int
-    outcome: str = Field(pattern="^(won|lost|push|pending|void|cancelled|refund)$")
+    outcome: str = Field(pattern="^(won|lost|push|pending|void|cancelled|refund|cashout_win|cashout_loss)$")
     odds: Optional[float] = None
     league: Optional[str] = None
     match_label: Optional[str] = None
@@ -3304,6 +3386,24 @@ class TrackIn(BaseModel):
     entry_score_home: Optional[int] = None    # score at entry
     entry_score_away: Optional[int] = None
     entry_score_display: Optional[str] = None # "1-0" precomputed
+    # ── Phase 42 / Line Learning Engine — actual bet snapshot ────
+    # When the user's REAL bet differs from the engine recommendation
+    # (different line, different odds, etc) these fields capture the
+    # actual wager so we can learn from push / near-miss outcomes.
+    # All optional; when absent the engine recommendation is assumed
+    # to equal the user's actual bet.
+    actual_market:    Optional[str]   = None
+    actual_selection: Optional[str]   = None
+    actual_line:      Optional[float] = None
+    actual_odds:      Optional[float] = None
+    actual_outcome:   Optional[str]   = None  # user's outcome (may differ from engine)
+    # Result value used to settle (e.g. "10" for a total_runs market).
+    # Optional — when missing we re-derive from final_score totals.
+    final_value:      Optional[float] = None
+    # Projection from the engine snapshot — pre-game predicted total/spread.
+    engine_projection: Optional[float] = None
+    # Market category (free text) — caller normalizes (total_runs, total_goals,...)
+    market_type:      Optional[str]   = None
 
 
 @api.post("/picks/track")
@@ -3356,7 +3456,10 @@ async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
 
     # ── Settled-at: set automatically when outcome leaves pending ──
     settled_at = payload.settled_at
-    if settled_at is None and payload.outcome in ("won", "lost", "push", "void", "cancelled", "refund"):
+    if settled_at is None and payload.outcome in (
+        "won", "lost", "push", "void", "cancelled", "refund",
+        "cashout_win", "cashout_loss",
+    ):
         settled_at = now.isoformat()
 
     doc = {
@@ -3401,6 +3504,25 @@ async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
                 else None
             )
         ),
+        # ── Phase 42 — Line Learning actual-bet snapshot ──
+        "actual_bet": {
+            "market":    payload.actual_market    or payload.market,
+            "selection": payload.actual_selection or payload.selection,
+            "line":      payload.actual_line if payload.actual_line is not None else payload.line,
+            "odds":      payload.actual_odds      or payload.odds,
+            "outcome":   payload.actual_outcome   or payload.outcome,
+        },
+        "engine_recommendation": {
+            "market":      payload.market,
+            "selection":   payload.selection,
+            "line":        payload.line,
+            "odds":        payload.odds,
+            "projection":  payload.engine_projection,
+            "outcome":     payload.outcome,
+        },
+        "market_type":       payload.market_type,
+        "final_value":       payload.final_value,
+        "engine_projection": payload.engine_projection,
     }
 
     # ── One-time dedup of stale rows from prior recalibrations ──────
@@ -3523,6 +3645,94 @@ async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
                     pass
     except Exception as exc_mirror:
         log.debug("live_recommendation_events mirror failed (non-fatal): %s", exc_mirror)
+
+    # ── Phase 42 / Line Learning Engine — Features 1-5, 9 ───────────
+    # Build a learning sample from this settled pick and persist it
+    # to `line_learning_samples`. Observe-only by default until the
+    # cohort (sport, market_type) reaches LINE_LEARNING_MIN_SAMPLES.
+    # Fail-soft: never block the track_pick response on learning I/O.
+    try:
+        if payload.outcome in (
+            "won", "lost", "push", "void", "refund", "cancelled",
+            "cashout_win", "cashout_loss",
+        ):
+            from services import line_learning_engine as lle
+
+            market_type = payload.market_type or lle._infer_market_type(
+                payload.market, payload.selection,
+            )
+            # Cohort count BEFORE this sample lands.
+            try:
+                cohort_count = await db.line_learning_samples.count_documents({
+                    "user_id":     user["id"],
+                    "sport":       sport,
+                    "market_type": market_type,
+                })
+            except Exception:
+                cohort_count = 0
+
+            # Pull a sensible final_value when caller didn't provide one.
+            fv = payload.final_value
+            if fv is None and final_score_block:
+                try:
+                    h = float(final_score_block.get("home") or 0)
+                    a = float(final_score_block.get("away") or 0)
+                    fv = h + a
+                except (TypeError, ValueError):
+                    fv = None
+
+            sample = lle.build_learning_sample(
+                user_id=user["id"],
+                match_id=str(payload.match_id),
+                sport=sport,
+                market_type=market_type,
+                engine_market=payload.market,
+                engine_selection=payload.selection,
+                engine_line=payload.line,
+                engine_odds=payload.odds,
+                engine_projection=payload.engine_projection,
+                engine_outcome=payload.outcome,
+                user_market=payload.actual_market,
+                user_selection=payload.actual_selection,
+                user_line=payload.actual_line,
+                user_odds=payload.actual_odds,
+                user_outcome=payload.actual_outcome,
+                final_value=fv,
+                final_score=final_score_block,
+                cohort_sample_count=cohort_count,
+            )
+            # Idempotent upsert by (user_id, match_id, market, selection).
+            await db.line_learning_samples.update_one(
+                {
+                    "user_id":  user["id"],
+                    "match_id": str(payload.match_id),
+                    "engine.market":    payload.market,
+                    "engine.selection": payload.selection,
+                },
+                {"$set": sample, "$setOnInsert": {"created_at": sample["created_at"]}},
+                upsert=True,
+            )
+            # Stash a compact summary on the pick_tracking row so the UI
+            # can render the learning verdict without an extra round-trip.
+            try:
+                await db.pick_tracking.update_one(
+                    {"user_id": user["id"], "match_id": str(payload.match_id), "pick_id": pick_uid},
+                    {"$set": {
+                        "line_learning": {
+                            "classification":  sample.get("classification"),
+                            "reason_codes":    sample.get("reason_codes"),
+                            "line_distance":   sample.get("line_distance"),
+                            "summary_es":      sample.get("summary_es"),
+                            "summary_en":      sample.get("summary_en"),
+                            "observe_only":    sample.get("observe_only"),
+                            "engine_version":  sample.get("engine_version"),
+                        },
+                    }},
+                )
+            except Exception:
+                pass
+    except Exception as exc_lle:
+        log.debug("line_learning persist failed (non-fatal): %s", exc_lle)
 
     return {"ok": True, "pick_id": pick_uid, "outcome": payload.outcome, "sport": sport}
 

@@ -16,6 +16,7 @@ import { ProtectedMarketBadge } from './ProtectedMarketBadge';
 import { ProvenanceBadge } from './ProvenancePanel';
 import { EditorialContextPanel } from './EditorialContextPanel';
 import { HistoricalProfilePanel } from './HistoricalProfilePanel';
+import { BoxScoreHydrateButton } from './BoxScoreHydrateButton';
 import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
@@ -398,6 +399,20 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
         sport={m.baseballHistoricalProfile ? 'baseball' : 'basketball'}
         testId={`historical-profile-${m.match_id}`}
       />
+
+      {/* Phase 41 (P2 follow-up) — manual Four Factors hydration trigger.
+          Renders for basketball + baseball cards. Calls
+          POST /api/analysis/box-scores/hydrate which fetches real
+          box-scores via API-Sports + provider fallback and persists
+          them so the next analyze() uses REAL Four Factors instead of
+          the historical proxy. Hidden for football. */}
+      {(sport === 'basketball' || sport === 'baseball') && (
+        <BoxScoreHydrateButton
+          match={m}
+          apiClient={api}
+          lang={lang}
+        />
+      )}
 
       {/* Football Moneyball Intelligence Layer + Pattern Memory.
           Three independent, fail-soft panels. Each renders only when its

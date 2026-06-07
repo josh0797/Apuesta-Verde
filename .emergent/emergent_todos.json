@@ -1,22 +1,26 @@
 [
   {
-    "content": "Fix 1: wire hydrate_match_with_box_scores en prefetch_basketball_profiles + endpoint manual de hidratación",
+    "content": "Crear services/line_learning_engine.py (line_distance + classification + reason codes + observe_only mode)",
     "status": "completed"
   },
   {
-    "content": "Fix 2: hook record_friendly_dnb_outcome en settlement loop (cuando football match resuelve a final)",
+    "content": "Extender TrackIn con actual_market/actual_selection/actual_line/actual_odds + outcomes cashout_win/cashout_loss",
     "status": "completed"
   },
   {
-    "content": "Fix 3 backend: alias POST /api/analysis/live/reevaluate-one (re-rutea a /live/reevaluate)",
+    "content": "Wire track_pick → build_line_learning_sample + persistir en mongo (collection line_learning_samples)",
     "status": "completed"
   },
   {
-    "content": "Fix 3 frontend: verificar/agregar normalizeManualOddsInput export + tests mobile decimal coma",
+    "content": "UI: nuevo MatchOutcomeModal con actual_* fields + learning summary; reemplaza botones inline en LiveReevalPanel",
     "status": "completed"
   },
   {
-    "content": "Tests pytest + RTL completos + correr full suite",
+    "content": "UI: botón 'Hidratar Four Factors' en MatchCard basket/baseball",
+    "status": "completed"
+  },
+  {
+    "content": "Tests backend + RTL + full suite",
     "status": "completed"
   }
 ]

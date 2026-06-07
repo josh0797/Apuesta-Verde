@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Radio, RefreshCw, AlertCircle, TrendingUp, Hand, Eye, X } from 'lucide-react';
+import { Radio, RefreshCw, AlertCircle, TrendingUp, Hand, Eye, X, Pencil } from 'lucide-react';
 import { LiveCopilotCard } from '@/components/LiveCopilotCard';
+import { MatchOutcomeModal } from '@/components/MatchOutcomeModal';
 
 /**
  * LiveReevalPanel — Phase 10 entry point on the LivePage.
@@ -115,6 +116,8 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
   // bookie-odds form so the UX is consistent.
   // Values: 'engine' | 'manual'.
   const [playSource, setPlaySource] = useState('engine');
+  // Phase 42 / Fix 7 — Outcome modal lifecycle
+  const [outcomeModalOpen, setOutcomeModalOpen] = useState(false);
 
   const matchId = match.match_id;
 
@@ -593,6 +596,24 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
             </div>
           )}
 
+          {/* Phase 42 / Fix 7 — "Marcar resultado" launcher.
+              Opens the dedicated MatchOutcomeModal so the user can pick
+              the outcome AND record their actual bet (market / line /
+              odds). The inline tracking buttons below remain as a
+              quick path for users who don't want the modal. */}
+          {!trackedOutcome && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setOutcomeModalOpen(true)}
+              className="h-7 text-[11px] border-fuchsia-500/40 hover:bg-fuchsia-500/15 text-fuchsia-200 w-full"
+              data-testid={`reeval-open-outcome-modal-${matchId}`}
+            >
+              <Pencil className="h-3 w-3 mr-1.5" />
+              {lang === 'en' ? 'Mark outcome (advanced)' : 'Marcar resultado (avanzado)'}
+            </Button>
+          )}
+
           {/* P4 — Outcome tracking (Gané / Perdí / Devolución) — same as
               Picks del día. Saved through /api/picks/track with a
               live-reeval prefix so they appear in the user's history. */}
@@ -674,6 +695,34 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
             )}
           </div>
         </div>
+      )}
+
+      {/* Phase 42 / Fix 7 — Outcome modal (recoge actual bet + result).
+          Use a changing key so the modal re-mounts (and resets internal
+          state) every time it opens with a different result snapshot. */}
+      {result && (
+        <MatchOutcomeModal
+          key={`outcome-${matchId}-${result.computed_at || result.market || ''}`}
+          open={outcomeModalOpen}
+          onOpenChange={setOutcomeModalOpen}
+          match={match}
+          engineRec={{
+            market:     result.market,
+            selection:  result.selection,
+            line:       result.line,
+            odds:       result.decimal_odds,
+            projection: result.expected_value || result.projection,
+            confidence: result.confidence,
+            is_live:    true,
+          }}
+          apiClient={api}
+          lang={lang}
+          onConfirmed={({ payload }) => {
+            // Mirror the inline tracked-outcome banner so the user sees
+            // the same confirmation regardless of which path they used.
+            setTrackedOutcome(payload?.outcome || 'won');
+          }}
+        />
       )}
     </div>
   );
