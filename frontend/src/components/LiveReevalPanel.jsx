@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 import { Radio, RefreshCw, AlertCircle, TrendingUp, Hand, Eye, X, Pencil } from 'lucide-react';
 import { LiveCopilotCard } from '@/components/LiveCopilotCard';
 import { MatchOutcomeModal } from '@/components/MatchOutcomeModal';
+import { BullpenTrafficBadge } from '@/components/BullpenTrafficBadge';
+import { SiegePressureBadge } from '@/components/SiegePressureBadge';
 
 /**
  * LiveReevalPanel — Phase 10 entry point on the LivePage.
@@ -435,6 +437,24 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
                 <p className="text-xs text-muted-foreground leading-relaxed">{result.reason}</p>
               )}
             </div>
+          )}
+          {/* Phase 44 — Bullpen + Traffic verdict (MLB only). Renders only
+              when the live reeval response carries the verdict payload. */}
+          {result.bullpen_traffic && (
+            <BullpenTrafficBadge
+              data={result.bullpen_traffic}
+              lang={lang}
+              testId={`reeval-bullpen-traffic-${matchId}`}
+            />
+          )}
+          {/* Phase 45 — Football Siege Pressure Guard verdict.
+              Renders only when the live reeval response carries the verdict. */}
+          {result.siege_pressure?.siege_pressure_high && (
+            <SiegePressureBadge
+              data={result.siege_pressure}
+              lang={lang}
+              testId={`reeval-siege-pressure-${matchId}`}
+            />
           )}
           {/* Header badges */}
           <div className="flex items-center gap-2 flex-wrap">

@@ -18,6 +18,8 @@ import { EditorialContextPanel } from './EditorialContextPanel';
 import { HistoricalProfilePanel } from './HistoricalProfilePanel';
 import { BoxScoreHydrateButton } from './BoxScoreHydrateButton';
 import { LiveScriptRealityBadge } from './LiveScriptRealityBadge';
+import { BullpenTrafficBadge } from './BullpenTrafficBadge';
+import { SiegePressureBadge } from './SiegePressureBadge';
 import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
@@ -432,6 +434,33 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
             home_runs:    m.live_snapshot?.combined_home_runs,
             left_on_base: m.live_snapshot?.combined_left_on_base,
           }}
+        />
+      )}
+
+      {/* Phase 44 — Bullpen + Traffic interaction badge (observe-only).
+          Reads `m.bullpen_traffic` (pre-hydrated by MLB pregame pipeline)
+          OR `m.last_reeval?.bullpen_traffic` (stamped by the live
+          reeval response). Renders only when the engine produced a
+          verdict — silently no-op otherwise. MLB only. */}
+      {sport === 'baseball' && (m.bullpen_traffic || m.last_reeval?.bullpen_traffic) && (
+        <BullpenTrafficBadge
+          data={m.bullpen_traffic || m.last_reeval?.bullpen_traffic}
+          lang={lang}
+          testId={`bullpen-traffic-badge-${m.match_id || ''}`}
+        />
+      )}
+
+      {/* Phase 45 — Football Siege Pressure Guard badge.
+          Reads `m.siege_pressure` (if persisted by the analyst
+          pipeline) OR `m.last_reeval?.siege_pressure` (live reeval).
+          Football live only. Observe-only message + optional block
+          on Under markets — engine pick handling is owned by the
+          backend; this badge surfaces the verdict to the user. */}
+      {sport === 'football' && m.is_live && (m.siege_pressure || m.last_reeval?.siege_pressure) && (
+        <SiegePressureBadge
+          data={m.siege_pressure || m.last_reeval?.siege_pressure}
+          lang={lang}
+          testId={`siege-pressure-badge-${m.match_id || ''}`}
         />
       )}
 

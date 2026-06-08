@@ -356,6 +356,52 @@ def _reevaluate_football(
         )
         fb_live_vs_pregame = None
 
+    # ── Phase 45 — Football Siege Pressure Guard (fail-soft) ─────────
+    # Prevent the engine from recommending Under purely because the
+    # score is low late in a match where one team is in a siege.
+    siege = None
+    try:
+        from . import football_siege_pressure_guard as fspg
+        siege = fspg.evaluate_siege_pressure(
+            minute=minute,
+            home_score=home_score,
+            away_score=away_score,
+            home_stats=home_stats,
+            away_stats=away_stats,
+            market=market,
+        )
+    except Exception as _exc:
+        import logging
+        logging.getLogger("live_reeval").debug(
+            "football_siege_pressure_guard failed: %s", _exc,
+        )
+        siege = None
+
+    siege_blocks_under = bool(
+        siege and siege.get("verdict") == "BLOCK_UNDER"
+        and (market or "").lower().startswith("under")
+    )
+    siege_downgrades_under_3 = bool(
+        siege and siege.get("verdict") == "DOWNGRADE_UNDER_3_5"
+        and (market or "").lower().startswith("under")
+    )
+
+    if siege_blocks_under:
+        # Hard PASS on Under when the siege guard fires for that market.
+        # We preserve the math response inside ``live_analysis`` for
+        # transparency but the headline verdict becomes a clear block.
+        state, action, risk = "SIEGE_PRESSURE_HIGH", "PASS", "HIGH"
+        confidence = 0
+        reason = (
+            siege.get("ui_message_es")
+            or "Asedio sostenido del equipo dominante: el Under es de alto riesgo aquí."
+        )
+    elif siege_downgrades_under_3 and confidence > 35:
+        # Cap confidence; do not flip the verdict — let the user see
+        # the original math but with the protective ceiling.
+        confidence = 35
+        reason = (reason or "") + "  ⚠ Asedio sostenido — confianza limitada."
+
     return _build_response(
         match_id=match.get("match_id"),
         live_state=state,
@@ -377,6 +423,7 @@ def _reevaluate_football(
         football_live_vs_pregame=fb_live_vs_pregame,
         game_openness=openness,
         unilateral_dominance=unilateral_dominance,
+        siege_pressure=siege,
     )
 
 
@@ -568,6 +615,11 @@ def _build_response(**kwargs) -> dict:
         "football_live_vs_pregame": kwargs.get("football_live_vs_pregame"),
         "game_openness":       kwargs.get("game_openness"),
         "unilateral_dominance": kwargs.get("unilateral_dominance"),
+        # Phase 45 — Football siege guard verdict + Phase 44 baseball
+        # bullpen/traffic verdict. Both are observe-only payloads
+        # surfaced for the UI; ``None`` when not applicable.
+        "siege_pressure":      kwargs.get("siege_pressure"),
+        "bullpen_traffic":     kwargs.get("bullpen_traffic"),
     }
 
 
@@ -1025,6 +1077,56 @@ def _reevaluate_baseball(
         )
         interpreter = None
 
+    # ── Phase 44 — Bullpen + Traffic interaction (observe-only) ──────
+    # When the match doc has pre-hydrated bullpen_era_7d_max and
+    # traffic_bucket (from the MLB pregame pipeline), surface the
+    # bullpen-traffic verdict so the UI can show the "Bullpen risk
+    # confirmed by traffic" badge. Fail-soft: never raises.
+    bullpen_traffic = None
+    try:
+        from . import traffic_score as _ts
+        mlb_pregame = match.get("mlb_pregame_snapshot") or match.get("mlb_pregame") or {}
+        scoring_ctx = match.get("scoring_context") or {}
+        # Bullpen ERA 7d max: prefer explicit precompute; fall back to
+        # max(favorite_bullpen_era_7d, underdog_bullpen_era_7d) which is
+        # the field shape used by mlb_pregame_analytics_v3.
+        bp_max = (
+            mlb_pregame.get("bullpen_era_7d_max")
+            or match.get("bullpen_era_7d_max")
+        )
+        if bp_max is None:
+            fav = scoring_ctx.get("favorite_bullpen_era_7d")
+            und = scoring_ctx.get("underdog_bullpen_era_7d")
+            if fav is not None and und is not None:
+                try:
+                    bp_max = max(float(fav), float(und))
+                except (TypeError, ValueError):
+                    bp_max = None
+        traffic_bucket = (
+            mlb_pregame.get("traffic_bucket")
+            or match.get("traffic_bucket")
+            or (mlb_pregame.get("traffic_score_obj") or {}).get("traffic_bucket")
+        )
+        is_under_pick = market_l.startswith("under") or "total: under" in market_l
+        if bp_max is not None or traffic_bucket is not None:
+            bullpen_traffic = _ts.classify_bullpen_traffic_interaction(
+                bullpen_era_7d_max=float(bp_max) if bp_max is not None else None,
+                traffic_bucket=traffic_bucket,
+                is_under_pick=is_under_pick,
+            )
+            # Preserve the score number when present so the UI can
+            # render a richer badge tooltip.
+            if mlb_pregame.get("traffic_score") is not None:
+                bullpen_traffic["traffic_score"] = mlb_pregame.get("traffic_score")
+            bullpen_traffic["bullpen_era_7d_max"] = bp_max
+            bullpen_traffic["traffic_bucket"]     = traffic_bucket
+    except Exception as _exc:
+        import logging
+        logging.getLogger("live_reeval").debug(
+            "bullpen_traffic enrichment failed: %s", _exc,
+        )
+        bullpen_traffic = None
+
     return _build_response(
         match_id=match.get("match_id"),
         live_state=state,
@@ -1050,4 +1152,5 @@ def _reevaluate_baseball(
         live_analysis=analysis,
         trap=trap,
         interpreter=interpreter,
+        bullpen_traffic=bullpen_traffic,
     )

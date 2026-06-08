@@ -1,42 +1,26 @@
 [
   {
-    "content": "P0: Reescribir backtest_bullpen_under_hypothesis.py con MLB Stats API",
+    "content": "FIX 2: Crear services/football_siege_pressure_guard.py (módulo puro)",
     "status": "completed"
   },
   {
-    "content": "P0: Ejecutar backtest local y validar output JSON",
+    "content": "FIX 2: Integrar siege_guard en _reevaluate_football para BLOCK_UNDER + PREFER_OVER",
     "status": "completed"
   },
   {
-    "content": "P1: Extender backend /api/learning/line/analytics con date range + histograma + recent_samples",
+    "content": "FIX 2: Tests unitarios (Flamengo, tactical low-volume, possession-only)",
     "status": "completed"
   },
   {
-    "content": "P1: Actualizar LineLearningDashboard.jsx (filtros de fechas, histograma, tabla samples)",
+    "content": "FIX 1: Integrar bullpen-traffic verdict en _reevaluate_baseball (fail-soft)",
     "status": "completed"
   },
   {
-    "content": "P1: Integrar panel LineLearningDashboard dentro de DashboardPage existente",
+    "content": "FIX 1: Añadir badge UI \"Bullpen risk confirmed by traffic\" en MLB live card",
     "status": "completed"
   },
   {
-    "content": "P2: Crear services/traffic_score.py con score 0-100 compuesto",
-    "status": "completed"
-  },
-  {
-    "content": "P2: Añadir 4 reason codes nuevos al line_learning_engine",
-    "status": "completed"
-  },
-  {
-    "content": "P2: Integrar traffic_score en backtest script",
-    "status": "completed"
-  },
-  {
-    "content": "P2: Wire endpoints /api/learning/traffic/classify + /api/learning/traffic/score (observe-only)",
-    "status": "completed"
-  },
-  {
-    "content": "P2: Tests unitarios + correr backtest con nueva lógica",
+    "content": "Tests y validación final (1270 backend / 72 frontend)",
     "status": "completed"
   }
 ]
