@@ -20,6 +20,7 @@ import { BoxScoreHydrateButton } from './BoxScoreHydrateButton';
 import { LiveScriptRealityBadge } from './LiveScriptRealityBadge';
 import { BullpenTrafficBadge } from './BullpenTrafficBadge';
 import { SiegePressureBadge } from './SiegePressureBadge';
+import { InningLambdaPanel } from './InningLambdaPanel';
 import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
@@ -422,6 +423,18 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           `live_script_reality_check` on the match doc when the
           analyst pipeline / live re-eval runs; if absent the badge is
           a no-op. NEVER flips the engine pick — informational only. */}
+      {/* Phase 47 — Inning-Lambda Model panel (MLB pregame).
+          Surfaces the λ_1_3 + λ_4_6 + λ_7_9 decomposition with the
+          continuous traffic-score interaction in the late phase.
+          Observe-only by default: never alters the engine pick. */}
+      {sport === 'baseball' && m.inning_lambda_projection?.available && (
+        <InningLambdaPanel
+          projection={m.inning_lambda_projection}
+          lang={lang}
+          testId={`inning-lambda-${m.match_id || ''}`}
+        />
+      )}
+
       {sport === 'baseball' && m.is_live && (
         <LiveScriptRealityBadge
           match={m}

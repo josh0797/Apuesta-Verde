@@ -1077,19 +1077,22 @@ def _reevaluate_baseball(
         )
         interpreter = None
 
-    # ── Phase 44 — Bullpen + Traffic interaction (observe-only) ──────
+    # ── Phase 44 — Bullpen + Traffic interaction (Phase 46: ACTIVE) ──
     # When the match doc has pre-hydrated bullpen_era_7d_max and
     # traffic_bucket (from the MLB pregame pipeline), surface the
     # bullpen-traffic verdict so the UI can show the "Bullpen risk
-    # confirmed by traffic" badge. Fail-soft: never raises.
+    # confirmed by traffic" badge. Fail-soft: never raises. Phase 46
+    # promotes this from observe-only to active: when the live verdict
+    # is ``penalize_under`` for an Under pick, the engine caps confidence
+    # and flips to PASS. Live traffic (RISP/LOB/pitch count) is computed
+    # on the fly when the live_stats payload exposes those fields, and
+    # softens the verdict when traffic is visibly collapsing.
     bullpen_traffic = None
+    live_traffic = None
     try:
         from . import traffic_score as _ts
         mlb_pregame = match.get("mlb_pregame_snapshot") or match.get("mlb_pregame") or {}
         scoring_ctx = match.get("scoring_context") or {}
-        # Bullpen ERA 7d max: prefer explicit precompute; fall back to
-        # max(favorite_bullpen_era_7d, underdog_bullpen_era_7d) which is
-        # the field shape used by mlb_pregame_analytics_v3.
         bp_max = (
             mlb_pregame.get("bullpen_era_7d_max")
             or match.get("bullpen_era_7d_max")
@@ -1102,30 +1105,112 @@ def _reevaluate_baseball(
                     bp_max = max(float(fav), float(und))
                 except (TypeError, ValueError):
                     bp_max = None
-        traffic_bucket = (
+        pregame_traffic_bucket = (
             mlb_pregame.get("traffic_bucket")
             or match.get("traffic_bucket")
             or (mlb_pregame.get("traffic_score_obj") or {}).get("traffic_bucket")
         )
+        pregame_traffic_score = (
+            mlb_pregame.get("traffic_score")
+            or match.get("traffic_score")
+        )
         is_under_pick = market_l.startswith("under") or "total: under" in market_l
-        if bp_max is not None or traffic_bucket is not None:
-            bullpen_traffic = _ts.classify_bullpen_traffic_interaction(
-                bullpen_era_7d_max=float(bp_max) if bp_max is not None else None,
-                traffic_bucket=traffic_bucket,
+
+        # ── Compute LIVE traffic score from in-game stats (RISP, LOB,
+        #    pitch count, hard contact, exit velocity) when available.
+        live_stats = match.get("live_stats") or {}
+        h_live = live_stats.get("home_stats") or {}
+        a_live = live_stats.get("away_stats") or {}
+        if h_live or a_live:
+            live_traffic = _ts.compute_live_traffic_score(
+                inning=inning,
+                innings_played=analysis.get("innings_played"),
+                home_live=h_live,
+                away_live=a_live,
+                pitch_count_home=h_live.get("pitch_count")
+                                  or h_live.get("pitches_thrown"),
+                pitch_count_away=a_live.get("pitch_count")
+                                  or a_live.get("pitches_thrown"),
+                pregame_traffic_score=pregame_traffic_score,
+                pregame_traffic_bucket=pregame_traffic_bucket,
                 is_under_pick=is_under_pick,
             )
-            # Preserve the score number when present so the UI can
-            # render a richer badge tooltip.
-            if mlb_pregame.get("traffic_score") is not None:
-                bullpen_traffic["traffic_score"] = mlb_pregame.get("traffic_score")
-            bullpen_traffic["bullpen_era_7d_max"] = bp_max
-            bullpen_traffic["traffic_bucket"]     = traffic_bucket
+
+        # Use LIVE bucket when it diverges from pregame (rising/collapsing);
+        # otherwise default to pregame bucket. This is what "active mode"
+        # uses to drive the verdict.
+        effective_bucket = pregame_traffic_bucket
+        pregame_delta = None
+        live_score_val = None
+        if live_traffic:
+            live_score_val = live_traffic.get("live_traffic_score")
+            pregame_delta  = live_traffic.get("pregame_delta")
+            # Promote the live bucket only when it diverges meaningfully
+            # (delta >= 15) — otherwise the live signal is too noisy to
+            # override the pregame composite.
+            if pregame_delta is not None and abs(pregame_delta) >= 15:
+                effective_bucket = live_traffic.get("live_traffic_bucket")
+
+        if bp_max is not None or effective_bucket is not None:
+            bullpen_traffic = _ts.classify_live_bullpen_traffic_interaction(
+                bullpen_era_7d_max=float(bp_max) if bp_max is not None else None,
+                live_traffic_bucket=effective_bucket,
+                live_traffic_score=live_score_val,
+                pregame_delta=pregame_delta,
+                is_under_pick=is_under_pick,
+            )
+            if pregame_traffic_score is not None:
+                bullpen_traffic["traffic_score"] = pregame_traffic_score
+            bullpen_traffic["bullpen_era_7d_max"]    = bp_max
+            bullpen_traffic["traffic_bucket"]        = effective_bucket
+            bullpen_traffic["pregame_traffic_bucket"] = pregame_traffic_bucket
+            bullpen_traffic["live_traffic"]          = live_traffic
+            bullpen_traffic["active"]                = True  # Phase 46
+
+        # ── ACTIVE: apply verdict to the engine output ────────────────
+        if (
+            bullpen_traffic
+            and bullpen_traffic.get("verdict") == "penalize_under"
+            and is_under_pick
+        ):
+            state, action, risk = "BULLPEN_TRAFFIC_BLOCK", "PASS", "HIGH"
+            confidence = 0
+            extra_msg = (
+                "Riesgo de bullpen confirmado por tráfico ofensivo: "
+                "el Under es de alto riesgo en este perfil."
+            )
+            if live_traffic and pregame_delta is not None and pregame_delta >= 15:
+                extra_msg += "  ⚠ Tráfico LIVE en alza vs pregame."
+            reason = extra_msg if not reason else f"{reason}  ⚠ {extra_msg}"
+        elif (
+            bullpen_traffic
+            and bullpen_traffic.get("verdict") == "monitor_under"
+            and is_under_pick
+            and confidence > 40
+        ):
+            # Live traffic collapsing softened the verdict — don't block,
+            # just cap confidence so the user is aware the model is split.
+            confidence = 40
+            reason = (
+                (reason or "")
+                + "  ⚠ Bullpen vulnerable pero tráfico LIVE colapsando."
+            )
+        elif (
+            bullpen_traffic
+            and bullpen_traffic.get("verdict") == "hold_under"
+            and is_under_pick
+            and state in ("LIVE_VALUE_WINDOW", "WATCHLIST")
+        ):
+            # Bullpen vulnerable but isolated — small confidence boost so
+            # the user sees the engine corroborating the Under.
+            confidence = min(100, (confidence or 0) + 5)
     except Exception as _exc:
         import logging
         logging.getLogger("live_reeval").debug(
             "bullpen_traffic enrichment failed: %s", _exc,
         )
         bullpen_traffic = None
+        live_traffic = None
 
     return _build_response(
         match_id=match.get("match_id"),

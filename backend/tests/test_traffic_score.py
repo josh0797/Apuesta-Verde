@@ -137,7 +137,7 @@ class TestClassifyBullpenTrafficInteraction:
         )
         assert out["verdict"] == "no_signal"
         assert out["reason_codes"] == []
-        assert out["observe_only"] is True
+        assert out["observe_only"] is False  # Phase 46: active by default
 
     def test_no_signal_when_bullpen_not_vulnerable(self):
         out = classify_bullpen_traffic_interaction(
@@ -153,6 +153,14 @@ class TestClassifyBullpenTrafficInteraction:
         assert out["verdict"] == "penalize_under"
         assert RC_BULLPEN_RISK_CONFIRMED_BY_TRAFFIC in out["reason_codes"]
         assert RC_HIGH_TRAFFIC_UNDER_DANGER in out["reason_codes"]
+        assert out["observe_only"] is False  # Phase 46: active by default
+
+    def test_observe_only_flag_preserved_when_explicit(self):
+        out = classify_bullpen_traffic_interaction(
+            bullpen_era_7d_max=6.2, traffic_bucket=BUCKET_HIGH,
+            is_under_pick=True, observe_only=True,
+        )
+        assert out["verdict"] == "penalize_under"
         assert out["observe_only"] is True
 
     def test_vulnerable_bullpen_low_traffic_under(self):
@@ -179,3 +187,141 @@ class TestClassifyBullpenTrafficInteraction:
         assert out["verdict"] == "no_signal"
         assert RC_BULLPEN_RISK_CONFIRMED_BY_TRAFFIC in out["reason_codes"]
         assert RC_HIGH_TRAFFIC_UNDER_DANGER not in out["reason_codes"]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase 46 — compute_live_traffic_score
+# ─────────────────────────────────────────────────────────────────────
+from services.traffic_score import (  # noqa: E402
+    RC_BULLPEN_FATIGUE_LATE_INNINGS,
+    RC_HIGH_RISP_PRESSURE,
+    RC_LIVE_HIGH_TRAFFIC_UNDER_DANGER,
+    RC_LIVE_LOW_TRAFFIC_UNDER_SURVIVING,
+    RC_LIVE_TRAFFIC_COLLAPSING,
+    RC_LIVE_TRAFFIC_RISING,
+    RC_LOB_DRAIN,
+    classify_live_bullpen_traffic_interaction,
+    compute_live_traffic_score,
+)
+
+
+class TestComputeLiveTrafficScore:
+    def test_empty_yields_zero(self):
+        out = compute_live_traffic_score(inning=5, home_live={}, away_live={})
+        assert out["live_traffic_score"] == 0
+        assert out["live_traffic_bucket"] == BUCKET_LOW
+        assert out["pregame_delta"] is None
+
+    def test_hot_offense_live_high_traffic(self):
+        # Lots of pressure: 7-8 hits + walks each, runs piling, RISP hits land.
+        home = {
+            "plate_appearances": 28, "at_bats": 25, "hits": 10, "walks": 5,
+            "home_runs": 2, "runs": 5, "left_on_base": 7,
+            "risp_opportunities": 6, "risp_hits": 3,
+            "hard_contact_rate": 0.48, "exit_velocity_avg": 92.5,
+        }
+        away = {
+            "plate_appearances": 25, "at_bats": 23, "hits": 8, "walks": 3,
+            "home_runs": 1, "runs": 3, "left_on_base": 5,
+            "risp_opportunities": 4, "risp_hits": 2,
+            "hard_contact_rate": 0.42, "exit_velocity_avg": 90.8,
+        }
+        out = compute_live_traffic_score(
+            inning=7, innings_played=6, home_live=home, away_live=away,
+            pitch_count_home=120, pitch_count_away=110,
+            pregame_traffic_score=50, is_under_pick=True,
+        )
+        assert out["live_traffic_score"] >= 60
+        assert out["live_traffic_bucket"] in (BUCKET_MEDIUM, BUCKET_HIGH)
+        # Pregame baseline 50, live ~70+ → rising tag fires.
+        assert out["pregame_delta"] > 0
+        if out["live_traffic_bucket"] == BUCKET_HIGH:
+            assert RC_LIVE_HIGH_TRAFFIC_UNDER_DANGER in out["reason_codes"]
+
+    def test_collapsing_traffic_detected(self):
+        # Live offense sterile, pregame baseline was high.
+        home = {"plate_appearances": 15, "hits": 2, "walks": 1, "runs": 0,
+                "left_on_base": 1, "risp_opportunities": 2, "risp_hits": 0}
+        away = {"plate_appearances": 14, "hits": 1, "walks": 0, "runs": 0,
+                "left_on_base": 0, "risp_opportunities": 1, "risp_hits": 0}
+        out = compute_live_traffic_score(
+            inning=6, innings_played=5, home_live=home, away_live=away,
+            pregame_traffic_score=80, is_under_pick=True,
+        )
+        assert out["live_traffic_score"] < 40
+        assert RC_LIVE_TRAFFIC_COLLAPSING in out["reason_codes"]
+        assert RC_LIVE_LOW_TRAFFIC_UNDER_SURVIVING in out["reason_codes"]
+
+    def test_bullpen_fatigue_late_innings(self):
+        # 6 innings each side, pitch counts 130 + 120 = 250 → ratio ~1.30.
+        home = {"plate_appearances": 24, "hits": 7, "walks": 4, "runs": 3,
+                "left_on_base": 4, "risp_opportunities": 4, "risp_hits": 2}
+        away = {"plate_appearances": 24, "hits": 6, "walks": 3, "runs": 2,
+                "left_on_base": 3, "risp_opportunities": 3, "risp_hits": 1}
+        out = compute_live_traffic_score(
+            inning=7, innings_played=6, home_live=home, away_live=away,
+            pitch_count_home=130, pitch_count_away=120, is_under_pick=True,
+        )
+        assert RC_BULLPEN_FATIGUE_LATE_INNINGS in out["reason_codes"]
+        assert out["raw"]["bullpen_fatigue"] >= 1.04
+
+    def test_high_risp_pressure_code_fires(self):
+        home = {"plate_appearances": 20, "hits": 8, "walks": 3, "runs": 4,
+                "risp_opportunities": 5, "risp_hits": 4,  # 80% — elite
+                "left_on_base": 2}
+        away = {"plate_appearances": 18, "hits": 5, "walks": 2, "runs": 2,
+                "risp_opportunities": 3, "risp_hits": 2, "left_on_base": 2}
+        out = compute_live_traffic_score(
+            inning=5, home_live=home, away_live=away, is_under_pick=True,
+        )
+        # 80% + 67% RISP hit rate avg → very high pressure.
+        assert RC_HIGH_RISP_PRESSURE in out["reason_codes"] or out["live_traffic_score"] >= 70
+
+    def test_lob_drain_fires_when_high(self):
+        # Lots of runners stranded — high LOB rate
+        home = {"plate_appearances": 30, "hits": 12, "walks": 5, "runs": 2,
+                "left_on_base": 15,  # 15/(12+5)=88% LOB rate
+                "risp_opportunities": 8, "risp_hits": 2}
+        away = {"plate_appearances": 28, "hits": 10, "walks": 4, "runs": 1,
+                "left_on_base": 12,
+                "risp_opportunities": 7, "risp_hits": 1}
+        out = compute_live_traffic_score(
+            inning=8, home_live=home, away_live=away, is_under_pick=True,
+        )
+        assert RC_LOB_DRAIN in out["reason_codes"]
+
+
+class TestClassifyLiveBullpenTrafficInteraction:
+    def test_live_high_traffic_penalizes_under(self):
+        out = classify_live_bullpen_traffic_interaction(
+            bullpen_era_7d_max=6.0, live_traffic_bucket=BUCKET_HIGH,
+            live_traffic_score=78, pregame_delta=20, is_under_pick=True,
+        )
+        assert out["verdict"] == "penalize_under"
+        assert RC_LIVE_TRAFFIC_RISING in out["reason_codes"]
+        assert RC_LIVE_HIGH_TRAFFIC_UNDER_DANGER in out["reason_codes"]
+        assert out["live_traffic_score"] == 78
+        assert out["live_traffic_bucket"] == BUCKET_HIGH
+
+    def test_collapsing_traffic_softens_verdict(self):
+        # Bullpen vulnerable + pregame HIGH but live collapsing to LOW.
+        out = classify_live_bullpen_traffic_interaction(
+            bullpen_era_7d_max=6.0, live_traffic_bucket=BUCKET_LOW,
+            live_traffic_score=25, pregame_delta=-25, is_under_pick=True,
+        )
+        # Bullpen still vulnerable but bucket is LOW → verdict starts as
+        # hold_under. Collapsing tag fires but doesn't flip verdict.
+        assert out["verdict"] == "hold_under"
+        assert RC_LIVE_TRAFFIC_COLLAPSING in out["reason_codes"]
+        assert RC_LIVE_LOW_TRAFFIC_UNDER_SURVIVING in out["reason_codes"]
+
+    def test_monitor_under_when_high_bucket_but_collapsing(self):
+        # Edge case: bucket still HIGH but live data collapsing. The
+        # softening only triggers when verdict=penalize_under + delta <= -15.
+        # Here delta -10 doesn't trigger softening.
+        out = classify_live_bullpen_traffic_interaction(
+            bullpen_era_7d_max=6.0, live_traffic_bucket=BUCKET_HIGH,
+            live_traffic_score=70, pregame_delta=-10, is_under_pick=True,
+        )
+        assert out["verdict"] == "penalize_under"
+        assert "softened_by_live" not in out

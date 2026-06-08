@@ -1,26 +1,26 @@
 [
   {
-    "content": "FIX 2: Crear services/football_siege_pressure_guard.py (módulo puro)",
+    "content": "FIX 1+2: Validación end-to-end (bullpen_traffic activo + live softening)",
     "status": "completed"
   },
   {
-    "content": "FIX 2: Integrar siege_guard en _reevaluate_football para BLOCK_UNDER + PREFER_OVER",
+    "content": "Crear services/mlb_inning_lambda_model.py (módulo puro)",
     "status": "completed"
   },
   {
-    "content": "FIX 2: Tests unitarios (Flamengo, tactical low-volume, possession-only)",
+    "content": "Wire del modelo en mlb_day_orchestrator (observe_only)",
     "status": "completed"
   },
   {
-    "content": "FIX 1: Integrar bullpen-traffic verdict en _reevaluate_baseball (fail-soft)",
+    "content": "Tests unitarios (18 casos pasando)",
     "status": "completed"
   },
   {
-    "content": "FIX 1: Añadir badge UI \"Bullpen risk confirmed by traffic\" en MLB live card",
+    "content": "UI: panel InningLambdaPanel integrado en MatchCard",
     "status": "completed"
   },
   {
-    "content": "Tests y validación final (1270 backend / 72 frontend)",
+    "content": "Validación final + lint + suite completa (1298 backend / 72 frontend)",
     "status": "completed"
   }
 ]

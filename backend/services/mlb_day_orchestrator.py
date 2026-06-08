@@ -1581,6 +1581,100 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as _exc_rf:
             log.debug("recent_form_split fetch failed (fail-soft): %s", _exc_rf)
 
+        # ── Phase 47 — MLB Pregame Inning-Lambda Model (observe-only) ───
+        # Decomposes expected_runs into λ_1_3 + λ_4_6 + λ_7_9 with
+        # continuous bullpen × traffic interaction in the late phase.
+        # Persists into pick_payload AND pipeline_meta so the UI panel
+        # ("Distribución de carreras por innings") and downstream
+        # market_lean_classifier can both consume it. Fail-soft.
+        try:
+            from .mlb_inning_lambda_model import compute_mlb_inning_lambdas
+            _f5 = (pick_payload.get("f5_split") or {})
+            _ob_l5 = (pick_payload.get("on_base_profile") or {})
+            _bp_h = h_bullpen_usage or {}
+            _bp_a = a_bullpen_usage or {}
+            _park_dyn = pick_payload.get("park_factor_live") or {}
+            _ts_obj = pick_payload.get("traffic_score_obj") or {}
+            _traffic_score = (
+                _ts_obj.get("traffic_score")
+                or (scoring_ctx or {}).get("traffic_score")
+            )
+            inning_lambda_projection = compute_mlb_inning_lambdas(
+                expected_runs=over_under.get("expected_runs"),
+                home_pitcher={
+                    "era":  (h_stats or {}).get("era"),
+                    "whip": (h_stats or {}).get("whip"),
+                    "fip":  (h_stats or {}).get("fip"),
+                    "xera": (h_stats or {}).get("xera"),
+                    "avg_innings_pitched": (h_stats or {}).get("avg_innings_pitched")
+                                            or (h_stats or {}).get("ip_avg"),
+                    "pitch_stress_index":  (h_stats or {}).get("pitch_stress_index"),
+                },
+                away_pitcher={
+                    "era":  (a_stats or {}).get("era"),
+                    "whip": (a_stats or {}).get("whip"),
+                    "fip":  (a_stats or {}).get("fip"),
+                    "xera": (a_stats or {}).get("xera"),
+                    "avg_innings_pitched": (a_stats or {}).get("avg_innings_pitched")
+                                            or (a_stats or {}).get("ip_avg"),
+                    "pitch_stress_index":  (a_stats or {}).get("pitch_stress_index"),
+                },
+                home_lineup={
+                    "team_ops_7d":   _ob_l5.get("home_ops_l5"),
+                    "recent_runs_per_game": (_f5 or {}).get("home_f5_rpg"),
+                },
+                away_lineup={
+                    "team_ops_7d":   _ob_l5.get("away_ops_l5"),
+                    "recent_runs_per_game": (_f5 or {}).get("away_f5_rpg"),
+                },
+                bullpen_home={
+                    "bullpen_era_7d":  _bp_h.get("bullpen_era_7d"),
+                    "bullpen_whip_7d": _bp_h.get("bullpen_whip_7d"),
+                    "bullpen_usage_3d": _bp_h.get("usage_3d") or _bp_h.get("bullpen_usage_3d"),
+                    "bullpen_fatigue": _bp_h.get("fatigue") or _bp_h.get("bullpen_fatigue"),
+                    "hr_risk":         _bp_h.get("hr_risk"),
+                    "offensive_explosion_score": (scoring_ctx or {}).get("offensive_explosion_score"),
+                },
+                bullpen_away={
+                    "bullpen_era_7d":  _bp_a.get("bullpen_era_7d"),
+                    "bullpen_whip_7d": _bp_a.get("bullpen_whip_7d"),
+                    "bullpen_usage_3d": _bp_a.get("usage_3d") or _bp_a.get("bullpen_usage_3d"),
+                    "bullpen_fatigue": _bp_a.get("fatigue") or _bp_a.get("bullpen_fatigue"),
+                    "hr_risk":         _bp_a.get("hr_risk"),
+                    "offensive_explosion_score": (scoring_ctx or {}).get("offensive_explosion_score"),
+                },
+                traffic_score=_traffic_score,
+                park_factor=(park or {}).get("park_runs_mult")
+                            or _park_dyn.get("park_factor_dynamic"),
+                weather_factor=(park or {}).get("weather_factor"),
+                market_line=conf.get("book_total"),
+                observe_only=True,
+            )
+            pick_payload["inning_lambda_projection"] = inning_lambda_projection
+            if inning_lambda_projection.get("available"):
+                pipeline_meta["mlb_inning_lambda"] = {
+                    "enabled":         True,
+                    "available":       True,
+                    "expected_runs":   inning_lambda_projection.get("expected_runs"),
+                    "f5_expected_runs": inning_lambda_projection.get("f5_expected_runs"),
+                    "lambda_1_3":      inning_lambda_projection.get("lambda_1_3"),
+                    "lambda_4_6":      inning_lambda_projection.get("lambda_4_6"),
+                    "lambda_7_9":      inning_lambda_projection.get("lambda_7_9"),
+                    "baseline_expected_runs": inning_lambda_projection.get("baseline_expected_runs"),
+                    "delta_vs_baseline":      inning_lambda_projection.get("delta_vs_baseline"),
+                    "reason_codes":    inning_lambda_projection.get("reason_codes"),
+                }
+            else:
+                pipeline_meta["mlb_inning_lambda"] = {
+                    "enabled":   inning_lambda_projection.get("available") is not False
+                                  or inning_lambda_projection.get("reason") != "feature_flag_disabled",
+                    "available": False,
+                    "reason":    inning_lambda_projection.get("reason"),
+                }
+        except Exception as _exc_il:
+            log.debug("mlb_inning_lambda_model failed (fail-soft): %s", _exc_il)
+            pipeline_meta.setdefault("mlb_inning_lambda", {"enabled": True, "available": False, "reason": "exception"})
+
         # ── MLB ADVANCED STATCAST PROFILE (Batch B) ─────────────────────
         # Hybrid pybaseball + Bright Data + TheStatsAPI. The adapter
         # is internally fail-soft: any provider can be missing, broken,
