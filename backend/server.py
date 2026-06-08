@@ -1017,6 +1017,64 @@ async def line_learning_analytics_endpoint(
     return await compute_analytics(db, user_id=user["id"], sport=sport, market_type=market_type)
 
 
+# ── Phase 44 / P3 — Live Script Reality Check (MLB totals) ────────
+class LiveScriptCheckRequest(BaseModel):
+    pre_match_expected_runs: float
+    recommended_market:      str
+    user_market:             Optional[str] = None
+    current_inning:          Optional[int] = None
+    current_score_total:     Optional[int] = None
+    combined_hits:           Optional[int] = None
+    combined_walks:          Optional[int] = None
+    combined_home_runs:      Optional[int] = None
+    combined_errors:         Optional[int] = None
+    combined_left_on_base:   Optional[int] = None
+    pitchers_current_status: Optional[str] = None
+    bullpen_usage:           Optional[float] = None
+    live_run_rate:           Optional[float] = None
+    projected_final_runs_live: Optional[float] = None
+    match_id:                Optional[str] = None
+
+
+@api.post("/mlb/live/script-reality-check")
+async def mlb_live_script_reality_check(
+    req: LiveScriptCheckRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Compute the live reality check for an MLB total. Observe-only.
+
+    When ``match_id`` is provided we also stash the result on the match
+    doc under ``live_script_reality_check`` so the UI can read it on the
+    next refresh.
+    """
+    from services.live_script_reality_check import evaluate_live_script
+    result = evaluate_live_script(
+        pre_match_expected_runs=req.pre_match_expected_runs,
+        recommended_market=req.recommended_market,
+        user_market=req.user_market,
+        current_inning=req.current_inning,
+        current_score_total=req.current_score_total,
+        combined_hits=req.combined_hits,
+        combined_walks=req.combined_walks,
+        combined_home_runs=req.combined_home_runs,
+        combined_errors=req.combined_errors,
+        combined_left_on_base=req.combined_left_on_base,
+        pitchers_current_status=req.pitchers_current_status,
+        bullpen_usage=req.bullpen_usage,
+        live_run_rate=req.live_run_rate,
+        projected_final_runs_live=req.projected_final_runs_live,
+    )
+    if req.match_id:
+        try:
+            await db.matches.update_one(
+                {"match_id": req.match_id},
+                {"$set": {"live_script_reality_check": result}},
+            )
+        except Exception as exc:
+            log.debug("live_script_reality_check persist failed: %s", exc)
+    return result
+
+
 @api.get("/matches/{match_id}")
 async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
     """Get full detail of a single match (3 layers).

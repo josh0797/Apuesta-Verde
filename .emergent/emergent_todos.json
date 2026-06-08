@@ -1,14 +1,22 @@
 [
   {
-    "content": "Cerrar Entrega B — cablear endpoints /api/learning/line/recommend y /api/learning/line/analytics",
+    "content": "P1: correr backtest en preview con --days 90 y compartir JSON + summary",
     "status": "completed"
   },
   {
-    "content": "Backtest: scripts/backtest_bullpen_under_hypothesis.py con --days N + cohortes A/B/A1/A2",
+    "content": "P3: módulo backend services/live_script_reality_check.py con 4 clasificaciones + reason codes",
     "status": "completed"
   },
   {
-    "content": "Tests pytest del backtest + suite completa",
+    "content": "P3: wire al MLB live payload + endpoint manual de check",
+    "status": "completed"
+  },
+  {
+    "content": "P3: UI badge en MLB live card",
+    "status": "completed"
+  },
+  {
+    "content": "Tests pytest + RTL + suite completa",
     "status": "completed"
   }
 ]

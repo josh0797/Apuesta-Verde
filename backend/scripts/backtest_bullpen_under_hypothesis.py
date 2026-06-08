@@ -272,14 +272,22 @@ async def run_backtest(days: int):
     db = client[DB_NAME]
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
-    # Pull finished MLB matches (sport=mlb / baseball) within window.
+    # Pull finished MLB matches. Production sets `match_ended:true` but
+    # legacy/manual rows just have `final_score`. Accept both so the
+    # backtest works against any data source.
     matches_q = {
         "sport": {"$in": ["mlb", "baseball"]},
-        "match_ended": True,
-        "$or": [
-            {"match_date":     {"$gte": cutoff.isoformat()}},
-            {"kickoff_iso":    {"$gte": cutoff.isoformat()}},
-            {"settled_at":     {"$gte": cutoff.isoformat()}},
+        "$and": [
+            {"$or": [
+                {"match_ended":   True},
+                {"final_score":   {"$exists": True, "$ne": None}},
+            ]},
+            {"$or": [
+                {"match_date":  {"$gte": cutoff.isoformat()}},
+                {"kickoff_iso": {"$gte": cutoff.isoformat()}},
+                {"settled_at":  {"$gte": cutoff.isoformat()}},
+                {"match_date":  {"$exists": False}},   # no date = include
+            ]},
         ],
     }
     cohort_rows: dict[str, list[dict]] = {"A": [], "B": [], "A1": [], "A2": []}

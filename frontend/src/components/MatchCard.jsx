@@ -17,6 +17,7 @@ import { ProvenanceBadge } from './ProvenancePanel';
 import { EditorialContextPanel } from './EditorialContextPanel';
 import { HistoricalProfilePanel } from './HistoricalProfilePanel';
 import { BoxScoreHydrateButton } from './BoxScoreHydrateButton';
+import { LiveScriptRealityBadge } from './LiveScriptRealityBadge';
 import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
@@ -411,6 +412,26 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           match={m}
           apiClient={api}
           lang={lang}
+        />
+      )}
+
+      {/* Phase 44 / P3 — Live Script Reality Check badge.
+          Only MLB live cards (baseball + is_live). The backend stamps
+          `live_script_reality_check` on the match doc when the
+          analyst pipeline / live re-eval runs; if absent the badge is
+          a no-op. NEVER flips the engine pick — informational only. */}
+      {sport === 'baseball' && m.is_live && (
+        <LiveScriptRealityBadge
+          match={m}
+          lang={lang}
+          stats={{
+            inning:       m.live_snapshot?.inning,
+            score_total:  m.live_snapshot?.score?.total,
+            hits:         m.live_snapshot?.combined_hits,
+            walks:        m.live_snapshot?.combined_walks,
+            home_runs:    m.live_snapshot?.combined_home_runs,
+            left_on_base: m.live_snapshot?.combined_left_on_base,
+          }}
         />
       )}
 
