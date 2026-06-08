@@ -662,4 +662,258 @@ __all__ = [
     "build_summary",
     "build_learning_sample",
     "compute_weighted_recommendation_bias",
+    # Phase 48 — Line Learning Feedback Loop
+    "derive_line_bias",
+    "apply_line_bias_to_projection",
+    "TIER_LOW_SAMPLE",
+    "TIER_USEFUL",
+    "TIER_VALIDATED",
+    "RC_LINE_LEARNING_ANALYTICS_LOADED",
+    "RC_LINE_BIAS_DERIVED",
+    "RC_LINE_BIAS_APPLIED",
+    "RC_LINE_LEARNING_LOW_SAMPLE_WEIGHTED",
+    "RC_LINE_LEARNING_USEFUL_WEIGHTED",
+    "RC_LINE_LEARNING_VALIDATED_WEIGHTED",
+    "RC_LINE_LEARNING_AGGRESSIVE_UNDERS",
+    "RC_LINE_LEARNING_PUSH_CLUSTER",
+    "RC_LINE_LEARNING_NEAR_MISS_CLUSTER",
+    "RC_LINE_LEARNING_SAFE_LINES_WORKING",
+    "RC_LINE_LEARNING_FAIL_SOFT",
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase 48 — Line Learning Feedback Loop
+# ─────────────────────────────────────────────────────────────────────
+# Confidence tiers. The line bias derived from settled samples is
+# applied with a tier-dependent **weight** + **cap** so the loop never
+# over-fits on early data.
+TIER_LOW_SAMPLE = "LOW_SAMPLE"
+TIER_USEFUL     = "USEFUL"
+TIER_VALIDATED  = "VALIDATED"
+
+_TIER_CONFIG: dict[str, dict[str, float]] = {
+    TIER_LOW_SAMPLE: {"min": 0,  "weight": 0.25, "cap_runs": 0.15, "cap_confidence": 1,
+                      "reason_code": "LINE_LEARNING_LOW_SAMPLE_WEIGHTED"},
+    TIER_USEFUL:     {"min": 15, "weight": 0.60, "cap_runs": 0.35, "cap_confidence": 2,
+                      "reason_code": "LINE_LEARNING_USEFUL_WEIGHTED"},
+    TIER_VALIDATED:  {"min": 50, "weight": 1.00, "cap_runs": 0.50, "cap_confidence": 3,
+                      "reason_code": "LINE_LEARNING_VALIDATED_WEIGHTED"},
+}
+
+# Reason codes (mirrored as constants on the module + ALL_REASON_CODES).
+RC_LINE_LEARNING_ANALYTICS_LOADED     = "LINE_LEARNING_ANALYTICS_LOADED"
+RC_LINE_BIAS_DERIVED                  = "LINE_BIAS_DERIVED"
+RC_LINE_BIAS_APPLIED                  = "LINE_BIAS_APPLIED"
+RC_LINE_LEARNING_LOW_SAMPLE_WEIGHTED  = "LINE_LEARNING_LOW_SAMPLE_WEIGHTED"
+RC_LINE_LEARNING_USEFUL_WEIGHTED      = "LINE_LEARNING_USEFUL_WEIGHTED"
+RC_LINE_LEARNING_VALIDATED_WEIGHTED   = "LINE_LEARNING_VALIDATED_WEIGHTED"
+RC_LINE_LEARNING_AGGRESSIVE_UNDERS    = "LINE_LEARNING_AGGRESSIVE_UNDERS"
+RC_LINE_LEARNING_PUSH_CLUSTER         = "LINE_LEARNING_PUSH_CLUSTER"
+RC_LINE_LEARNING_NEAR_MISS_CLUSTER    = "LINE_LEARNING_NEAR_MISS_CLUSTER"
+RC_LINE_LEARNING_SAFE_LINES_WORKING   = "LINE_LEARNING_SAFE_LINES_WORKING"
+RC_LINE_LEARNING_FAIL_SOFT            = "LINE_LEARNING_FAIL_SOFT"
+
+
+def _classify_tier(sample_size: int) -> str:
+    if sample_size >= _TIER_CONFIG[TIER_VALIDATED]["min"]:
+        return TIER_VALIDATED
+    if sample_size >= _TIER_CONFIG[TIER_USEFUL]["min"]:
+        return TIER_USEFUL
+    return TIER_LOW_SAMPLE
+
+
+def derive_line_bias(analytics: dict) -> dict:
+    """Derive a global line bias from a ``compute_analytics`` payload.
+
+    Mirrors the Negative-Binomial feedback loop pattern: pure function,
+    no I/O, returns a structured bias payload that the caller can apply
+    once at the start of the pipeline.
+
+    Accepts the full ``compute_analytics`` response or its
+    ``metrics`` sub-dict (handles both for ergonomics).
+
+    Returns::
+
+        {
+          "available":        bool,
+          "sample_size":      int,
+          "confidence_tier":  "LOW_SAMPLE" | "USEFUL" | "VALIDATED",
+          "applied_weight":   float (0.25 / 0.60 / 1.00),
+          "cap_runs":         float (max absolute projection adj),
+          "cap_confidence":   int   (max absolute confidence adj),
+          "derived_bias":     float (signed runs delta, unweighted),
+          "direction":        "UP" | "DOWN" | "NEUTRAL",
+          "recommendation":   "PROTECTED" | "VALUE" | "NEUTRAL",
+          "self_learning_reason_codes": [...],
+          "reason_codes":     [...],
+          "summary_es":       str,
+        }
+    """
+    out = {
+        "available":        False,
+        "sample_size":      0,
+        "confidence_tier":  TIER_LOW_SAMPLE,
+        "applied_weight":   0.0,
+        "cap_runs":         0.0,
+        "cap_confidence":   0,
+        "derived_bias":     0.0,
+        "direction":        "NEUTRAL",
+        "recommendation":   "NEUTRAL",
+        "self_learning_reason_codes": [],
+        "reason_codes":     [],
+        "summary_es":       "",
+    }
+    if not isinstance(analytics, dict):
+        return out
+
+    metrics = analytics.get("metrics") if "metrics" in analytics else analytics
+    if not isinstance(metrics, dict):
+        return out
+
+    n = int(metrics.get("sample_size") or 0)
+    if n <= 0:
+        out["summary_es"] = "Sin muestras para derivar sesgo de línea."
+        return out
+
+    tier = _classify_tier(n)
+    cfg  = _TIER_CONFIG[tier]
+
+    # Reuse the existing cohort-aware bias function as the math kernel
+    # so we don't duplicate logic.
+    cohort_stats = {
+        "sample_size":               n,
+        "aggressive_line_miss_rate": metrics.get("aggressive_line_miss_rate", 0.0),
+        "push_saved_rate":           metrics.get("push_rate", 0.0),
+        "near_miss_rate":            metrics.get("near_miss_rate", 0.0),
+        "safe_line_hit_rate":        metrics.get("safe_line_hit_rate", 0.0),
+        "average_line_adjustment":   metrics.get("average_line_adjustment")
+                                     or _avg_adj_from_pcts(metrics),
+    }
+    bias_kernel = compute_weighted_recommendation_bias(cohort_stats=cohort_stats)
+    derived = float(bias_kernel.get("line_bias") or 0.0)
+    direction = "UP" if derived > 0.001 else ("DOWN" if derived < -0.001 else "NEUTRAL")
+
+    # ── Self-learning rules — non-overlapping reason codes that the
+    #    caller can use to drive secondary buffers (Under / Over). ──
+    self_codes: list[str] = []
+    if metrics.get("aggressive_line_miss_rate", 0.0) > 0.15:
+        self_codes.append(RC_LINE_LEARNING_AGGRESSIVE_UNDERS)
+    if metrics.get("push_rate", 0.0) > 0.10:
+        self_codes.append(RC_LINE_LEARNING_PUSH_CLUSTER)
+    if metrics.get("near_miss_rate", 0.0) > 0.15:
+        self_codes.append(RC_LINE_LEARNING_NEAR_MISS_CLUSTER)
+    if metrics.get("safe_line_hit_rate", 0.0) > 0.65:
+        self_codes.append(RC_LINE_LEARNING_SAFE_LINES_WORKING)
+
+    reason_codes: list[str] = [
+        RC_LINE_LEARNING_ANALYTICS_LOADED,
+        RC_LINE_BIAS_DERIVED,
+        cfg["reason_code"],
+    ]
+    reason_codes.extend(self_codes)
+
+    out.update({
+        "available":      True,
+        "sample_size":    n,
+        "confidence_tier": tier,
+        "applied_weight": cfg["weight"],
+        "cap_runs":       cfg["cap_runs"],
+        "cap_confidence": int(cfg["cap_confidence"]),
+        "derived_bias":   round(derived, 4),
+        "direction":      direction,
+        "recommendation": bias_kernel.get("recommendation", "NEUTRAL"),
+        "self_learning_reason_codes": self_codes,
+        "reason_codes":   reason_codes,
+        "summary_es":     bias_kernel.get("summary_es", ""),
+    })
+    return out
+
+
+def _avg_adj_from_pcts(metrics: dict) -> float:
+    """Derive an implied avg line-adjustment from the bucket rates.
+
+    When the analytics payload doesn't include an explicit
+    ``average_line_adjustment``, infer one from the mix of
+    aggressive misses vs safe hits: heavy aggressive misses → larger
+    nominal adjustment. Returns a value in runs (≈ 0.0 to 0.7).
+    """
+    agg   = float(metrics.get("aggressive_line_miss_rate") or 0.0)
+    safe  = float(metrics.get("safe_line_hit_rate")        or 0.0)
+    push  = float(metrics.get("push_rate")                 or 0.0)
+    near  = float(metrics.get("near_miss_rate")            or 0.0)
+    # Each "aggressive" bucket (miss / push / half of near-miss) suggests
+    # the engine was on average ~0.5 runs too tight; safe hits suggest
+    # 0 ; so the implied adjustment is bounded.
+    score = agg + push + 0.5 * near - 0.5 * safe
+    return max(0.0, min(0.70, round(score * 0.70, 3)))
+
+
+def apply_line_bias_to_projection(
+    expected_runs: Optional[float],
+    bias_payload: dict,
+    market_side: Optional[str] = None,
+) -> dict:
+    """Apply the derived line bias to ``expected_runs`` (cap-aware).
+
+    Pure helper. Returns a structured response so callers (and the
+    market-selection layer) can audit the math.
+
+    ``market_side`` is informational only ('UNDER' / 'OVER' / None) —
+    it never flips the polarity of the bias, in line with the
+    Phase 48 safety constraints.
+    """
+    out: dict = {
+        "original_expected_runs": expected_runs,
+        "adjusted_expected_runs": expected_runs,
+        "applied":          False,
+        "reason_codes":     [],
+        "bias_direction":   "NEUTRAL",
+        "bias_amount":      0.0,
+        "confidence_tier":  None,
+        "applied_weight":   0.0,
+        "market_side":      market_side,
+    }
+    try:
+        if expected_runs is None:
+            return out
+        if not isinstance(bias_payload, dict) or not bias_payload.get("available"):
+            return out
+
+        derived = float(bias_payload.get("derived_bias") or 0.0)
+        weight  = float(bias_payload.get("applied_weight") or 0.0)
+        cap     = float(bias_payload.get("cap_runs") or 0.0)
+        tier    = bias_payload.get("confidence_tier")
+
+        # Pre-cap effective bias.
+        effective = derived * weight
+        # Hard cap at ±cap and at the safety constant 0.50.
+        ceiling = min(abs(cap), 0.50)
+        if effective > ceiling:
+            effective = ceiling
+        elif effective < -ceiling:
+            effective = -ceiling
+
+        adjusted = float(expected_runs) + effective
+        direction = "UP" if effective > 0.001 else ("DOWN" if effective < -0.001 else "NEUTRAL")
+
+        applied = abs(effective) >= 0.01
+        codes: list[str] = list(bias_payload.get("reason_codes") or [])
+        if applied:
+            codes.append(RC_LINE_BIAS_APPLIED)
+
+        out.update({
+            "adjusted_expected_runs": round(adjusted, 3),
+            "applied":          applied,
+            "reason_codes":     list(dict.fromkeys(codes)),  # dedupe, keep order
+            "bias_direction":   direction,
+            "bias_amount":      round(effective, 4),
+            "confidence_tier":  tier,
+            "applied_weight":   weight,
+        })
+        return out
+    except Exception:
+        # Strict fail-soft: never raise — return the input projection
+        # unchanged and surface a reason code so callers can log it.
+        out["reason_codes"] = [RC_LINE_LEARNING_FAIL_SOFT]
+        return out

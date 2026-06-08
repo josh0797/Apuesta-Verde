@@ -418,6 +418,35 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             log.debug("calibration summary load failed (bucket recalc off): %s", exc)
             active_calibration_summary = {}
 
+    # Phase 48 — Line Learning Feedback Loop: load analytics ONCE per
+    # pipeline run (scope baseball + total_runs) and derive a global
+    # line bias that downstream per-match logic can apply BEFORE market
+    # selection. Fail-soft.
+    line_learning_bias: dict = {
+        "available": False, "reason_codes": [], "confidence_tier": None,
+    }
+    line_learning_analytics_snapshot: dict = {}
+    if db is not None:
+        try:
+            from .line_learning_analytics import compute_analytics as _ll_compute
+            from .line_learning_engine import derive_line_bias as _ll_derive
+            line_learning_analytics_snapshot = await _ll_compute(
+                db, user_id="_slate",
+                sport="baseball", market_type="total_runs",
+                recent_limit=0,
+            ) or {}
+            line_learning_bias = _ll_derive(line_learning_analytics_snapshot) or {
+                "available": False, "reason_codes": [],
+            }
+        except Exception as exc:
+            log.debug("line_learning analytics/bias load failed (fail-soft): %s", exc)
+            line_learning_bias = {
+                "available": False,
+                "reason_codes": ["LINE_LEARNING_FAIL_SOFT"],
+                "confidence_tier": None,
+            }
+            line_learning_analytics_snapshot = {}
+
     picks: list[dict]       = []
     rescued: list[dict]     = []
     discarded: list[dict]   = []
@@ -1674,6 +1703,71 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as _exc_il:
             log.debug("mlb_inning_lambda_model failed (fail-soft): %s", _exc_il)
             pipeline_meta.setdefault("mlb_inning_lambda", {"enabled": True, "available": False, "reason": "exception"})
+
+        # ── Phase 48 — Line Learning Feedback Loop (active) ────────────
+        # Apply the day-scoped global bias to expected_runs BEFORE
+        # market selection. The bias is weighted by the confidence
+        # tier (LOW_SAMPLE / USEFUL / VALIDATED) and capped so it can
+        # never flip Over↔Under or move the projection beyond ±0.50.
+        try:
+            from .line_learning_engine import apply_line_bias_to_projection as _ll_apply
+            _baseline_for_bias = (
+                # Prefer the inning-lambda projection when available so the
+                # learning loop integrates with the new Phase 47 numbers;
+                # else fall back to the engine's expected_runs.
+                (pick_payload.get("inning_lambda_projection") or {}).get("expected_runs")
+                or over_under.get("expected_runs")
+            )
+            applied_payload = _ll_apply(
+                expected_runs=_baseline_for_bias,
+                bias_payload=line_learning_bias,
+                market_side=(over_under.get("recommendation") or "").upper() or None,
+            )
+            pick_payload["line_learning_feedback"] = {
+                "analytics_snapshot": {
+                    "sample_size":               (line_learning_analytics_snapshot.get("metrics") or {}).get("sample_size", 0),
+                    "push_rate":                 (line_learning_analytics_snapshot.get("metrics") or {}).get("push_rate"),
+                    "near_miss_rate":            (line_learning_analytics_snapshot.get("metrics") or {}).get("near_miss_rate"),
+                    "aggressive_line_miss_rate": (line_learning_analytics_snapshot.get("metrics") or {}).get("aggressive_line_miss_rate"),
+                    "safe_line_hit_rate":        (line_learning_analytics_snapshot.get("metrics") or {}).get("safe_line_hit_rate"),
+                },
+                "bias_payload":      line_learning_bias,
+                "applied_payload":   applied_payload,
+                "sample_size":       line_learning_bias.get("sample_size", 0),
+                "confidence_tier":   line_learning_bias.get("confidence_tier"),
+                "reason_codes":      list(dict.fromkeys(
+                    (line_learning_bias.get("reason_codes") or [])
+                    + (applied_payload.get("reason_codes") or [])
+                )),
+            }
+            # Surface a top-level adjusted projection for downstream
+            # market-selection consumers. Original expected_runs stays
+            # untouched on ``over_under`` so the existing engine code
+            # paths remain backwards compatible.
+            if applied_payload.get("applied"):
+                pick_payload["expected_runs_after_line_learning"] = applied_payload.get("adjusted_expected_runs")
+
+            # Emit pipeline-level telemetry once per match for ops.
+            pipeline_meta.setdefault("line_learning_feedback", {
+                "enabled":              True,
+                "sample_size":          line_learning_bias.get("sample_size", 0),
+                "confidence_tier":      line_learning_bias.get("confidence_tier"),
+                "global_bias_detected": bool(line_learning_bias.get("available")),
+                "bias_applied":         bool(applied_payload.get("applied")),
+                "derived_bias":         line_learning_bias.get("derived_bias", 0.0),
+                "effective_bias":       applied_payload.get("bias_amount", 0.0),
+                "applied_weight":       applied_payload.get("applied_weight", 0.0),
+                "reason_codes":         list(dict.fromkeys(
+                    (line_learning_bias.get("reason_codes") or [])
+                    + (applied_payload.get("reason_codes") or [])
+                )),
+            })
+        except Exception as _exc_ll:
+            log.debug("line_learning bias apply failed (fail-soft): %s", _exc_ll)
+            pipeline_meta.setdefault("line_learning_feedback", {
+                "enabled": True, "available": False,
+                "reason_codes": ["LINE_LEARNING_FAIL_SOFT"],
+            })
 
         # ── MLB ADVANCED STATCAST PROFILE (Batch B) ─────────────────────
         # Hybrid pybaseball + Bright Data + TheStatsAPI. The adapter
