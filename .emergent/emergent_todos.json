@@ -1,26 +1,14 @@
 [
   {
-    "content": "Crear services/line_learning_engine.py (line_distance + classification + reason codes + observe_only mode)",
+    "content": "Cerrar Entrega B — cablear endpoints /api/learning/line/recommend y /api/learning/line/analytics",
     "status": "completed"
   },
   {
-    "content": "Extender TrackIn con actual_market/actual_selection/actual_line/actual_odds + outcomes cashout_win/cashout_loss",
+    "content": "Backtest: scripts/backtest_bullpen_under_hypothesis.py con --days N + cohortes A/B/A1/A2",
     "status": "completed"
   },
   {
-    "content": "Wire track_pick → build_line_learning_sample + persistir en mongo (collection line_learning_samples)",
-    "status": "completed"
-  },
-  {
-    "content": "UI: nuevo MatchOutcomeModal con actual_* fields + learning summary; reemplaza botones inline en LiveReevalPanel",
-    "status": "completed"
-  },
-  {
-    "content": "UI: botón 'Hidratar Four Factors' en MatchCard basket/baseball",
-    "status": "completed"
-  },
-  {
-    "content": "Tests backend + RTL + full suite",
+    "content": "Tests pytest del backtest + suite completa",
     "status": "completed"
   }
 ]

@@ -984,6 +984,39 @@ async def line_learning_cohort_bias(
     return {"cohort": cohort, "bias": bias, "engine_version": lle.ENGINE_VERSION}
 
 
+# ── Phase 43 / Entrega B — Adaptive Line Recommender + Analytics ──
+class AdaptiveLineRequest(BaseModel):
+    projection:       float
+    available_lines:  list[float]
+    is_under:         bool
+    sigma:            Optional[float] = None
+    cohort_bias_line_shift: Optional[float] = 0.0
+
+
+@api.post("/learning/line/recommend")
+async def line_learning_recommend(req: AdaptiveLineRequest, user: dict = Depends(get_current_user)):
+    """Score available lines and return Value / Protected / Ultra Safe tiers."""
+    from services.adaptive_line_recommender import recommend_adaptive_lines, DEFAULT_SIGMA
+    return recommend_adaptive_lines(
+        projection=req.projection,
+        available_lines=req.available_lines,
+        is_under=req.is_under,
+        sigma=req.sigma if req.sigma is not None else DEFAULT_SIGMA,
+        cohort_bias_line_shift=req.cohort_bias_line_shift or 0.0,
+    )
+
+
+@api.get("/learning/line/analytics")
+async def line_learning_analytics_endpoint(
+    sport:       Optional[str] = None,
+    market_type: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Dashboard analytics: push/near-miss rates, per-line success, insights."""
+    from services.line_learning_analytics import compute_analytics
+    return await compute_analytics(db, user_id=user["id"], sport=sport, market_type=market_type)
+
+
 @api.get("/matches/{match_id}")
 async def match_detail(match_id: str, user: dict = Depends(get_current_user)):
     """Get full detail of a single match (3 layers).
