@@ -956,12 +956,18 @@ async def line_learning_cohort_bias(
     async for r in cursor:
         total += 1
         cls = (r.get("classification") or "").upper()
-        if cls == lle.CLASS_AGGRESSIVE_LINE_MISS: agg["aggressive_line_miss"] += 1
-        elif cls == lle.CLASS_PUSH_SAVED:          agg["push_saved"] += 1
-        elif cls == lle.CLASS_NEAR_MISS:           agg["near_miss"] += 1
-        elif cls == lle.CLASS_SAFE_LINE_HIT:       agg["safe_line_hit"] += 1
-        elif cls == lle.CLASS_PROFILE_WRONG:       agg["profile_wrong"] += 1
-        elif cls == lle.CLASS_EXACT_HIT:           agg["exact_hit"] += 1
+        if cls == lle.CLASS_AGGRESSIVE_LINE_MISS:
+            agg["aggressive_line_miss"] += 1
+        elif cls == lle.CLASS_PUSH_SAVED:
+            agg["push_saved"] += 1
+        elif cls == lle.CLASS_NEAR_MISS:
+            agg["near_miss"] += 1
+        elif cls == lle.CLASS_SAFE_LINE_HIT:
+            agg["safe_line_hit"] += 1
+        elif cls == lle.CLASS_PROFILE_WRONG:
+            agg["profile_wrong"] += 1
+        elif cls == lle.CLASS_EXACT_HIT:
+            agg["exact_hit"] += 1
         ld = r.get("line_distance")
         if isinstance(ld, (int, float)):
             line_adjustments.append(float(ld))
@@ -1010,11 +1016,90 @@ async def line_learning_recommend(req: AdaptiveLineRequest, user: dict = Depends
 async def line_learning_analytics_endpoint(
     sport:       Optional[str] = None,
     market_type: Optional[str] = None,
+    start_date:  Optional[str] = None,
+    end_date:    Optional[str] = None,
+    recent_limit: int = 10,
     user: dict = Depends(get_current_user),
 ):
-    """Dashboard analytics: push/near-miss rates, per-line success, insights."""
+    """Dashboard analytics: push/near-miss rates, per-line success,
+    line-distance histogram, recent samples table, insights."""
     from services.line_learning_analytics import compute_analytics
-    return await compute_analytics(db, user_id=user["id"], sport=sport, market_type=market_type)
+    return await compute_analytics(
+        db, user_id=user["id"],
+        sport=sport, market_type=market_type,
+        start_date=start_date, end_date=end_date,
+        recent_limit=recent_limit,
+    )
+
+
+# ── Phase 44 — Traffic Score / Bullpen-Traffic interaction (observe-only) ──
+class TrafficClassifyRequest(BaseModel):
+    bullpen_era_7d_max: Optional[float] = None
+    traffic_bucket:     Optional[str]   = None  # LOW_TRAFFIC | MEDIUM_TRAFFIC | HIGH_TRAFFIC
+    is_under_pick:      bool            = True
+    bullpen_high_threshold: float       = 5.50
+
+
+@api.post("/learning/traffic/classify")
+async def traffic_classify_endpoint(
+    req: TrafficClassifyRequest,
+    user: dict = Depends(get_current_user),  # noqa: ARG001 — auth required, identity unused
+):
+    """Pure: given a (bullpen_era_7d_max, traffic_bucket, is_under_pick)
+    tuple, return the verdict + reason codes for the bullpen-traffic
+    interaction. Observe-only: this endpoint never alters picks; it is
+    intended to power UI badges and the learning feedback loop.
+    """
+    from services.traffic_score import classify_bullpen_traffic_interaction
+    return classify_bullpen_traffic_interaction(
+        bullpen_era_7d_max=req.bullpen_era_7d_max,
+        traffic_bucket=req.traffic_bucket,
+        is_under_pick=req.is_under_pick,
+        bullpen_high_threshold=req.bullpen_high_threshold,
+    )
+
+
+class TrafficScoreRequest(BaseModel):
+    # Raw window stats (last 7d for a team). All fields optional —
+    # missing values are treated as zero by ``compute_offense_window_metrics``.
+    ab:      Optional[int] = 0
+    h:       Optional[int] = 0
+    doubles: Optional[int] = 0
+    triples: Optional[int] = 0
+    hr:      Optional[int] = 0
+    bb:      Optional[int] = 0
+    hbp:     Optional[int] = 0
+    sf:      Optional[int] = 0
+    sh:      Optional[int] = 0
+    k:       Optional[int] = 0
+    runs:    Optional[int] = 0
+    n_games: Optional[int] = 0
+    recent_form_rpg:     Optional[float] = None
+    implied_team_total:  Optional[float] = None
+    hard_contact_proxy:  Optional[float] = None
+
+
+@api.post("/learning/traffic/score")
+async def traffic_score_endpoint(
+    req: TrafficScoreRequest,
+    user: dict = Depends(get_current_user),  # noqa: ARG001
+):
+    """Pure: build the composite 0-100 traffic score from a raw 7d
+    offensive window. Returns the score, bucket, component breakdown
+    and the derived OPS/OBP/SLG/etc. metrics.
+    """
+    from services.traffic_score import (
+        compute_offense_window_metrics,
+        compute_traffic_score,
+    )
+    raw = req.model_dump()
+    metrics = compute_offense_window_metrics(raw)
+    return compute_traffic_score(
+        metrics=metrics,
+        recent_form_rpg=req.recent_form_rpg,
+        implied_team_total=req.implied_team_total,
+        hard_contact_proxy=req.hard_contact_proxy,
+    ) | {"metrics_derived": metrics}
 
 
 # ── Phase 44 / P3 — Live Script Reality Check (MLB totals) ────────

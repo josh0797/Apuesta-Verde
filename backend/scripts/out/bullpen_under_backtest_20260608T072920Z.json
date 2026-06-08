@@ -1,0 +1,377 @@
+{
+  "engine_version": "bullpen_under_backtest_mlb_api.1",
+  "generated_at": "2026-06-08T07:29:20.163631+00:00",
+  "source": "mlb_stats_api",
+  "params": {
+    "start": "2024-07-15",
+    "end": "2024-08-14",
+    "base_line": 9.5,
+    "proxy_lines": [
+      8.5,
+      9.0,
+      9.5,
+      10.0,
+      10.5
+    ],
+    "thresholds": {
+      "bullpen_era_high": 5.5,
+      "bullpen_era_normal_max": 4.5,
+      "traffic_high": 12.0,
+      "min_bullpen_innings_7d": 3.0,
+      "min_offense_games_7d": 2
+    }
+  },
+  "scanned_games": 371,
+  "evaluated_games": 296,
+  "skipped": {
+    "no_cohort": 75
+  },
+  "http": {
+    "requests": 1143,
+    "errors": 0
+  },
+  "cohorts": {
+    "A": {
+      "name": "Bullpen Vulnerable",
+      "rules": "max(bullpen_era_7d_home, away) > 5.5",
+      "sample_size": 145,
+      "avg_final_total_runs": 9.814,
+      "avg_bullpen_era_7d_max": 7.132,
+      "avg_bullpen_era_7d_avg": 5.445,
+      "avg_offense_traffic_7d": 11.622,
+      "per_line": {
+        "8.5": {
+          "n": 145,
+          "wins": 55,
+          "losses": 90,
+          "pushes": 0,
+          "voids": 0,
+          "hit_rate": 0.3793,
+          "push_rate": 0.0,
+          "roi": -0.2759
+        },
+        "9.0": {
+          "n": 145,
+          "wins": 55,
+          "losses": 71,
+          "pushes": 19,
+          "voids": 0,
+          "hit_rate": 0.4365,
+          "push_rate": 0.131,
+          "roi": -0.1448
+        },
+        "9.5": {
+          "n": 145,
+          "wins": 74,
+          "losses": 71,
+          "pushes": 0,
+          "voids": 0,
+          "hit_rate": 0.5103,
+          "push_rate": 0.0,
+          "roi": -0.0257
+        },
+        "10.0": {
+          "n": 145,
+          "wins": 74,
+          "losses": 59,
+          "pushes": 12,
+          "voids": 0,
+          "hit_rate": 0.5564,
+          "push_rate": 0.0828,
+          "roi": 0.0571
+        },
+        "10.5": {
+          "n": 145,
+          "wins": 86,
+          "losses": 59,
+          "pushes": 0,
+          "voids": 0,
+          "hit_rate": 0.5931,
+          "push_rate": 0.0,
+          "roi": 0.1323
+        }
+      }
+    },
+    "B": {
+      "name": "Bullpen Normal/No Vulnerable",
+      "rules": "max(bullpen_era_7d_home, away) < 4.5",
+      "sample_size": 151,
+      "avg_final_total_runs": 8.503,
+      "avg_bullpen_era_7d_max": 3.239,
+      "avg_bullpen_era_7d_avg": 2.638,
+      "avg_offense_traffic_7d": 11.558,
+      "per_line": {
+        "8.5": {
+          "n": 151,
+          "wins": 76,
+          "losses": 75,
+          "pushes": 0,
+          "voids": 0,
+          "hit_rate": 0.5033,
+          "push_rate": 0.0,
+          "roi": -0.0391
+        },
+        "9.0": {
+          "n": 151,
+          "wins": 76,
+          "losses": 62,
+          "pushes": 13,
+          "voids": 0,
+          "hit_rate": 0.5507,
+          "push_rate": 0.0861,
+          "roi": 0.047
+        },
+        "9.5": {
+          "n": 151,
+          "wins": 89,
+          "losses": 62,
+          "pushes": 0,
+          "voids": 0,
+          "hit_rate": 0.5894,
+          "push_rate": 0.0,
+          "roi": 0.1252
+        },
+        "10.0": {
+          "n": 151,
+          "wins": 89,
+          "losses": 42,
+          "pushes": 20,
+          "voids": 0,
+          "hit_rate": 0.6794,
+          "push_rate": 0.1325,
+          "roi": 0.2577
+        },
+        "10.5": {
+          "n": 151,
+          "wins": 109,
+          "losses": 42,
+          "pushes": 0,
+          "voids": 0,
+          "hit_rate": 0.7219,
+          "push_rate": 0.0,
+          "roi": 0.3781
+        }
+      }
+    },
+    "A1": {
+      "name": "A \u2014 Tr\u00e1fico ofensivo ALTO",
+      "rules": "Cohort A + avg(offense_traffic_7d) >= 12.0",
+      "sample_size": 61,
+      "avg_final_total_runs": 10.803,
+      "avg_bullpen_era_7d_max": 7.206,
+      "avg_bullpen_era_7d_avg": 5.589,
+      "avg_offense_traffic_7d": 13.119,
+      "per_line": {
+        "8.5": {
+          "n": 61,
+          "wins": 16,
+          "losses": 45,
+          "pushes": 0,
+          "voids": 0,
+          "hit_rate": 0.2623,
+          "push_rate": 0.0,
+          "roi": -0.4993
+        },
+        "9.0": {
+          "n": 61,
+          "wins": 16,
+          "losses": 36,
+          "pushes": 9,
+          "voids": 0,
+          "hit_rate": 0.3077,
+          "push_rate": 0.1475,
+          "roi": -0.3517
+        },
+        "9.5": {
+          "n": 61,
+          "wins": 25,
+          "losses": 36,
+          "pushes": 0,
+          "voids": 0,
+          "hit_rate": 0.4098,
+          "push_rate": 0.0,
+          "roi": -0.2176
+        },
+        "10.0": {
+          "n": 61,
+          "wins": 25,
+          "losses": 31,
+          "pushes": 5,
+          "voids": 0,
+          "hit_rate": 0.4464,
+          "push_rate": 0.082,
+          "roi": -0.1356
+        },
+        "10.5": {
+          "n": 61,
+          "wins": 30,
+          "losses": 31,
+          "pushes": 0,
+          "voids": 0,
+          "hit_rate": 0.4918,
+          "push_rate": 0.0,
+          "roi": -0.0611
+        }
+      }
+    },
+    "A2": {
+      "name": "A \u2014 Tr\u00e1fico ofensivo BAJO",
+      "rules": "Cohort A + avg(offense_traffic_7d) < 12.0",
+      "sample_size": 84,
+      "avg_final_total_runs": 9.095,
+      "avg_bullpen_era_7d_max": 7.078,
+      "avg_bullpen_era_7d_avg": 5.34,
+      "avg_offense_traffic_7d": 10.536,
+      "per_line": {
+        "8.5": {
+          "n": 84,
+          "wins": 39,
+          "losses": 45,
+          "pushes": 0,
+          "voids": 0,
+          "hit_rate": 0.4643,
+          "push_rate": 0.0,
+          "roi": -0.1136
+        },
+        "9.0": {
+          "n": 84,
+          "wins": 39,
+          "losses": 35,
+          "pushes": 10,
+          "voids": 0,
+          "hit_rate": 0.527,
+          "push_rate": 0.119,
+          "roi": 0.0054
+        },
+        "9.5": {
+          "n": 84,
+          "wins": 49,
+          "losses": 35,
+          "pushes": 0,
+          "voids": 0,
+          "hit_rate": 0.5833,
+          "push_rate": 0.0,
+          "roi": 0.1136
+        },
+        "10.0": {
+          "n": 84,
+          "wins": 49,
+          "losses": 28,
+          "pushes": 7,
+          "voids": 0,
+          "hit_rate": 0.6364,
+          "push_rate": 0.0833,
+          "roi": 0.197
+        },
+        "10.5": {
+          "n": 84,
+          "wins": 56,
+          "losses": 28,
+          "pushes": 0,
+          "voids": 0,
+          "hit_rate": 0.6667,
+          "push_rate": 0.0,
+          "roi": 0.2727
+        }
+      }
+    }
+  },
+  "line_distance_histograms": {
+    "A": {
+      "-8": 1,
+      "-7": 1,
+      "-6": 5,
+      "-5": 2,
+      "-4": 16,
+      "-3": 8,
+      "-2": 14,
+      "-1": 8,
+      "+0": 31,
+      "+1": 14,
+      "+2": 7,
+      "+3": 13,
+      "+4": 5,
+      "+5": 4,
+      "+6": 5,
+      "+7": 6,
+      "+8": 1,
+      "+9": 2,
+      "+10": 1,
+      "+11": 1
+    },
+    "B": {
+      "-8": 6,
+      "-6": 11,
+      "-5": 8,
+      "-4": 15,
+      "-3": 9,
+      "-2": 13,
+      "-1": 14,
+      "+0": 33,
+      "+1": 7,
+      "+2": 9,
+      "+3": 12,
+      "+4": 5,
+      "+5": 2,
+      "+6": 2,
+      "+7": 4,
+      "+13": 1
+    },
+    "A1": {
+      "-8": 1,
+      "-7": 1,
+      "-6": 2,
+      "-4": 4,
+      "-3": 1,
+      "-2": 4,
+      "-1": 3,
+      "+0": 14,
+      "+1": 6,
+      "+2": 3,
+      "+3": 6,
+      "+4": 3,
+      "+5": 3,
+      "+6": 3,
+      "+7": 4,
+      "+8": 1,
+      "+9": 1,
+      "+11": 1
+    },
+    "A2": {
+      "-6": 3,
+      "-5": 2,
+      "-4": 12,
+      "-3": 7,
+      "-2": 10,
+      "-1": 5,
+      "+0": 17,
+      "+1": 8,
+      "+2": 4,
+      "+3": 7,
+      "+4": 2,
+      "+5": 1,
+      "+6": 2,
+      "+7": 2,
+      "+9": 1,
+      "+10": 1
+    }
+  },
+  "analysis": [
+    {
+      "metric": "under_hit_rate_delta_A_vs_B",
+      "value": -0.0791,
+      "es": "En la l\u00ednea base 9.5, los Under en juegos con bullpen vulnerable (A) cerraron 51% vs 59% en bullpen normal (B). Delta -8% (n_A=145, n_B=151)."
+    },
+    {
+      "metric": "under_hit_rate_A1_vs_A2",
+      "value": -0.1735,
+      "es": "Dentro de A (bullpen vulnerable), tr\u00e1fico ALTO (A1) tuvo 41% de Under hits vs 58% en tr\u00e1fico BAJO (A2). Delta -17% (n_A1=61, n_A2=84)."
+    },
+    {
+      "metric": "roi_cohort_A_at_base_line",
+      "value": -0.0257,
+      "es": "ROI impl\u00edcito (-110) de Under en cohorte A a l\u00ednea 9.5: -2.57% sobre 145 muestras."
+    }
+  ],
+  "observe_only": true
+}

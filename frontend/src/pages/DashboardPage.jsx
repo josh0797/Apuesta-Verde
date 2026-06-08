@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { MatchCard } from '@/components/MatchCard';
 import { LiveTodayPanel } from '@/components/LiveTodayPanel';
+import { LineLearningPanel } from '@/components/LineLearningDashboard';
 import { SkippedMatchRow } from '@/components/FootballQualityBadge';
 import { EmptyStateNoValue } from '@/components/EmptyStateNoValue';
 import { PicksFilterBar } from '@/components/PicksFilterBar';
@@ -1045,6 +1046,9 @@ export default function DashboardPage() {
           already mid-game when the snapshot was generated. Self-hides
           when there are no live picks AND the snapshot is fresh. */}
       <LiveTodayPanel sport={sport} lang={lang} testId="live-today-panel" />
+
+      {/* Phase 43 / Feature 8 — Line Learning analytics panel (collapsible). */}
+      <LineLearningPanel testId="line-learning-panel" />
 
       {data && allPicks.length > 0 && (
         <PicksFilterBar

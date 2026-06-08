@@ -43,8 +43,17 @@ async def compute_analytics(
     user_id: str,
     sport:       Optional[str] = None,
     market_type: Optional[str] = None,
+    start_date:  Optional[str] = None,   # ISO YYYY-MM-DD inclusive
+    end_date:    Optional[str] = None,   # ISO YYYY-MM-DD inclusive
+    recent_limit: int = 10,
 ) -> dict:
-    """Aggregate samples into dashboard-ready metrics + insights."""
+    """Aggregate samples into dashboard-ready metrics + insights.
+
+    Optional ``start_date`` / ``end_date`` filter on ``created_at`` (ISO
+    string compare — robust for our ISO-8601 persistence). ``recent_limit``
+    controls how many of the latest samples are returned for the
+    dashboard's "últimos picks" table.
+    """
     if db is None:
         return _empty()
     q: dict = {"user_id": user_id}
@@ -52,6 +61,13 @@ async def compute_analytics(
         q["sport"] = sport.lower()
     if market_type:
         q["market_type"] = market_type
+    if start_date or end_date:
+        rng: dict = {}
+        if start_date:
+            rng["$gte"] = f"{start_date}T00:00:00"
+        if end_date:
+            rng["$lte"] = f"{end_date}T23:59:59"
+        q["created_at"] = rng
     try:
         cursor = db[COLLECTION].find(q)
         samples = [r async for r in cursor]
@@ -61,7 +77,10 @@ async def compute_analytics(
 
     total = len(samples)
     if total == 0:
-        return _empty()
+        return _empty(scope={
+            "user_id": user_id, "sport": sport, "market_type": market_type,
+            "start_date": start_date, "end_date": end_date,
+        })
 
     buckets = {"EXACT_HIT": 0, "SAFE_LINE_HIT": 0, "NEAR_MISS": 0,
                "PUSH_SAVED": 0, "AGGRESSIVE_LINE_MISS": 0, "PROFILE_WRONG": 0}
@@ -72,6 +91,10 @@ async def compute_analytics(
     aggressive_total = 0
     per_line_hits: dict[str, int] = defaultdict(int)
     per_line_total: dict[str, int] = defaultdict(int)
+    distance_hist: dict[str, int] = defaultdict(int)
+    samples_sorted = sorted(
+        samples, key=lambda r: r.get("created_at") or "", reverse=True,
+    )
 
     for s in samples:
         cls = (s.get("classification") or "").upper()
@@ -81,7 +104,6 @@ async def compute_analytics(
         if "LOST_BY_HALF_RUN" in reasons:
             half_run_losses += 1
         engine_line = _safe_float((s.get("engine") or {}).get("line"))
-        user_line   = _safe_float((s.get("user_actual") or {}).get("line"))
         engine_oc   = (s.get("engine")      or {}).get("outcome")
         user_oc     = (s.get("user_actual") or {}).get("outcome")
         # Per-line success of the ENGINE recommendation.
@@ -100,6 +122,11 @@ async def compute_analytics(
             aggressive_total += 1
             if str(user_oc or "").lower() in ("won", "win", "hit", "cashout_win"):
                 aggressive_success += 1
+        # Line-distance histogram (signed, 0.5-step bucket).
+        ld = _safe_float(s.get("line_distance"))
+        if ld is not None:
+            bucket = _bucket_distance(ld)
+            distance_hist[bucket] += 1
 
     metrics = {
         "sample_size":               total,
@@ -124,23 +151,63 @@ async def compute_analytics(
         for ln in per_line_total if per_line_total[ln] > 0
     }
 
+    # Recent samples table — strip Mongo internals and trim payload to what
+    # the UI actually needs.
+    recent = []
+    for s in samples_sorted[: max(1, min(50, recent_limit))]:
+        eng = s.get("engine") or {}
+        usr = s.get("user_actual") or {}
+        recent.append({
+            "sample_id":      s.get("sample_id"),
+            "match_id":       s.get("match_id"),
+            "sport":          s.get("sport"),
+            "market_type":    s.get("market_type"),
+            "classification": s.get("classification"),
+            "reason_codes":   s.get("reason_codes") or [],
+            "line_distance":  s.get("line_distance"),
+            "engine":         {"line": eng.get("line"),
+                               "selection": eng.get("selection"),
+                               "outcome":   eng.get("outcome")},
+            "user_actual":    {"line": usr.get("line"),
+                               "selection": usr.get("selection"),
+                               "outcome":   usr.get("outcome")},
+            "summary_es":     s.get("summary_es"),
+            "created_at":     s.get("created_at"),
+        })
+
     return {
         "engine_version": ENGINE_VERSION,
-        "scope": {"user_id": user_id, "sport": sport, "market_type": market_type},
+        "scope": {
+            "user_id": user_id, "sport": sport, "market_type": market_type,
+            "start_date": start_date, "end_date": end_date,
+        },
         "metrics": metrics,
         "per_line_success": per_line_success,
         "per_line_sample_size": dict(per_line_total),
+        "line_distance_histogram": dict(sorted(distance_hist.items(),
+                                               key=lambda kv: float(kv[0]))),
+        "recent_samples": recent,
         "insights": _build_insights(metrics, per_line_success, market_type),
     }
 
 
-def _empty() -> dict:
+def _bucket_distance(d: float) -> str:
+    """Round to nearest 0.5 step (signed)."""
+    rounded = round(d * 2) / 2.0
+    if rounded == 0.0:
+        return "0.0"
+    return f"{rounded:+.1f}"
+
+
+def _empty(*, scope: Optional[dict] = None) -> dict:
     return {
         "engine_version": ENGINE_VERSION,
-        "scope": {},
+        "scope": scope or {},
         "metrics": {"sample_size": 0},
         "per_line_success": {},
         "per_line_sample_size": {},
+        "line_distance_histogram": {},
+        "recent_samples": [],
         "insights": [],
     }
 

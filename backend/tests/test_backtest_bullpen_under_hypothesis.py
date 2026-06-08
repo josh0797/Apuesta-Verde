@@ -1,127 +1,196 @@
-"""Unit tests for the pure helpers in backtest_bullpen_under_hypothesis.
+"""Unit tests for the rewritten backtest_bullpen_under_hypothesis script.
 
-The async + DB-driven parts are exercised end-to-end with `python
-scripts/backtest_bullpen_under_hypothesis.py --days N` against a real
-mongo. Here we only validate the cohort assignment, settlement and
-aggregation primitives.
+Phase 44 — backtest v2: fetches from MLB Stats API, integrates the
+``services.traffic_score`` composite score for sub-cohort assignment.
 """
-import importlib.util
-from pathlib import Path
+from __future__ import annotations
 
-# Import the script as a module (it sits under scripts/ not as a package).
-_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "backtest_bullpen_under_hypothesis.py"
-_spec = importlib.util.spec_from_file_location("bullpen_backtest", _SCRIPT)
-bb = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
-_spec.loader.exec_module(bb)                 # type: ignore[union-attr]
+import pytest
+
+from scripts import backtest_bullpen_under_hypothesis as bb
 
 
-def _snap(**overrides):
-    base = {
-        "recommended_pick":      "Under 9.5",
-        "expected_runs":         7.8,
-        "market_line":           9.5,
-        "bullpen_era_7d":        6.20,
-        "script_survival":       50,
-        "offensive_explosion":   60,
-        "fragility":             45,
-        "hr_risk":               40,
-        "pressure_base":         45,
-        "total_runs_final":      8,
+# ─────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────
+DEFAULT_THRESHOLDS = {
+    "bullpen_era_high":       5.50,
+    "bullpen_era_normal_max": 4.50,
+    "traffic_high":           12.0,
+    "min_bullpen_innings_7d": 3.0,
+    "min_offense_games_7d":   2,
+}
+
+
+def _team_window(
+    *, bullpen_era=5.0, bullpen_ip=20.0, n_games=6,
+    traffic_score=50, traffic_bucket="MEDIUM_TRAFFIC",
+):
+    return {
+        "n_games":          n_games,
+        "bullpen_ip_7d":    bullpen_ip,
+        "bullpen_era_7d":   bullpen_era,
+        "bullpen_whip_7d":  1.30,
+        "offense_traffic_legacy_7d": 11.0,
+        "traffic_score_obj": {
+            "traffic_score":  traffic_score,
+            "traffic_bucket": traffic_bucket,
+            "components":     {},
+        },
     }
-    base.update(overrides)
-    return base
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Cohort assignment
+# assign_cohort — primary cohorts (A / B / gap)
 # ─────────────────────────────────────────────────────────────────────
-def test_cohort_A_when_bullpen_high_and_traffic_signals():
-    assert bb.assign_cohort(_snap(bullpen_era_7d=6.0)) == "A"
+class TestAssignCohort:
+    def test_cohort_A_when_max_era_above_high_threshold(self):
+        home = _team_window(bullpen_era=6.0, traffic_bucket="MEDIUM_TRAFFIC", traffic_score=55)
+        away = _team_window(bullpen_era=4.0, traffic_bucket="MEDIUM_TRAFFIC", traffic_score=50)
+        primary, sub, signal = bb.assign_cohort(home, away, DEFAULT_THRESHOLDS)
+        assert primary == "A"
+        # Sub-cohort only assigned when bucket is HIGH or LOW; MEDIUM excluded.
+        assert sub is None
+        assert signal["bullpen_era_7d_max"] == 6.0
+        assert signal["traffic_score"] == int(round((55 + 50) / 2))
+        assert signal["traffic_bucket"] == "MEDIUM_TRAFFIC"
 
+    def test_cohort_B_when_both_below_normal_threshold(self):
+        home = _team_window(bullpen_era=3.5)
+        away = _team_window(bullpen_era=4.0)
+        primary, sub, _ = bb.assign_cohort(home, away, DEFAULT_THRESHOLDS)
+        assert primary == "B"
+        assert sub is None
 
-def test_cohort_B_when_bullpen_normal():
-    assert bb.assign_cohort(_snap(bullpen_era_7d=4.0)) == "B"
+    def test_no_cohort_in_gap_zone(self):
+        # 4.5 ≤ max_era ≤ 5.5 → exclusion.
+        home = _team_window(bullpen_era=5.0)
+        away = _team_window(bullpen_era=4.7)
+        primary, _, _ = bb.assign_cohort(home, away, DEFAULT_THRESHOLDS)
+        assert primary is None
 
+    def test_no_cohort_when_bullpen_ip_too_low(self):
+        home = _team_window(bullpen_era=6.0, bullpen_ip=1.0)
+        away = _team_window(bullpen_era=3.0, bullpen_ip=20.0)
+        primary, _, signal = bb.assign_cohort(home, away, DEFAULT_THRESHOLDS)
+        assert primary is None
+        assert signal["reason"] == "low_bullpen_ip_home"
 
-def test_no_cohort_in_gap_zone():
-    # 4.50–5.50 excluded for separation cleanliness.
-    assert bb.assign_cohort(_snap(bullpen_era_7d=5.0)) is None
-
-
-def test_no_cohort_when_pick_is_over():
-    assert bb.assign_cohort(_snap(recommended_pick="Over 9.5")) is None
-
-
-def test_no_cohort_when_expected_above_line():
-    assert bb.assign_cohort(_snap(expected_runs=10.0)) is None
-
-
-def test_no_cohort_when_script_survival_high():
-    assert bb.assign_cohort(_snap(script_survival=80)) is None
-
-
-def test_no_cohort_when_offensive_explosion_low():
-    assert bb.assign_cohort(_snap(offensive_explosion=30)) is None
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Sub-cohort A1 / A2
-# ─────────────────────────────────────────────────────────────────────
-def test_subcohort_A2_with_traffic():
-    s = _snap(hr_risk=70)
-    assert bb.assign_sub_cohort(s, "A") == "A2"
-
-
-def test_subcohort_A1_without_traffic():
-    s = _snap(hr_risk=10, pressure_base=10, offensive_explosion=30)
-    # Above offensive_explosion threshold is needed for cohort A — relax via direct sub call.
-    assert bb.assign_sub_cohort(s, "A") in ("A1", "A2")
-    # With both signals low:
-    s2 = _snap(hr_risk=20, pressure_base=20)
-    # offensive_explosion=60 is still ≥50 → counts as traffic via first signal
-    assert bb.assign_sub_cohort(s2, "A") == "A2"
-
-
-def test_subcohort_only_applies_to_A():
-    assert bb.assign_sub_cohort(_snap(), "B") is None
+    def test_no_cohort_when_too_few_offensive_games(self):
+        home = _team_window(bullpen_era=6.0, n_games=1)
+        away = _team_window(bullpen_era=3.0, n_games=6)
+        primary, _, signal = bb.assign_cohort(home, away, DEFAULT_THRESHOLDS)
+        assert primary is None
+        assert signal["reason"] == "low_offense_games_home"
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Settlement
+# assign_cohort — sub-cohorts driven by composite traffic bucket
 # ─────────────────────────────────────────────────────────────────────
-def test_settle_under_won_loss_push_void():
-    assert bb.settle_under(9.5, 8)[0] == "won"
-    assert bb.settle_under(9.5, 11)[0] == "lost"
-    assert bb.settle_under(9.0, 9.0)[0] == "push"
-    assert bb.settle_under(None, 8)[0] == "void"
-    assert bb.settle_under(9.5, None)[0] == "void"
+class TestAssignSubCohort:
+    def test_A1_when_combined_bucket_high(self):
+        home = _team_window(bullpen_era=6.5, traffic_score=85, traffic_bucket="HIGH_TRAFFIC")
+        away = _team_window(bullpen_era=5.8, traffic_score=80, traffic_bucket="HIGH_TRAFFIC")
+        primary, sub, signal = bb.assign_cohort(home, away, DEFAULT_THRESHOLDS)
+        assert primary == "A"
+        assert sub == "A1"
+        assert signal["traffic_bucket"] == "HIGH_TRAFFIC"
 
+    def test_A2_when_combined_bucket_low(self):
+        home = _team_window(bullpen_era=6.0, traffic_score=20, traffic_bucket="LOW_TRAFFIC")
+        away = _team_window(bullpen_era=6.0, traffic_score=15, traffic_bucket="LOW_TRAFFIC")
+        primary, sub, signal = bb.assign_cohort(home, away, DEFAULT_THRESHOLDS)
+        assert primary == "A"
+        assert sub == "A2"
+        assert signal["traffic_bucket"] == "LOW_TRAFFIC"
 
-def test_settle_pnl_signs():
-    assert bb.settle_under(9.5, 8)[1] == 0.91
-    assert bb.settle_under(9.5, 11)[1] == -1.0
-    assert bb.settle_under(9.0, 9.0)[1] == 0.0
+    def test_no_sub_when_combined_bucket_medium(self):
+        # One HIGH + one LOW → mean lands in MEDIUM → no sub-cohort.
+        home = _team_window(bullpen_era=6.5, traffic_score=85, traffic_bucket="HIGH_TRAFFIC")
+        away = _team_window(bullpen_era=6.0, traffic_score=20, traffic_bucket="LOW_TRAFFIC")
+        primary, sub, signal = bb.assign_cohort(home, away, DEFAULT_THRESHOLDS)
+        assert primary == "A"
+        assert sub is None
+        assert signal["traffic_bucket"] == "MEDIUM_TRAFFIC"
+
+    def test_no_sub_when_primary_is_B(self):
+        home = _team_window(bullpen_era=3.0, traffic_score=85, traffic_bucket="HIGH_TRAFFIC")
+        away = _team_window(bullpen_era=3.5, traffic_score=80, traffic_bucket="HIGH_TRAFFIC")
+        primary, sub, _ = bb.assign_cohort(home, away, DEFAULT_THRESHOLDS)
+        assert primary == "B"
+        assert sub is None
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Aggregate
+# settle_under
 # ─────────────────────────────────────────────────────────────────────
-def test_aggregate_basic_metrics():
-    rows = [
-        {"snapshot": _snap(total_runs_final=8),  "outcome": "won",  "pnl": 0.91, "cohort": "A"},
-        {"snapshot": _snap(total_runs_final=12), "outcome": "lost", "pnl": -1.0, "cohort": "A"},
-        {"snapshot": _snap(total_runs_final=9.5),"outcome": "push", "pnl": 0.0,  "cohort": "A"},
-    ]
-    agg = bb.aggregate(rows)
-    assert agg["sample_size"] == 3
-    assert agg["wins"] == 1 and agg["losses"] == 1 and agg["pushes"] == 1
-    # Counts pushes out of the rate (1 push removed → 1/2 = 0.50)
-    assert agg["under_hit_rate"] == 0.5
-    assert agg["push_rate"] == round(1 / 3, 4)
-    assert agg["average_actual_runs"] is not None
-    assert agg["average_expected_runs"] is not None
-    assert agg["average_error"] is not None
+class TestSettleUnder:
+    def test_under_win_pays_minus110(self):
+        outcome, pnl = bb.settle_under(9.5, 7)
+        assert outcome == "won"
+        assert pnl == pytest.approx(0.9091, abs=0.001)
+
+    def test_over_loss_returns_minus_one_unit(self):
+        outcome, pnl = bb.settle_under(9.5, 12)
+        assert outcome == "lost"
+        assert pnl == -1.0
+
+    def test_push_when_equal(self):
+        outcome, pnl = bb.settle_under(10.0, 10)
+        assert outcome == "push"
+        assert pnl == 0.0
+
+    def test_void_on_missing_inputs(self):
+        outcome, pnl = bb.settle_under(None, 9)
+        assert outcome == "void"
+        assert pnl == 0.0
+        outcome, pnl = bb.settle_under(9.5, None)
+        assert outcome == "void"
 
 
-def test_aggregate_empty_returns_skeleton():
-    assert bb.aggregate([]) == {"sample_size": 0}
+# ─────────────────────────────────────────────────────────────────────
+# aggregate_rows
+# ─────────────────────────────────────────────────────────────────────
+class TestAggregateRows:
+    def test_empty_returns_skeleton(self):
+        out = bb.aggregate_rows([], [8.5, 9.5])
+        assert out == {"sample_size": 0, "per_line": {}}
+
+    def test_basic_metrics(self):
+        rows = [
+            {"final_total_runs": 6,  "bullpen_era_7d_max": 6.0, "traffic_score": 75},
+            {"final_total_runs": 11, "bullpen_era_7d_max": 6.5, "traffic_score": 80},
+            {"final_total_runs": 9,  "bullpen_era_7d_max": 5.8, "traffic_score": 70},
+        ]
+        out = bb.aggregate_rows(rows, [9.5])
+        assert out["sample_size"] == 3
+        assert out["avg_final_total_runs"] == pytest.approx((6 + 11 + 9) / 3, abs=0.01)
+        per_line = out["per_line"]["9.5"]
+        assert per_line["wins"] == 2     # 6 and 9 both < 9.5
+        assert per_line["losses"] == 1   # 11 > 9.5
+        assert per_line["pushes"] == 0
+        assert per_line["hit_rate"] == pytest.approx(2 / 3, abs=0.01)
+        # Avg traffic score surfaced for the cohort.
+        assert out["avg_traffic_score"] == pytest.approx(75.0, abs=0.5)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Line distance histogram + parsing helpers
+# ─────────────────────────────────────────────────────────────────────
+class TestHelpers:
+    def test_parse_ip_decimal_outs(self):
+        assert bb._parse_ip("5.2") == pytest.approx(5 + 2 / 3, abs=0.001)
+        assert bb._parse_ip("0.1") == pytest.approx(1 / 3, abs=0.001)
+        assert bb._parse_ip("4.0") == 4.0
+        assert bb._parse_ip(None) == 0.0
+        assert bb._parse_ip("") == 0.0
+
+    def test_line_distance_histogram(self):
+        rows = [
+            {"final_total_runs": 9},   # diff = -0.5 → int(-0.5) == 0
+            {"final_total_runs": 11},  # diff = +1.5 → +1
+            {"final_total_runs": 7},   # diff = -2.5 → -2
+            {"final_total_runs": None},
+        ]
+        hist = bb._line_distance_histogram(rows, 9.5)
+        assert hist == {"-2": 1, "+0": 1, "+1": 1}

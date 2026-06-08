@@ -1,22 +1,42 @@
 [
   {
-    "content": "P1: correr backtest en preview con --days 90 y compartir JSON + summary",
+    "content": "P0: Reescribir backtest_bullpen_under_hypothesis.py con MLB Stats API",
     "status": "completed"
   },
   {
-    "content": "P3: módulo backend services/live_script_reality_check.py con 4 clasificaciones + reason codes",
+    "content": "P0: Ejecutar backtest local y validar output JSON",
     "status": "completed"
   },
   {
-    "content": "P3: wire al MLB live payload + endpoint manual de check",
+    "content": "P1: Extender backend /api/learning/line/analytics con date range + histograma + recent_samples",
     "status": "completed"
   },
   {
-    "content": "P3: UI badge en MLB live card",
+    "content": "P1: Actualizar LineLearningDashboard.jsx (filtros de fechas, histograma, tabla samples)",
     "status": "completed"
   },
   {
-    "content": "Tests pytest + RTL + suite completa",
+    "content": "P1: Integrar panel LineLearningDashboard dentro de DashboardPage existente",
+    "status": "completed"
+  },
+  {
+    "content": "P2: Crear services/traffic_score.py con score 0-100 compuesto",
+    "status": "completed"
+  },
+  {
+    "content": "P2: Añadir 4 reason codes nuevos al line_learning_engine",
+    "status": "completed"
+  },
+  {
+    "content": "P2: Integrar traffic_score en backtest script",
+    "status": "completed"
+  },
+  {
+    "content": "P2: Wire endpoints /api/learning/traffic/classify + /api/learning/traffic/score (observe-only)",
+    "status": "completed"
+  },
+  {
+    "content": "P2: Tests unitarios + correr backtest con nueva lógica",
     "status": "completed"
   }
 ]
