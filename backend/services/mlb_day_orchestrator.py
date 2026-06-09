@@ -1610,6 +1610,34 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as _exc_rf:
             log.debug("recent_form_split fetch failed (fail-soft): %s", _exc_rf)
 
+        # ── Phase 50 — Defensive Breakdown Score (pregame, fail-soft) ──
+        # Computes a 0-100 score from season-to-date fielding profile.
+        # Fed into the inning-lambda model below as ``defensive_breakdown_score``
+        # so a weak fielding profile amplifies λ_7_9 risk alongside the
+        # bullpen × traffic interaction. Never flips Under↔Over alone.
+        defensive_breakdown_pregame = None
+        try:
+            from .mlb_defensive_breakdown_score import compute_defensive_breakdown_score
+            _def_profile = (
+                pick_payload.get("defensive_profile")
+                or (scoring_ctx or {}).get("defensive_profile")
+                or {}
+            )
+            defensive_breakdown_pregame = compute_defensive_breakdown_score(
+                mode="pregame",
+                fielding_pct=_def_profile.get("fielding_pct"),
+                errors_per_game=_def_profile.get("errors_per_game"),
+                drs=_def_profile.get("drs"),
+                oaa=_def_profile.get("oaa"),
+                passed_balls_per_game=_def_profile.get("passed_balls_per_game"),
+                sb_allowed_per_game=_def_profile.get("sb_allowed_per_game"),
+                wp_allowed_per_game=_def_profile.get("wp_allowed_per_game"),
+            )
+            pick_payload["defensive_breakdown"] = defensive_breakdown_pregame
+        except Exception as _exc_db:
+            log.debug("defensive_breakdown_score failed (fail-soft): %s", _exc_db)
+            defensive_breakdown_pregame = None
+
         # ── Phase 47 — MLB Pregame Inning-Lambda Model (observe-only) ───
         # Decomposes expected_runs into λ_1_3 + λ_4_6 + λ_7_9 with
         # continuous bullpen × traffic interaction in the late phase.
@@ -1678,6 +1706,10 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 weather_factor=(park or {}).get("weather_factor"),
                 market_line=conf.get("book_total"),
                 observe_only=True,
+                # Phase 50 — defensive breakdown feeds the bullpen phase.
+                defensive_breakdown_score=(
+                    (defensive_breakdown_pregame or {}).get("defensive_breakdown_score")
+                ),
             )
             pick_payload["inning_lambda_projection"] = inning_lambda_projection
             if inning_lambda_projection.get("available"):

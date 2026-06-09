@@ -1121,6 +1121,29 @@ def _reevaluate_baseball(
         live_stats = match.get("live_stats") or {}
         h_live = live_stats.get("home_stats") or {}
         a_live = live_stats.get("away_stats") or {}
+
+        # ── Phase 50 — Live Defensive Breakdown (raw in-game events) ──
+        # Aggregated across both sides so the live_traffic_score reflects
+        # the combined sloppy-fielding pressure. Fail-soft.
+        defensive_breakdown_live = None
+        try:
+            from .mlb_defensive_breakdown_score import compute_defensive_breakdown_score
+            defensive_breakdown_live = compute_defensive_breakdown_score(
+                mode="live",
+                live_errors=int((h_live.get("errors") or 0) + (a_live.get("errors") or 0)),
+                live_passed_balls=int((h_live.get("passed_balls") or 0) + (a_live.get("passed_balls") or 0)),
+                live_wild_pitches=int((h_live.get("wild_pitches") or 0) + (a_live.get("wild_pitches") or 0)),
+                live_stolen_bases=int((h_live.get("stolen_bases") or 0) + (a_live.get("stolen_bases") or 0)),
+                live_catcher_mistakes=int((h_live.get("catcher_mistakes") or 0) + (a_live.get("catcher_mistakes") or 0)),
+                runners_advanced_on_errors=int((h_live.get("runners_advanced_on_errors") or 0) + (a_live.get("runners_advanced_on_errors") or 0)),
+                unearned_runs=int((h_live.get("unearned_runs") or 0) + (a_live.get("unearned_runs") or 0)),
+                innings_played=analysis.get("innings_played"),
+            )
+        except Exception as _exc_db:
+            import logging
+            logging.getLogger("live_reeval").debug("live defensive_breakdown failed: %s", _exc_db)
+            defensive_breakdown_live = None
+
         if h_live or a_live:
             live_traffic = _ts.compute_live_traffic_score(
                 inning=inning,
@@ -1134,6 +1157,7 @@ def _reevaluate_baseball(
                 pregame_traffic_score=pregame_traffic_score,
                 pregame_traffic_bucket=pregame_traffic_bucket,
                 is_under_pick=is_under_pick,
+                defensive_breakdown_score=(defensive_breakdown_live or {}).get("defensive_breakdown_score"),
             )
 
         # Use LIVE bucket when it diverges from pregame (rising/collapsing);
@@ -1166,6 +1190,30 @@ def _reevaluate_baseball(
             bullpen_traffic["pregame_traffic_bucket"] = pregame_traffic_bucket
             bullpen_traffic["live_traffic"]          = live_traffic
             bullpen_traffic["active"]                = True  # Phase 46
+            bullpen_traffic["defensive_breakdown"]   = defensive_breakdown_live
+
+            # ── Phase 50 — Combined trifecta explosion-risk warning ──
+            try:
+                from .mlb_defensive_breakdown_score import classify_combined_explosion_risk
+                combined = classify_combined_explosion_risk(
+                    bullpen_era_7d_max=float(bp_max) if bp_max is not None else None,
+                    live_traffic_bucket=(live_traffic or {}).get("live_traffic_bucket"),
+                    defensive_bucket=(defensive_breakdown_live or {}).get("defensive_bucket"),
+                    is_under_pick=is_under_pick,
+                )
+                if combined.get("verdict") == "penalize_under":
+                    # Append the trifecta reason code & UI message.
+                    bullpen_traffic["reason_codes"] = list(dict.fromkeys(
+                        (bullpen_traffic.get("reason_codes") or [])
+                        + combined.get("reason_codes", [])
+                    ))
+                    bullpen_traffic["ui_message_es"] = combined.get("ui_message_es")
+                    bullpen_traffic["combined_explosion"] = combined
+            except Exception as _exc_comb:
+                import logging
+                logging.getLogger("live_reeval").debug(
+                    "combined explosion classifier failed: %s", _exc_comb,
+                )
 
         # ── ACTIVE: apply verdict to the engine output ────────────────
         if (
