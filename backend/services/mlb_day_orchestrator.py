@@ -1827,6 +1827,154 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as _exc_sfam_persist:
             log.debug("series_familiarity persist failed (fail-soft): %s", _exc_sfam_persist)
 
+        # ── Priority 4 — Expected Runs Distribution (uncertainty + ranges) ─
+        # Pure transform of the engine's mean → full probability profile.
+        # Observe-only: surfaces protected / ultra-safe line suggestions
+        # WITHOUT flipping pick polarity. Fail-soft on any error.
+        try:
+            from .mlb_expected_runs_distribution import compute_expected_runs_distribution
+
+            # Resolve effective mean: prefer the inning-lambda projection
+            # when available (richer), otherwise use pick_payload mean.
+            _mean_eff = (
+                (inning_lambda_projection or {}).get("expected_runs")
+                if isinstance(inning_lambda_projection, dict)
+                else None
+            )
+            if _mean_eff in (None, 0):
+                _mean_eff = pick_payload.get("expected_runs") if pick_payload else None
+
+            # NB dispersion ratio — fragility-driven fallback when caller
+            # didn't pass one. fragility 50 ≈ 1.10, 80 ≈ 1.50.
+            _frag = (pick_payload.get("fragility_score")
+                     if pick_payload else None) \
+                    or (pipeline_meta.get("fragility") or {}).get("fragility_score")
+            _nb_ratio = None
+            try:
+                _nb_ratio = float((pick_payload or {}).get("nb_dispersion_ratio") or 0) or None
+            except (TypeError, ValueError):
+                _nb_ratio = None
+            if _nb_ratio is None and _frag is not None:
+                try:
+                    _nb_ratio = 1.0 + max(0.0, (float(_frag) - 30.0) / 60.0)
+                except (TypeError, ValueError):
+                    _nb_ratio = None
+
+            _market = (pick_payload or {}).get("market") or (pick_payload or {}).get("recommended_market")
+            _line   = (pick_payload or {}).get("line")
+            if _line is None:
+                _line = (pick_payload or {}).get("recommendation", {}).get("line") \
+                        if isinstance((pick_payload or {}).get("recommendation"), dict) else None
+
+            erd = compute_expected_runs_distribution(
+                expected_runs=_mean_eff,
+                inning_lambda_projection=inning_lambda_projection,
+                market=_market,
+                market_line=_line,
+                nb_dispersion_ratio=_nb_ratio,
+                fragility_score=_frag,
+                script_survival=(pick_payload or {}).get("script_survival"),
+                traffic_score=(traffic_score_payload or {}).get("traffic_score")
+                               if isinstance(traffic_score_payload, dict) else None,
+                defensive_breakdown_score=(defensive_breakdown_pregame or {}).get("defensive_breakdown_score"),
+                bullpen_fatigue=(h_bullpen_usage or {}).get("bullpen_fatigue")
+                                  or (a_bullpen_usage or {}).get("bullpen_fatigue"),
+                series_familiarity_score=series_familiarity.get("series_familiarity_score")
+                                          if isinstance(series_familiarity, dict) else None,
+            )
+            pick_payload["expected_runs_distribution"] = erd
+            pipeline_meta["expected_runs_distribution"] = {
+                "available":           erd.get("available"),
+                "uncertainty_bucket":  erd.get("uncertainty_bucket"),
+                "mean":                erd.get("mean"),
+                "median":              erd.get("median"),
+                "p10":                 erd.get("p10"),
+                "p90":                 erd.get("p90"),
+                "distribution":        erd.get("distribution"),
+                "protected_lines":     erd.get("protected_lines"),
+                "reason_codes":        erd.get("reason_codes") or [],
+            }
+
+            # ── Feature 1 — Tail Risk Panel (pure Python PMF/CDF) ──────
+            try:
+                from .mlb_expected_runs_distribution import (
+                    compute_tail_risk, interpret_market_profile,
+                )
+                _market_side = "under" if "under" in str(_market or "").lower() \
+                                else "over" if "over" in str(_market or "").lower() \
+                                else None
+                tail_risk = compute_tail_risk(
+                    distribution_payload=erd,
+                    market_line=_line,
+                    market_side=_market_side,
+                )
+                market_profile = interpret_market_profile(
+                    distribution_payload=erd,
+                    tail_risk_payload=tail_risk,
+                )
+                pick_payload["tail_risk"]        = tail_risk
+                pick_payload["market_profile"]   = market_profile
+                pipeline_meta["tail_risk"] = {
+                    "available":         tail_risk.get("available"),
+                    "tail_bucket":       tail_risk.get("tail_bucket"),
+                    "tail_risk_score":   tail_risk.get("tail_risk_score"),
+                    "under_quality":     tail_risk.get("under_quality"),
+                    "p_ge_12":           tail_risk.get("p_ge_12"),
+                    "p_ge_14":           tail_risk.get("p_ge_14"),
+                    "p_ge_16":           tail_risk.get("p_ge_16"),
+                    "profile":           market_profile.get("profile"),
+                    "reason_codes":      (tail_risk.get("reason_codes") or [])
+                                          + (market_profile.get("reason_codes") or []),
+                }
+            except Exception as _exc_tr:
+                log.debug("tail_risk failed (fail-soft): %s", _exc_tr)
+                tail_risk = {"available": False}
+
+            # ── Feature 3 — Fragility calibrator (hidden Over routes) ──
+            try:
+                from .mlb_fragility_calibrator import calibrate_fragility
+                base_frag = _frag
+                if base_frag is None:
+                    base_frag = pick_payload.get("fragility_score") \
+                                 if pick_payload else None
+                fragility_calibration = calibrate_fragility(
+                    base_fragility=base_frag,
+                    market_side=_market_side,
+                    expected_runs=_mean_eff,
+                    market_line=_line,
+                    inning_lambda_projection=inning_lambda_projection,
+                    home_pitcher=conf.get("home_pitcher") if isinstance(conf, dict) else None,
+                    away_pitcher=conf.get("away_pitcher") if isinstance(conf, dict) else None,
+                    bullpen_home=h_bullpen_usage,
+                    bullpen_away=a_bullpen_usage,
+                    series_familiarity=series_familiarity if isinstance(series_familiarity, dict) else None,
+                    traffic_score=(traffic_score_payload or {}).get("traffic_score")
+                                   if isinstance(traffic_score_payload, dict) else None,
+                    defensive_breakdown_score=(defensive_breakdown_pregame or {}).get("defensive_breakdown_score"),
+                    tail_risk=tail_risk if isinstance(tail_risk, dict) and tail_risk.get("available") else None,
+                )
+                pick_payload["fragility_calibration"] = fragility_calibration
+                pipeline_meta["fragility_calibration"] = {
+                    "available":           fragility_calibration.get("available"),
+                    "base_fragility":      fragility_calibration.get("base_fragility"),
+                    "adjusted_fragility":  fragility_calibration.get("adjusted_fragility"),
+                    "delta":               fragility_calibration.get("delta"),
+                    "hidden_over_routes":  fragility_calibration.get("hidden_over_routes") or [],
+                    "reason_codes":        fragility_calibration.get("reason_codes") or [],
+                }
+            except Exception as _exc_fc:
+                log.debug("fragility_calibration failed (fail-soft): %s", _exc_fc)
+                pipeline_meta.setdefault(
+                    "fragility_calibration",
+                    {"available": False, "reason": "exception"},
+                )
+        except Exception as _exc_erd:
+            log.debug("expected_runs_distribution failed (fail-soft): %s", _exc_erd)
+            pipeline_meta.setdefault(
+                "expected_runs_distribution",
+                {"available": False, "reason": "exception"},
+            )
+
         # ── Phase 48 — Line Learning Feedback Loop (active) ────────────
         # Apply the day-scoped global bias to expected_runs BEFORE
         # market selection. The bias is weighted by the confidence

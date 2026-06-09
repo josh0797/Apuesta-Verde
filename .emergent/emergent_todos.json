@@ -1,22 +1,26 @@
 [
   {
-    "content": "Fix 4: Manual odds robust multi-key + override TTL 7d",
+    "content": "Feature 1: compute_tail_risk + tail_bucket + under_quality",
     "status": "completed"
   },
   {
-    "content": "Priority 1: λ7-9 reactivo con interaction modifiers + cap ±45%",
+    "content": "Feature 3: mlb_fragility_calibrator.py con hidden_over_routes + caps",
     "status": "completed"
   },
   {
-    "content": "Priority 2: adjustment_breakdown backend + UI 'Por qué'",
+    "content": "Feature 4: Market interpretation logic",
     "status": "completed"
   },
   {
-    "content": "Priority 3: mlb_series_familiarity_score + integración + badge UI",
+    "content": "Integration: orchestrator pipeline",
+    "status": "completed"
+  },
+  {
+    "content": "Feature 2: TailRiskPanel.jsx UI",
     "status": "completed"
   },
   {
     "content": "Tests + testing_agent consolidado final",
-    "status": "completed"
+    "status": "in_progress"
   }
 ]

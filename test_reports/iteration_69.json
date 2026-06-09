@@ -1,0 +1,158 @@
+{
+  "summary": "Backend testing completed for MLB Tail Risk Panel + Fragility Calibrator (Features 1-4). All 1426 pytest tests pass including 24 new tests for tail risk and fragility. Validated all contract requirements, specific scenarios (Yankees @ Guardians cases), and orchestrator integration. Pure Python PMF/CDF implementation confirmed (no scipy dependency).",
+  
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  
+  "passed_tests": [
+    "All 1426 pytest tests pass (including 24 new tests in test_mlb_tail_risk_and_fragility.py)",
+    "Feature 1 - compute_tail_risk contract: all required fields present (available, market_line, mean, under_probability, over_probability, p_ge_12, p_ge_14, p_ge_16, tail_bucket, tail_risk_score, under_quality, interpretation_es, reason_codes)",
+    "Feature 1 - Probability constraint: under_probability + over_probability ≈ 1.0",
+    "Feature 1 - Monotonic tail probabilities: p_ge_12 >= p_ge_14 >= p_ge_16",
+    "Feature 1 - Tail bucket classification: LOW (<12%), MEDIUM (12-22%), HIGH (>22%), EXTREME (p_ge_14>15% OR p_ge_16>8%)",
+    "Feature 1 - Mandatory reason codes: TAIL_RISK_PANEL_USED and PURE_PYTHON_PMF_CDF_USED present",
+    "Feature 1 - Fail-soft behavior when distribution_payload unavailable",
+    "Feature 1 - Yankees @ Guardians case: mean ER 8.0, line 10.5, nb_ratio 1.35, traffic 55, series 50 → under_probability >= 0.55, under_quality = MEAN_SUPPORTED_BUT_TAIL_FRAGILE (NOT MEAN_AND_TAIL_SUPPORTED)",
+    "Feature 1 - Pure Python implementation: no scipy/numpy imports found in source code",
+    "Feature 3 - No hidden routes: delta=0, adjusted_fragility = base",
+    "Feature 3 - Both bullpens tired (usage_3d>=0.55 both): HOR_BOTH_BULLPENS_TIRED, delta >= 8",
+    "Feature 3 - Volatile starter (era>=4.50 OR whip>=1.35): HOR_MEDIOCRE_OR_VOLATILE_STARTER, delta >= 5",
+    "Feature 3 - Series familiarity (score>=40): HOR_SERIES_FAMILIARITY_ACTIVE, delta=5",
+    "Feature 3 - Late lambda elevated (λ_7_9 > 35% or highest): HOR_LATE_LAMBDA_ELEVATED, delta 5-8",
+    "Feature 3 - Tail risk present (p_ge_12 >= 0.12): HOR_TAIL_RISK_PRESENT, delta=5 (medium) or 10 (high)",
+    "Feature 3 - Traffic/defense risk (score>=55): HOR_TRAFFIC_RISK and HOR_DEFENSIVE_RISK routes",
+    "Feature 3 - Caps respected: max delta 20, ceiling 85, never decrements",
+    "Feature 3 - Market side preserved: never flips Over/Under polarity",
+    "Feature 3 - Yankees @ Guardians combined case: base_fragility=20 + both_bullpens (0.65/0.62) + volatile starter (era 4.92, whip 1.43) + series 45 → adjusted_fragility in range [28, 38]",
+    "Feature 4 - CLEAN_UNDER profile: tail bucket LOW + under_quality MEAN_AND_TAIL_SUPPORTED → RC_CLEAN_UNDER_PROFILE",
+    "Feature 4 - MEAN_SUPPORTED_FRAGILE_UNDER profile: under_quality MEAN_SUPPORTED_BUT_TAIL_FRAGILE → RC_PROTECTED_LINE_PREFERRED_DUE_TO_TAIL",
+    "Feature 4 - OVER_LIVES_THROUGH_TAIL profile: side=over + tail HIGH/EXTREME → RC_OVER_LIVES_THROUGH_TAIL",
+    "Integration - MLB Orchestrator: pick_payload['tail_risk'], pick_payload['market_profile'], pick_payload['fragility_calibration'] persist correctly",
+    "Integration - MLB Orchestrator: pipeline_meta['tail_risk'] and pipeline_meta['fragility_calibration'] contain expected summary fields",
+    "Integration - MLB Orchestrator: computed AFTER expected_runs_distribution and does NOT break existing endpoints"
+  ],
+  
+  "test_report_links": [
+    "/app/backend/tests/test_mlb_tail_risk_and_fragility.py",
+    "/app/backend/test_tail_risk_fragility_scenarios.py",
+    "/app/backend/test_orchestrator_integration.py"
+  ],
+  
+  "success_percentage": {
+    "backend": "100% (1426/1426 tests pass)",
+    "frontend": "Not tested (already verified in iteration_68.json per main agent note)"
+  },
+  
+  "updated_files": [
+    "/app/backend/test_tail_risk_fragility_scenarios.py",
+    "/app/backend/test_orchestrator_integration.py"
+  ],
+  
+  "action_item_for_main_agent": "",
+  
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  
+  "detailed_validation": {
+    "feature_1_tail_risk_panel": {
+      "status": "PASS",
+      "tests_run": 8,
+      "tests_passed": 8,
+      "key_validations": [
+        "Contract output fields complete",
+        "Probability sum constraint (under + over ≈ 1.0)",
+        "Monotonic tail probabilities (p_ge_12 >= p_ge_14 >= p_ge_16)",
+        "Tail bucket classification thresholds correct",
+        "Mandatory reason codes present",
+        "Fail-soft behavior on unavailable distribution",
+        "Yankees @ Guardians case: under_quality is MEAN_SUPPORTED_BUT_TAIL_FRAGILE (not clean)",
+        "Pure Python implementation (no scipy/numpy imports)"
+      ]
+    },
+    "feature_3_fragility_calibrator": {
+      "status": "PASS",
+      "tests_run": 10,
+      "tests_passed": 10,
+      "key_validations": [
+        "No hidden routes: delta=0, adjusted=base",
+        "Both bullpens tired: delta >= 8",
+        "Volatile starter: delta >= 5",
+        "Series familiarity: delta = 5",
+        "Late lambda elevated: delta 5-8",
+        "Tail risk present: delta 5 (medium) or 10 (high)",
+        "Traffic/defense risk: routes added correctly",
+        "Caps respected: max delta 20, ceiling 85, never decrements",
+        "Market side preserved (never flips)",
+        "Yankees @ Guardians combined: adjusted_fragility in [28, 38]"
+      ]
+    },
+    "feature_4_market_profile": {
+      "status": "PASS",
+      "tests_run": 3,
+      "tests_passed": 3,
+      "key_validations": [
+        "CLEAN_UNDER profile with RC_CLEAN_UNDER_PROFILE",
+        "MEAN_SUPPORTED_FRAGILE_UNDER with RC_PROTECTED_LINE_PREFERRED_DUE_TO_TAIL",
+        "OVER_LIVES_THROUGH_TAIL with RC_OVER_LIVES_THROUGH_TAIL"
+      ]
+    },
+    "integration_mlb_orchestrator": {
+      "status": "PASS",
+      "tests_run": 3,
+      "tests_passed": 3,
+      "key_validations": [
+        "pick_payload contains tail_risk, market_profile, fragility_calibration",
+        "pipeline_meta contains tail_risk and fragility_calibration summaries",
+        "No breaking changes to existing endpoints"
+      ]
+    }
+  },
+  
+  "test_execution_summary": {
+    "total_tests_run": 1449,
+    "total_tests_passed": 1449,
+    "total_tests_failed": 0,
+    "test_suites": [
+      {
+        "suite": "test_mlb_tail_risk_and_fragility.py",
+        "tests": 24,
+        "passed": 24,
+        "failed": 0
+      },
+      {
+        "suite": "test_tail_risk_fragility_scenarios.py",
+        "tests": 20,
+        "passed": 20,
+        "failed": 0
+      },
+      {
+        "suite": "test_orchestrator_integration.py",
+        "tests": 3,
+        "passed": 3,
+        "failed": 0
+      },
+      {
+        "suite": "All backend tests (pytest tests/)",
+        "tests": 1426,
+        "passed": 1426,
+        "failed": 0
+      }
+    ]
+  },
+  
+  "notes": {
+    "testing_scope": "Backend only (as requested by main agent)",
+    "frontend_status": "Already verified in iteration_68.json with 100% green per main agent note",
+    "pure_python_validation": "Confirmed no scipy/numpy imports in mlb_expected_runs_distribution.py",
+    "yankees_guardians_case": "Both Feature 1 and Feature 3 Yankees @ Guardians cases validated successfully",
+    "orchestrator_integration": "Tail risk and fragility calibration properly integrated into pick_payload and pipeline_meta without breaking existing endpoints"
+  }
+}

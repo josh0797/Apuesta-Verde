@@ -22,6 +22,8 @@ import { BullpenTrafficBadge } from './BullpenTrafficBadge';
 import { SiegePressureBadge } from './SiegePressureBadge';
 import { InningLambdaPanel } from './InningLambdaPanel';
 import { SeriesFamiliarityBadge } from './SeriesFamiliarityBadge';
+import { ExpectedRunsRangePanel } from './ExpectedRunsRangePanel';
+import { TailRiskPanel } from './TailRiskPanel';
 import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
@@ -454,6 +456,32 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           data={m.series_familiarity}
           lang={lang}
           testId={`series-familiarity-${m.match_id || ''}`}
+        />
+      )}
+
+      {/* Priority 4 — Expected Runs distribution panel. Renders the full
+          probability range (p10..p90) + protected line suggestions for
+          the engine's chosen side. Observe-only (never flips polarity). */}
+      {sport === 'baseball' && m.expected_runs_distribution?.available && (
+        <ExpectedRunsRangePanel
+          data={m.expected_runs_distribution}
+          lang={lang}
+          testId={`expected-runs-range-${m.match_id || ''}`}
+        />
+      )}
+
+      {/* Tail Risk + Hidden Over Routes (P5 / Priority 5). Renders
+          explosive tail probabilities, market interpretation and the
+          adjusted fragility (e.g. "20 → 34") when the calibrator fires.
+          Observe-only (never flips polarity). */}
+      {sport === 'baseball'
+        && (m.tail_risk?.available || m.fragility_calibration?.available) && (
+        <TailRiskPanel
+          tailRisk={m.tail_risk}
+          fragilityCalibration={m.fragility_calibration}
+          marketProfile={m.market_profile}
+          lang={lang}
+          testId={`tail-risk-${m.match_id || ''}`}
         />
       )}
 
