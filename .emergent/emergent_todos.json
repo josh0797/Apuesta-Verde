@@ -25,10 +25,10 @@
   },
   {
     "content": "Backend + Frontend testing via testing_agent (end-to-end validation)",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "Update plan.md with final state",
-    "status": "pending"
+    "status": "completed"
   }
 ]

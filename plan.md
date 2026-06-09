@@ -1,4 +1,4 @@
-# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration + Live Recommendation History + Over Support Market Selection + RTL Tests + Game Openness + Unilateral Dominance + Corner Settlement + Pattern Memory Voids + Basketball Possessions/Four Factors + Live Reeval UX (plan.md)
+# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration + Live Recommendation History + Over Support Market Selection + RTL Tests + Game Openness + Unilateral Dominance + Corner Settlement + Pattern Memory Voids + Basketball Possessions/Four Factors + Live Reeval UX + **MLB Offensive Injury Impact** (plan.md)
 
 ## 1) Objectives
 
@@ -10,11 +10,59 @@
 - ✅ UI Moneyball: paneles explicables (market selection, ghost-edges, fragility/survival, pattern memory, manual odds, etc.).
 - ✅ Live MLB: corregido gating y contradicciones en comparación pregame vs live.
 
+### Objetivo nuevo (MLB): Offensive Injury Impact Score ✅ COMPLETADO (end-to-end)
+**Problema:** el motor trataba todas las lesiones igual (“52 jugadores lesionados”).
+
+**Solución implementada:** medir si los lesionados son realmente **bates importantes** (top-5 ofensivo) y cuantificar el daño.
+
+- ✅ `services/mlb_offensive_injury_impact.py`
+  - Score 0–100 por equipo (`offensive_injury_score`) basado en ranking top-5 por score compuesto:
+    - OPS / wRC+ (35%)
+    - Runs + RBI (25%)
+    - HR + XBH (20%)
+    - OBP (10%)
+    - PA / volumen (10%)
+  - Buckets: `LOW` / `MEDIUM` / `HIGH`.
+  - Reason codes explícitos (incluye señales de Under cuando ambos equipos están depletados).
+  - Reglas duras:
+    - Pitchers y lesiones de banca **no penalizan**.
+    - Two-way players tipo Ohtani: `P/DH` con `PA ≥ 50` cuenta como ofensivo.
+    - Fail-soft cuando hay datos insuficientes (pool < 5 ofensivos): `{available: False, ...}`.
+  - Ajustes pipeline: `apply_impact_to_pipeline` devuelve multiplicadores con cap de supresión `0.85×`.
+  - **Nunca auto-flip** de polaridad de mercado (solo supresión y narrativa).
+
+- ✅ Tests
+  - `tests/test_mlb_offensive_injury_impact.py`: **19/19 passing** (incluye `test_insufficient_roster_returns_fail_soft`).
+  - Suite completa backend: **1445/1445 passing** sin regresiones.
+
+- ✅ Integración backend
+  - `services/mlb_stats_api.py`: `hydrate_team_offensive_roster()` (cache 6h; roster activo + stats de bateo). Fail-soft a `{available: False}`.
+  - `services/mlb_day_orchestrator.py`:
+    - Hidrata roster ofensivo en paralelo con IL.
+    - Calcula `compute_offensive_injury_impact`.
+    - Persiste en `pick_payload['offensive_injury_impact']` y `pipeline_meta['offensive_injury_impact']`.
+    - Aplica supresión al `_mean_eff` antes de `compute_expected_runs_distribution` usando el promedio de multipliers home/away.
+    - No toca el pick principal: observe-only, supresión de runs/λ/traffic.
+  - Smoke: backend levanta OK; `/api/picks/today?sport=baseball` responde 200.
+
+- ✅ Integración frontend
+  - `components/OffensiveInjuryImpactPanel.jsx`: panel colapsable estilo `TailRiskPanel`.
+    - Colores: `LOW=emerald`, `MEDIUM=amber`, `HIGH=rose/destructive`.
+    - Header: pills por equipo con bucket + missing_count.
+    - Contenido: narrativa ES, top bates ausentes (OPS/HR), runs/game perdidos estimados, badge “Apoyo al Under” cuando aplica.
+    - Fail-soft: no renderiza si `available:false` o sin datos relevantes.
+  - `components/MatchCard.jsx`: panel cableado después de `TailRiskPanel` (gated por MLB).
+  - Build/lint OK y validación visual con screenshot: login OK, switch a MLB OK, sin errores de consola.
+
+**Notas:**
+- Picks previos sin `offensive_injury_impact` → panel oculto (compatibilidad backward).
+- Warning F821 `traffic_score_payload` en `mlb_day_orchestrator.py` es preexistente/latente y no introducido por esta feature.
+
 ### Objetivos en curso (Injury Intelligence Layer)
 - ⏳ Implementar **Injury Intelligence Layer** para **Basketball (Phase 1)** y luego Football (Phase 2), sin tocar MLB.
 - Arquitectura: **fail-soft**, multi-source, cache-aware, sport-specific, explicable, conservadora.
 - Entregar un bloque `injury_intelligence` en el payload que ajuste (conservadoramente) confidence/fragility/market warnings **sin forzar picks**.
-- UI: `InjuryIntelligencePanel` para football/basketball (no MLB por ahora) mostrando bajas clave, severidad, impacto y freshness.
+- UI: `InjuryIntelligencePanel` para football/basketball (no MLB) mostrando bajas clave, severidad, impacto y freshness.
 
 ### Objetivo nuevo (Basketball): Possessions + Pace + Efficiency + Four Factors (Fix 1)
 - 🎯 Crear una capa avanzada de basketball basada en **posesiones reales** y **Four Factors** para mejorar:
@@ -133,7 +181,7 @@
 ### Phase 4 — Comprehensive Testing & Regression ✅ COMPLETADO
 - ✅ Suite backend sin regresiones.
 
-> **Estado tests (actual):** ✅ Backend `pytest tests/` **1213 passing**. Frontend `craco test` **65 passing**.
+> **Estado tests (actual):** ✅ Backend `pytest tests/` **1445 passing**. (Frontend RTL no actualizado en esta entrega; esbuild + lint OK.)
 
 ---
 
@@ -197,58 +245,40 @@
 ---
 
 ## 12) Phase 37 — Fix 1: Basketball Possession & Four Factors Layer ✅ COMPLETADO
+(Ver detalles en secciones 37.1–37.5; se mantiene como referencia del roadmap histórico.)
 
-### 37.1 Backend — Nuevo módulo `services/basketball_possession_layer.py`
-- Crear funciones puras (testeables):
-  - `estimate_possessions(game_stats)`
-  - `calculate_four_factors(team_stats)`
-  - `calculate_team_efficiency_profile(team_games)`
-  - `calculate_matchup_possession_context(home_profile, away_profile)`
-  - `derive_basketball_market_adjustments(matchup_context)`
-- Contrato de salida (shape estable para UI/pipeline):
-  - `basketball_possession_profile.available`
-  - bloques `home`, `away`
-  - bloque `matchup`:
-    - `projected_possessions`, `projected_total_points`, `projected_margin`
-    - `pace_environment`, `efficiency_edge`, `total_points_lean`, `spread_support`
-    - `fragility_score`, `reason_codes`, `summary`
+---
 
-### 37.2 Reglas + reason codes
-- Implementar reason codes requeridos:
-  - `HIGH_PACE_ENVIRONMENT`, `LOW_PACE_ENVIRONMENT`
-  - `STRONG_OFFENSIVE_RATING_EDGE`, `STRONG_DEFENSIVE_RATING_EDGE`
-  - `THREE_POINT_VARIANCE_RISK`, `TURNOVER_RISK`, `OFFENSIVE_REBOUND_EDGE`, `FREE_THROW_RATE_SUPPORT`
-  - `SPREAD_MARGIN_SUPPORTED`, `MONEYLINE_SAFER_THAN_SPREAD`
-  - `TOTAL_OVER_SUPPORTED`, `TOTAL_UNDER_SUPPORTED`
-  - `DATA_INSUFFICIENT_FALLBACK`
+## 13) **Phase 43 — MLB Offensive Injury Impact Score ✅ COMPLETADO**
 
-### 37.3 Integraciones (sin romper MLB/football)
-- `historical_enrichment/basketball_historical.py`:
-  - exponer/usar `pace_proxy` como fallback.
-  - (opcional) enriquecer `total_points_std` desde histórico (ya hay `statistics`).
-- `basketball_pace_layer.py`:
-  - consumir `basketball_possession_profile` si está disponible como reemplazo/upgrade de proxies.
-- `basketball_trap_signals.py`:
-  - añadir fragility adicional por `THREE_POINT_VARIANCE_RISK` y/o `pace_volatility` cuando exista.
-- `basketball_intelligence_warehouse.py`:
-  - permitir persistir snapshot del nuevo bloque (sin hacerlo obligatorio).
-- `analyst_engine.py`:
-  - Phase 10b/10x: prefetch (best-effort) y attach al match entry.
+### 43.1 Backend — Nuevo módulo `services/mlb_offensive_injury_impact.py`
+- ✅ Ranking top-5 ofensivo con score compuesto (OPS/wRC+, R+RBI, HR+XBH, OBP, PA).
+- ✅ Exclusión de pitchers y lesiones de banca.
+- ✅ Soporte two-way (P/DH con PA≥50) y posiciones múltiples.
+- ✅ Fail-soft cuando no hay pool suficiente.
+- ✅ Ajustes pipeline: multiplicadores cap a 0.85×.
+- ✅ Reason codes + narrativa ES.
 
-### 37.4 Fail-soft + performance
-- Si faltan stats (o API rate limit):
-  - `available:false`
-  - `reason_codes=['DATA_INSUFFICIENT_FALLBACK']`
-  - no abortar pipeline.
-- Evitar I/O dentro de funciones puras: separar “fetch” (si aplica) de “compute”.
+### 43.2 Backend — Hidratar roster ofensivo
+- ✅ `services/mlb_stats_api.py::hydrate_team_offensive_roster()`
+  - roster activo con stats de bateo hidratados
+  - cache 6h
+  - fail-soft `{available:false}`
 
-### 37.5 Tests (pytest)
-- Nuevo módulo: `backend/tests/test_basketball_possession_layer.py` con:
-  - estimación de posesiones (casos típicos + missing keys)
-  - cálculo four factors (eFG/TOV/ORB/FTr)
-  - derivación de leans (Over/Under) por reglas
-  - fragility + reason codes (3P variance, sample insufficiente)
-- Regresión: ejecutar `pytest` completo.
+### 43.3 Backend — Integración en `mlb_day_orchestrator.py`
+- ✅ En `_process_one_game`: hidratar roster + IL en paralelo; computar impacto.
+- ✅ Persistir en `pick_payload` + `pipeline_meta`.
+- ✅ Aplicar supresión al mean de expected runs (`_mean_eff`) antes de construir la distribución.
+- ✅ No auto-flip de polaridad.
+
+### 43.4 Frontend — Panel colapsable
+- ✅ `components/OffensiveInjuryImpactPanel.jsx` (colores por bucket; under_support; top5_missing; runs lost).
+- ✅ Cableado en `components/MatchCard.jsx`.
+
+### 43.5 Tests
+- ✅ `tests/test_mlb_offensive_injury_impact.py` (19/19).
+- ✅ `pytest tests/` completo (1445/1445).
+- ✅ Smoke supervisor restart + endpoints básicos OK.
 
 ---
 
@@ -259,83 +289,46 @@
 - Fix 2: nuevo módulo `services/friendly_dnb_rule.py` (hard rule) + `lookup_friendly_dnb_pattern` / `record_friendly_dnb_outcome` en warehouse (≥60 muestras activa amplify/dampen). Interpreter consume el learned pattern vía `match["learned_patterns"]`.
 - Tests: 21 friendly_dnb + 3 RTL Fix 3 = 24 nuevos.
 
-## 17) Phase 41 — Fix 1/2 wiring + Mobile UX + per-card endpoint ✅ COMPLETADO
+## 15) Phase 41 — Fix 1/2 wiring + Mobile UX + per-card endpoint ✅ COMPLETADO
 - **Fix 1**: `prefetch_basketball_profiles` y `prefetch_baseball_profiles` ahora invocan `hydrate_match_with_box_scores` con timeout estricto (5s default, configurable). Activado por defecto, deshabilitable con `BASKETBALL_BOX_SCORES_HYDRATE=0` o `BASEBALL_BOX_SCORES_HYDRATE=0`. Nuevo endpoint `POST /api/analysis/box-scores/hydrate` para hidratar manualmente y persistir en mongo.
 - **Fix 2**: `settle_open_live_events_for_match` ahora alimenta `record_friendly_dnb_outcome` cuando el partido es football amistoso y ya terminó. Detección de favorito vía pre-match 1X2; detección de `used_dnb` mirando si algún evento del match usó mercado DNB. Push automático cuando hay empate y DNB (sin penalizar pattern memory).
-- **Fix 3 mobile**: `normalizeManualOddsInput` helper agregado (alias estricto con floor 1.01). Input acepta tanto `1.21` como `1,21`. Validación lazy en `onBlur` (no rechaza intermediates como `1,`). Atributos `autoComplete/autoCapitalize/autoCorrect/spellCheck=false` para mobile clean. `inputMode=decimal` + `type=text` (no `number`) + `pattern=[0-9]+([.,][0-9]+)?`.
-- **Fix 3 per-card endpoint**: nuevo alias `POST /api/analysis/live/reevaluate-one` con el mismo contrato que `/live/reevaluate`. URL explícita para metrics y per-card flow. Frontend `LiveReevalPanel` ahora apunta al nuevo endpoint.
-- **Fix 3 inline error**: banner inline `reeval-error-${matchId}` con botón dismiss, persiste hasta el próximo run() exitoso. Otras cards no afectadas.
-- Tests: +6 backend (Phase 41 wiring) + 8 RTL (mobile + per-card + error) = 14 nuevos.
+- **Fix 3 mobile**: `normalizeManualOddsInput` helper agregado (alias estricto con floor 1.01). Input acepta tanto `1.21` como `1,21`. Validación lazy en `onBlur`.
+- **Fix 3 per-card endpoint**: nuevo alias `POST /api/analysis/live/reevaluate-one`.
+- Tests: +6 backend + 8 RTL = 14 nuevos.
 
-## 18) Phase 42 — Line Learning Engine (Entrega A) + Box-score hydrate UI ✅ COMPLETADO
-- **Module**: `services/line_learning_engine.py` con line_distance, classify (6 buckets) + 8 reason codes (incluye `OVERWHELMING_PROJECTION_MISS`), build_learning_sample con `observe_only` (default <30 muestras), `compute_weighted_recommendation_bias` (sesgo PROTECTED/VALUE/NEUTRAL), env-configurable (`LINE_LEARNING_MODEL_WEIGHT` default 0.7, `LINE_LEARNING_MIN_SAMPLES` default 30).
-- **TrackIn**: outcomes extendidos con `cashout_win`/`cashout_loss`, campos nuevos `actual_market/actual_selection/actual_line/actual_odds/actual_outcome`, `engine_projection`, `final_value`, `market_type`.
-- **track_pick**: persiste `actual_bet` + `engine_recommendation` separados; mongo collection nueva `line_learning_samples` upsert idempotente por (user, match, market, selection); summary del learning queda stash en `pick_tracking.line_learning` para render directo.
-- **Endpoints**: `GET /api/learning/line/samples` (lista), `GET /api/learning/line/cohort-bias` (agregado + recommendation bias).
-- **UI**: nuevo `MatchOutcomeModal` (Dialog Shadcn) con engine summary + form actual bet + 8 outcome buttons (incluye cashout) + learning preview tras submit. Cableado en `LiveReevalPanel` como botón "Marcar resultado (avanzado)". Tests RTL +10.
-- **UI Hydrate**: nuevo `BoxScoreHydrateButton` cableado en MatchCard basket/baseball; consume `/api/analysis/box-scores/hydrate` y muestra resumen del provider. Tests RTL +5.
-- Tests: **+25 backend** (22 line_learning + 3 wiring) + **+15 RTL** = 40 nuevos.
-- Nuevo paquete `services/box_score_providers/` con API-Sports primary + Balldontlie/MLB StatsAPI fallback.
-- `fetch_basketball_team_games`, `fetch_baseball_team_games` (async, fail-soft).
-- `hydrate_match_with_box_scores(match)` attacha `_box_score_games` que `analyst_engine` Phase 12b.2 ya consume para mejorar Four Factors reales.
-- Tests pure-normalizer (sin red): 11 casos.
-
-### 38.1 Frontend — Timeout y manejo fail-soft
-- Aumentar timeout en `LiveReevalPanel.jsx` para `/api/live/reevaluate` cuando `useManual=true`.
-  - recomendado: 45s–60s (mantener 20s para path normal si queremos).
-- No “romper” tarjeta:
-  - mantener `manualOdds` y `manualMarket` intactos tras error.
-  - mensaje más útil:
-    - “Estamos recalculando con tu cuota manual. Si tarda demasiado, puedes intentar de nuevo sin perder los datos ingresados.”
-- Mantener spinner/estado de carga visible.
-
-### 38.2 Frontend — Normalización coma decimal (helper)
-- Extraer helper en `frontend/src/lib/normalizeDecimalOdds.js` (o similar):
-  - aceptar `1.20`, `1,20`, `1.2`, `1,2`
-  - normalizar `,`→`.` y validar `>1.01`.
-- Reusar helper en `LiveReevalPanel` (y en cualquier otro input de odds manual).
-
-### 38.3 Frontend — Mercados Over/Under 0.5
-- Añadir a `DEFAULT_MARKETS_FOOTBALL`:
-  - `Under 0.5`, `Over 0.5`
-- Verificar que el backend parser de `manual_market` ya soporta 0.5 (si no, ajustar el parser en backend de forma fail-soft).
-
-### 38.4 Frontend — Registrar resultado para selección manual
-- Extender UI para que el tracking use:
-  - `result.*` cuando existe
-  - o `manual_market`/`manual_odds` como fallback si no hay recomendación clara.
-- Mantener compatibilidad con `/api/picks/track` actual.
-
-### 38.5 Tests (frontend)
-- Añadir RTL tests:
-  - timeout: mock de request que tarda más de 20s y validar mensaje + persistencia de inputs
-  - coma decimal: ingresar `1,35` y validar body enviado con `1.35`
-  - mercados 0.5: dropdown contiene Over/Under 0.5
+## 16) Phase 42 — Line Learning Engine (Entrega A) + Box-score hydrate UI ✅ COMPLETADO
+- (sin cambios; ver historial en plan original)
 
 ---
 
-## 14) Next Actions (Actualizado)
+## 17) Next Actions (Actualizado)
 
 ### En curso (prioridad)
-- (P0/P1) Phase 37: Basketball Possession & Four Factors Layer.
-- (P0/P1) Phase 38: LiveReevalPanel UX/timeout + coma decimal + mercados 0.5 + tracking manual.
+- (P1) Injury Intelligence Basketball (Phase 5–7) — retomar ahora que MLB Offensive Injury Impact está estable.
 
 ### Pendiente / futuro
-- (P1) Injury Intelligence Basketball (Phase 5–7) — retomar tras estabilizar Phase 37.
+- (P2) Retomar Injury Intelligence Football (Phase 2) cuando Basketball Phase 1 esté estable.
+- (P3) Consumir el endpoint `POST /api/analysis/box-scores/hydrate` desde la UI (botón “Hidratar Four Factors” en cards basket/baseball) — ya existe `BoxScoreHydrateButton`, pero se puede extender UX/descubribilidad.
 - (P2) Tests end-to-end live → settlement (con partidos live reales).
 - (P2) Extender settlement a más mercados (handicap asiático completo, tarjetas, etc.).
-- (P2) Injury Intelligence Football (Phase 2) cuando Basketball Phase 1 esté estable.
 
 ---
 
-## 15) Success Criteria (Actualizado)
+## 18) Success Criteria (Actualizado)
 
-### Basketball Possession & Four Factors (Phase 37)
-- El payload incluye `basketball_possession_profile` con `available:true` cuando hay datos.
-- Reason codes correctos y consistentes con reglas.
-- Mejora de explicabilidad: summary en español y `fragility_score` coherente.
-- Fallback: si faltan datos, `available:false` y no se rompe el pipeline.
-- No-regresión: MLB y football permanecen intactos.
+### MLB Offensive Injury Impact (Phase 43)
+- ✅ Payload incluye `offensive_injury_impact` con `available:true` cuando hay roster + IL suficientes.
+- ✅ No penaliza pitchers ni lesiones de banca.
+- ✅ Two-way players (P/DH con PA≥50) cuentan como ofensivos.
+- ✅ Cap de supresión 0.85×.
+- ✅ No auto-flip de polaridad (observe-only).
+- ✅ UI colapsable muestra bucket + top missing bats + runs/game perdidos + narrativa.
+- ✅ No-regresión: `pytest` completo verde.
+
+### Injury Intelligence Basketball (Phase 5–7)
+- Payload incluye `injury_intelligence` cuando hay datos.
+- Reason codes correctos y explicabilidad en español.
+- Fail-soft: si faltan datos, `available:false` y el pipeline continúa.
 
 ### Live reevaluación con cuota manual (Phase 38)
 - No hay timeout UI fijo a 20s que bloquee el flujo (al menos para manual odds).
@@ -346,5 +339,5 @@
 
 ### Global
 - ✅ Backend: `pytest` completo en verde.
-- ✅ Frontend: `craco test` en verde.
+- ✅ Frontend: build/lint sin errores; RTL en verde cuando aplique.
 - Fail-soft mantenido en todas las rutas.
