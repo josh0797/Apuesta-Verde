@@ -384,7 +384,11 @@ function Metric({ label, value, testId, hint }) {
  * page load.
  */
 export function LineLearningPanel({ testId = 'line-learning-panel' }) {
-  const [open, setOpen] = useState(false);
+  // Fix 3 — Always visible: panel opens by default. Users can still
+  // collapse it manually if desired. Originally hidden behind a click
+  // to avoid eager API calls on page load, but per product spec the
+  // learning analytics must be surfaced immediately for MLB users.
+  const [open, setOpen] = useState(true);
   return (
     <section className="rounded-xl border border-border bg-card/40" data-testid={testId}>
       <button

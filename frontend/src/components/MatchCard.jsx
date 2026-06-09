@@ -426,8 +426,11 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
       {/* Phase 47 — Inning-Lambda Model panel (MLB pregame).
           Surfaces the λ_1_3 + λ_4_6 + λ_7_9 decomposition with the
           continuous traffic-score interaction in the late phase.
-          Observe-only by default: never alters the engine pick. */}
-      {sport === 'baseball' && m.inning_lambda_projection?.available && (
+          Observe-only by default: never alters the engine pick.
+          Fix 3 — Always visible for MLB cards. The panel itself
+          renders a "pending" placeholder when the pregame pipeline
+          hasn't produced the projection yet. */}
+      {sport === 'baseball' && (
         <InningLambdaPanel
           projection={m.inning_lambda_projection}
           lang={lang}

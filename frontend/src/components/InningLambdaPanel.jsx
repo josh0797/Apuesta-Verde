@@ -38,7 +38,49 @@ function fmt(v, digits = 2) {
 
 export function InningLambdaPanel({ projection, lang = 'es', testId }) {
   const [open, setOpen] = useState(false);
-  if (!projection || !projection.available) return null;
+  // Fix 3 — Always visible per product spec. When the projection is
+  // missing or `available=false`, we render a compact placeholder so
+  // the user knows the model exists and is pending data (e.g. the
+  // pregame pipeline hasn't been run yet, or pitchers haven't been
+  // confirmed). The full panel only opens when projection.available=true.
+  if (!projection || !projection.available) {
+    const reason = projection?.reason;
+    const reasonLabel = (() => {
+      if (!reason) {
+        return lang === 'en'
+          ? 'Run distribution model: pending data.'
+          : 'Modelo λ por innings: esperando datos del pipeline pregame.';
+      }
+      if (reason === 'feature_flag_disabled') {
+        return lang === 'en' ? 'Feature flag disabled.' : 'Feature flag desactivada.';
+      }
+      if (reason === 'missing_expected_runs') {
+        return lang === 'en'
+          ? 'Awaiting expected runs from over/under engine.'
+          : 'Esperando expected runs del motor de over/under.';
+      }
+      return lang === 'en'
+        ? `Data pending (${reason}).`
+        : `Datos pendientes (${reason}).`;
+    })();
+
+    return (
+      <section
+        className="rounded-lg border border-border bg-card/30 px-3 py-2 flex items-center gap-2"
+        data-testid={testId || 'inning-lambda-panel'}
+        data-state="pending"
+      >
+        <Sigma className="h-3.5 w-3.5 text-violet-300/70" />
+        <span className="text-[11px] font-semibold opacity-80">
+          {lang === 'en' ? 'Run distribution by innings' : 'Distribución de carreras por innings'}
+        </span>
+        <Badge variant="outline" className="text-[9px] opacity-70">
+          {lang === 'en' ? 'pending' : 'pendiente'}
+        </Badge>
+        <span className="text-[10px] opacity-60 ml-auto truncate">{reasonLabel}</span>
+      </section>
+    );
+  }
 
   const phases = projection.phase_breakdown || {};
   const reasonCodes = Array.isArray(projection.reason_codes) ? projection.reason_codes : [];

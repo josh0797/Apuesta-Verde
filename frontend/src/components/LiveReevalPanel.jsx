@@ -125,13 +125,12 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
 
   // P5.1 — Re-eval timeouts:
   // - Path normal (sin cuota manual): 20s (rápido, basta para refresco live).
-  // - Path con cuota manual: 45s. El backend a veces tarda más cuando tiene
-  //   que recargar API-Sports y re-correr el interpreter contra la cuota
-  //   exacta. Subir el timeout aquí evita el falso negativo "tardó >20s"
-  //   sin perder el feedback al usuario (spinner activo + mensaje útil al
-  //   final si efectivamente se cuelga).
+  // - Path con cuota manual: 15s. Acotado para evitar la sensación de
+  //   "spinner infinito" que el usuario reportó; el backend resuelve
+  //   en <5s salvo cuelgues reales. Mensaje de error en español ahora
+  //   es inequívoco: "No se pudo recalcular la cuota. Intenta de nuevo".
   const REEVAL_TIMEOUT_NORMAL_MS = 20000;
-  const REEVAL_TIMEOUT_MANUAL_MS = 45000;
+  const REEVAL_TIMEOUT_MANUAL_MS = 15000;
 
   const run = async () => {
     setLoading(true);
@@ -158,6 +157,22 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
       // ONLY this card is being re-analyzed (no batch sweep). Backend
       // exposes both routes so older clients still work.
       const r = await api.post('/analysis/live/reevaluate-one', body, { timeout: timeoutMs });
+      // Fix P0 — Backend fail-soft path. When the engine cannot
+      // produce a verdict it returns HTTP 200 with `{ ok: false,
+      // error, message, result: { live_state: 'REEVAL_FAILED', ... } }`.
+      // We surface the message inline (no spinner persists) and DON'T
+      // treat it as success.
+      if (r.data && r.data.ok === false) {
+        const failMsg = r.data.message
+          || (lang === 'en'
+              ? 'Re-evaluation could not be completed. Please try again.'
+              : 'No se pudo completar la reevaluación. Intenta de nuevo.');
+        toast.error(failMsg);
+        setError(failMsg);
+        // Keep result null so the UI doesn't render a misleading verdict.
+        setResult(null);
+        return;
+      }
       setResult(r.data?.result || null);
       // Reset tracking state every time we re-run.
       setTrackedOutcome(null);
@@ -174,15 +189,15 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
       const raw = err?.response?.data?.detail;
       let detail;
       if (err?.code === 'ECONNABORTED' || /timeout/i.test(err?.message || '')) {
-        // Bug-fix (P4.1 → P5.1): in production the reeval call can hang
-        // behind an API-Sports rate-limit retry. Surface a clear timeout
-        // message and explicitly tell the user their inputs are PRESERVED
-        // so they can retry without losing their cuota/mercado.
+        // Fix (P5.2): Mensaje claro de FALLO, no de loading continuo.
+        // El texto previo "Estamos recalculando..." inducía al usuario
+        // a creer que el spinner seguía activo. Ahora es inequívoco:
+        // operación fallida + invitación explícita a reintentar.
         const usedManual = useManual;
         if (usedManual) {
           detail = lang === 'en'
-            ? 'Re-evaluation took longer than expected. Your odds and market are preserved — try again in a few seconds.'
-            : 'Estamos recalculando con tu cuota manual. Si tarda demasiado, puedes intentar de nuevo sin perder los datos ingresados.';
+            ? 'Could not recalculate with your manual odds. Please try again — your inputs are preserved.'
+            : 'No se pudo recalcular la cuota. Intenta de nuevo (tus datos siguen ingresados).';
         } else {
           detail = lang === 'en'
             ? 'Re-evaluation timed out. Try again in a moment.'

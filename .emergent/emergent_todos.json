@@ -1,26 +1,22 @@
 [
   {
-    "content": "FIX 1+2: Validación end-to-end (bullpen_traffic activo + live softening)",
+    "content": "Fix 1 (P0): Spinner infinito - normalizar coma, timeout 15s, finally block, fail-soft backend",
     "status": "completed"
   },
   {
-    "content": "Crear services/mlb_inning_lambda_model.py (módulo puro)",
+    "content": "Fix 2 (P1): Crear football_live_pressure_score.py con score continuo 0-100 + wrapper retrocompatible",
     "status": "completed"
   },
   {
-    "content": "Wire del modelo en mlb_day_orchestrator (observe_only)",
+    "content": "Fix 3 (P1): Activar InningLambdaPanel y LineLearningDashboard siempre visibles en UI MLB",
     "status": "completed"
   },
   {
-    "content": "Tests unitarios (18 casos pasando)",
-    "status": "completed"
+    "content": "Testing final: backend (pytest) + testing_agent integrado",
+    "status": "in_progress"
   },
   {
-    "content": "UI: panel InningLambdaPanel integrado en MatchCard",
-    "status": "completed"
-  },
-  {
-    "content": "Validación final + lint + suite completa (1298 backend / 72 frontend)",
-    "status": "completed"
+    "content": "Reportar parámetros finales del Pressure Score",
+    "status": "pending"
   }
 ]

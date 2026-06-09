@@ -378,11 +378,17 @@ def _reevaluate_football(
         siege = None
 
     siege_blocks_under = bool(
-        siege and siege.get("verdict") == "BLOCK_UNDER"
+        siege and (
+            siege.get("verdict") == "BLOCK_UNDER"
+            or siege.get("pressure_verdict") == "BLOCK_UNDER"
+        )
         and (market or "").lower().startswith("under")
     )
     siege_downgrades_under_3 = bool(
-        siege and siege.get("verdict") == "DOWNGRADE_UNDER_3_5"
+        siege and (
+            siege.get("verdict") == "DOWNGRADE_UNDER_3_5"
+            or siege.get("pressure_verdict") == "DOWNGRADE_UNDER_3_5"
+        )
         and (market or "").lower().startswith("under")
     )
 
@@ -394,6 +400,7 @@ def _reevaluate_football(
         confidence = 0
         reason = (
             siege.get("ui_message_es")
+            or siege.get("pressure_ui_message_es")
             or "Asedio sostenido del equipo dominante: el Under es de alto riesgo aquí."
         )
     elif siege_downgrades_under_3 and confidence > 35:

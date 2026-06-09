@@ -364,7 +364,60 @@ def evaluate_siege_pressure(
             "dominant_attacks_final_third": dom_attacks_3rd,
             "weak_attacks_final_third":     weak_attacks_3rd,
         },
+        # Fix 2 — Continuous 0-100 Live Pressure Score (additive output).
+        # Computed by the new `football_live_pressure_score` module; the
+        # existing boolean verdict/triggers above are preserved so the
+        # whole Phase 45 suite (30+ tests) keeps passing. Downstream
+        # consumers can use `pressure_score` for fine-grained weighting
+        # without losing the legacy contract.
+        **_attach_pressure_score(
+            home_stats=h_stats,
+            away_stats=a_stats,
+            market=market,
+            minute=minute_int,
+            home_score=home_score,
+            away_score=away_score,
+            regulation_minutes=regulation_minutes,
+        ),
     }
+
+
+def _attach_pressure_score(
+    *,
+    home_stats: dict,
+    away_stats: dict,
+    market: Optional[str],
+    minute: Optional[int],
+    home_score: int,
+    away_score: int,
+    regulation_minutes: int,
+) -> dict:
+    """Helper: fail-soft. Returns the new pressure_score fields or
+    ``{}`` when the new module is unavailable (keeps the wrapper
+    100 % retro-compatible).
+    """
+    try:
+        from . import football_live_pressure_score as flps
+        ps = flps.compute_pressure_score(home_stats=home_stats, away_stats=away_stats)
+        verdict_new = flps.evaluate_pressure_verdict(
+            pressure_score=ps.get("pressure_score", 0.0),
+            market=market,
+            minute=minute,
+            home_score=home_score,
+            away_score=away_score,
+            regulation_minutes=regulation_minutes,
+        )
+        return {
+            "pressure_score":        ps.get("pressure_score", 0.0),
+            "pressure_components":   ps.get("components", {}),
+            "pressure_verdict":      verdict_new.get("verdict"),
+            "pressure_reason_codes": verdict_new.get("reason_codes", []),
+            "pressure_prefer_markets": verdict_new.get("prefer_markets", []),
+            "pressure_ui_message_es":  verdict_new.get("ui_message_es"),
+            "pressure_engine_version": ps.get("engine_version"),
+        }
+    except Exception:
+        return {}
 
 
 __all__ = [

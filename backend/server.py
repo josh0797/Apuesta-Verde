@@ -715,12 +715,50 @@ async def live_reevaluate(req: LiveReevalRequest, user: dict = Depends(get_curre
         )
 
     xg = req.expected_goals_total or 2.5
-    result = lre.reevaluate_match(
-        match,
-        manual_odds=req.manual_odds,
-        manual_market=req.manual_market,
-        expected_goals_total=xg,
-    )
+    # Fix P0 (Fase X) — fail-soft wrapper. Si `reevaluate_match` lanza una
+    # excepción inesperada NO devolvemos 500 (eso deja al frontend con el
+    # spinner infinito si no atrapa el axios error correctamente). En su
+    # lugar, devolvemos una respuesta estructurada con `live_state =
+    # "REEVAL_FAILED"` para que la UI muestre un mensaje claro y limpie
+    # su estado de loading.
+    try:
+        result = lre.reevaluate_match(
+            match,
+            manual_odds=req.manual_odds,
+            manual_market=req.manual_market,
+            expected_goals_total=xg,
+        )
+    except Exception as _exc_reeval:
+        log.exception("live_reevaluate engine error (fail-soft): %s", _exc_reeval)
+        return {
+            "ok": False,
+            "error": "REEVAL_ENGINE_FAILED",
+            "message": (
+                "El motor de reevaluación no pudo procesar este partido. "
+                "Tus datos siguen ingresados; intenta de nuevo en unos segundos."
+            ),
+            "result": {
+                "live_state": "REEVAL_FAILED",
+                "recommended_action": "PASS",
+                "risk_level": "HIGH",
+                "confidence": 0,
+                "market": req.manual_market or None,
+                "selection": None,
+                "estimated_probability": None,
+                "implied_probability": None,
+                "edge_pct": 0.0,
+                "decimal_odds": req.manual_odds,
+                "reason": (
+                    "Falló el cálculo de la reevaluación (fail-soft). "
+                    "No se pudo determinar valor live para este partido."
+                ),
+                "manual_odds_used": req.manual_odds is not None,
+                "live_snapshot": None,
+                "computed_at": datetime.now(timezone.utc).isoformat(),
+            },
+            "match_id": req.match_id,
+            "sport": sport,
+        }
     # P3.1 — El servicio live_reevaluation ya construye result["interpreter"]
     # internamente. Aquí intentamos enriquecerlo con alt_market (Under 3.5/2.5)
     # usando un timeout duro de 3s para no consumir el budget del endpoint.
