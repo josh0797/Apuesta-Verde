@@ -24,6 +24,7 @@ import { InningLambdaPanel } from './InningLambdaPanel';
 import { SeriesFamiliarityBadge } from './SeriesFamiliarityBadge';
 import { ExpectedRunsRangePanel } from './ExpectedRunsRangePanel';
 import { TailRiskPanel } from './TailRiskPanel';
+import { OffensiveInjuryImpactPanel } from './OffensiveInjuryImpactPanel';
 import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
@@ -482,6 +483,19 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           marketProfile={m.market_profile}
           lang={lang}
           testId={`tail-risk-${m.match_id || ''}`}
+        />
+      )}
+
+      {/* MLB Offensive Injury Impact (P6). Replaces the meaningless
+          "X jugadores lesionados" counter with a quality-weighted view of
+          how many of the team's TOP-5 bats are actually unavailable, plus
+          the estimated run creation lost. Observe-only — never flips
+          Over/Under polarity. */}
+      {sport === 'baseball' && m.offensive_injury_impact?.available && (
+        <OffensiveInjuryImpactPanel
+          impact={m.offensive_injury_impact}
+          lang={lang}
+          testId={`offensive-injury-impact-${m.match_id || ''}`}
         />
       )}
 

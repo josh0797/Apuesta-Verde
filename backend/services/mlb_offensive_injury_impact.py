@@ -114,9 +114,20 @@ def _is_offensive_role(player: dict) -> bool:
         return pa >= 50
     if _is_pitcher(player):
         return False
-    # Strip multi-position like "OF/DH".
-    primary = pos.split("/")[0].split("-")[0].strip()
-    return primary in OFFENSIVE_POSITIONS or primary in {"INF", "OUT"}
+    # Multi-position support (e.g. "P/DH", "OF/DH", "1B-3B"). The player
+    # is offensive if ANY part of the composite position is an offensive
+    # slot. This is critical for two-way players like Ohtani whose
+    # primary listed position can be "P" but who also hit as "DH".
+    parts = []
+    for chunk in pos.split("/"):
+        parts.extend(chunk.split("-"))
+    parts = [p.strip() for p in parts if p.strip()]
+    for part in parts:
+        if part in OFFENSIVE_POSITIONS or part in {"INF", "OUT"}:
+            return True
+    # Last-resort fallback: significant batting volume → offensive.
+    pa = _safe(player.get("pa")) or _safe(player.get("plate_appearances")) or 0
+    return pa >= 50
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -337,6 +348,25 @@ def compute_offensive_injury_impact_for_team(
             "top5_available": [],
             "run_creation_lost_estimate": 0.0,
             "reason_codes": reason_codes,
+        }
+
+    # ── Insufficient-roster guard ────────────────────────────────────
+    # We need at least 5 ranked offensive players in TOTAL (active +
+    # injured) to define a credible top-5. With fewer than 5 we cannot
+    # safely judge "top-5 importance" — declare available=False and
+    # emit no penalty.
+    if len(ranked) < 5:
+        return {
+            "available":   False,
+            "team":        team_name,
+            "engine_version": ENGINE_VERSION,
+            "offensive_injury_score": 0,
+            "impact_bucket": BUCKET_LOW,
+            "missing_top5_count": 0,
+            "top5_missing": [],
+            "top5_available": [],
+            "run_creation_lost_estimate": 0.0,
+            "reason_codes": reason_codes + [RC_DATA_INCOMPLETE_FALLBACK_USED],
         }
 
     top5 = ranked[:5]

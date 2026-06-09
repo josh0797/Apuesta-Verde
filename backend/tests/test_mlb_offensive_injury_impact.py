@@ -160,13 +160,34 @@ class TestPerTeamScore:
 
     def test_two_way_player_not_classified_as_pitcher(self):
         """Ohtani-style: position 'P/DH' with PA >= 50 → offensive."""
-        ohtani = _star("Shohei", position="P/DH", pa=620, ops=1.0)
+        ohtani = _star("Shohei", position="P/DH", pa=620, ops=1.0,
+                       runs=110, rbi=120, hr=45, xbh=85, obp=0.420)
+        # Add 7 weaker teammates so the pool is realistic and the
+        # offensive-impact pipeline isn't blocked by the small-roster
+        # guard. Ohtani's composite should land in the top-5.
+        teammates = [_star(f"Star{i+1}") for i in range(7)]
         out = compute_offensive_injury_impact_for_team(
-            team_name="Angels", roster=[ohtani], injured=[],
+            team_name="Angels", roster=[ohtani] + teammates, injured=[],
         )
         # He must show up in top-5 available.
         names = [p["name"] for p in out["top5_available"]]
         assert "Shohei" in names
+
+    def test_insufficient_roster_returns_fail_soft(self):
+        """When fewer than 5 offensive players are known we cannot
+        rank a credible top-5 — module returns available=False without
+        inflating any penalty."""
+        from services.mlb_offensive_injury_impact import (
+            RC_DATA_INCOMPLETE_FALLBACK_USED,
+        )
+        tiny = [_star(f"Star{i+1}") for i in range(3)]
+        out = compute_offensive_injury_impact_for_team(
+            team_name="Mystery", roster=tiny[1:], injured=[tiny[0]],
+        )
+        assert out["available"] is False
+        assert out["offensive_injury_score"] == 0
+        assert RC_DATA_INCOMPLETE_FALLBACK_USED in out["reason_codes"]
+
 
 
 class TestMatchupImbalance:

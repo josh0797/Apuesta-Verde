@@ -708,22 +708,25 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
 
         h_team_task = a_team_task = h_bp_task = a_bp_task = None
         h_il_task = a_il_task = None
+        h_off_roster_task = a_off_roster_task = None
         # FIX #3 — Real bullpen pitch-stress from MLB Stats API box-scores.
         # Module exists since GAP M2 but was never invoked at this layer.
         h_bp_real_task = a_bp_real_task = None
         try:
             from .mlb_team_stats import get_team_hand_splits, get_team_bullpen_usage
-            from .mlb_stats_api import get_team_il_players
+            from .mlb_stats_api import get_team_il_players, hydrate_team_offensive_roster
             from .mlb_bullpen_real_usage import fetch_recent_bullpen_workload
             if conf.get("home_team_id"):
                 h_team_task = get_team_hand_splits(db, conf["home_team_id"])
                 h_bp_task   = get_team_bullpen_usage(db, conf["home_team_id"])
                 h_il_task   = get_team_il_players(db, conf["home_team_id"])
+                h_off_roster_task = hydrate_team_offensive_roster(db, conf["home_team_id"])
                 h_bp_real_task = fetch_recent_bullpen_workload(conf["home_team_id"], days=2)
             if conf.get("away_team_id"):
                 a_team_task = get_team_hand_splits(db, conf["away_team_id"])
                 a_bp_task   = get_team_bullpen_usage(db, conf["away_team_id"])
                 a_il_task   = get_team_il_players(db, conf["away_team_id"])
+                a_off_roster_task = hydrate_team_offensive_roster(db, conf["away_team_id"])
                 a_bp_real_task = fetch_recent_bullpen_workload(conf["away_team_id"], days=2)
         except Exception as exc:
             log.debug("team_stats tasks init failed: %s", exc)
@@ -781,6 +784,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             h_il, a_il,
             baseball_hist_profile,
             h_bp_real, a_bp_real,
+            h_off_roster, a_off_roster,
         ) = await asyncio.gather(
             _await_or_none(savant_h_task),
             _await_or_none(savant_a_task),
@@ -793,6 +797,8 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             _await_hist(hist_task),
             _await_or_none(h_bp_real_task),
             _await_or_none(a_bp_real_task),
+            _await_or_none(h_off_roster_task),
+            _await_or_none(a_off_roster_task),
         )
         if h_stats_e:
             h_stats = h_stats_e
@@ -813,10 +819,39 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         if isinstance(a_bp_real, dict):
             baseball_hist_profile["away_bullpen_real"] = a_bp_real
 
+        # ── MLB Offensive Injury Impact Score ────────────────────────
+        # Cross-reference the IL list against the team's TOP-5 hitters
+        # by composite offensive score. Fail-soft on any error.
+        offensive_injury_impact: dict = {"available": False}
+        try:
+            from .mlb_offensive_injury_impact import (
+                compute_offensive_injury_impact as _compute_oii,
+            )
+            h_roster_players = (
+                (h_off_roster or {}).get("players")
+                if isinstance(h_off_roster, dict) else None
+            )
+            a_roster_players = (
+                (a_off_roster or {}).get("players")
+                if isinstance(a_off_roster, dict) else None
+            )
+            offensive_injury_impact = _compute_oii(
+                home_team_name=conf.get("home_team_name"),
+                away_team_name=conf.get("away_team_name"),
+                home_roster=h_roster_players,
+                home_injured=h_il,
+                away_roster=a_roster_players,
+                away_injured=a_il,
+            )
+        except Exception as _exc_oii:
+            log.debug("offensive_injury_impact failed (fail-soft): %s", _exc_oii)
+            offensive_injury_impact = {"available": False, "error": str(_exc_oii)}
+
         return (game_pk, conf, h_stats, a_stats,
                 h_team_stats, a_team_stats,
                 h_bullpen_usage, a_bullpen_usage,
-                h_il, a_il, baseball_hist_profile)
+                h_il, a_il, baseball_hist_profile,
+                offensive_injury_impact)
 
     enrichment_results = await asyncio.gather(*(_process_one_game(gp) for gp in game_pks),
                                               return_exceptions=True)
@@ -827,7 +862,8 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         (game_pk, conf, h_stats, a_stats,
          h_team_stats, a_team_stats,
          h_bullpen_usage, a_bullpen_usage,
-         h_il, a_il, baseball_hist_profile) = res
+         h_il, a_il, baseball_hist_profile,
+         offensive_injury_impact) = res
 
         # Skip games with too little pitcher data — per the user's rule
         # "NO analizar pitchers no confirmados / menos de 3 aperturas".
@@ -1416,6 +1452,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 "home_il_players": h_il or [],
                 "away_il_players": a_il or [],
             },
+            "offensive_injury_impact": offensive_injury_impact,
             "scores": {
                 "pitcher_edge":   edge.get("score", 0),
                 "run_line":       run_line.get("score", 0),
@@ -1827,6 +1864,54 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as _exc_sfam_persist:
             log.debug("series_familiarity persist failed (fail-soft): %s", _exc_sfam_persist)
 
+        # ── MLB Offensive Injury Impact — persist + compute multipliers ──
+        # Replaces the meaningless "X jugadores lesionados" counter with
+        # a quality-weighted assessment of the offensive damage. The
+        # module NEVER flips Over/Under polarity — it only suppresses the
+        # team's offensive projection and surfaces a narrative.
+        oii_lambda_mult_mean = 1.0
+        try:
+            from .mlb_offensive_injury_impact import (
+                apply_impact_to_pipeline as _apply_oii,
+            )
+            if (isinstance(offensive_injury_impact, dict)
+                    and offensive_injury_impact.get("available")):
+                pick_payload["offensive_injury_impact"] = offensive_injury_impact
+
+                adj_home = _apply_oii(impact_payload=offensive_injury_impact, side="home")
+                adj_away = _apply_oii(impact_payload=offensive_injury_impact, side="away")
+                # Combined suppression on the GAME's expected_runs is the
+                # average of the two team multipliers (game total ≈ sum of
+                # both teams' production).
+                oii_lambda_mult_mean = round(
+                    (adj_home.get("lambda_7_9_multiplier", 1.0)
+                     + adj_away.get("lambda_7_9_multiplier", 1.0)) / 2.0,
+                    4,
+                )
+                pipeline_meta["offensive_injury_impact"] = {
+                    "available":   True,
+                    "home_score":  (offensive_injury_impact.get("home") or {}).get("offensive_injury_score"),
+                    "home_bucket": (offensive_injury_impact.get("home") or {}).get("impact_bucket"),
+                    "away_score":  (offensive_injury_impact.get("away") or {}).get("offensive_injury_score"),
+                    "away_bucket": (offensive_injury_impact.get("away") or {}).get("impact_bucket"),
+                    "imbalance":   offensive_injury_impact.get("imbalance"),
+                    "favors_team": offensive_injury_impact.get("favors_team"),
+                    "under_support": offensive_injury_impact.get("under_support"),
+                    "lambda_multiplier_home": adj_home.get("lambda_7_9_multiplier"),
+                    "lambda_multiplier_away": adj_away.get("lambda_7_9_multiplier"),
+                    "lambda_multiplier_mean": oii_lambda_mult_mean,
+                    "reason_codes": offensive_injury_impact.get("reason_codes") or [],
+                }
+            else:
+                pipeline_meta["offensive_injury_impact"] = {
+                    "available": False,
+                    "reason":    "insufficient_roster_data",
+                }
+                pick_payload.setdefault("offensive_injury_impact", {"available": False})
+        except Exception as _exc_oii_pipe:
+            log.debug("offensive_injury_impact pipeline integration failed (fail-soft): %s", _exc_oii_pipe)
+            pipeline_meta.setdefault("offensive_injury_impact", {"available": False, "error": "exception"})
+
         # ── Priority 4 — Expected Runs Distribution (uncertainty + ranges) ─
         # Pure transform of the engine's mean → full probability profile.
         # Observe-only: surfaces protected / ultra-safe line suggestions
@@ -1843,6 +1928,18 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             )
             if _mean_eff in (None, 0):
                 _mean_eff = pick_payload.get("expected_runs") if pick_payload else None
+
+            # ── Apply Offensive Injury Impact suppression (cap 0.85×) ──
+            # When key bats are out, the GAME's mean expected_runs is
+            # nudged down by the AVERAGE of both teams' multipliers.
+            # NEVER flips polarity (always suppression-only, never boost).
+            if (_mean_eff is not None
+                    and oii_lambda_mult_mean is not None
+                    and oii_lambda_mult_mean < 1.0):
+                try:
+                    _mean_eff = round(float(_mean_eff) * float(oii_lambda_mult_mean), 4)
+                except (TypeError, ValueError):
+                    pass
 
             # NB dispersion ratio — fragility-driven fallback when caller
             # didn't pass one. fragility 50 ≈ 1.10, 80 ≈ 1.50.

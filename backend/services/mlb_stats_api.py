@@ -354,6 +354,121 @@ async def get_team_il_players(db, team_id: int) -> list[dict]:
     return players
 
 
+# ── Active offensive roster with hitting stats ───────────────────────────────
+async def hydrate_team_offensive_roster(
+    db,
+    team_id: int,
+    season: Optional[int] = None,
+) -> dict:
+    """Return the team's active roster with **per-player season hitting
+    stats**, ready to feed into
+    ``mlb_offensive_injury_impact.compute_offensive_injury_impact_for_team``.
+
+    The MLB Stats API supports hydrating a roster endpoint with stats
+    via:
+        /teams/{teamId}/roster?rosterType=active&hydrate=person(stats(group=[hitting],type=[season],season=YYYY))
+
+    Strategy:
+      • Fetch the active roster + hydrated season hitting splits.
+      • For each player we extract OPS, OBP, runs, RBI, HR, plate
+        appearances, games_played, position abbreviation.
+      • Pitchers stay in the payload (with PA=0) so the consumer can
+        filter them out via its own ``_is_offensive_role`` rule.
+      • Never raises. Returns ``{"available": False}`` on any error so
+        the orchestrator can fail-soft.
+
+    Cached for 6h per (team_id, season) on the standard ``mlb_cache``.
+    """
+    if not team_id:
+        return {"available": False, "reason": "no_team_id"}
+
+    season = season or DEFAULT_SEASON
+    key = f"off_roster:{team_id}:{season}"
+    cached = await _cache_get(db, key)
+    if cached is not None:
+        return cached
+
+    hydrate = (
+        f"person(stats(group=[hitting],type=[season],season={season}))"
+    )
+    url = f"{BASE}/teams/{team_id}/roster"
+    params = {"rosterType": "active", "hydrate": hydrate}
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            r = await client.get(url, params=params)
+            r.raise_for_status()
+            data = r.json()
+    except Exception as exc:
+        log.debug("offensive roster fetch failed for team %s: %s", team_id, exc)
+        return {"available": False, "reason": "http_error", "error": str(exc)}
+
+    players: list[dict] = []
+    for p in (data.get("roster") or []):
+        person   = p.get("person") or {}
+        position = p.get("position") or {}
+        pos_abbr = (position.get("abbreviation") or "").upper()
+
+        # Pull the most recent season hitting split (there can be 0 or 1).
+        stats_blocks = person.get("stats") or []
+        season_split: dict = {}
+        for block in stats_blocks:
+            if (block.get("group") or {}).get("displayName") != "hitting":
+                continue
+            for sp in (block.get("splits") or []):
+                if (sp.get("season") or "").strip() == str(season):
+                    season_split = sp.get("stat") or {}
+                    break
+            if season_split:
+                break
+
+        def _to_float(v) -> Optional[float]:
+            try:
+                if v is None or v == "":
+                    return None
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+
+        def _to_int(v) -> Optional[int]:
+            try:
+                if v is None or v == "":
+                    return None
+                return int(v)
+            except (TypeError, ValueError):
+                return None
+
+        players.append({
+            "id":             person.get("id"),
+            "name":           person.get("fullName"),
+            "position":       pos_abbr,
+            "ops":            _to_float(season_split.get("ops")),
+            "obp":            _to_float(season_split.get("obp")),
+            "slg":            _to_float(season_split.get("slg")),
+            "avg":            _to_float(season_split.get("avg")),
+            "runs":           _to_int(season_split.get("runs")),
+            "rbi":            _to_int(season_split.get("rbi")),
+            "hr":             _to_int(season_split.get("homeRuns")),
+            "xbh":            (
+                (_to_int(season_split.get("doubles")) or 0)
+                + (_to_int(season_split.get("triples")) or 0)
+                + (_to_int(season_split.get("homeRuns")) or 0)
+            ) or None,
+            "pa":             _to_int(season_split.get("plateAppearances")),
+            "games_played":   _to_int(season_split.get("gamesPlayed")),
+        })
+
+    payload = {
+        "available":   True,
+        "team_id":     team_id,
+        "season":      season,
+        "players":     players,
+        "_source_url": f"{url}?rosterType=active",
+    }
+    await _cache_put(db, key, payload, ttl_seconds=6 * 3600)
+    return payload
+
+
 # ── Bullpen usage estimate (best-effort) ─────────────────────────────────────
 async def get_bullpen_recent_usage(db, team_id: int, days: int = 3) -> Optional[dict]:
     """Estimate bullpen workload over the last `days`. Heuristic — uses team
