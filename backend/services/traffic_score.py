@@ -91,6 +91,11 @@ RC_LIVE_LOW_TRAFFIC_UNDER_SURVIVING = "LIVE_LOW_TRAFFIC_UNDER_SURVIVING"
 RC_BULLPEN_FATIGUE_LATE_INNINGS     = "BULLPEN_FATIGUE_LATE_INNINGS"
 RC_HIGH_RISP_PRESSURE               = "HIGH_RISP_PRESSURE"
 RC_LOB_DRAIN                        = "LOB_DRAIN"
+# Phase 49 — spec-aligned live components.
+RC_WALK_TRAFFIC_HIGH                = "WALK_TRAFFIC_HIGH"
+RC_PITCH_COUNT_PRESSURE             = "PITCH_COUNT_PRESSURE"
+RC_BULLPEN_ENTRY_TRAFFIC_RISK       = "BULLPEN_ENTRY_TRAFFIC_RISK"
+RC_LOB_PRESSURE                     = "LOB_PRESSURE"  # spec alias for LOB_DRAIN
 
 ALL_TRAFFIC_REASON_CODES = (
     RC_BULLPEN_RISK_CONFIRMED_BY_TRAFFIC,
@@ -358,7 +363,7 @@ def classify_bullpen_traffic_interaction(
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Phase 46 — Live Traffic Score
+# Phase 46 / Phase 49 — Live Traffic Score (spec-aligned components)
 # ─────────────────────────────────────────────────────────────────────
 # Inning-based pitch-count expectation. A starter at typical pace throws
 # ~15-18 pitches per inning. Below the lower bound the bullpen is fresh;
@@ -367,18 +372,21 @@ PITCH_COUNT_PER_INNING_EXPECTED = 16
 PITCH_COUNT_FATIGUE_THRESHOLD   = 1.20  # actual / expected >= 1.20 ⇒ fatigue
 REG_INNINGS                     = 9.0
 
-# Live component weights — different mix than pregame because we have
-# direct observation of pressure (RISP, LOB, contact quality).
-LIVE_COMPONENTS = {
-    "live_obp":          {"weight": 18, "low": 0.290, "high": 0.350},
-    "live_runs_per_inning": {"weight": 14, "low": 0.40,  "high": 0.65},
-    "live_hr_rate":      {"weight": 12, "low": 0.02,   "high": 0.05},
-    "risp_pressure":     {"weight": 15, "low": 0.10,   "high": 0.40},
-    "lob_drain":         {"weight": 10, "low": 0.50,   "high": 0.85},
-    "hard_contact":      {"weight": 12, "low": 0.32,   "high": 0.45},
-    "exit_velocity":     {"weight":  9, "low": 87.0,   "high": 91.0},
-    "bullpen_fatigue":   {"weight": 10, "low": 1.00,   "high": 1.30},
+# Phase 49 — Spec-aligned component schema. Sum = 100, no single
+# component exceeds the 25% safety cap. Each component is expressed as a
+# direct "points scored" out of its weight rather than a continuous
+# interpolation, so the output keys mirror the Phase-49 product spec.
+LIVE_COMPONENT_WEIGHTS = {
+    "hits":               15,
+    "walks":              15,   # walks create hidden traffic — high weight
+    "risp":               18,   # RISP > raw hits per the spec
+    "lob":                10,
+    "pitch_count":        12,
+    "bullpen_entry":      10,
+    "home_runs":          12,   # HR matters but cannot dominate (≤ 25%)
+    "defensive_pressure": 8,    # errors + wild pitches + passed balls + SB allowed
 }
+LIVE_COMPONENT_CAP_PCT = 25  # no single component contributes > 25% of score
 
 
 def _live_offense_summary(team_live: dict, innings_played: float) -> dict:
@@ -395,6 +403,7 @@ def _live_offense_summary(team_live: dict, innings_played: float) -> dict:
     hr  = _safe(team_live.get("home_runs"))         or _safe(team_live.get("hr")) or 0.0
     runs = _safe(team_live.get("runs"))             or _safe(team_live.get("r")) or 0.0
     lob = _safe(team_live.get("left_on_base"))      or _safe(team_live.get("lob")) or 0.0
+    runners_on_base = _safe(team_live.get("runners_on_base")) or 0.0
     risp_opps = (
         _safe(team_live.get("risp_opportunities"))
         or _safe(team_live.get("at_bats_with_risp"))
@@ -405,45 +414,142 @@ def _live_offense_summary(team_live: dict, innings_played: float) -> dict:
         or _safe(team_live.get("hits_with_risp"))
         or 0.0
     )
-    hard_contact = (
-        _safe(team_live.get("hard_contact_rate"))
-        or _safe(team_live.get("hard_hit_pct"))
-    )
-    exit_velocity = (
-        _safe(team_live.get("exit_velocity_avg"))
-        or _safe(team_live.get("avg_exit_velocity"))
-    )
+    # Defensive-pressure raw events from the OPPOSING defense — the
+    # caller passes the offense bag, and these fields capture pressure
+    # the offense generated against the defense.
+    errors_forced = _safe(team_live.get("errors_forced")) or 0.0
+    wild_pitches  = _safe(team_live.get("wild_pitches"))  or 0.0
+    passed_balls  = _safe(team_live.get("passed_balls"))  or 0.0
+    stolen_bases  = (_safe(team_live.get("stolen_bases"))
+                     or _safe(team_live.get("sb"))) or 0.0
+    # Indicator: did the starter come out (i.e. bullpen entered)?
+    bullpen_entered = bool(team_live.get("bullpen_entered")
+                           or team_live.get("starter_removed"))
+    pitch_count = _safe(team_live.get("pitch_count")) \
+                  or _safe(team_live.get("pitches_thrown"))
 
-    # Derived metrics.
+    # Derived rates.
     pa_eff = pa or (ab + bb + hbp)
-    obp = (h + bb + hbp) / pa_eff if pa_eff > 0 else None
     runners_reached = h + bb + hbp
-    lob_rate = (lob / runners_reached) if runners_reached > 0 else None
-    risp_rate = (risp_hits / risp_opps) if risp_opps > 0 else None
-    hr_rate = (hr / pa_eff) if pa_eff > 0 else None
-    runs_per_inning = (runs / innings_played) if innings_played > 0 else None
     return {
-        "pa":                pa_eff,
-        "obp":               obp,
-        "lob":               lob,
-        "lob_rate":          lob_rate,
+        "pa":               pa_eff,
+        "h":                h,
+        "bb":               bb,
+        "hbp":              hbp,
+        "hr":               hr,
+        "runs":             runs,
+        "lob":              lob,
+        "runners_on_base":  runners_on_base,
+        "runners_reached":  runners_reached,
         "risp_opportunities": risp_opps,
-        "risp_hits":         risp_hits,
-        "risp_rate":         risp_rate,
-        "runs":              runs,
-        "runs_per_inning":   runs_per_inning,
-        "hr_rate":           hr_rate,
-        "hard_contact":      hard_contact,
-        "exit_velocity":     exit_velocity,
+        "risp_hits":        risp_hits,
+        "errors_forced":    errors_forced,
+        "wild_pitches":     wild_pitches,
+        "passed_balls":     passed_balls,
+        "stolen_bases":     stolen_bases,
+        "bullpen_entered":  bullpen_entered,
+        "pitch_count":      pitch_count,
+        "innings_played":   innings_played,
     }
 
 
-def _pitch_count_fatigue_ratio(pitch_count: Optional[float], innings_played: float) -> Optional[float]:
-    """Return actual / expected pitch count. > 1.0 means staff is over-extended."""
-    if pitch_count is None or innings_played <= 0:
-        return None
-    expected = innings_played * PITCH_COUNT_PER_INNING_EXPECTED
-    return round(float(pitch_count) / expected, 3) if expected > 0 else None
+def _score_capped(points: float, weight: int) -> int:
+    """Round + clamp a component to its weight (and to LIVE_COMPONENT_CAP_PCT)."""
+    cap = min(weight, LIVE_COMPONENT_CAP_PCT)
+    return int(round(max(0.0, min(cap, points))))
+
+
+def _score_hits(s: dict) -> int:
+    """Combined hits / inning. League average ≈ 1.0 H/inning.
+    1.5+ H/inning ⇒ full weight."""
+    n = s.get("innings_played") or 0.5
+    h_per_inning = (s.get("h") or 0) / max(0.5, n)
+    pts = (h_per_inning - 0.7) / (1.5 - 0.7) * LIVE_COMPONENT_WEIGHTS["hits"]
+    return _score_capped(pts, LIVE_COMPONENT_WEIGHTS["hits"])
+
+
+def _score_walks(s: dict) -> int:
+    """Walks per inning. 0.6+/inning ⇒ full weight (hidden traffic high)."""
+    n = s.get("innings_played") or 0.5
+    bb_per_inning = (s.get("bb") or 0) / max(0.5, n)
+    pts = bb_per_inning / 0.60 * LIVE_COMPONENT_WEIGHTS["walks"]
+    return _score_capped(pts, LIVE_COMPONENT_WEIGHTS["walks"])
+
+
+def _score_risp(s: dict) -> int:
+    """RISP hit rate. > 35% ⇒ full weight. Falls back to RISP volume
+    (opportunities/inning) when ``risp_opportunities`` is 0 so we still
+    reward teams generating threats even if they haven't converted yet.
+    """
+    opps = s.get("risp_opportunities") or 0
+    if opps > 0:
+        rate = (s.get("risp_hits") or 0) / opps
+        pts = (rate - 0.10) / (0.35 - 0.10) * LIVE_COMPONENT_WEIGHTS["risp"]
+    else:
+        # Fallback: rough proxy from runners on base ÷ innings.
+        n = s.get("innings_played") or 0.5
+        opp_proxy = (s.get("runners_reached") or 0) / max(0.5, n)
+        pts = (opp_proxy - 0.5) / 1.5 * LIVE_COMPONENT_WEIGHTS["risp"]
+    return _score_capped(pts, LIVE_COMPONENT_WEIGHTS["risp"])
+
+
+def _score_lob(s: dict) -> int:
+    """LOB indicates traffic existed even if runs didn't convert."""
+    n = s.get("innings_played") or 0.5
+    lob_per_inning = (s.get("lob") or 0) / max(0.5, n)
+    pts = lob_per_inning / 1.0 * LIVE_COMPONENT_WEIGHTS["lob"]  # 1+ LOB/inn ⇒ full
+    return _score_capped(pts, LIVE_COMPONENT_WEIGHTS["lob"])
+
+
+def _score_pitch_count(home_pc: Optional[float], away_pc: Optional[float],
+                       innings_played: float) -> int:
+    """Late-game pitch-count pressure. Combines both sides."""
+    if home_pc is None and away_pc is None:
+        return 0
+    total = (home_pc or 0) + (away_pc or 0)
+    expected = innings_played * 2 * PITCH_COUNT_PER_INNING_EXPECTED
+    ratio = total / max(1.0, expected)
+    # 1.0 ratio neutral; 1.30+ full weight.
+    pts = (ratio - 1.0) / 0.30 * LIVE_COMPONENT_WEIGHTS["pitch_count"]
+    return _score_capped(pts, LIVE_COMPONENT_WEIGHTS["pitch_count"])
+
+
+def _score_bullpen_entry(home_bp: bool, away_bp: bool, inning: Optional[float]) -> int:
+    """Award up to full weight when a starter has been removed already.
+
+    Earlier removal ⇒ more pressure (starter usually goes 5+ innings).
+    """
+    if not (home_bp or away_bp):
+        return 0
+    full = LIVE_COMPONENT_WEIGHTS["bullpen_entry"]
+    if inning is None:
+        return full // 2
+    # Removed by inning 4 ⇒ full; by inning 6 ⇒ half; by inning 7+ ⇒ quarter.
+    if inning <= 4:
+        return full
+    if inning <= 6:
+        return int(round(full * 0.65))
+    return int(round(full * 0.35))
+
+
+def _score_home_runs(s: dict) -> int:
+    """HR matters but is hard-capped at 25% by the global cap."""
+    hr = s.get("hr") or 0
+    # 0 HR → 0; 1 HR → ~½ weight; 2+ HR → full weight (capped).
+    pts = hr / 2.0 * LIVE_COMPONENT_WEIGHTS["home_runs"]
+    return _score_capped(pts, LIVE_COMPONENT_WEIGHTS["home_runs"])
+
+
+def _score_defensive_pressure(s: dict) -> int:
+    """Errors / wild pitches / passed balls / SB allowed against the
+    defense. Each event ≈ 1 pt up to the component weight."""
+    events = (
+        (s.get("errors_forced") or 0)
+        + (s.get("wild_pitches") or 0)
+        + (s.get("passed_balls") or 0)
+        + (s.get("stolen_bases") or 0)
+    )
+    return _score_capped(float(events) * 1.5, LIVE_COMPONENT_WEIGHTS["defensive_pressure"])
 
 
 def compute_live_traffic_score(
@@ -457,29 +563,19 @@ def compute_live_traffic_score(
     pregame_traffic_score: Optional[int] = None,
     pregame_traffic_bucket: Optional[str] = None,
     is_under_pick:        bool            = True,
+    # Phase 50 forward-compat — Defensive Breakdown Score feeds the
+    # defensive_pressure component when explicit raw events aren't
+    # available from the provider. None ⇒ falls back to event sum.
+    defensive_breakdown_score: Optional[float] = None,
 ) -> dict:
     """Composite 0-100 LIVE traffic score for an in-progress MLB game.
 
-    Surfaces in-game offensive pressure (RISP, LOB, contact quality,
-    HR rate live, bullpen fatigue via pitch count) and compares against
-    the pregame score when one is provided. Emits ``LIVE_TRAFFIC_RISING``
-    or ``LIVE_TRAFFIC_COLLAPSING`` when the live score diverges by ≥ 15.
+    Phase-49 spec components (each capped at 25% of total score):
+        ``hits, walks, risp, lob, pitch_count, bullpen_entry,
+        home_runs, defensive_pressure``.
 
-    Args:
-        inning:           Current inning (1-9+). Used for late-innings tag.
-        innings_played:   Innings completed by the relevant pitching side.
-                          Falls back to ``inning - 0.5`` for half-inning ambiguity.
-        home_live / away_live: live stat bags for each team (see
-                          ``_live_offense_summary`` for accepted fields).
-        pitch_count_home / pitch_count_away: cumulative team pitch counts.
-        pregame_traffic_score / pregame_traffic_bucket: optional pregame
-                          baselines for delta-based rising/collapsing tags.
-        is_under_pick:    when True, surfaces under-specific reason codes.
-
-    Returns:
-        dict with ``live_traffic_score`` (0-100), ``live_traffic_bucket``,
-        ``components`` (per-component points), ``home`` / ``away`` summaries,
-        ``reason_codes``, ``pregame_delta``, ``engine_version``.
+    Emits ``LIVE_TRAFFIC_RISING`` / ``LIVE_TRAFFIC_COLLAPSING`` against
+    ``pregame_traffic_score`` when the delta crosses ±15.
     """
     home_live = home_live or {}
     away_live = away_live or {}
@@ -489,43 +585,40 @@ def compute_live_traffic_score(
 
     home_summary = _live_offense_summary(home_live, innings_played)
     away_summary = _live_offense_summary(away_live, innings_played)
-
-    # Combined metrics (game-level pressure, not per side).
-    def _avg(field: str) -> Optional[float]:
-        vals = [home_summary.get(field), away_summary.get(field)]
-        vals = [v for v in vals if isinstance(v, (int, float))]
-        return sum(vals) / len(vals) if vals else None
-
-    live_obp        = _avg("obp")
-    live_rpi        = _avg("runs_per_inning")
-    live_hr_rate    = _avg("hr_rate")
-    risp_pressure   = _avg("risp_rate")
-    lob_drain       = _avg("lob_rate")
-    hard_contact    = _avg("hard_contact")
-    exit_velocity   = _avg("exit_velocity")
-
-    # Bullpen-fatigue ratio uses the SUM of pitch counts vs both staffs'
-    # expected pitches. A combined ratio > 1.20 means both staffs are
-    # gassed and late traffic risk is elevated.
-    total_pc = (pitch_count_home or 0) + (pitch_count_away or 0)
-    if pitch_count_home is None and pitch_count_away is None:
-        bullpen_fatigue: Optional[float] = None
-    else:
-        bullpen_fatigue = _pitch_count_fatigue_ratio(total_pc, innings_played * 2)
-
-    component_inputs = {
-        "live_obp":             live_obp,
-        "live_runs_per_inning": live_rpi,
-        "live_hr_rate":         live_hr_rate,
-        "risp_pressure":        risp_pressure,
-        "lob_drain":            lob_drain,
-        "hard_contact":         hard_contact,
-        "exit_velocity":        exit_velocity,
-        "bullpen_fatigue":      bullpen_fatigue,
+    # Combine both sides for game-level scoring (each component averaged).
+    combined = {
+        k: ((home_summary.get(k) or 0) + (away_summary.get(k) or 0)) / 2.0
+        if isinstance(home_summary.get(k), (int, float))
+        else (home_summary.get(k) or away_summary.get(k))
+        for k in home_summary
     }
-    components = {
-        name: _score_component(val, LIVE_COMPONENTS[name])
-        for name, val in component_inputs.items()
+    combined["innings_played"] = innings_played
+
+    # Per-component scoring (Phase-49 schema).
+    pc_home = pitch_count_home or home_summary.get("pitch_count")
+    pc_away = pitch_count_away or away_summary.get("pitch_count")
+    bullpen_entered_any = bool(home_summary.get("bullpen_entered")
+                               or away_summary.get("bullpen_entered"))
+
+    components: dict[str, int] = {
+        "hits":          _score_hits(combined),
+        "walks":         _score_walks(combined),
+        "risp":          _score_risp(combined),
+        "lob":           _score_lob(combined),
+        "pitch_count":   _score_pitch_count(pc_home, pc_away, innings_played),
+        "bullpen_entry": _score_bullpen_entry(
+            bool(home_summary.get("bullpen_entered")),
+            bool(away_summary.get("bullpen_entered")),
+            inning,
+        ),
+        "home_runs":     _score_home_runs(combined),
+        "defensive_pressure": (
+            _score_capped(float(defensive_breakdown_score) / 100
+                          * LIVE_COMPONENT_WEIGHTS["defensive_pressure"],
+                          LIVE_COMPONENT_WEIGHTS["defensive_pressure"])
+            if defensive_breakdown_score is not None
+            else _score_defensive_pressure(combined)
+        ),
     }
     score = max(0, min(100, sum(components.values())))
     bucket = _bucket_from_score(score)
@@ -540,17 +633,24 @@ def compute_live_traffic_score(
         if is_under_pick:
             reason_codes.append(RC_LIVE_LOW_TRAFFIC_UNDER_SURVIVING)
 
-    # Per-component flags fire regardless of overall bucket because they
-    # carry independent informational value.
-    if risp_pressure is not None and risp_pressure >= LIVE_COMPONENTS["risp_pressure"]["high"]:
+    # Per-component flags fire regardless of bucket — independent signal.
+    if components["risp"] >= LIVE_COMPONENT_WEIGHTS["risp"] * 0.70:
         reason_codes.append(RC_HIGH_RISP_PRESSURE)
-    if lob_drain is not None and lob_drain >= LIVE_COMPONENTS["lob_drain"]["high"]:
+    if components["lob"] >= LIVE_COMPONENT_WEIGHTS["lob"] * 0.70:
         reason_codes.append(RC_LOB_DRAIN)
-
-    if bullpen_fatigue is not None and bullpen_fatigue >= PITCH_COUNT_FATIGUE_THRESHOLD:
-        # Only fires when we're in late innings; otherwise it's not actionable.
-        if inning is not None and inning >= 6:
-            reason_codes.append(RC_BULLPEN_FATIGUE_LATE_INNINGS)
+    if components["walks"] >= LIVE_COMPONENT_WEIGHTS["walks"] * 0.60:
+        reason_codes.append(RC_WALK_TRAFFIC_HIGH)
+    if components["pitch_count"] >= LIVE_COMPONENT_WEIGHTS["pitch_count"] * 0.60:
+        reason_codes.append(RC_PITCH_COUNT_PRESSURE)
+    if components["bullpen_entry"] >= LIVE_COMPONENT_WEIGHTS["bullpen_entry"] * 0.60:
+        reason_codes.append(RC_BULLPEN_ENTRY_TRAFFIC_RISK)
+    # Bullpen fatigue: combined pitch count exceeds expected by ≥20% AND
+    # we're in the late innings (≥6) — actionable signal.
+    _total_pc = (pc_home or 0) + (pc_away or 0)
+    if (_total_pc > 0
+            and _total_pc >= innings_played * 2 * PITCH_COUNT_PER_INNING_EXPECTED * 1.20
+            and (inning or 0) >= 6):
+        reason_codes.append(RC_BULLPEN_FATIGUE_LATE_INNINGS)
 
     # ── Pregame delta ────────────────────────────────────────────────
     pregame_delta: Optional[int] = None
@@ -567,21 +667,21 @@ def compute_live_traffic_score(
         "live_traffic_bucket":   bucket,
         "components":            components,
         "raw": {
-            "live_obp":             live_obp,
-            "live_runs_per_inning": live_rpi,
-            "live_hr_rate":         live_hr_rate,
-            "risp_pressure":        risp_pressure,
-            "lob_drain":            lob_drain,
-            "hard_contact":         hard_contact,
-            "exit_velocity":        exit_velocity,
-            "bullpen_fatigue":      bullpen_fatigue,
+            "innings_played":   innings_played,
+            "inning":           inning,
+            "home_summary":     home_summary,
+            "away_summary":     away_summary,
+            "pitch_count_home": pc_home,
+            "pitch_count_away": pc_away,
+            "bullpen_entered_any": bullpen_entered_any,
+            "defensive_breakdown_score": defensive_breakdown_score,
         },
         "home":                  home_summary,
         "away":                  away_summary,
         "pregame_traffic_score": pregame_traffic_score,
         "pregame_traffic_bucket": pregame_traffic_bucket,
         "pregame_delta":         pregame_delta,
-        "reason_codes":          reason_codes,
+        "reason_codes":          list(dict.fromkeys(reason_codes)),  # dedupe
         "is_live":               True,
     }
 
@@ -634,7 +734,7 @@ def classify_live_bullpen_traffic_interaction(
 __all__ = [
     "ENGINE_VERSION",
     "COMPONENTS",
-    "LIVE_COMPONENTS",
+    "LIVE_COMPONENT_WEIGHTS",
     "BUCKET_LOW",
     "BUCKET_MEDIUM",
     "BUCKET_HIGH",
@@ -649,6 +749,10 @@ __all__ = [
     "RC_BULLPEN_FATIGUE_LATE_INNINGS",
     "RC_HIGH_RISP_PRESSURE",
     "RC_LOB_DRAIN",
+    "RC_LOB_PRESSURE",
+    "RC_WALK_TRAFFIC_HIGH",
+    "RC_PITCH_COUNT_PRESSURE",
+    "RC_BULLPEN_ENTRY_TRAFFIC_RISK",
     "ALL_TRAFFIC_REASON_CODES",
     "compute_offense_window_metrics",
     "compute_traffic_score",

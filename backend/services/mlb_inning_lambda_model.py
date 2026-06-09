@@ -297,6 +297,11 @@ def compute_mlb_inning_lambdas(
     market_line:         Optional[float] = None,
     phase_weights:       Optional[dict]  = None,
     observe_only:        bool            = True,
+    # Phase 50 forward-compat — Defensive Breakdown Score (0-100) feeds
+    # the bullpen-phase risk when the caller has it. When provided, the
+    # score is multiplied into the bullpen vulnerability residual so
+    # high defensive breakdown amplifies λ_7_9 alongside traffic.
+    defensive_breakdown_score: Optional[float] = None,
 ) -> dict:
     """Build the per-phase λ projection.
 
@@ -357,6 +362,18 @@ def compute_mlb_inning_lambdas(
     reasons_4_6 = sorted(set(rd_h + rd_a))
 
     # ── Phase 3 — Bullpen phase (λ_7_9) ──────────────────────────────
+    # Defensive breakdown (Phase 50 forward-compat) is folded into both
+    # bullpens' inputs as ``offensive_explosion_score`` augmentation.
+    if defensive_breakdown_score is not None:
+        try:
+            _db = max(0.0, min(100.0, float(defensive_breakdown_score))) / 100.0
+            # Boost the offensive_explosion_score by half of normalized DB
+            # so a fielding meltdown nudges λ_7_9 upward.
+            for _bp in (bullpen_home or {}, bullpen_away or {}):
+                _curr = _bp.get("offensive_explosion_score") or 0.0
+                _bp["offensive_explosion_score"] = max(float(_curr), 0.55 + 0.4 * _db)
+        except (TypeError, ValueError):
+            pass
     bp_factor_h, rb_h, brk_h = _bullpen_traffic_factor(bullpen_home or {}, traffic_score, traffic_weight)
     bp_factor_a, rb_a, brk_a = _bullpen_traffic_factor(bullpen_away or {}, traffic_score, traffic_weight)
     bullpen_factor = (bp_factor_h + bp_factor_a) / 2.0

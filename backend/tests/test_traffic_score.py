@@ -263,7 +263,8 @@ class TestComputeLiveTrafficScore:
             pitch_count_home=130, pitch_count_away=120, is_under_pick=True,
         )
         assert RC_BULLPEN_FATIGUE_LATE_INNINGS in out["reason_codes"]
-        assert out["raw"]["bullpen_fatigue"] >= 1.04
+        # Phase 49 — pitch_count component should fire at significant value.
+        assert out["components"]["pitch_count"] >= 1
 
     def test_high_risp_pressure_code_fires(self):
         home = {"plate_appearances": 20, "hits": 8, "walks": 3, "runs": 4,
@@ -325,3 +326,114 @@ class TestClassifyLiveBullpenTrafficInteraction:
         )
         assert out["verdict"] == "penalize_under"
         assert "softened_by_live" not in out
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase 49 — spec-aligned component schema
+# ─────────────────────────────────────────────────────────────────────
+from services.traffic_score import (  # noqa: E402
+    LIVE_COMPONENT_WEIGHTS,
+    RC_BULLPEN_ENTRY_TRAFFIC_RISK,
+    RC_PITCH_COUNT_PRESSURE,
+    RC_WALK_TRAFFIC_HIGH,
+)
+
+
+class TestPhase49LiveTrafficComponents:
+    def test_high_walks_risp_pitch_count_yield_high_traffic(self):
+        # Spec test 1 — high walks + RISP + pitch count + HR ⇒ HIGH.
+        home = {"plate_appearances": 30, "hits": 8, "walks": 7, "home_runs": 1,
+                "runs": 5, "left_on_base": 7,
+                "risp_opportunities": 6, "risp_hits": 3,
+                "starter_removed": True}
+        away = {"plate_appearances": 28, "hits": 6, "walks": 5, "home_runs": 1,
+                "runs": 3, "left_on_base": 5,
+                "risp_opportunities": 4, "risp_hits": 2}
+        out = compute_live_traffic_score(
+            inning=7, innings_played=6, home_live=home, away_live=away,
+            pitch_count_home=135, pitch_count_away=125, is_under_pick=True,
+        )
+        assert out["live_traffic_score"] >= 60
+        # Component schema is the spec-aligned one.
+        assert set(out["components"].keys()) == set(LIVE_COMPONENT_WEIGHTS.keys())
+        # Walks component scores meaningfully (12 BB / 6 inn ≈ 2.0/inning).
+        assert out["components"]["walks"] >= 8
+        assert RC_WALK_TRAFFIC_HIGH in out["reason_codes"]
+        assert RC_PITCH_COUNT_PRESSURE in out["reason_codes"]
+
+    def test_low_hits_walks_yield_low_traffic(self):
+        # Spec test 2 — sterile offense ⇒ LOW.
+        home = {"plate_appearances": 18, "hits": 2, "walks": 1, "runs": 0,
+                "left_on_base": 1}
+        away = {"plate_appearances": 17, "hits": 1, "walks": 0, "runs": 0,
+                "left_on_base": 0}
+        out = compute_live_traffic_score(
+            inning=6, innings_played=5, home_live=home, away_live=away,
+            is_under_pick=True,
+        )
+        assert out["live_traffic_score"] < 40
+        assert out["live_traffic_bucket"] == "LOW_TRAFFIC"
+
+    def test_hr_alone_does_not_dominate(self):
+        # Spec test 3 — HR alone capped at 25% of total (15 pts weight).
+        home = {"plate_appearances": 20, "hits": 3, "walks": 1, "home_runs": 3,
+                "runs": 4, "left_on_base": 1}
+        away = {"plate_appearances": 18, "hits": 2, "walks": 0, "home_runs": 0,
+                "runs": 0, "left_on_base": 0}
+        out = compute_live_traffic_score(
+            inning=6, innings_played=5, home_live=home, away_live=away,
+            is_under_pick=True,
+        )
+        # HR component capped at weight 12.
+        assert out["components"]["home_runs"] <= LIVE_COMPONENT_WEIGHTS["home_runs"]
+        # Even with 3 HR, low walks + low LOB keep total well below HIGH.
+        assert out["live_traffic_score"] < 60
+
+    def test_lob_increases_pressure_without_auto_high(self):
+        # Spec test 4 — LOB alone does not auto-trigger HIGH.
+        home = {"plate_appearances": 24, "hits": 5, "walks": 2, "runs": 1,
+                "left_on_base": 8, "risp_opportunities": 4, "risp_hits": 1}
+        away = {"plate_appearances": 22, "hits": 4, "walks": 1, "runs": 0,
+                "left_on_base": 6, "risp_opportunities": 3, "risp_hits": 0}
+        out = compute_live_traffic_score(
+            inning=6, innings_played=5, home_live=home, away_live=away,
+            is_under_pick=True,
+        )
+        # LOB component fires but bucket stays under HIGH.
+        assert out["components"]["lob"] >= 3
+        assert out["live_traffic_bucket"] != "HIGH_TRAFFIC"
+
+    def test_bullpen_entry_triggers_pressure_code(self):
+        home = {"plate_appearances": 22, "hits": 6, "walks": 4, "runs": 3,
+                "left_on_base": 4, "risp_opportunities": 4, "risp_hits": 2,
+                "starter_removed": True}
+        away = {"plate_appearances": 20, "hits": 5, "walks": 2, "runs": 2,
+                "left_on_base": 3, "starter_removed": True}
+        out = compute_live_traffic_score(
+            inning=5, innings_played=4, home_live=home, away_live=away,
+            is_under_pick=True,
+        )
+        assert RC_BULLPEN_ENTRY_TRAFFIC_RISK in out["reason_codes"]
+        assert out["components"]["bullpen_entry"] >= 6
+
+    def test_no_single_component_exceeds_25_pct_cap(self):
+        # Spec: no single component contributes > 25% of total score.
+        # Extreme inputs to attempt to violate the cap.
+        home = {"plate_appearances": 50, "hits": 25, "walks": 15, "home_runs": 8,
+                "runs": 20, "left_on_base": 25,
+                "risp_opportunities": 15, "risp_hits": 13,
+                "errors_forced": 5, "wild_pitches": 4, "passed_balls": 2,
+                "stolen_bases": 3, "starter_removed": True}
+        away = {"plate_appearances": 45, "hits": 20, "walks": 12, "home_runs": 6,
+                "runs": 15, "left_on_base": 20,
+                "risp_opportunities": 12, "risp_hits": 10,
+                "starter_removed": True}
+        out = compute_live_traffic_score(
+            inning=7, innings_played=6, home_live=home, away_live=away,
+            pitch_count_home=180, pitch_count_away=170,
+            is_under_pick=True,
+        )
+        # Every component must respect both its weight AND the 25% cap.
+        for name, pts in out["components"].items():
+            assert pts <= LIVE_COMPONENT_WEIGHTS[name]
+            assert pts <= 25, f"{name} = {pts} exceeds 25% cap"
