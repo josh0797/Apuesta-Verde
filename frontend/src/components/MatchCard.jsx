@@ -21,6 +21,7 @@ import { LiveScriptRealityBadge } from './LiveScriptRealityBadge';
 import { BullpenTrafficBadge } from './BullpenTrafficBadge';
 import { SiegePressureBadge } from './SiegePressureBadge';
 import { InningLambdaPanel } from './InningLambdaPanel';
+import { SeriesFamiliarityBadge } from './SeriesFamiliarityBadge';
 import { EditorialSignalsPanel } from './EditorialSignalsPanel';
 import { ExternalSourceEvidencePanel } from './ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from './SourcesConsultedPanel';
@@ -235,6 +236,13 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
               <div className="mt-2">
                 <InlineManualOddsInput
                   pickId={m.id || m.match_id}
+                  matchId={m.match_id}
+                  gamePk={m.game_pk || m.gamePk}
+                  homeTeam={m.home_team}
+                  awayTeam={m.away_team}
+                  commenceDate={(m.commence_time || '').slice(0, 10) || m.commence_date}
+                  market={m.recommendation?.market}
+                  line={m.recommendation?.line}
                   lang={lang}
                   testId={`pick-inline-manual-odds-${m.match_id}`}
                 />
@@ -435,6 +443,17 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           projection={m.inning_lambda_projection}
           lang={lang}
           testId={`inning-lambda-${m.match_id || ''}`}
+        />
+      )}
+
+      {/* Priority 3 — Series Familiarity badge (MLB pregame only).
+          Surfaces when these two teams have faced each other recently
+          (3 / 5 / 15 day window). Observe-only narrative. */}
+      {sport === 'baseball' && m.series_familiarity?.available && (
+        <SeriesFamiliarityBadge
+          data={m.series_familiarity}
+          lang={lang}
+          testId={`series-familiarity-${m.match_id || ''}`}
         />
       )}
 

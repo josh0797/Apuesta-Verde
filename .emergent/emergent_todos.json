@@ -1,26 +1,22 @@
 [
   {
-    "content": "Backend: Emitir progress intermedios (6%, 8%, 10%, 12%) durante discover/hydrate + logs estructurados",
+    "content": "Fix 4: Manual odds robust multi-key + override TTL 7d",
     "status": "completed"
   },
   {
-    "content": "Backend: asyncio.wait_for hard-timeout (90s) en discover_priority_fixtures + hydration; fail-soft a global pool",
+    "content": "Priority 1: λ7-9 reactivo con interaction modifiers + cap ±45%",
     "status": "completed"
   },
   {
-    "content": "Backend: Formalizar fail-soft de compute_pressure_score con available=false cuando stats vacíos",
+    "content": "Priority 2: adjustment_breakdown backend + UI 'Por qué'",
     "status": "completed"
   },
   {
-    "content": "Frontend: Detección de stall (>60s sin cambio en progress) en AnalysisProgressModal + botón reintentar",
+    "content": "Priority 3: mlb_series_familiarity_score + integración + badge UI",
     "status": "completed"
   },
   {
-    "content": "Tests: pressure score vacío + stall detection + regression LiveReevalPanel",
-    "status": "completed"
-  },
-  {
-    "content": "Restart backend + run pytest suite + report",
-    "status": "completed"
+    "content": "Tests + testing_agent consolidado final",
+    "status": "in_progress"
   }
 ]

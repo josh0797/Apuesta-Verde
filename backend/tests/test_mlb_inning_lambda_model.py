@@ -185,9 +185,12 @@ class TestFeatureFlag:
 # 10 — Phase adjustment cap clamps extreme inputs
 class TestPhaseAdjustmentCap:
     def test_extreme_inputs_get_clamped(self, monkeypatch):
-        # With default cap 0.35, even extreme bullpen + traffic input can't
-        # push λ_7_9 beyond +35% of its baseline (8.5 × 0.34 × 1.35).
+        # Priority 1 — λ_7_9 has its OWN cap (MLB_LAMBDA_MAX_LATE_ADJUSTMENT,
+        # default 0.45). λ_1_3 and λ_4_6 still use the symmetric 0.35 cap.
+        # With the new reactive model, even maximum bullpen + traffic +
+        # fatigue + HR inputs can't push λ_7_9 beyond +45% of its baseline.
         monkeypatch.delenv("MLB_LAMBDA_MAX_PHASE_ADJUSTMENT", raising=False)
+        monkeypatch.delenv("MLB_LAMBDA_MAX_LATE_ADJUSTMENT", raising=False)
         out = compute_mlb_inning_lambdas(**_base_kwargs(
             bullpen_home={"bullpen_era_7d": 12.0, "bullpen_whip_7d": 2.5,
                           "bullpen_fatigue": 1.0, "bullpen_usage_3d": 1.0,
@@ -196,8 +199,10 @@ class TestPhaseAdjustmentCap:
                           "bullpen_fatigue": 1.0},
             traffic_score=100,
         ))
-        cap = 8.5 * 0.34 * 1.35
+        cap = 8.5 * 0.34 * 1.45  # +45% late cap
         assert out["lambda_7_9"] <= cap + 0.001
+        # And the model should mark it as capped.
+        assert out["phase_breakdown"]["bullpen_phase"]["capped"] is True
         assert RC_LATE_EXPLOSION_RISK_EMBEDDED in (
             out["phase_breakdown"]["bullpen_phase"]["reason_codes"]
         )

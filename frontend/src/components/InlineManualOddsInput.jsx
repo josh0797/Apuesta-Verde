@@ -23,7 +23,18 @@ import { toast } from 'sonner';
  *   • Fail-soft: any API error surfaces via toast — local state is
  *     untouched so the user can retry.
  */
-export function InlineManualOddsInput({ pickId, lang = 'es', testId }) {
+export function InlineManualOddsInput({
+  pickId,
+  matchId,
+  gamePk,
+  homeTeam,
+  awayTeam,
+  commenceDate,
+  market,
+  line,
+  lang = 'es',
+  testId,
+}) {
   const [value, setValue]   = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(null);
@@ -37,19 +48,44 @@ export function InlineManualOddsInput({ pickId, lang = 'es', testId }) {
 
   const submit = async () => {
     if (saving || !value) return;
+    // Normalize comma → dot before sending (backend also normalizes but
+    // we want a clean payload for logging / debugging).
+    const normalized = String(value).trim().replace(',', '.');
     setSaving(true);
     try {
+      // Fix 4 — Multi-key payload. Send the context fields so the backend
+      // can fall back to game_pk / match_id / team-name matching when the
+      // pick_id alone doesn't resolve to a pick in recent_runs.
       const r = await api.post(`/mlb/picks/${pickId}/manual-odds`, {
-        manual_odds: value,
+        manual_odds:      normalized,
         promote_if_value: false,
+        match_id:         matchId,
+        game_pk:          gamePk ? String(gamePk) : undefined,
+        home_team:        homeTeam,
+        away_team:        awayTeam,
+        commence_date:    commenceDate,
+        market,
+        line:             typeof line === 'number' ? line : undefined,
       });
       setSaved(r.data);
-      const edge = Number(r.data?.manual_edge_pct ?? 0);
-      toast.success(
-        lang === 'en'
-          ? `Saved — ${r.data?.value_status} (${edge >= 0 ? '+' : ''}${edge.toFixed(1)}%)`
-          : `Cuota guardada — ${r.data?.value_status} (edge ${edge >= 0 ? '+' : ''}${edge.toFixed(1)}%)`,
-      );
+      // Backend always returns { ok: true } now. Three success shapes:
+      //  • attached_to_pick=true  → full edge payload
+      //  • fallback_override_created=true → odds saved as override
+      const isFallback = r.data?.fallback_override_created;
+      if (isFallback) {
+        toast.success(
+          lang === 'en'
+            ? `Saved as override (no matching pick in recent runs) — ${normalized}`
+            : `Cuota guardada (override — pick no encontrado en runs recientes): ${normalized}`,
+        );
+      } else {
+        const edge = Number(r.data?.manual_edge_pct ?? 0);
+        toast.success(
+          lang === 'en'
+            ? `Saved — ${r.data?.value_status} (${edge >= 0 ? '+' : ''}${edge.toFixed(1)}%)`
+            : `Cuota guardada — ${r.data?.value_status} (edge ${edge >= 0 ? '+' : ''}${edge.toFixed(1)}%)`,
+        );
+      }
     } catch (err) {
       const detail = err?.response?.data?.detail
         || (lang === 'en' ? 'Could not save odds' : 'No se pudo guardar la cuota');
@@ -105,10 +141,16 @@ export function InlineManualOddsInput({ pickId, lang = 'es', testId }) {
           className={`text-[10.5px] tabular-nums ${statusCls}`}
           data-testid={`${testId || 'inline-manual-odds-input'}-status`}
         >
-          {saved.value_status}
-          {' '}
-          ({Number(saved.manual_edge_pct ?? 0) >= 0 ? '+' : ''}
-          {Number(saved.manual_edge_pct ?? 0).toFixed(1)}%)
+          {saved.fallback_override_created
+            ? (lang === 'en' ? 'Saved (override)' : 'Guardada (override)')
+            : (
+              <>
+                {saved.value_status}
+                {' '}
+                ({Number(saved.manual_edge_pct ?? 0) >= 0 ? '+' : ''}
+                {Number(saved.manual_edge_pct ?? 0).toFixed(1)}%)
+              </>
+            )}
         </span>
       ) : (
         <span className="text-[10px] text-muted-foreground/80 ml-auto">{help}</span>

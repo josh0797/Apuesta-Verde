@@ -194,6 +194,19 @@ export function InningLambdaPanel({ projection, lang = 'es', testId }) {
             </p>
           )}
 
+          {/* Priority 2 — "¿Por qué esta proyección?" breakdown. Lists
+              every per-factor delta with its phase tag and Spanish
+              explanation. Collapsed by default to avoid clutter. */}
+          {projection.adjustment_breakdown
+            && Array.isArray(projection.adjustment_breakdown.adjustments)
+            && projection.adjustment_breakdown.adjustments.length > 0 && (
+              <BreakdownSection
+                ab={projection.adjustment_breakdown}
+                lang={lang}
+                testId="inning-lambda-breakdown"
+              />
+          )}
+
           {reasonCodes.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-0.5" data-testid="inning-lambda-reason-codes">
               {reasonCodes.map((rc) => (
@@ -229,6 +242,83 @@ function PhaseCard({ label, value, factor, factorLabel, tone = 'neutral', testId
       {factor != null && (
         <div className="text-[9px] opacity-60 font-mono">
           ×{fmt(factor, 3)} {factorLabel}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * BreakdownSection (Priority 2) — collapsible "¿Por qué esta proyección?"
+ * panel. Lists each {phase, factor, delta, reason} adjustment so the user
+ * can see exactly WHY the engine landed on its expected_runs number.
+ */
+function BreakdownSection({ ab, lang, testId }) {
+  const [open, setOpen] = useState(false);
+  const phaseLabel = (p) => {
+    if (p === '1_3') return 'λ 1-3';
+    if (p === '4_6') return 'λ 4-6';
+    if (p === '7_9') return 'λ 7-9';
+    return p;
+  };
+  const totalDelta = Number(ab.total_delta ?? 0);
+  const deltaTone = totalDelta > 0 ? 'text-amber-300'
+                   : totalDelta < 0 ? 'text-emerald-300'
+                   : 'opacity-70';
+
+  return (
+    <div
+      className="rounded-md border border-cyan-500/30 bg-cyan-500/5"
+      data-testid={testId}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left hover:bg-cyan-500/10 transition-colors rounded-md"
+        data-testid={`${testId}-toggle`}
+      >
+        <div className="flex items-center gap-1.5 text-[10.5px]">
+          <Sigma className="h-3 w-3 text-cyan-300" />
+          <span className="font-semibold text-cyan-100">
+            {lang === 'en' ? 'Why this projection?' : '¿Por qué esta proyección?'}
+          </span>
+          <span className={`font-mono ${deltaTone}`}>
+            ({totalDelta > 0 ? '+' : ''}{fmt(totalDelta)})
+          </span>
+        </div>
+        {open ? <ChevronUp className="h-3 w-3 opacity-70" />
+              : <ChevronDown className="h-3 w-3 opacity-70" />}
+      </button>
+      {open && (
+        <div className="px-2.5 pb-2 space-y-1" data-testid={`${testId}-list`}>
+          <div className="flex items-center justify-between text-[9.5px] opacity-70 pt-1 border-t border-cyan-500/20">
+            <span>{lang === 'en' ? 'Base' : 'Base'}: <strong className="text-foreground">{fmt(ab.base_expected_runs)}</strong></span>
+            <span>{lang === 'en' ? 'Final' : 'Final'}: <strong className="text-foreground">{fmt(ab.final_expected_runs)}</strong></span>
+          </div>
+          {(ab.adjustments || []).map((a, idx) => {
+            const d = Number(a.delta || 0);
+            const tone = d > 0 ? 'text-amber-300' : d < 0 ? 'text-emerald-300' : 'opacity-70';
+            return (
+              <div
+                key={`${a.phase}-${a.factor}-${idx}`}
+                className="flex items-start justify-between gap-2 text-[10px] leading-snug"
+                data-testid={`${testId}-row-${a.phase}-${a.factor}`}
+              >
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <Badge
+                    variant="outline"
+                    className="text-[8.5px] py-0 px-1 shrink-0"
+                  >
+                    {phaseLabel(a.phase)}
+                  </Badge>
+                  <span className="opacity-90 truncate">{a.reason}</span>
+                </span>
+                <span className={`font-mono shrink-0 ${tone}`}>
+                  {d > 0 ? '+' : ''}{fmt(d)}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

@@ -21,9 +21,36 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
+
+# ── Priority 3 — In-memory TTL cache for series_familiarity (6h) ─────
+# Module-level singleton. Eviction on read miss; size capped at 500
+# entries (safety net — typical slate is 15 games/day so 500 lasts ≈
+# 30 days). Async API to match hydrate_series_familiarity's contract.
+_SFAM_CACHE: dict[str, tuple[float, Any]] = {}
+_SFAM_CACHE_MAX = 500
+
+
+async def _sfam_cache_get(key: str) -> Any:
+    entry = _SFAM_CACHE.get(key)
+    if entry is None:
+        return None
+    expires_at, value = entry
+    if time.time() >= expires_at:
+        _SFAM_CACHE.pop(key, None)
+        return None
+    return value
+
+
+async def _sfam_cache_set(key: str, value: Any, ttl: int = 6 * 3600) -> None:
+    if len(_SFAM_CACHE) >= _SFAM_CACHE_MAX:
+        # Drop oldest entry (linear scan; fine at 500 cap).
+        oldest_k = min(_SFAM_CACHE, key=lambda k: _SFAM_CACHE[k][0])
+        _SFAM_CACHE.pop(oldest_k, None)
+    _SFAM_CACHE[key] = (time.time() + ttl, value)
 
 from .mlb_pregame_analytics import (
     starting_pitcher_edge,
@@ -1638,6 +1665,55 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
             log.debug("defensive_breakdown_score failed (fail-soft): %s", _exc_db)
             defensive_breakdown_pregame = None
 
+        # ── Priority 3 — MLB Series Familiarity Score (pregame) ──────────
+        # Detects repeated matchups in the last 3/5/15 days. Cached 6h.
+        # Fail-soft: missing data → score unavailable, no λ7-9 boost.
+        series_familiarity: dict = {"available": False}
+        series_score_for_lambda: Optional[float] = None
+        try:
+            from .mlb_series_familiarity_score import hydrate_series_familiarity
+            import httpx as _httpx_sf
+            _ht = conf.get("home_team_id")
+            _at = conf.get("away_team_id")
+            _gd = conf.get("kickoff_iso") or conf.get("game_date") \
+                  or (pick_payload.get("commence_time") if pick_payload else None)
+            if _ht and _at and _gd:
+                async def _fetch_schedule(start_d: str, end_d: str):
+                    url = "https://statsapi.mlb.com/api/v1/schedule"
+                    params = {
+                        "sportId":   1,
+                        "startDate": start_d,
+                        "endDate":   end_d,
+                        # Restrict to the home or away team to keep payload small.
+                        "teamId":    int(_ht),
+                    }
+                    async with _httpx_sf.AsyncClient(timeout=8.0) as _c:
+                        r = await _c.get(url, params=params)
+                        if r.status_code != 200:
+                            return []
+                        data = r.json() or {}
+                        games_out: list[dict] = []
+                        for dt in (data.get("dates") or []):
+                            for g in (dt.get("games") or []):
+                                games_out.append(g)
+                        return games_out
+
+                series_familiarity = await hydrate_series_familiarity(
+                    home_team_id=_ht,
+                    away_team_id=_at,
+                    game_date=_gd,
+                    fetch_schedule=_fetch_schedule,
+                    bullpen_usage_5d=(h_bullpen_usage or {}).get("usage_5d")
+                                       or (h_bullpen_usage or {}).get("bullpen_usage_5d"),
+                    cache_get=_sfam_cache_get,
+                    cache_set=_sfam_cache_set,
+                )
+                if series_familiarity.get("available"):
+                    series_score_for_lambda = series_familiarity.get("series_familiarity_score")
+        except Exception as _exc_sfam:
+            log.warning("[MLB_SERIES_FAMILIARITY] hydrate failed: %s", _exc_sfam)
+            series_familiarity = {"available": False, "error": str(_exc_sfam)}
+
         # ── Phase 47 — MLB Pregame Inning-Lambda Model (observe-only) ───
         # Decomposes expected_runs into λ_1_3 + λ_4_6 + λ_7_9 with
         # continuous bullpen × traffic interaction in the late phase.
@@ -1710,6 +1786,9 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 defensive_breakdown_score=(
                     (defensive_breakdown_pregame or {}).get("defensive_breakdown_score")
                 ),
+                # Priority 3 — series familiarity feeds the bullpen phase
+                # (only meaningful when bullpen fatigue / traffic also present).
+                series_familiarity_score=series_score_for_lambda,
             )
             pick_payload["inning_lambda_projection"] = inning_lambda_projection
             if inning_lambda_projection.get("available"):
@@ -1735,6 +1814,18 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         except Exception as _exc_il:
             log.debug("mlb_inning_lambda_model failed (fail-soft): %s", _exc_il)
             pipeline_meta.setdefault("mlb_inning_lambda", {"enabled": True, "available": False, "reason": "exception"})
+
+        # ── Priority 3 — Persist series_familiarity payload + meta ──────
+        try:
+            pick_payload["series_familiarity"] = series_familiarity
+            pipeline_meta["series_familiarity"] = {
+                "available": series_familiarity.get("available"),
+                "score":     series_familiarity.get("series_familiarity_score"),
+                "bucket":    series_familiarity.get("bucket"),
+                "reason_codes": series_familiarity.get("reason_codes") or [],
+            }
+        except Exception as _exc_sfam_persist:
+            log.debug("series_familiarity persist failed (fail-soft): %s", _exc_sfam_persist)
 
         # ── Phase 48 — Line Learning Feedback Loop (active) ────────────
         # Apply the day-scoped global bias to expected_runs BEFORE

@@ -21,7 +21,12 @@ is False when the model cannot produce a useful projection (e.g.,
 Feature flags (env-driven):
     MLB_INNING_LAMBDA_ENABLED         (default true)
     MLB_LAMBDA_TRAFFIC_WEIGHT         (default 0.25)
-    MLB_LAMBDA_MAX_PHASE_ADJUSTMENT   (default 0.35)  — symmetric cap
+    MLB_LAMBDA_DEFENSE_WEIGHT         (default 0.15)  ← Priority 1
+    MLB_LAMBDA_FATIGUE_WEIGHT         (default 0.15)  ← Priority 1
+    MLB_LAMBDA_HR_WEIGHT              (default 0.10)  ← Priority 1
+    MLB_LAMBDA_SERIES_WEIGHT          (default 0.10)  ← Priority 3
+    MLB_LAMBDA_MAX_PHASE_ADJUSTMENT   (default 0.35)  — symmetric cap (1-3, 4-6)
+    MLB_LAMBDA_MAX_LATE_ADJUSTMENT    (default 0.45)  ← Priority 1: cap for λ_7_9
     MLB_LAMBDA_MIN_PHASE_VALUE        (default 0.05)
 """
 from __future__ import annotations
@@ -55,6 +60,29 @@ RC_TRAFFIC_SCORE_MISSING_NEUTRAL_USED  = "TRAFFIC_SCORE_MISSING_NEUTRAL_USED"
 RC_LATE_EXPLOSION_RISK_EMBEDDED        = "LATE_EXPLOSION_RISK_EMBEDDED"
 RC_INNING_LAMBDA_SIGNIFICANT_DELTA     = "INNING_LAMBDA_SIGNIFICANT_DELTA"
 
+# ── Priority 1 — λ7-9 reactive model ─────────────────────────────────
+RC_LATE_LAMBDA_REACTIVE_MODEL_USED     = "LATE_LAMBDA_REACTIVE_MODEL_USED"
+RC_BULLPEN_TRAFFIC_RAISES_LATE_LAMBDA  = "BULLPEN_TRAFFIC_RAISES_LATE_LAMBDA"
+RC_BULLPEN_DEFENSE_RAISES_LATE_LAMBDA  = "BULLPEN_DEFENSE_RAISES_LATE_LAMBDA"
+RC_FATIGUE_RAISES_LATE_LAMBDA          = "FATIGUE_RAISES_LATE_LAMBDA"
+RC_HR_RISK_RAISES_LATE_LAMBDA          = "HR_RISK_RAISES_LATE_LAMBDA"
+RC_LOW_DEFENSIVE_RISK_LIMITS_LATE_RUNS = "LOW_DEFENSIVE_RISK_LIMITS_LATE_RUNS"
+RC_LATE_LAMBDA_CAPPED                  = "LATE_LAMBDA_CAPPED"
+
+# ── Priority 2 — Projection breakdown ────────────────────────────────
+RC_PROJECTION_BREAKDOWN_AVAILABLE      = "PROJECTION_BREAKDOWN_AVAILABLE"
+RC_STARTER_IMPACT_EXPLAINED            = "STARTER_IMPACT_EXPLAINED"
+RC_BULLPEN_IMPACT_EXPLAINED            = "BULLPEN_IMPACT_EXPLAINED"
+RC_TRAFFIC_IMPACT_EXPLAINED            = "TRAFFIC_IMPACT_EXPLAINED"
+RC_DEFENSE_IMPACT_EXPLAINED            = "DEFENSE_IMPACT_EXPLAINED"
+
+# ── Priority 3 — Series familiarity ──────────────────────────────────
+RC_SERIES_FAMILIARITY_DETECTED         = "SERIES_FAMILIARITY_DETECTED"
+RC_RECENT_REPEAT_MATCHUP               = "RECENT_REPEAT_MATCHUP"
+RC_SERIES_FAMILIARITY_TRAFFIC_BOOST    = "SERIES_FAMILIARITY_TRAFFIC_BOOST"
+RC_SERIES_FAMILIARITY_LOW_NO_ADJUSTMENT = "SERIES_FAMILIARITY_LOW_NO_ADJUSTMENT"
+RC_SERIES_FAMILIARITY_CAPPED           = "SERIES_FAMILIARITY_CAPPED"
+
 ALL_REASON_CODES = (
     RC_INNING_LAMBDA_MODEL_USED,
     RC_STARTER_SUPPRESSES_EARLY_RUNS,
@@ -68,6 +96,26 @@ ALL_REASON_CODES = (
     RC_TRAFFIC_SCORE_MISSING_NEUTRAL_USED,
     RC_LATE_EXPLOSION_RISK_EMBEDDED,
     RC_INNING_LAMBDA_SIGNIFICANT_DELTA,
+    # Priority 1
+    RC_LATE_LAMBDA_REACTIVE_MODEL_USED,
+    RC_BULLPEN_TRAFFIC_RAISES_LATE_LAMBDA,
+    RC_BULLPEN_DEFENSE_RAISES_LATE_LAMBDA,
+    RC_FATIGUE_RAISES_LATE_LAMBDA,
+    RC_HR_RISK_RAISES_LATE_LAMBDA,
+    RC_LOW_DEFENSIVE_RISK_LIMITS_LATE_RUNS,
+    RC_LATE_LAMBDA_CAPPED,
+    # Priority 2
+    RC_PROJECTION_BREAKDOWN_AVAILABLE,
+    RC_STARTER_IMPACT_EXPLAINED,
+    RC_BULLPEN_IMPACT_EXPLAINED,
+    RC_TRAFFIC_IMPACT_EXPLAINED,
+    RC_DEFENSE_IMPACT_EXPLAINED,
+    # Priority 3
+    RC_SERIES_FAMILIARITY_DETECTED,
+    RC_RECENT_REPEAT_MATCHUP,
+    RC_SERIES_FAMILIARITY_TRAFFIC_BOOST,
+    RC_SERIES_FAMILIARITY_LOW_NO_ADJUSTMENT,
+    RC_SERIES_FAMILIARITY_CAPPED,
 )
 
 
@@ -181,85 +229,199 @@ def _lineup_factor(lineup: dict) -> float:
     return 1.0 + (recent - 4.4) * 0.04
 
 
-def _bullpen_traffic_factor(
-    bullpen: dict,
-    traffic_score: Optional[float],
-    traffic_weight: float,
-) -> tuple[float, list[str], dict]:
-    """Continuous bullpen + traffic interaction for λ_7_9.
+def _bullpen_vulnerability_residual(bullpen: dict) -> tuple[float, dict]:
+    """Priority 1 — Composite bullpen vulnerability residual in [0, 1].
 
-    Formula:
-        factor = (1 + bullpen_term) * (1 + traffic_weight * normalized_traffic * bullpen_residual)
+    Combines (with weights):
+        bullpen_era_7d         (60%)  league avg 4.10
+        bullpen_whip_7d        (25%)  league avg 1.30
+        bullpen_usage_3d       (15%)  trigger at >0.55
 
-    Where:
-        bullpen_term      = 0.30 * normalized(bullpen_era_7d, league_avg=4.10)
-                            + 0.15 * normalized(bullpen_whip_7d, league_avg=1.30)
-                            + 0.10 * usage_3d_above_threshold
-        bullpen_residual  = normalized(bullpen_era_7d - 4.10) clipped to [0, 1.5]
-        normalized_traffic = traffic_score / 100  (or 0.50 when missing)
-
-    Returns ``(factor, reasons, breakdown)`` where breakdown carries the
-    intermediate values for transparency in the response payload.
+    The "residual" is how vulnerable the bullpen is relative to league
+    average. ``0.0`` = league average, ``1.0`` = catastrophic (ERA 7+,
+    WHIP 1.7+, fully used). This residual is the modulator for the
+    traffic / defense interactions below.
     """
-    reasons: list[str] = []
-    bp_era  = _safe(bullpen.get("bullpen_era_7d"))
-    bp_whip = _safe(bullpen.get("bullpen_whip_7d"))
-    bp_usage_3d = _safe(bullpen.get("bullpen_usage_3d"))  # 0..1
-    bp_fatigue  = _safe(bullpen.get("bullpen_fatigue"))   # 0..1
-    hr_risk     = _safe(bullpen.get("hr_risk"))           # 0..1
-    explosion   = _safe(bullpen.get("offensive_explosion_score"))  # 0..1
+    bp_era      = _safe(bullpen.get("bullpen_era_7d"))
+    bp_whip     = _safe(bullpen.get("bullpen_whip_7d"))
+    bp_usage_3d = _safe(bullpen.get("bullpen_usage_3d"))
 
     league_era  = 4.10
     league_whip = 1.30
+    components: list[tuple[str, float, float]] = []  # (name, raw, weighted_residual)
 
-    bullpen_term = 0.0
+    era_res = 0.0
     if bp_era is not None:
-        bullpen_term += 0.30 * ((bp_era - league_era) / league_era)
+        era_res = _clamp((bp_era - league_era) / league_era, 0.0, 1.5)
+        # Normalize so era_res in [0, 1] when era ∈ [league, league*2.0].
+        era_res = min(1.0, era_res / 1.0)
+        components.append(("bullpen_era_7d", bp_era, 0.60 * era_res))
+
+    whip_res = 0.0
     if bp_whip is not None:
-        bullpen_term += 0.15 * ((bp_whip - league_whip) / league_whip)
+        whip_res = _clamp((bp_whip - league_whip) / league_whip, 0.0, 1.5)
+        whip_res = min(1.0, whip_res / 1.0)
+        components.append(("bullpen_whip_7d", bp_whip, 0.25 * whip_res))
+
+    usage_res = 0.0
     if bp_usage_3d is not None and bp_usage_3d > 0.55:
-        bullpen_term += 0.10 * (bp_usage_3d - 0.55) / 0.45
-    if bp_fatigue is not None and bp_fatigue > 0.50:
-        bullpen_term += 0.10 * (bp_fatigue - 0.50)
-        if bp_fatigue >= 0.65:
-            reasons.append(RC_BULLPEN_FATIGUE_RAISES_LATE_LAMBDA)
-    if hr_risk is not None and hr_risk > 0.55:
-        bullpen_term += 0.05 * (hr_risk - 0.55)
-    if explosion is not None and explosion > 0.55:
-        bullpen_term += 0.05 * (explosion - 0.55)
+        # Saturates at 1.0 around 90% usage.
+        usage_res = _clamp((bp_usage_3d - 0.55) / 0.35, 0.0, 1.0)
+        components.append(("bullpen_usage_3d", bp_usage_3d, 0.15 * usage_res))
+
+    if not components:
+        return 0.0, {"available": False}
+
+    total_residual = min(1.0, sum(w for _, _, w in components))
+    return total_residual, {
+        "available":   True,
+        "components":  {n: r for n, r, _ in components},
+        "weighted":    {n: w for n, _, w in components},
+        "vulnerability": round(total_residual, 4),
+    }
+
+
+def _bullpen_traffic_factor(
+    bullpen: dict,
+    traffic_score: Optional[float],
+    defensive_breakdown_score: Optional[float],
+    series_familiarity_score: Optional[float],
+    weights_cfg: dict,
+) -> tuple[float, list[str], dict]:
+    """Priority 1 — Reactive λ7-9 multiplier using interaction modifiers.
+
+    Equation:
+        late_explosion_factor =
+            1
+          + traffic_weight  * (vulnerability_residual * normalized_traffic)
+          + defense_weight  * (vulnerability_residual * normalized_defense)
+          + fatigue_weight  * bullpen_fatigue
+          + hr_weight       * hr_risk
+          + series_weight   * series_traffic_boost
+
+    Where:
+        vulnerability_residual ∈ [0, 1] from bullpen_era_7d + whip_7d + usage_3d
+        normalized_traffic     ∈ [0, 1] = traffic_score / 100 (or 0.50 fallback)
+        normalized_defense     ∈ [0, 1] = defensive_breakdown_score / 100
+        series_traffic_boost   = norm(series) * max(norm(fatigue), norm(traffic))
+
+    Core rule (Priority 1):
+        Bullpen risk ALONE doesn't heavily inflate λ7-9. Strong adjustment
+        only happens when bullpen vulnerability MEETS high traffic or
+        high defensive breakdown.
+
+    Returns ``(factor, reasons, breakdown)``. The breakdown is used by
+    Priority 2 (adjustment_breakdown) to explain the deltas to the user.
+    """
+    reasons: list[str] = []
+    breakdown: dict = {}
+    reasons.append(RC_LATE_LAMBDA_REACTIVE_MODEL_USED)
+
+    bp_fatigue = _safe(bullpen.get("bullpen_fatigue")) or 0.0
+    hr_risk    = _safe(bullpen.get("hr_risk")) or 0.0
+    explosion  = _safe(bullpen.get("offensive_explosion_score")) or 0.0
+    if explosion >= 0.55:
         reasons.append(RC_LATE_EXPLOSION_RISK_EMBEDDED)
 
-    # Bullpen vulnerability residual (0 when bullpen is league-average,
-    # rising as it gets worse). Clipped at 1.5 to prevent extreme single
-    # outliers (e.g. ERA 9.0 in a 5-game window) from blowing up λ_7_9.
-    bullpen_residual = max(0.0, ((bp_era or league_era) - league_era) / league_era)
-    bullpen_residual = min(1.5, bullpen_residual)
+    vulnerability_residual, vuln_brk = _bullpen_vulnerability_residual(bullpen)
+    breakdown["vulnerability_residual"] = round(vulnerability_residual, 4)
+    breakdown["vulnerability_breakdown"] = vuln_brk
 
+    # Normalized traffic / defense scores.
     if traffic_score is None:
-        normalized_traffic = 0.50  # neutral fallback
+        normalized_traffic = 0.50
         reasons.append(RC_TRAFFIC_SCORE_MISSING_NEUTRAL_USED)
     else:
         normalized_traffic = _clamp(float(traffic_score) / 100.0, 0.0, 1.0)
 
-    interaction = traffic_weight * normalized_traffic * bullpen_residual
+    if defensive_breakdown_score is None:
+        normalized_defense = 0.50
+    else:
+        normalized_defense = _clamp(float(defensive_breakdown_score) / 100.0, 0.0, 1.0)
 
-    if bullpen_residual >= 0.10:
-        if normalized_traffic >= 0.65:
-            reasons.append(RC_HIGH_TRAFFIC_RAISES_LATE_LAMBDA)
-        elif normalized_traffic <= 0.35:
-            reasons.append(RC_LOW_TRAFFIC_LIMITS_BULLPEN_RISK)
+    if series_familiarity_score is None:
+        normalized_series = 0.0
+    else:
+        normalized_series = _clamp(float(series_familiarity_score) / 100.0, 0.0, 1.0)
 
-    if bullpen_term > 0.05 or interaction > 0.05:
+    # Interaction modifiers (these are the heart of Priority 1).
+    bullpen_traffic_interaction = vulnerability_residual * normalized_traffic
+    bullpen_defense_interaction = vulnerability_residual * normalized_defense
+    # Series boost only applies when there's bullpen usage OR traffic to amplify.
+    series_traffic_boost = normalized_series * max(
+        _clamp(bp_fatigue, 0.0, 1.0), normalized_traffic,
+    )
+
+    traffic_weight = weights_cfg["traffic"]
+    defense_weight = weights_cfg["defense"]
+    fatigue_weight = weights_cfg["fatigue"]
+    hr_weight      = weights_cfg["hr"]
+    series_weight  = weights_cfg["series"]
+
+    contribution_traffic = traffic_weight * bullpen_traffic_interaction
+    contribution_defense = defense_weight * bullpen_defense_interaction
+    contribution_fatigue = fatigue_weight * _clamp(bp_fatigue, 0.0, 1.0)
+    contribution_hr      = hr_weight      * _clamp(hr_risk, 0.0, 1.0)
+    contribution_series  = series_weight  * series_traffic_boost
+    # Cap the series contribution explicitly at +0.35 runs worth of multiplier.
+    if contribution_series > 0.07:  # ≈ +0.35 runs on a typical λ_7_9 ~5
+        contribution_series = 0.07
+        reasons.append(RC_SERIES_FAMILIARITY_CAPPED)
+
+    late_explosion_factor = (
+        1.0
+        + contribution_traffic
+        + contribution_defense
+        + contribution_fatigue
+        + contribution_hr
+        + contribution_series
+    )
+
+    # Reason annotations — show WHICH levers fired.
+    if vulnerability_residual >= 0.15:
+        # Back-compat: surface BULLPEN_PHASE_RISK whenever the bullpen
+        # itself is meaningfully above league average, independent of
+        # the interaction levers.
         reasons.append(RC_BULLPEN_PHASE_RISK)
+    if vulnerability_residual >= 0.15 and normalized_traffic >= 0.55:
+        reasons.append(RC_BULLPEN_TRAFFIC_RAISES_LATE_LAMBDA)
+        reasons.append(RC_HIGH_TRAFFIC_RAISES_LATE_LAMBDA)
+    elif vulnerability_residual >= 0.20 and normalized_traffic <= 0.35:
+        reasons.append(RC_LOW_TRAFFIC_LIMITS_BULLPEN_RISK)
 
-    factor = (1.0 + bullpen_term) * (1.0 + interaction)
-    return factor, reasons, {
-        "bullpen_term":       round(bullpen_term, 4),
-        "bullpen_residual":   round(bullpen_residual, 4),
-        "normalized_traffic": round(normalized_traffic, 4),
-        "interaction":        round(interaction, 4),
-        "traffic_weight":     traffic_weight,
-    }
+    if vulnerability_residual >= 0.15 and normalized_defense >= 0.55:
+        reasons.append(RC_BULLPEN_DEFENSE_RAISES_LATE_LAMBDA)
+    elif vulnerability_residual >= 0.20 and normalized_defense <= 0.35:
+        reasons.append(RC_LOW_DEFENSIVE_RISK_LIMITS_LATE_RUNS)
+
+    if bp_fatigue >= 0.55:
+        reasons.append(RC_FATIGUE_RAISES_LATE_LAMBDA)
+        reasons.append(RC_BULLPEN_FATIGUE_RAISES_LATE_LAMBDA)
+    if hr_risk >= 0.55:
+        reasons.append(RC_HR_RISK_RAISES_LATE_LAMBDA)
+    if normalized_series >= 0.40 and series_traffic_boost >= 0.20:
+        reasons.append(RC_SERIES_FAMILIARITY_TRAFFIC_BOOST)
+
+    breakdown.update({
+        "normalized_traffic":         round(normalized_traffic, 4),
+        "normalized_defense":         round(normalized_defense, 4),
+        "normalized_series":          round(normalized_series, 4),
+        "bullpen_fatigue":            round(_clamp(bp_fatigue, 0.0, 1.0), 4),
+        "hr_risk":                    round(_clamp(hr_risk, 0.0, 1.0), 4),
+        "bullpen_traffic_interaction": round(bullpen_traffic_interaction, 4),
+        "bullpen_defense_interaction": round(bullpen_defense_interaction, 4),
+        "series_traffic_boost":        round(series_traffic_boost, 4),
+        "contributions": {
+            "traffic": round(contribution_traffic, 4),
+            "defense": round(contribution_defense, 4),
+            "fatigue": round(contribution_fatigue, 4),
+            "hr":      round(contribution_hr, 4),
+            "series":  round(contribution_series, 4),
+        },
+        "weights": dict(weights_cfg),
+        "late_explosion_factor": round(late_explosion_factor, 4),
+    })
+    return late_explosion_factor, reasons, breakdown
 
 
 def _park_weather_factor(env: dict) -> float:
@@ -302,12 +464,16 @@ def compute_mlb_inning_lambdas(
     # score is multiplied into the bullpen vulnerability residual so
     # high defensive breakdown amplifies λ_7_9 alongside traffic.
     defensive_breakdown_score: Optional[float] = None,
+    # Priority 3 forward-compat — series familiarity score (0-100). Only
+    # applies a boost when combined with bullpen fatigue OR high traffic.
+    series_familiarity_score:  Optional[float] = None,
 ) -> dict:
     """Build the per-phase λ projection.
 
     Returns dict with ``available``, λ values, F5 + full-game projections,
-    phase breakdown and reason codes. Always returns even on missing
-    inputs (``available=false`` + zeros).
+    phase breakdown, ``adjustment_breakdown`` (Priority 2) and reason
+    codes. Always returns even on missing inputs (``available=false`` +
+    zeros).
     """
     if not _env_bool("MLB_INNING_LAMBDA_ENABLED", True):
         return {
@@ -328,13 +494,38 @@ def compute_mlb_inning_lambdas(
             "reason_codes":    [],
         }
 
-    traffic_weight       = _env_float("MLB_LAMBDA_TRAFFIC_WEIGHT", 0.25)
+    # ── Priority 1 weights (env-driven) ──────────────────────────────
+    weights_cfg = {
+        "traffic": _env_float("MLB_LAMBDA_TRAFFIC_WEIGHT", 0.25),
+        "defense": _env_float("MLB_LAMBDA_DEFENSE_WEIGHT", 0.15),
+        "fatigue": _env_float("MLB_LAMBDA_FATIGUE_WEIGHT", 0.15),
+        "hr":      _env_float("MLB_LAMBDA_HR_WEIGHT",      0.10),
+        "series":  _env_float("MLB_LAMBDA_SERIES_WEIGHT",  0.10),
+    }
     max_phase_adjustment = _env_float("MLB_LAMBDA_MAX_PHASE_ADJUSTMENT", 0.35)
+    max_late_adjustment  = _env_float("MLB_LAMBDA_MAX_LATE_ADJUSTMENT",  0.45)
     min_phase_value      = _env_float("MLB_LAMBDA_MIN_PHASE_VALUE", 0.05)
     weights = {**DEFAULT_PHASE_WEIGHTS, **(phase_weights or {})}
     # Renormalize weights in case the caller passed a partial override.
     total_w = sum(weights.values()) or 1.0
     weights = {k: v / total_w for k, v in weights.items()}
+
+    # Adjustment breakdown collector — populated as we apply factors so
+    # the response payload can explain WHY the total moved (Priority 2).
+    adjustments: list[dict] = []
+    lambda_base_1_3 = base * weights["lambda_1_3"]
+    lambda_base_4_6 = base * weights["lambda_4_6"]
+    lambda_base_7_9 = base * weights["lambda_7_9"]
+
+    def _record_adj(phase: str, factor: str, baseline: float, adjusted: float, reason: str):
+        delta = round(adjusted - baseline, 4)
+        if abs(delta) >= 0.01:
+            adjustments.append({
+                "phase":  phase,
+                "factor": factor,
+                "delta":  delta,
+                "reason": reason,
+            })
 
     # ── Phase 1 — Starter phase (λ_1_3) ──────────────────────────────
     # Use both starters: defender = the team currently pitching. Average
@@ -349,52 +540,160 @@ def compute_mlb_inning_lambdas(
         "park_factor": park_factor, "weather_factor": weather_factor,
     })
 
-    raw_1_3 = base * weights["lambda_1_3"] * starter_factor * lineup_factor_overall * park_weather
-    lambda_1_3 = _apply_cap(base * weights["lambda_1_3"], raw_1_3, max_phase_adjustment, min_phase_value)
+    raw_1_3 = lambda_base_1_3 * starter_factor * lineup_factor_overall * park_weather
+    lambda_1_3 = _apply_cap(lambda_base_1_3, raw_1_3, max_phase_adjustment, min_phase_value)
     reasons_1_3 = sorted(set(r_h + r_a))
+
+    # Breakdown: split λ_1_3 adjustments by sub-factor for transparency.
+    _record_adj(
+        "1_3", "starter_quality",
+        lambda_base_1_3,
+        lambda_base_1_3 * starter_factor,
+        "Calidad de abridores ajusta carreras tempranas",
+    )
+    _record_adj(
+        "1_3", "lineup",
+        lambda_base_1_3 * starter_factor,
+        lambda_base_1_3 * starter_factor * lineup_factor_overall,
+        "Calidad ofensiva de las alineaciones",
+    )
+    _record_adj(
+        "1_3", "park_weather",
+        lambda_base_1_3 * starter_factor * lineup_factor_overall,
+        lambda_base_1_3 * starter_factor * lineup_factor_overall * park_weather,
+        "Estadio + clima",
+    )
 
     # ── Phase 2 — Transition phase (λ_4_6) ───────────────────────────
     d_factor_h, rd_h = _starter_durability_factor(home_pitcher or {})
     d_factor_a, rd_a = _starter_durability_factor(away_pitcher or {})
     durability_factor = (d_factor_h + d_factor_a) / 2.0
-    raw_4_6 = base * weights["lambda_4_6"] * durability_factor * lineup_factor_overall * park_weather
-    lambda_4_6 = _apply_cap(base * weights["lambda_4_6"], raw_4_6, max_phase_adjustment, min_phase_value)
+    raw_4_6 = lambda_base_4_6 * durability_factor * lineup_factor_overall * park_weather
+    lambda_4_6 = _apply_cap(lambda_base_4_6, raw_4_6, max_phase_adjustment, min_phase_value)
     reasons_4_6 = sorted(set(rd_h + rd_a))
 
-    # ── Phase 3 — Bullpen phase (λ_7_9) ──────────────────────────────
-    # Defensive breakdown (Phase 50 forward-compat) is folded into both
-    # bullpens' inputs as ``offensive_explosion_score`` augmentation.
+    _record_adj(
+        "4_6", "starter_durability",
+        lambda_base_4_6,
+        lambda_base_4_6 * durability_factor,
+        "Durabilidad del abridor en la transición",
+    )
+    _record_adj(
+        "4_6", "lineup",
+        lambda_base_4_6 * durability_factor,
+        lambda_base_4_6 * durability_factor * lineup_factor_overall,
+        "Calidad ofensiva en la transición",
+    )
+
+    # ── Phase 3 — Bullpen phase (λ_7_9) — Priority 1 reactive model ──
+    # Inject defensive breakdown into the offensive_explosion_score so it
+    # feeds the bullpen residual computation. The traffic / defense /
+    # fatigue / hr / series modifiers are now first-class citizens.
     if defensive_breakdown_score is not None:
         try:
             _db = max(0.0, min(100.0, float(defensive_breakdown_score))) / 100.0
-            # Boost the offensive_explosion_score by half of normalized DB
-            # so a fielding meltdown nudges λ_7_9 upward.
             for _bp in (bullpen_home or {}, bullpen_away or {}):
                 _curr = _bp.get("offensive_explosion_score") or 0.0
                 _bp["offensive_explosion_score"] = max(float(_curr), 0.55 + 0.4 * _db)
         except (TypeError, ValueError):
             pass
-    bp_factor_h, rb_h, brk_h = _bullpen_traffic_factor(bullpen_home or {}, traffic_score, traffic_weight)
-    bp_factor_a, rb_a, brk_a = _bullpen_traffic_factor(bullpen_away or {}, traffic_score, traffic_weight)
+
+    bp_factor_h, rb_h, brk_h = _bullpen_traffic_factor(
+        bullpen_home or {}, traffic_score, defensive_breakdown_score,
+        series_familiarity_score, weights_cfg,
+    )
+    bp_factor_a, rb_a, brk_a = _bullpen_traffic_factor(
+        bullpen_away or {}, traffic_score, defensive_breakdown_score,
+        series_familiarity_score, weights_cfg,
+    )
     bullpen_factor = (bp_factor_h + bp_factor_a) / 2.0
-    raw_7_9 = base * weights["lambda_7_9"] * bullpen_factor * lineup_factor_overall * park_weather
-    lambda_7_9 = _apply_cap(base * weights["lambda_7_9"], raw_7_9, max_phase_adjustment, min_phase_value)
+    raw_7_9 = lambda_base_7_9 * bullpen_factor * lineup_factor_overall * park_weather
+
+    # Priority 1 — use the EXPLICIT late-adjustment cap (default ±45%).
+    lambda_7_9_pre_cap = raw_7_9
+    lambda_7_9 = _apply_cap(lambda_base_7_9, raw_7_9, max_late_adjustment, min_phase_value)
+    capped = abs(lambda_7_9_pre_cap - lambda_7_9) > 0.001
     reasons_7_9 = sorted(set(rb_h + rb_a))
+    if capped:
+        reasons_7_9.append(RC_LATE_LAMBDA_CAPPED)
+
+    # Breakdown rows: one per contribution lever so the UI can render
+    # "¿Por qué esta proyección?" clearly. We use the AVERAGE of home +
+    # away bullpen contributions (consistent with bullpen_factor avg).
+    avg_contrib = {
+        k: (brk_h.get("contributions", {}).get(k, 0.0)
+            + brk_a.get("contributions", {}).get(k, 0.0)) / 2.0
+        for k in ("traffic", "defense", "fatigue", "hr", "series")
+    }
+    for lever, label, rc_code in (
+        ("traffic",  "traffic_score",             RC_TRAFFIC_IMPACT_EXPLAINED),
+        ("defense",  "defensive_breakdown",       RC_DEFENSE_IMPACT_EXPLAINED),
+        ("fatigue",  "bullpen_fatigue",           RC_BULLPEN_IMPACT_EXPLAINED),
+        ("hr",       "hr_risk",                   RC_BULLPEN_IMPACT_EXPLAINED),
+        ("series",   "series_familiarity",        RC_TRAFFIC_IMPACT_EXPLAINED),
+    ):
+        contrib = avg_contrib.get(lever, 0.0)
+        if abs(contrib) >= 0.01:
+            # delta in runs ≈ lambda_base_7_9 * contribution (factor offset).
+            delta = round(lambda_base_7_9 * contrib, 4)
+            adjustments.append({
+                "phase":  "7_9",
+                "factor": label,
+                "delta":  delta,
+                "reason": {
+                    "traffic":  "Tráfico ofensivo amplifica riesgo del bullpen",
+                    "defense":  "Riesgo defensivo eleva carreras del bullpen",
+                    "fatigue":  "Bullpen fatigado eleva carreras tardías",
+                    "hr":       "Riesgo de HR del bullpen",
+                    "series":   "Familiaridad de serie con bullpen usado",
+                }[lever],
+                "reason_code": rc_code,
+            })
 
     # ── F5 projection — λ_1_3 + half of λ_4_6 (innings 4-5) ──────────
-    # 2 of the 3 transition innings count toward F5, so 2/3 of λ_4_6.
     f5_expected_runs = lambda_1_3 + (lambda_4_6 * (2.0 / 3.0))
-
     expected_runs_new = lambda_1_3 + lambda_4_6 + lambda_7_9
     delta_vs_baseline = expected_runs_new - base
 
+    # ── Reason codes ─────────────────────────────────────────────────
     reason_codes: list[str] = [RC_INNING_LAMBDA_MODEL_USED]
     reason_codes.extend(reasons_1_3)
     reason_codes.extend(reasons_4_6)
     reason_codes.extend(reasons_7_9)
+    reason_codes.append(RC_PROJECTION_BREAKDOWN_AVAILABLE)
+    if reasons_1_3:
+        reason_codes.append(RC_STARTER_IMPACT_EXPLAINED)
+    # Collect breakdown-level reason codes (Priority 2).
+    if any(a["phase"] == "7_9" for a in adjustments):
+        reason_codes.append(RC_BULLPEN_IMPACT_EXPLAINED)
+    # Surface per-lever impact codes even if individual deltas are
+    # small — having a traffic / defense score available is enough to
+    # explain it in the breakdown UI.
+    if traffic_score is not None:
+        reason_codes.append(RC_TRAFFIC_IMPACT_EXPLAINED)
+    if defensive_breakdown_score is not None:
+        reason_codes.append(RC_DEFENSE_IMPACT_EXPLAINED)
+    if series_familiarity_score is not None and series_familiarity_score >= 40:
+        reason_codes.append(RC_SERIES_FAMILIARITY_DETECTED)
+        reason_codes.append(RC_RECENT_REPEAT_MATCHUP)
+    elif series_familiarity_score is not None and series_familiarity_score < 40:
+        reason_codes.append(RC_SERIES_FAMILIARITY_LOW_NO_ADJUSTMENT)
     if abs(delta_vs_baseline) >= 1.0:
         reason_codes.append(RC_INNING_LAMBDA_SIGNIFICANT_DELTA)
     reason_codes = list(dict.fromkeys(reason_codes))  # preserve order, dedupe
+
+    # ── Priority 2 — adjustment_breakdown payload ────────────────────
+    adjustment_breakdown = {
+        "base_expected_runs": round(base, 3),
+        "lambda_base": {
+            "lambda_1_3": round(lambda_base_1_3, 3),
+            "lambda_4_6": round(lambda_base_4_6, 3),
+            "lambda_7_9": round(lambda_base_7_9, 3),
+        },
+        "adjustments":         adjustments,
+        "final_expected_runs": round(expected_runs_new, 3),
+        "total_delta":         round(delta_vs_baseline, 3),
+    }
 
     return {
         "available":       True,
@@ -409,8 +708,9 @@ def compute_mlb_inning_lambdas(
         "delta_vs_baseline":      round(delta_vs_baseline, 3),
         "phase_weights":   {k: round(v, 4) for k, v in weights.items()},
         "config": {
-            "traffic_weight":       traffic_weight,
+            **weights_cfg,
             "max_phase_adjustment": max_phase_adjustment,
+            "max_late_adjustment":  max_late_adjustment,
             "min_phase_value":      min_phase_value,
         },
         "phase_breakdown": {
@@ -430,15 +730,21 @@ def compute_mlb_inning_lambdas(
             },
             "bullpen_phase": {
                 "lambda":         round(lambda_7_9, 3),
+                "lambda_pre_cap": round(lambda_7_9_pre_cap, 3),
+                "capped":         capped,
                 "bullpen_factor": round(bullpen_factor, 4),
                 "lineup_factor":  round(lineup_factor_overall, 4),
                 "park_weather":   round(park_weather, 4),
                 "reason_codes":   reasons_7_9,
                 "breakdown_home": brk_h,
                 "breakdown_away": brk_a,
-                "traffic_score":  traffic_score,
+                "traffic_score":            traffic_score,
+                "defensive_breakdown_score": defensive_breakdown_score,
+                "series_familiarity_score":  series_familiarity_score,
             },
         },
+        # Priority 2 — flat breakdown for the UI "Por qué" panel.
+        "adjustment_breakdown": adjustment_breakdown,
         "market_line":  market_line,
         "reason_codes": reason_codes,
     }
@@ -470,6 +776,26 @@ __all__ = [
     "RC_TRAFFIC_SCORE_MISSING_NEUTRAL_USED",
     "RC_LATE_EXPLOSION_RISK_EMBEDDED",
     "RC_INNING_LAMBDA_SIGNIFICANT_DELTA",
+    # Priority 1
+    "RC_LATE_LAMBDA_REACTIVE_MODEL_USED",
+    "RC_BULLPEN_TRAFFIC_RAISES_LATE_LAMBDA",
+    "RC_BULLPEN_DEFENSE_RAISES_LATE_LAMBDA",
+    "RC_FATIGUE_RAISES_LATE_LAMBDA",
+    "RC_HR_RISK_RAISES_LATE_LAMBDA",
+    "RC_LOW_DEFENSIVE_RISK_LIMITS_LATE_RUNS",
+    "RC_LATE_LAMBDA_CAPPED",
+    # Priority 2
+    "RC_PROJECTION_BREAKDOWN_AVAILABLE",
+    "RC_STARTER_IMPACT_EXPLAINED",
+    "RC_BULLPEN_IMPACT_EXPLAINED",
+    "RC_TRAFFIC_IMPACT_EXPLAINED",
+    "RC_DEFENSE_IMPACT_EXPLAINED",
+    # Priority 3
+    "RC_SERIES_FAMILIARITY_DETECTED",
+    "RC_RECENT_REPEAT_MATCHUP",
+    "RC_SERIES_FAMILIARITY_TRAFFIC_BOOST",
+    "RC_SERIES_FAMILIARITY_LOW_NO_ADJUSTMENT",
+    "RC_SERIES_FAMILIARITY_CAPPED",
     "ALL_REASON_CODES",
     "compute_mlb_inning_lambdas",
 ]
