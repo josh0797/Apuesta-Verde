@@ -13,10 +13,10 @@
   },
   {
     "content": "Testing final: backend (pytest) + testing_agent integrado",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "Reportar parámetros finales del Pressure Score",
-    "status": "pending"
+    "status": "completed"
   }
 ]
