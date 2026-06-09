@@ -399,8 +399,22 @@ def _attach_pressure_score(
     try:
         from . import football_live_pressure_score as flps
         ps = flps.compute_pressure_score(home_stats=home_stats, away_stats=away_stats)
+        # Unavailable path (empty stats): surface the structured payload
+        # WITHOUT attempting to derive a verdict (it would be meaningless).
+        if not ps.get("available", True):
+            return {
+                "pressure_score":          None,
+                "pressure_components":     {},
+                "pressure_verdict":        ps.get("verdict") or "ALLOW_UNDER",
+                "pressure_reason_codes":   ps.get("reason_codes", []),
+                "pressure_prefer_markets": [],
+                "pressure_ui_message_es":  None,
+                "pressure_engine_version": ps.get("engine_version"),
+                "pressure_available":      False,
+                "pressure_bucket":         ps.get("pressure_bucket", "UNKNOWN"),
+            }
         verdict_new = flps.evaluate_pressure_verdict(
-            pressure_score=ps.get("pressure_score", 0.0),
+            pressure_score=ps.get("pressure_score") or 0.0,
             market=market,
             minute=minute,
             home_score=home_score,
@@ -408,13 +422,15 @@ def _attach_pressure_score(
             regulation_minutes=regulation_minutes,
         )
         return {
-            "pressure_score":        ps.get("pressure_score", 0.0),
-            "pressure_components":   ps.get("components", {}),
-            "pressure_verdict":      verdict_new.get("verdict"),
-            "pressure_reason_codes": verdict_new.get("reason_codes", []),
+            "pressure_score":          ps.get("pressure_score", 0.0),
+            "pressure_components":     ps.get("components", {}),
+            "pressure_verdict":        verdict_new.get("verdict"),
+            "pressure_reason_codes":   verdict_new.get("reason_codes", []),
             "pressure_prefer_markets": verdict_new.get("prefer_markets", []),
             "pressure_ui_message_es":  verdict_new.get("ui_message_es"),
             "pressure_engine_version": ps.get("engine_version"),
+            "pressure_available":      True,
+            "pressure_bucket":         ps.get("pressure_bucket", "LOW"),
         }
     except Exception:
         return {}

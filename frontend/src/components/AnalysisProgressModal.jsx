@@ -69,20 +69,34 @@ function humanizeError(raw, lang) {
   return text.length > 240 ? text.slice(0, 240) + '…' : text;
 }
 
-export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
+export function AnalysisProgressModal({ jobId, onClose, onDone, onRetry, sport }) {
   const { lang } = useI18n();
   const stages = STAGE_COPY[lang] || STAGE_COPY.es;
   const terms = sportTerms(lang, sport);
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
   const [reconnecting, setReconnecting] = useState(false);
+  // Fix: stuck-at-5% detection. If the backend job is alive (we get 200
+  // responses) but `progress` doesn't move for STALL_THRESHOLD_MS,
+  // surface a banner with a "retry" CTA and explain the user can
+  // continue waiting OR close the modal (background polling keeps going).
+  const [stalled, setStalled] = useState(false);
   const doneFiredRef = useRef(false);
   const transientFailRef = useRef(0);
+  const lastProgressRef = useRef({ value: -1, ts: 0 });
+
+  // Threshold: progress must move at least once every 60s.
+  const STALL_THRESHOLD_MS = 60_000;
 
   useEffect(() => {
     if (!jobId) return undefined;
     let cancelled = false;
     let timeoutId;
+    // Reset stall tracker when jobId changes (new run). The ref mutation
+    // is allowed inside effects; the React state reset happens via the
+    // next poll() iteration which compares `currentProgress` against
+    // the freshly reset `lastProgressRef.current.value=-1`.
+    lastProgressRef.current = { value: -1, ts: Date.now() };
 
     // Resilient polling: a single Cloudflare 520 / 502 / 504 / network blip
     // must NOT kill the modal. The background job is still running. We
@@ -109,6 +123,23 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
         transientFailRef.current = 0;
         if (reconnecting) setReconnecting(false);
         setJob(r.data);
+
+        // Stall detection: track when `progress` last changed. If it
+        // hasn't moved for STALL_THRESHOLD_MS, raise the stall banner.
+        const currentProgress = Number(r.data?.progress ?? 0);
+        const now = Date.now();
+        if (currentProgress !== lastProgressRef.current.value) {
+          lastProgressRef.current = { value: currentProgress, ts: now };
+          if (stalled) setStalled(false);
+        } else if (
+          lastProgressRef.current.ts > 0
+          && (now - lastProgressRef.current.ts) >= STALL_THRESHOLD_MS
+          && r.data?.stage !== 'done'
+          && r.data?.stage !== 'failed'
+        ) {
+          if (!stalled) setStalled(true);
+        }
+
         const stage = r.data?.stage;
         if (stage === 'done' && !doneFiredRef.current) {
           doneFiredRef.current = true;
@@ -152,7 +183,7 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
       if (timeoutId) clearTimeout(timeoutId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, onDone, lang]);
+  }, [jobId, onDone, lang, stalled, reconnecting]);
 
   if (!jobId) return null;
 
@@ -239,6 +270,58 @@ export function AnalysisProgressModal({ jobId, onClose, onDone, sport }) {
                 {lang === 'en'
                   ? 'Connection blip — backend may be slow, retrying…'
                   : 'Conexión inestable — reintentando con el backend…'}
+              </div>
+            )}
+
+            {/* Fix: stuck-at-5% stall banner. Surfaces when the
+                progress hasn't advanced for 60s+. The backend job
+                might still be alive (rate limiter sleep), so we
+                offer the user both: keep waiting OR retry. The modal
+                can also be closed — polling continues in background
+                via the parent's onClose handler. */}
+            {stalled && !isDone && !isFailed && (
+              <div
+                className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] space-y-1.5"
+                role="status"
+                data-testid="progress-modal-stalled"
+              >
+                <div className="font-semibold text-amber-200 flex items-center gap-1.5">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  {lang === 'en' ? 'Generation is taking longer than expected' : 'La generación tardó demasiado'}
+                </div>
+                <p className="text-amber-200/85 leading-snug">
+                  {lang === 'en'
+                    ? 'API-Sports may be rate-limiting the request. You can keep waiting, retry, or continue in background.'
+                    : 'Puede que API-Sports esté limitando los requests. Puedes seguir esperando, reintentar o continuar en background.'}
+                </p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {typeof onRetry === 'function' && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-7 text-[11px]"
+                      onClick={() => {
+                        // Reset stall state locally so the new run gets a fresh
+                        // observation window. The parent triggers a new job.
+                        lastProgressRef.current = { value: -1, ts: Date.now() };
+                        setStalled(false);
+                        onRetry();
+                      }}
+                      data-testid="progress-modal-stall-retry"
+                    >
+                      {lang === 'en' ? 'Retry' : 'Reintentar'}
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px]"
+                    onClick={onClose}
+                    data-testid="progress-modal-stall-close"
+                  >
+                    {lang === 'en' ? 'Continue in background' : 'Continuar en background'}
+                  </Button>
+                </div>
               </div>
             )}
           </div>

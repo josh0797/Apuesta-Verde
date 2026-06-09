@@ -1829,6 +1829,8 @@ async def _run_analysis_pipeline(
     }
 
     await _emit("ingesting", 5, f"Ingesting upcoming {sport} fixtures…")
+    log.info("[ANALYSIS_PIPELINE] start sport=%s refresh=%s include_live=%s max_matches=%s",
+             sport, refresh, include_live, max_matches)
     # ── Phase 8.1 — Priority Discovery (football only) ──────────────────────
     # Actively probe API-Sports league-by-league for the top-12 priority
     # competitions BEFORE looking at the global candidate pool. If we find
@@ -1841,66 +1843,129 @@ async def _run_analysis_pipeline(
     # fixtures. Instead, the global ingest (next block) + the explicit
     # league_id filter further down handle the national-team scope.
     if sport == "football" and not live_only and not national_teams_only:
+        # Bug-fix (Fix: stuck at 5%): wrap the whole priority-discovery +
+        # hydration block with a HARD timeout AND emit intermediate
+        # progress updates so the UI keeps moving even when API-Sports
+        # rate-limits us (free plan: 10 req/min → 60s sleeps between
+        # batches). Without these, the modal would freeze at 5% for up
+        # to ~120s while the rate limiter slept.
+        await _emit("ingesting", 6, "Discovering priority leagues…")
+        log.info("[ANALYSIS_PIPELINE] priority discovery starting")
         try:
-            async with httpx.AsyncClient() as client:
-                priority_fixtures = await ingestion.discover_priority_fixtures(
-                    client, db, window_hours=48,
-                )
-                # We discover 50+ priority fixtures (whole weekend of MLS +
-                # all Big-Five). Hydrating every single one even shallow-ly
-                # is ~4 API calls each × 50 = 200 calls and the free plan
-                # caps at 10 req/min. We only NEED the next `max_matches *
-                # 2` for the LLM to have something to choose from, so cap
-                # the hydration window.
-                HYDRATE_CAP = max(12, (max_matches or 12) * 2)
-                if priority_fixtures:
-                    hydrate_list = priority_fixtures[:HYDRATE_CAP]
-                    sem = asyncio.Semaphore(6)
-
-                    async def _hydrate(fx):
-                        async with sem:
-                            try:
-                                return await ingestion.enrich_fixture(
-                                    client, db, fx, is_live=False, sport="football", deep=False,
-                                )
-                            except Exception as exc:
-                                log.warning("priority hydrate failed: %s", exc)
-                                return None
-
-                    await asyncio.gather(*[_hydrate(fx) for fx in hydrate_list])
-                    priority_leagues_hit = sorted({
-                        (fx.get("league") or {}).get("name") for fx in priority_fixtures
-                        if (fx.get("league") or {}).get("name")
-                    })
-                    log.info(
-                        "priority discovery hydrated %d/%d fixtures (shallow) leagues=%s",
-                        len(hydrate_list), len(priority_fixtures), priority_leagues_hit,
+            async def _priority_block():
+                async with httpx.AsyncClient() as client:
+                    fixtures = await ingestion.discover_priority_fixtures(
+                        client, db, window_hours=48,
                     )
-                    # Trim the priority_fixtures list to what we actually
-                    # hydrated — the downstream candidate query filters by
-                    # match_id and unhydrated fixtures wouldn't be in
-                    # db.matches yet.
-                    priority_fixtures = hydrate_list
-        except Exception as exc:
-            log.warning("priority discovery failed: %s", exc)
+                    log.info("[ANALYSIS_PIPELINE] priority discovery returned %d fixtures", len(fixtures))
+                    await _emit("ingesting", 8, f"Found {len(fixtures)} priority fixtures…")
+                    # We discover 50+ priority fixtures (whole weekend of MLS +
+                    # all Big-Five). Hydrating every single one even shallow-ly
+                    # is ~4 API calls each × 50 = 200 calls and the free plan
+                    # caps at 10 req/min. We only NEED the next `max_matches *
+                    # 2` for the LLM to have something to choose from, so cap
+                    # the hydration window.
+                    HYDRATE_CAP = max(12, (max_matches or 12) * 2)
+                    if fixtures:
+                        hydrate_list = fixtures[:HYDRATE_CAP]
+                        await _emit(
+                            "ingesting", 10,
+                            f"Hydrating {len(hydrate_list)} priority fixtures…",
+                        )
+                        sem = asyncio.Semaphore(6)
+                        # Track hydration progress so the modal moves even
+                        # when API-Sports is rate-limited mid-batch.
+                        hydrated_counter = {"n": 0}
+
+                        async def _hydrate(fx):
+                            async with sem:
+                                try:
+                                    out = await ingestion.enrich_fixture(
+                                        client, db, fx, is_live=False, sport="football", deep=False,
+                                    )
+                                except Exception as exc:
+                                    log.warning("[ANALYSIS_PIPELINE] priority hydrate failed: %s", exc)
+                                    out = None
+                                hydrated_counter["n"] += 1
+                                # Emit progress every 4 hydrations OR on the
+                                # last one. Linear from 10→14% over the
+                                # hydration batch.
+                                done_n = hydrated_counter["n"]
+                                total_n = max(1, len(hydrate_list))
+                                if done_n % 4 == 0 or done_n == total_n:
+                                    pct = 10 + int(4 * done_n / total_n)
+                                    try:
+                                        await _emit(
+                                            "ingesting", min(14, pct),
+                                            f"Hydrated {done_n}/{total_n} fixtures…",
+                                        )
+                                    except Exception:
+                                        pass
+                                return out
+
+                        await asyncio.gather(*[_hydrate(fx) for fx in hydrate_list])
+                        leagues_hit = sorted({
+                            (fx.get("league") or {}).get("name") for fx in fixtures
+                            if (fx.get("league") or {}).get("name")
+                        })
+                        log.info(
+                            "[ANALYSIS_PIPELINE] priority hydrated %d/%d fixtures (shallow) leagues=%s",
+                            len(hydrate_list), len(fixtures), leagues_hit,
+                        )
+                        # Trim the priority_fixtures list to what we actually
+                        # hydrated.
+                        return hydrate_list, leagues_hit
+                    return [], []
+
+            # Hard timeout 90s — if API-Sports rate limit keeps us blocked
+            # past this point, we fall back to the global pool path so the
+            # pipeline NEVER stays stuck at 5%.
+            priority_fixtures, priority_leagues_hit = await asyncio.wait_for(
+                _priority_block(), timeout=90.0,
+            )
+        except asyncio.TimeoutError:
+            log.warning("[ANALYSIS_PIPELINE] priority discovery TIMED OUT after 90s — falling back to global pool")
             priority_fixtures = []
+            priority_leagues_hit = []
+            await _emit("ingesting", 14, "Rate limit en API-Sports — usando pool global…")
+        except Exception as exc:
+            log.warning("[ANALYSIS_PIPELINE] priority discovery failed: %s", exc)
+            priority_fixtures = []
+            priority_leagues_hit = []
 
     async with httpx.AsyncClient() as client:
         if refresh and not priority_fixtures:
             # Only fall back to the global firehose if priority discovery
             # didn't surface anything — otherwise we'd be re-ingesting
             # Côte d'Ivoire / Belarus on top of the Tier 1 we just got.
+            await _emit("ingesting", 16, "Fetching global fixtures pool…")
+            log.info("[ANALYSIS_PIPELINE] global ingest_upcoming starting sport=%s", sport)
             try:
-                await ingestion.ingest_upcoming(client, db, sport=sport)
+                # Hard timeout 60s so the global pool fetch can't stall
+                # the whole pipeline if API-Sports is rate-limited.
+                await asyncio.wait_for(
+                    ingestion.ingest_upcoming(client, db, sport=sport),
+                    timeout=60.0,
+                )
+                log.info("[ANALYSIS_PIPELINE] global ingest_upcoming done sport=%s", sport)
+            except asyncio.TimeoutError:
+                ingest_error = "upcoming ingest TIMED OUT after 60s"
+                log.warning("[ANALYSIS_PIPELINE] %s — continuing with cached fixtures", ingest_error)
+                await _emit("ingesting", 20, "API-Sports lenta — usando partidos cacheados…")
             except Exception as exc:
                 ingest_error = f"upcoming ingest failed: {exc}"
-                log.warning(ingest_error)
+                log.warning("[ANALYSIS_PIPELINE] %s", ingest_error)
         if refresh and include_live:
-            await _emit("ingesting", 15, "Refreshing live games…")
+            await _emit("ingesting", 18, "Refreshing live games…")
             try:
-                await ingestion.ingest_live(client, db, sport=sport)
+                await asyncio.wait_for(
+                    ingestion.ingest_live(client, db, sport=sport),
+                    timeout=30.0,
+                )
+            except asyncio.TimeoutError:
+                log.warning("[ANALYSIS_PIPELINE] live ingest TIMED OUT after 30s")
             except Exception as exc:
-                log.warning("live ingest failed: %s", exc)
+                log.warning("[ANALYSIS_PIPELINE] live ingest failed: %s", exc)
 
     await _emit("enriching", 25, "Selecting candidates by league + odds availability…")
     if live_only:

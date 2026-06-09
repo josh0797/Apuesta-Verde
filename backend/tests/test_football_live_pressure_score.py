@@ -24,9 +24,21 @@ class TestPressureScoreScale:
     """Score must be in [0, 100] and deterministic."""
 
     def test_empty_inputs_score_zero(self):
+        """Empty stats → structured 'unavailable' fail-soft response."""
         out = compute_pressure_score(home_stats={}, away_stats={})
-        assert out["pressure_score"] == 0.0
+        assert out["available"] is False
+        assert out["pressure_score"] is None
+        assert out["pressure_bucket"] == "UNKNOWN"
+        assert out["verdict"] == "ALLOW_UNDER"
+        assert "FOOTBALL_PRESSURE_SCORE_UNAVAILABLE" in out["reason_codes"]
         assert out["dominant_side"] is None
+
+    def test_none_inputs_do_not_raise(self):
+        """Defensive: None / non-dict inputs return unavailable, no exception."""
+        out = compute_pressure_score(home_stats=None, away_stats=None)
+        assert out["available"] is False
+        out2 = compute_pressure_score(home_stats="bad", away_stats=42)
+        assert out2["available"] is False
 
     def test_full_siege_scenario_scores_near_100(self):
         """Flamengo-like late siege: 27 shots vs 5, 14 SOT vs 2, xG 2.6,
@@ -165,3 +177,40 @@ class TestBackCompat:
         assert "pressure_verdict" in out
         assert isinstance(out["pressure_score"], (int, float))
         assert 0.0 <= out["pressure_score"] <= 100.0
+
+    def test_legacy_evaluate_siege_pressure_with_empty_stats_does_not_raise(self):
+        """Regression: pressure_score fail-soft must NOT break the legacy
+        siege guard when live stats are missing (e.g. pregame ingestion
+        flow). Previously a bug here was suspected to cause the
+        'football generation stuck at 5%' issue."""
+        from services.football_siege_pressure_guard import evaluate_siege_pressure
+        # Empty stats — simulates pregame / no-live-stats path.
+        out = evaluate_siege_pressure(
+            minute=None, home_score=0, away_score=0,
+            home_stats={}, away_stats={}, market=None,
+        )
+        # Legacy + new fields both present and consistent.
+        assert out["siege_pressure_high"] is False
+        assert out["verdict"] == "ALLOW_UNDER"
+        # New: unavailable signalling.
+        assert out.get("pressure_available") is False
+        assert out["pressure_score"] is None
+        assert out["pressure_verdict"] == "ALLOW_UNDER"
+        assert "FOOTBALL_PRESSURE_SCORE_UNAVAILABLE" in (out.get("pressure_reason_codes") or [])
+
+    def test_legacy_evaluate_siege_pressure_with_garbage_stats_does_not_raise(self):
+        """Defensive: pathological inputs must NEVER raise. The pregame
+        ingestion fetches stats from external providers — any garbage
+        in the live_stats payload (e.g. None, lists, strings) must
+        gracefully degrade to 'unavailable' instead of raising."""
+        from services.football_siege_pressure_guard import evaluate_siege_pressure
+        out = evaluate_siege_pressure(
+            minute=10, home_score=1, away_score=0,
+            home_stats={"shots": "n/a", "possession": None},
+            away_stats={"shots": [], "possession": "?"},
+            market="Under 2.5",
+        )
+        # Legacy verdict still computed (graceful degradation).
+        assert out["verdict"] in ("ALLOW_UNDER", "BLOCK_UNDER", "DOWNGRADE_UNDER_3_5")
+        # New: still returns a structured payload, never raises.
+        assert "pressure_score" in out

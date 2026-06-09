@@ -146,22 +146,66 @@ def compute_pressure_score(
 ) -> dict:
     """Compute the continuous 0-100 pressure score.
 
-    Returns:
+    Returns ALWAYS a dict (never raises). When the input stats are
+    empty / missing / non-dict, returns a structured "unavailable"
+    response so the caller can fail-soft:
+
         {
-            "pressure_score": float (0-100),
-            "dominant_side": "home" | "away" | None,
-            "components": {
-                "shots_ratio":         {"value": ..., "points": ...},
-                "sot_ratio":           {"value": ..., "points": ...},
-                "xg":                  {"value": ..., "points": ...},
-                "dangerous_attacks":   {"value": ..., "points": ...},
-                "possession":          {"value": ..., "points": ...},
-                "corners_big_chances": {"value": ..., "points": ...},
-            },
-            "metrics": {...},          # raw per-side stats
-            "engine_version": str,
+            "available": False,
+            "pressure_score": None,
+            "pressure_bucket": "UNKNOWN",
+            "verdict": "ALLOW_UNDER",
+            "reason_codes": ["FOOTBALL_PRESSURE_SCORE_UNAVAILABLE"],
+            "dominant_side": None,
+            "components": {},
+            "metrics": {},
+            "engine_version": ENGINE_VERSION,
         }
+
+    When stats are present, the full numeric breakdown is returned with
+    ``available=True``. The contract guarantees fixture ingestion and
+    pick generation NEVER break because of a missing stats payload.
     """
+    # Defensive: tolerate None / non-dict inputs without raising.
+    if not isinstance(home_stats, dict):
+        home_stats = {}
+    if not isinstance(away_stats, dict):
+        away_stats = {}
+
+    # Empty-stats short-circuit: no signal to score against → unavailable.
+    if not home_stats and not away_stats:
+        return _unavailable_response()
+    try:
+        return _compute_pressure_score_impl(home_stats=home_stats, away_stats=away_stats)
+    except Exception:
+        # Never propagate — keep ingestion / pick generation safe.
+        return _unavailable_response()
+
+
+def _unavailable_response() -> dict:
+    """Structured fail-soft response used when stats are missing or
+    the computation cannot proceed."""
+    return {
+        "available":      False,
+        "pressure_score": None,
+        "pressure_bucket": "UNKNOWN",
+        "verdict":        VERDICT_ALLOW_UNDER,
+        "reason_codes":   ["FOOTBALL_PRESSURE_SCORE_UNAVAILABLE"],
+        "dominant_side":  None,
+        "components":     {},
+        "metrics":        {},
+        "engine_version": ENGINE_VERSION,
+    }
+
+
+def _compute_pressure_score_impl(
+    *,
+    home_stats: dict,
+    away_stats: dict,
+) -> dict:
+    """Internal: actual scoring logic. Always returns ``available=True``.
+
+    See ``compute_pressure_score`` for the public fail-soft wrapper."""
     h = home_stats or {}
     a = away_stats or {}
 
@@ -239,9 +283,22 @@ def compute_pressure_score(
     raw_score = shots_pts + sot_pts + xg_pts + dang_pts + poss_pts + combo_pts
     pressure_score = round(max(0.0, min(100.0, raw_score)), 2)
 
+    # Bucket the score for fast UI filtering. The boundaries mirror the
+    # verdict thresholds in evaluate_pressure_verdict().
+    if pressure_score >= PRESSURE_SCORE_BLANKET_BLOCK:
+        bucket = "EXTREME"
+    elif pressure_score >= PRESSURE_SCORE_CONTEXT_BLOCK:
+        bucket = "HIGH"
+    elif pressure_score >= PRESSURE_SCORE_DOWNGRADE:
+        bucket = "MODERATE"
+    else:
+        bucket = "LOW"
+
     return {
+        "available": True,
         "engine_version": ENGINE_VERSION,
         "pressure_score": pressure_score,
+        "pressure_bucket": bucket,
         "dominant_side": dominant,
         "components": {
             "shots_ratio":         {"value": shots_ratio, "points": round(shots_pts, 2), "weight": W_SHOTS},
