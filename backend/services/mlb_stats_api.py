@@ -374,8 +374,12 @@ async def hydrate_team_offensive_roster(
         appearances, games_played, position abbreviation.
       • Pitchers stay in the payload (with PA=0) so the consumer can
         filter them out via its own ``_is_offensive_role`` rule.
-      • Never raises. Returns ``{"available": False}`` on any error so
-        the orchestrator can fail-soft.
+
+    **Fail-soft contract — NEVER raises.**
+      • ``db=None``     → cache layer is bypassed (warm fetch only).
+      • cache read err  → ignored, continue with warm fetch.
+      • cache write err → ignored, payload still returned.
+      • API/parse err   → returns ``{"available": False, "reason": ...}``.
 
     Cached for 6h per (team_id, season) on the standard ``mlb_cache``.
     """
@@ -384,10 +388,18 @@ async def hydrate_team_offensive_roster(
 
     season = season or DEFAULT_SEASON
     key = f"off_roster:{team_id}:{season}"
-    cached = await _cache_get(db, key)
-    if cached is not None:
-        return cached
 
+    # ── 1) Cache read (fail-soft) ──────────────────────────────────
+    if db is not None:
+        try:
+            cached = await _cache_get(db, key)
+            if cached is not None:
+                return cached
+        except Exception as exc:
+            log.debug("offensive roster cache_get failed for team %s: %s",
+                      team_id, exc)
+
+    # ── 2) Warm fetch from MLB Stats API ───────────────────────────
     hydrate = (
         f"person(stats(group=[hitting],type=[season],season={season}))"
     )
@@ -401,62 +413,80 @@ async def hydrate_team_offensive_roster(
             data = r.json()
     except Exception as exc:
         log.debug("offensive roster fetch failed for team %s: %s", team_id, exc)
-        return {"available": False, "reason": "http_error", "error": str(exc)}
+        return {
+            "available":   False,
+            "reason":      "http_error",
+            "error":       str(exc),
+            "team_id":     team_id,
+            "season":      season,
+            "players":     [],
+        }
+
+    # ── 3) Parse roster (fail-soft per player) ─────────────────────
+    def _to_float(v) -> Optional[float]:
+        try:
+            if v is None or v == "":
+                return None
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def _to_int(v) -> Optional[int]:
+        try:
+            if v is None or v == "":
+                return None
+            return int(v)
+        except (TypeError, ValueError):
+            return None
 
     players: list[dict] = []
-    for p in (data.get("roster") or []):
-        person   = p.get("person") or {}
-        position = p.get("position") or {}
-        pos_abbr = (position.get("abbreviation") or "").upper()
+    try:
+        roster_list = (data or {}).get("roster") or []
+    except Exception:
+        roster_list = []
 
-        # Pull the most recent season hitting split (there can be 0 or 1).
-        stats_blocks = person.get("stats") or []
-        season_split: dict = {}
-        for block in stats_blocks:
-            if (block.get("group") or {}).get("displayName") != "hitting":
-                continue
-            for sp in (block.get("splits") or []):
-                if (sp.get("season") or "").strip() == str(season):
-                    season_split = sp.get("stat") or {}
+    for p in roster_list:
+        try:
+            person   = p.get("person") or {}
+            position = p.get("position") or {}
+            pos_abbr = (position.get("abbreviation") or "").upper()
+
+            # Pull the most recent season hitting split (there can be 0 or 1).
+            stats_blocks = person.get("stats") or []
+            season_split: dict = {}
+            for block in stats_blocks:
+                if (block.get("group") or {}).get("displayName") != "hitting":
+                    continue
+                for sp in (block.get("splits") or []):
+                    if (sp.get("season") or "").strip() == str(season):
+                        season_split = sp.get("stat") or {}
+                        break
+                if season_split:
                     break
-            if season_split:
-                break
 
-        def _to_float(v) -> Optional[float]:
-            try:
-                if v is None or v == "":
-                    return None
-                return float(v)
-            except (TypeError, ValueError):
-                return None
-
-        def _to_int(v) -> Optional[int]:
-            try:
-                if v is None or v == "":
-                    return None
-                return int(v)
-            except (TypeError, ValueError):
-                return None
-
-        players.append({
-            "id":             person.get("id"),
-            "name":           person.get("fullName"),
-            "position":       pos_abbr,
-            "ops":            _to_float(season_split.get("ops")),
-            "obp":            _to_float(season_split.get("obp")),
-            "slg":            _to_float(season_split.get("slg")),
-            "avg":            _to_float(season_split.get("avg")),
-            "runs":           _to_int(season_split.get("runs")),
-            "rbi":            _to_int(season_split.get("rbi")),
-            "hr":             _to_int(season_split.get("homeRuns")),
-            "xbh":            (
-                (_to_int(season_split.get("doubles")) or 0)
-                + (_to_int(season_split.get("triples")) or 0)
-                + (_to_int(season_split.get("homeRuns")) or 0)
-            ) or None,
-            "pa":             _to_int(season_split.get("plateAppearances")),
-            "games_played":   _to_int(season_split.get("gamesPlayed")),
-        })
+            players.append({
+                "id":             person.get("id"),
+                "name":           person.get("fullName"),
+                "position":       pos_abbr,
+                "ops":            _to_float(season_split.get("ops")),
+                "obp":            _to_float(season_split.get("obp")),
+                "slg":            _to_float(season_split.get("slg")),
+                "avg":            _to_float(season_split.get("avg")),
+                "runs":           _to_int(season_split.get("runs")),
+                "rbi":            _to_int(season_split.get("rbi")),
+                "hr":             _to_int(season_split.get("homeRuns")),
+                "xbh":            (
+                    (_to_int(season_split.get("doubles")) or 0)
+                    + (_to_int(season_split.get("triples")) or 0)
+                    + (_to_int(season_split.get("homeRuns")) or 0)
+                ) or None,
+                "pa":             _to_int(season_split.get("plateAppearances")),
+                "games_played":   _to_int(season_split.get("gamesPlayed")),
+            })
+        except Exception as exc:
+            log.debug("offensive roster parse failed for one player (team %s): %s",
+                      team_id, exc)
+            continue
 
     payload = {
         "available":   True,
@@ -465,7 +495,15 @@ async def hydrate_team_offensive_roster(
         "players":     players,
         "_source_url": f"{url}?rosterType=active",
     }
-    await _cache_put(db, key, payload, ttl_seconds=6 * 3600)
+
+    # ── 4) Cache write (fail-soft) ─────────────────────────────────
+    if db is not None:
+        try:
+            await _cache_put(db, key, payload, ttl_seconds=6 * 3600)
+        except Exception as exc:
+            log.debug("offensive roster cache_put failed for team %s: %s",
+                      team_id, exc)
+
     return payload
 
 
