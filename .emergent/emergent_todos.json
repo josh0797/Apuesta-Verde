@@ -1,26 +1,14 @@
 [
   {
-    "content": "Crear services/mlb_tail_fragility.py",
+    "content": "Phase 55: Backend completo (módulo + tests + integración calibrator + orchestrator)",
     "status": "completed"
   },
   {
-    "content": "Tests pytest tail_fragility 21/21",
+    "content": "Phase 55: Frontend completo (TailRiskPanel + sub-bloque TAIL FRAGILITY + MatchCard wiring)",
     "status": "completed"
   },
   {
-    "content": "Reemplazar sección 5 fragility_calibrator (sin doble conteo)",
+    "content": "testing_agent end-to-end (1528 backend PASS, 0 críticos, 0 regresiones) + plan.md actualizado",
     "status": "completed"
-  },
-  {
-    "content": "Integración orchestrator: persistir + alimentar calibrator",
-    "status": "completed"
-  },
-  {
-    "content": "Extender TailRiskPanel.jsx con sub-bloque TAIL FRAGILITY",
-    "status": "completed"
-  },
-  {
-    "content": "testing_agent end-to-end + plan.md update",
-    "status": "in_progress"
   }
 ]
