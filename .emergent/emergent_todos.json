@@ -1,38 +1,18 @@
 [
   {
-    "content": "Hacer fail-soft interno hydrate_team_offensive_roster (cache + API + db=None)",
+    "content": "Fase 1: Backend completo (módulo + endpoints + integración + auto-liquidación)",
     "status": "completed"
   },
   {
-    "content": "Tests unitarios: db=None, cache_get fail, cache_put fail, API fail",
+    "content": "Fase 2: EnginePickConfirmModal + integración LiveReevalPanel",
     "status": "completed"
   },
   {
-    "content": "Verificar regresión suite completo",
+    "content": "Fase 3: /dashboard/calibration + UserBetBackfillModal en Historial",
     "status": "completed"
   },
   {
-    "content": "Preguntar alcance Fix 1+2 (Engine vs User Pick) antes de codear",
-    "status": "in_progress"
-  },
-  {
-    "content": "Fix 1: backend modelo + endpoints engine/user pick tracking",
-    "status": "pending"
-  },
-  {
-    "content": "Fix 1: UI modal de confirmación y formulario user_pick + user_odds",
-    "status": "pending"
-  },
-  {
-    "content": "Fix 2: módulo pick_divergence_analysis (engine_result vs user_result, delta, line_difference)",
-    "status": "pending"
-  },
-  {
-    "content": "Fix 2: panel historial con divergencia + dashboard métricas separadas",
-    "status": "pending"
-  },
-  {
-    "content": "Tests backend + frontend para Fix 1+2",
-    "status": "pending"
+    "content": "testing_agent end-to-end (1496 backend + 8 API + 6 UI todos verdes) + plan.md update",
+    "status": "completed"
   }
 ]

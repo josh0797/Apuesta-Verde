@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Activity, History, UserRound, LogOut, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, Activity, History, UserRound, LogOut, ChevronDown, Target } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { useAuth } from '@/lib/auth';
 import { useSport, sportLabel } from '@/lib/sport';
@@ -61,6 +61,8 @@ export function AppHeader() {
     { to: '/', icon: LayoutDashboard, label: t.nav.dashboard, test: 'nav-dashboard' },
     { to: '/live', icon: Activity, label: t.nav.live, test: 'nav-live' },
     { to: '/history', icon: History, label: t.nav.history, test: 'nav-history' },
+    { to: '/dashboard/calibration', icon: Target,
+      label: t.nav.calibration || 'Calibración', test: 'nav-calibration' },
     { to: '/profile', icon: UserRound, label: t.nav.profile, test: 'nav-profile' },
   ];
 

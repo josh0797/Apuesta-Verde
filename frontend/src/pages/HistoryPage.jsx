@@ -4,11 +4,12 @@ import { api } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { tierClass, humanizeSelection } from '@/lib/format';
-import { BadgeCheck, ThumbsDown, Equal, Clock, Download, DollarSign, TrendingUp, TrendingDown, Loader2, Trophy, ShieldAlert, Activity } from 'lucide-react';
+import { BadgeCheck, ThumbsDown, Equal, Clock, Download, DollarSign, TrendingUp, TrendingDown, Loader2, Trophy, ShieldAlert, Activity, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { WinRateChart } from '@/components/WinRateChart';
 import MLBCalibrationPanel from '@/components/MLBCalibrationPanel';
+import { UserBetBackfillModal } from '@/components/UserBetBackfillModal';
 import { toast } from 'sonner';
 
 // ── Sport tab definitions ───────────────────────────────────────────
@@ -93,6 +94,8 @@ export default function HistoryPage() {
   const [stake, setStake] = useState(() => Number(localStorage.getItem('vbi_stake') || '10'));
   const [settling, setSettling] = useState({});
   const [activeSport, setActiveSport] = useState(() => localStorage.getItem('vbi_history_sport') || 'all');
+  // Backfill modal state — Fix 1 + Fix 2.
+  const [backfillRow, setBackfillRow] = useState(null);
 
   const load = useCallback(async (currentStake) => {
     setLoading(true);
@@ -108,7 +111,7 @@ export default function HistoryPage() {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(stake); }, [load, stake]);
+  useEffect(() => { load(stake); }, [load, stake]); // eslint-disable-line
   useEffect(() => { localStorage.setItem('vbi_history_sport', activeSport); }, [activeSport]);
 
   // Counts per sport for the tab badges — computed even while loading
@@ -367,6 +370,7 @@ export default function HistoryPage() {
                     t={t}
                     busy={!!settling[row.pick_id]}
                     onSettle={settlePick}
+                    onBackfill={setBackfillRow}
                   />
                 ))}
               </tbody>
@@ -387,11 +391,24 @@ export default function HistoryPage() {
                 t={t}
                 busy={!!settling[row.pick_id]}
                 onSettle={settlePick}
+                onBackfill={setBackfillRow}
               />
             ))}
           </div>
         </>
       )}
+
+      {/* Fix 1 + Fix 2 — Retroactive editor for the user's actual bet.
+          The `key` prop forces a remount per row so init values come
+          from useState(() => ...) without a set-state-in-effect. */}
+      <UserBetBackfillModal
+        key={backfillRow ? `bf-${backfillRow.pick_id || backfillRow.pick_uid || 'x'}` : 'bf-closed'}
+        open={!!backfillRow}
+        row={backfillRow}
+        lang={lang}
+        onClose={() => setBackfillRow(null)}
+        onSaved={() => { setBackfillRow(null); load(stake); }}
+      />
     </div>
   );
 }
@@ -419,7 +436,7 @@ function SportBadge({ sport }) {
 }
 
 // ── Desktop row ────────────────────────────────────────────────────
-function HistoryRow({ row, i, lang, t, busy, onSettle }) {
+function HistoryRow({ row, i, lang, t, busy, onSettle, onBackfill }) {
   const parts = String(row.match_label || '').split(/\s+vs\s+|\s+@\s+/i);
   const homeName = row.home_team || parts[0]?.trim() || '';
   const awayName = row.away_team || parts[1]?.trim() || '';
@@ -465,7 +482,20 @@ function HistoryRow({ row, i, lang, t, busy, onSettle }) {
         {isPending ? (
           <SettleActions row={row} i={i} t={t} busy={busy} onSettle={onSettle} />
         ) : (
-          <OutcomePill outcome={row.outcome || row.result} t={t} />
+          <div className="flex items-center justify-end gap-1.5">
+            <OutcomePill outcome={row.outcome || row.result} t={t} />
+            {onBackfill && (
+              <button
+                type="button"
+                onClick={() => onBackfill(row)}
+                className="opacity-50 hover:opacity-100 transition-opacity"
+                title={lang === 'en' ? 'Edit my actual bet' : 'Editar mi apuesta real'}
+                data-testid={`row-backfill-${i}`}
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         )}
       </td>
     </tr>
@@ -473,7 +503,7 @@ function HistoryRow({ row, i, lang, t, busy, onSettle }) {
 }
 
 // ── Mobile card ────────────────────────────────────────────────────
-function HistoryCard({ row, i, lang, t, busy, onSettle }) {
+function HistoryCard({ row, i, lang, t, busy, onSettle, onBackfill }) {
   const parts = String(row.match_label || '').split(/\s+vs\s+|\s+@\s+/i);
   const homeName = row.home_team || parts[0]?.trim() || '';
   const awayName = row.away_team || parts[1]?.trim() || '';
@@ -519,7 +549,20 @@ function HistoryCard({ row, i, lang, t, busy, onSettle }) {
         {isPending ? (
           <SettleActions row={row} i={i} t={t} busy={busy} onSettle={onSettle} />
         ) : (
-          <OutcomePill outcome={row.outcome || row.result} t={t} />
+          <div className="flex items-center gap-1.5">
+            <OutcomePill outcome={row.outcome || row.result} t={t} />
+            {onBackfill && (
+              <button
+                type="button"
+                onClick={() => onBackfill(row)}
+                className="opacity-50 hover:opacity-100 transition-opacity"
+                title={lang === 'en' ? 'Edit my actual bet' : 'Editar mi apuesta real'}
+                data-testid={`card-backfill-${i}`}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

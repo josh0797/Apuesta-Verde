@@ -45,7 +45,7 @@ class FootballMoneybballTester:
             response = requests.post(
                 f"{self.base_url}/api/auth/login",
                 json={"email": "demo@valuebet.app", "password": "demo1234"},
-                timeout=10
+                timeout=30
             )
             if response.status_code == 200:
                 data = response.json()
@@ -455,6 +455,264 @@ class FootballMoneybballTester:
             self.log_test("Totals Calibration Fail-Soft", False, str(e))
             return False
 
+    def test_calibration_summary(self):
+        """Test GET /api/calibration/summary endpoint"""
+        print("\n🔍 Testing Calibration Summary...")
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/calibration/summary?days=30",
+                headers={"Authorization": f"Bearer {self.token}"},
+                timeout=10
+            )
+            if response.status_code == 200:
+                data = response.json()
+                # Validate structure
+                required_keys = [
+                    "days", "total_picks", "engine", "user", 
+                    "followed_engine_rate", "delta_breakdown",
+                    "avg_line_protection", "engine_won_user_lost", 
+                    "engine_lost_user_won"
+                ]
+                missing = [k for k in required_keys if k not in data]
+                if missing:
+                    self.log_test(
+                        "Calibration Summary Structure",
+                        False,
+                        f"Missing keys: {missing}"
+                    )
+                    return False
+                
+                # Validate engine and user blocks
+                for block_name in ["engine", "user"]:
+                    block = data.get(block_name, {})
+                    block_keys = ["wins", "losses", "pushes", "sample", "win_rate"]
+                    missing_block = [k for k in block_keys if k not in block]
+                    if missing_block:
+                        self.log_test(
+                            f"Calibration Summary {block_name} Block",
+                            False,
+                            f"Missing keys: {missing_block}"
+                        )
+                        return False
+                
+                self.log_test(
+                    "Calibration Summary",
+                    True,
+                    f"Total picks: {data.get('total_picks')}"
+                )
+                return True
+            else:
+                self.log_test(
+                    "Calibration Summary",
+                    False,
+                    f"Status {response.status_code}"
+                )
+                return False
+        except Exception as e:
+            self.log_test("Calibration Summary", False, str(e))
+            return False
+
+    def test_calibration_divergences(self):
+        """Test GET /api/calibration/divergences endpoint"""
+        print("\n🔍 Testing Calibration Divergences...")
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/calibration/divergences?days=30&limit=5",
+                headers={"Authorization": f"Bearer {self.token}"},
+                timeout=10
+            )
+            if response.status_code == 200:
+                data = response.json()
+                required_keys = ["days", "count", "items"]
+                missing = [k for k in required_keys if k not in data]
+                if missing:
+                    self.log_test(
+                        "Calibration Divergences",
+                        False,
+                        f"Missing keys: {missing}"
+                    )
+                    return False
+                
+                self.log_test(
+                    "Calibration Divergences",
+                    True,
+                    f"Count: {data.get('count')}"
+                )
+                return True
+            else:
+                self.log_test(
+                    "Calibration Divergences",
+                    False,
+                    f"Status {response.status_code}"
+                )
+                return False
+        except Exception as e:
+            self.log_test("Calibration Divergences", False, str(e))
+            return False
+
+    def test_track_pick_with_divergence(self):
+        """Test POST /api/picks/track with divergence analysis"""
+        print("\n🔍 Testing Track Pick with Divergence...")
+        try:
+            test_pick = {
+                "run_id": f"test-run-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                "match_id": f"test-match-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                "match_label": "Test Team A vs Test Team B",
+                "home_team": "Test Team A",
+                "away_team": "Test Team B",
+                "league": "Test League",
+                "sport": "baseball",
+                "market": "total_runs",
+                "selection": "UNDER",
+                "line": 9.5,
+                "confidence_score": 75,
+                "outcome": "won",
+                "odds": 1.90,
+                "actual_market": "total_runs",
+                "actual_selection": "UNDER",
+                "actual_line": 10.5,
+                "actual_odds": 1.85,
+                "actual_outcome": "won",
+                "final_score": {
+                    "home": 6,
+                    "away": 4,
+                    "display": "6-4"
+                },
+                "match_date": datetime.now().strftime("%Y-%m-%d"),
+                "kickoff_iso": datetime.now().isoformat()
+            }
+            
+            response = requests.post(
+                f"{self.base_url}/api/picks/track",
+                json=test_pick,
+                headers={"Authorization": f"Bearer {self.token}"},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                # Check if pick was created successfully
+                if data.get("ok") and data.get("pick_id"):
+                    self.log_test(
+                        "Track Pick with Divergence",
+                        True,
+                        f"Pick created: {data.get('pick_id')[:30]}..."
+                    )
+                    return True
+                else:
+                    self.log_test(
+                        "Track Pick with Divergence",
+                        False,
+                        "No pick_id in response"
+                    )
+                    return False
+            else:
+                self.log_test(
+                    "Track Pick with Divergence",
+                    False,
+                    f"Status {response.status_code}"
+                )
+                return False
+        except Exception as e:
+            self.log_test("Track Pick with Divergence", False, str(e))
+            return False
+
+    def test_patch_user_bet(self):
+        """Test PATCH /api/picks/{pick_uid}/user-bet endpoint"""
+        print("\n🔍 Testing Patch User Bet...")
+        try:
+            # First create a pick
+            test_pick = {
+                "run_id": f"test-run-patch-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                "match_id": f"test-match-patch-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                "match_label": "Patch Test A vs Patch Test B",
+                "home_team": "Patch Test A",
+                "away_team": "Patch Test B",
+                "league": "Test League",
+                "sport": "baseball",
+                "market": "total_runs",
+                "selection": "UNDER",
+                "line": 9.5,
+                "confidence_score": 75,
+                "outcome": "pending",
+                "odds": 1.90,
+                "match_date": datetime.now().strftime("%Y-%m-%d"),
+                "kickoff_iso": datetime.now().isoformat()
+            }
+            
+            track_response = requests.post(
+                f"{self.base_url}/api/picks/track",
+                json=test_pick,
+                headers={"Authorization": f"Bearer {self.token}"},
+                timeout=10
+            )
+            
+            if track_response.status_code != 200:
+                self.log_test(
+                    "Patch User Bet - Create Pick",
+                    False,
+                    f"Failed to create pick: {track_response.status_code}"
+                )
+                return False
+            
+            pick_uid = track_response.json().get("pick_id")
+            if not pick_uid:
+                self.log_test(
+                    "Patch User Bet - Get UID",
+                    False,
+                    "No pick_id in response"
+                )
+                return False
+            
+            # Now patch it
+            patch_data = {
+                "market": "total_runs",
+                "selection": "UNDER",
+                "line": 10.5,
+                "odds": 1.85,
+                "outcome": "won",
+                "final_score": {
+                    "home": 6,
+                    "away": 4,
+                    "display": "6-4"
+                }
+            }
+            
+            patch_response = requests.patch(
+                f"{self.base_url}/api/picks/{pick_uid}/user-bet",
+                json=patch_data,
+                headers={"Authorization": f"Bearer {self.token}"},
+                timeout=10
+            )
+            
+            if patch_response.status_code == 200:
+                data = patch_response.json()
+                if "divergence" in data:
+                    self.log_test(
+                        "Patch User Bet",
+                        True,
+                        f"Divergence recomputed"
+                    )
+                    return True
+                else:
+                    self.log_test(
+                        "Patch User Bet",
+                        False,
+                        "No divergence in response"
+                    )
+                    return False
+            else:
+                self.log_test(
+                    "Patch User Bet",
+                    False,
+                    f"Status {patch_response.status_code}"
+                )
+                return False
+        except Exception as e:
+            self.log_test("Patch User Bet", False, str(e))
+            return False
+
+
 
     def print_summary(self):
         """Print test summary"""
@@ -498,6 +756,12 @@ def main():
     # Test NEW DC+NB calibration endpoints
     tester.test_totals_calibration_summary()
     tester.test_totals_calibration_fail_soft()
+    
+    # Test NEW Pick Divergence Analysis endpoints
+    tester.test_calibration_summary()
+    tester.test_calibration_divergences()
+    tester.test_track_pick_with_divergence()
+    tester.test_patch_user_bet()
     
     # Test football picks still work
     tester.test_football_picks_today()

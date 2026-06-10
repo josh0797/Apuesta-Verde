@@ -1,0 +1,53 @@
+{
+  "summary": "Completed comprehensive testing of Pick Divergence Analysis system (Fix 1+2): engine_pick vs user_pick separation, divergence comparator with engine_result/user_result/delta/line_difference, calibration endpoints, and UI integration. All 43 pick_divergence_analysis tests pass, 8 fail-soft tests pass, 1496 global tests pass without regressions. Backend endpoints return correct structures. Frontend calibration page loads correctly with KPIs, and history page has functional backfill modal.",
+  
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": [],
+    "warnings": []
+  },
+  
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  
+  "passed_tests": [
+    "pytest tests/test_pick_divergence_analysis.py: 43/43 tests pass (parse_pick MLB+football, settle_pick_against_score, compute_divergence, 4 canonical cases)",
+    "pytest tests/test_hydrate_team_offensive_roster_failsoft.py: 8/8 fail-soft tests pass (db=None, cache_get/put errors handled gracefully)",
+    "pytest tests/: 1496/1496 global tests pass without regressions",
+    "GET /api/calibration/summary?days=30: Returns 200 with correct structure (engine, user, followed_engine_rate, delta_breakdown, avg_line_protection, engine_won_user_lost, engine_lost_user_won, total_picks)",
+    "GET /api/calibration/divergences?days=30&limit=5: Returns 200 with array of divergence items",
+    "POST /api/picks/track: Auto-calculates divergence when actual_market/actual_line provided with final_score, stores engine_result and user_result",
+    "POST /api/picks/track with None actual_*: Backend never throws 500, correctly assumes followed_engine=true",
+    "PATCH /api/picks/{pick_uid}/user-bet: Updates actual_bet, recomputes divergence with engine_result and user_result",
+    "Frontend /dashboard/calibration: Route accessible under ProtectedShell, loads without console errors",
+    "Frontend calibration page: Shows KPIs (PICKS REGISTRADOS, SIGUIERON AL ENGINE, PROTECCIÓN MEDIA), Engine card (Precisión del Engine), User card (Tu Precisión), Divergence panel (Engine vs Tú divergencias)",
+    "Frontend header: Has 'Calibración' tab with data-testid='nav-calibration' that navigates correctly",
+    "Frontend /history: Has backfill pencil buttons with data-testid='row-backfill-N' (found 60 buttons)",
+    "Frontend UserBetBackfillModal: Opens correctly when clicking backfill button, shows form fields (Mercado, Lado, Línea, Cuota) with Cancelar/Guardar buttons"
+  ],
+  
+  "test_report_links": [
+    "/app/backend_test.py",
+    "/app/frontend_calibration_test.py",
+    "/app/backend/tests/test_pick_divergence_analysis.py",
+    "/app/backend/tests/test_hydrate_team_offensive_roster_failsoft.py"
+  ],
+  
+  "success_percentage": {
+    "backend_pytest": "100% (1496/1496 tests pass)",
+    "backend_api": "100% (8/8 endpoint tests pass)",
+    "frontend_ui": "100% (6/6 UI tests pass)"
+  },
+  
+  "updated_files": [
+    "/app/backend_test.py"
+  ],
+  
+  "action_item_for_main_agent": "",
+  
+  "should_call_test_agent_after_fix": "false",
+  "should_main_agent_test_itself": "false"
+}

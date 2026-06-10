@@ -1,4 +1,4 @@
-# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration + Live Recommendation History + Over Support Market Selection + RTL Tests + Game Openness + Unilateral Dominance + Corner Settlement + Pattern Memory Voids + Basketball Possessions/Four Factors + Live Reeval UX + **MLB Offensive Injury Impact** (plan.md)
+# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration + Live Recommendation History + Over Support Market Selection + RTL Tests + Game Openness + Unilateral Dominance + Corner Settlement + Pattern Memory Voids + Basketball Possessions/Four Factors + Live Reeval UX + **MLB Offensive Injury Impact** + **Engine vs User Pick Divergence** (plan.md)
 
 ## 1) Objectives
 
@@ -10,7 +10,9 @@
 - ✅ UI Moneyball: paneles explicables (market selection, ghost-edges, fragility/survival, pattern memory, manual odds, etc.).
 - ✅ Live MLB: corregido gating y contradicciones en comparación pregame vs live.
 
-### Objetivo nuevo (MLB): Offensive Injury Impact Score ✅ COMPLETADO (end-to-end)
+---
+
+### Objetivo (MLB): Offensive Injury Impact Score ✅ COMPLETADO (end-to-end)
 **Problema:** el motor trataba todas las lesiones igual (“52 jugadores lesionados”).
 
 **Solución implementada:** medir si los lesionados son realmente **bates importantes** (top-5 ofensivo) y cuantificar el daño.
@@ -32,11 +34,11 @@
   - **Nunca auto-flip** de polaridad de mercado (solo supresión y narrativa).
 
 - ✅ Tests
-  - `tests/test_mlb_offensive_injury_impact.py`: **19/19 passing** (incluye `test_insufficient_roster_returns_fail_soft`).
-  - Suite completa backend: **1445/1445 passing** sin regresiones.
+  - `tests/test_mlb_offensive_injury_impact.py`: **19/19 passing**.
+  - Suite completa backend (previo): **1445/1445 passing** sin regresiones.
 
 - ✅ Integración backend
-  - `services/mlb_stats_api.py`: `hydrate_team_offensive_roster()` (cache 6h; roster activo + stats de bateo). Fail-soft a `{available: False}`.
+  - `services/mlb_stats_api.py`: `hydrate_team_offensive_roster()` (cache 6h; roster activo + stats de bateo).
   - `services/mlb_day_orchestrator.py`:
     - Hidrata roster ofensivo en paralelo con IL.
     - Calcula `compute_offensive_injury_impact`.
@@ -52,17 +54,112 @@
     - Contenido: narrativa ES, top bates ausentes (OPS/HR), runs/game perdidos estimados, badge “Apoyo al Under” cuando aplica.
     - Fail-soft: no renderiza si `available:false` o sin datos relevantes.
   - `components/MatchCard.jsx`: panel cableado después de `TailRiskPanel` (gated por MLB).
-  - Build/lint OK y validación visual con screenshot: login OK, switch a MLB OK, sin errores de consola.
 
 **Notas:**
 - Picks previos sin `offensive_injury_impact` → panel oculto (compatibilidad backward).
-- Warning F821 `traffic_score_payload` en `mlb_day_orchestrator.py` es preexistente/latente y no introducido por esta feature.
+- Warning F821 `traffic_score_payload` en `mlb_day_orchestrator.py` es preexistente/latente.
+
+---
+
+### Objetivo (MLB): `hydrate_team_offensive_roster` fail-soft interno ✅ COMPLETADO
+**Problema:** el contrato decía “nunca levantar excepción”, pero el primer draft dependía del `try/except` del orchestrator.
+
+**Solución implementada (defensa en profundidad):**
+- ✅ `services/mlb_stats_api.py::hydrate_team_offensive_roster()` reescrito como fail-soft de extremo a extremo:
+  - `db=None` → bypass cache; warm fetch directo.
+  - cache_get exceptions → ignoradas, continúa.
+  - cache_put exceptions → ignoradas, retorna payload igualmente.
+  - HTTP/JSON/parse failures → retorna payload seguro `{available: False, reason: ..., players: []}`.
+  - parse-per-player con `try/except` defensivo.
+  - debug logs con contexto (team_id, error).
+- ✅ Tests nuevos:
+  - `tests/test_hydrate_team_offensive_roster_failsoft.py`: **8/8 passing** (db=None, cache read/write error, http error, malformed JSON, malformed player record, etc.).
+
+---
+
+### Objetivo nuevo (Fix 1 + Fix 2): Validar apuesta real del usuario + Comparador Engine vs User ✅ COMPLETADO
+**Problema actual:** al liquidar un pick, se asumía que el usuario apostó exactamente la recomendación del engine.
+
+**Objetivo:** separar completamente:
+- **LO QUE RECOMENDÓ EL ENGINE** (engine_accuracy)
+- **LO QUE REALMENTE APOSTÓ EL USUARIO** (user_accuracy)
+
+**Scope confirmado:**
+- ✅ Deportes: **MLB + Fútbol**.
+- ✅ Modal obligatorio en dos momentos: **pre-bet (Track In live)** y **settlement**.
+- ✅ Backfill retroactivo desde Historial.
+- ✅ Dashboard dedicado: `/dashboard/calibration`.
+- ✅ Liquidación dual SIEMPRE: el engine_pick se auto-liquida con el score oficial para medir Engine Accuracy pura.
+
+#### Backend ✅
+- ✅ Nuevo módulo fail-soft: `services/pick_divergence_analysis.py` (puro Python, sin numpy/scipy)
+  - `parse_pick`: normaliza mercados y lenguaje ES/EN
+    - MLB: `total_runs`, `f5_total_runs`, `run_line`, `moneyline`
+    - Football: `total_goals`, `btts`, `double_chance`, `moneyline_1x2`, `handicap`
+    - Soporta ES: “menos de / más de / primeros 5 / empate”
+  - `settle_pick_against_score`: computa `WIN/LOSS/PUSH/PENDING/VOID` por mercado.
+  - `compute_divergence`: detecta `NONE / USER_PROTECTED_LINE / USER_AGGRESSIVE_LINE / DIFFERENT_MARKET / OPPOSITE_SIDE` + `line_difference` + direction.
+  - `evaluate_engine_vs_user`: wrapper end-to-end.
+
+- ✅ Inyección en `POST /api/picks/track` (`track_pick` en `server.py`):
+  - Si hay `actual_*` + `final_score`, persiste `doc['divergence']` y setea `engine_result` y `user_result` top-level.
+  - Si `actual_*` faltan → asume followed_engine=true (fail-soft).
+  - **Nunca sobrescribe** `engine_recommendation`.
+
+- ✅ Endpoints nuevos:
+  - `GET /api/calibration/summary?days=N&sport=...`
+    - retorna: totals, `engine`/`user` win rates, `followed_engine_rate`, `delta_breakdown`, `avg_line_protection`, `engine_won_user_lost`, `engine_lost_user_won`.
+  - `GET /api/calibration/divergences?days=N&limit=L&sport=...`
+    - lista de picks con divergence (followed_engine=false).
+  - `PATCH /api/picks/{pick_uid}/user-bet`
+    - backfill/edición de apuesta real; recomputa divergence; no toca engine.
+
+- ✅ Tests:
+  - `tests/test_pick_divergence_analysis.py`: **43/43 passing** (incluye 4 casos canónicos del spec).
+  - Suite backend actualizada: **1496/1496 passing** sin regresiones.
+
+#### Frontend ✅
+- ✅ `components/EnginePickConfirmModal.jsx`
+  - Modal 2 pasos:
+    1) “El engine recomendó X. ¿Fue exactamente tu apuesta?” [Sí] [No]
+    2) Si No: form de mercado/lado/línea/cuota con normalización automática (decimal/americana).
+  - Integrado en `LiveReevalPanel.jsx` antes de registrar outcomes `won/lost/push` para picks `source=engine`.
+  - `key={...}` en parent para reset de estado sin `setState` en effects.
+
+- ✅ `components/UserBetBackfillModal.jsx`
+  - Editor retroactivo desde Historial.
+  - Botón lápiz en filas liquidadas:
+    - desktop: `row-backfill-N`
+    - mobile: `card-backfill-N`
+  - PATCH al endpoint `/api/picks/{uid}/user-bet`.
+
+- ✅ `pages/CalibrationPage.jsx` + ruta `/dashboard/calibration`
+  - 3 KPIs: picks registrados, tasa followed_engine, protección media.
+  - 2 tarjetas: “Precisión del Engine” (emerald) y “Tu Precisión” (cyan).
+  - Panel divergencias con badges:
+    - Engine PERDIÓ / Usuario GANÓ
+    - Engine GANÓ / Usuario PERDIÓ
+  - Tabla de divergencias (muestra delta + line_difference).
+
+- ✅ Navegación:
+  - `AppHeader.jsx` incluye tab “Calibración” con icono Target y `data-testid='nav-calibration'`.
+
+- ✅ Validación:
+  - build/lint OK.
+  - screenshot de `/dashboard/calibration` OK.
+
+#### Testing agent ✅
+- ✅ `iteration_71.json`: backend 1496/1496, endpoints 8/8, UI 6/6 — 0 críticos.
+
+---
 
 ### Objetivos en curso (Injury Intelligence Layer)
 - ⏳ Implementar **Injury Intelligence Layer** para **Basketball (Phase 1)** y luego Football (Phase 2), sin tocar MLB.
 - Arquitectura: **fail-soft**, multi-source, cache-aware, sport-specific, explicable, conservadora.
 - Entregar un bloque `injury_intelligence` en el payload que ajuste (conservadoramente) confidence/fragility/market warnings **sin forzar picks**.
 - UI: `InjuryIntelligencePanel` para football/basketball (no MLB) mostrando bajas clave, severidad, impacto y freshness.
+
+---
 
 ### Objetivo nuevo (Basketball): Possessions + Pace + Efficiency + Four Factors (Fix 1)
 - 🎯 Crear una capa avanzada de basketball basada en **posesiones reales** y **Four Factors** para mejorar:
@@ -87,6 +184,8 @@
   - si stats incompletas → fallback a `basketball_historical` y `pace_proxy`
   - si API timeouts/rate-limit → `available:false` y el pipeline continúa
 
+---
+
 ### Objetivo nuevo (Live UX/Timeout): Reevaluación live con cuota manual + mercados 0.5 (Fix 2)
 - 🎯 Corregir el error de timeout UI (>20s) al reevaluar con cuota manual.
 - 🎯 Mejorar el input móvil:
@@ -99,6 +198,8 @@
 - Fail-soft UI:
   - no romper MatchCard si hay timeout
   - no perder `manual_odds` / `manual_market` ingresados
+
+---
 
 ### Objetivos completados (Football Moneyball Intelligence Layer + Pattern Memory)
 - ✅ Convertir el motor de fútbol de “análisis por partido” a un sistema tipo **Moneyball histórico** con:
@@ -181,7 +282,7 @@
 ### Phase 4 — Comprehensive Testing & Regression ✅ COMPLETADO
 - ✅ Suite backend sin regresiones.
 
-> **Estado tests (actual):** ✅ Backend `pytest tests/` **1445 passing**. (Frontend RTL no actualizado en esta entrega; esbuild + lint OK.)
+> **Estado tests (actual):** ✅ Backend `pytest tests/` **1496 passing**.
 
 ---
 
@@ -249,72 +350,71 @@
 
 ---
 
-## 13) **Phase 43 — MLB Offensive Injury Impact Score ✅ COMPLETADO**
-
-### 43.1 Backend — Nuevo módulo `services/mlb_offensive_injury_impact.py`
-- ✅ Ranking top-5 ofensivo con score compuesto (OPS/wRC+, R+RBI, HR+XBH, OBP, PA).
-- ✅ Exclusión de pitchers y lesiones de banca.
-- ✅ Soporte two-way (P/DH con PA≥50) y posiciones múltiples.
-- ✅ Fail-soft cuando no hay pool suficiente.
-- ✅ Ajustes pipeline: multiplicadores cap a 0.85×.
-- ✅ Reason codes + narrativa ES.
-
-### 43.2 Backend — Hidratar roster ofensivo
-- ✅ `services/mlb_stats_api.py::hydrate_team_offensive_roster()`
-  - roster activo con stats de bateo hidratados
-  - cache 6h
-  - fail-soft `{available:false}`
-
-### 43.3 Backend — Integración en `mlb_day_orchestrator.py`
-- ✅ En `_process_one_game`: hidratar roster + IL en paralelo; computar impacto.
-- ✅ Persistir en `pick_payload` + `pipeline_meta`.
-- ✅ Aplicar supresión al mean de expected runs (`_mean_eff`) antes de construir la distribución.
-- ✅ No auto-flip de polaridad.
-
-### 43.4 Frontend — Panel colapsable
-- ✅ `components/OffensiveInjuryImpactPanel.jsx` (colores por bucket; under_support; top5_missing; runs lost).
-- ✅ Cableado en `components/MatchCard.jsx`.
-
-### 43.5 Tests
-- ✅ `tests/test_mlb_offensive_injury_impact.py` (19/19).
-- ✅ `pytest tests/` completo (1445/1445).
-- ✅ Smoke supervisor restart + endpoints básicos OK.
+## 13) Phase 43 — MLB Offensive Injury Impact Score ✅ COMPLETADO
+(Ver secciones 43.1–43.5 arriba.)
 
 ---
 
-## 14) Phase 39 — Fixes 7 + 3 + 5/6 + 2: live reeval UX + tracking source + DNB amistosos ✅ COMPLETADO
-- Fix 7: `/api/live/reevaluate` valida Over/Under 0.5 + market whitelist fail-soft; `TrackIn` acepta `cancelled`/`refund` + entry_minute/score.
-- Fix 3: `LiveReevalPanel` post-eval radio engine vs manual + nuevo botón "Cancelada"; tracking envía `source`, `is_live`, `entry_*`.
-- Fix 5/6: `track_pick` mirror automático a `live_recommendation_events` con source; `settle_live_recommendation_event` acepta cancelled/refund → status=void.
-- Fix 2: nuevo módulo `services/friendly_dnb_rule.py` (hard rule) + `lookup_friendly_dnb_pattern` / `record_friendly_dnb_outcome` en warehouse (≥60 muestras activa amplify/dampen). Interpreter consume el learned pattern vía `match["learned_patterns"]`.
-- Tests: 21 friendly_dnb + 3 RTL Fix 3 = 24 nuevos.
-
-## 15) Phase 41 — Fix 1/2 wiring + Mobile UX + per-card endpoint ✅ COMPLETADO
-- **Fix 1**: `prefetch_basketball_profiles` y `prefetch_baseball_profiles` ahora invocan `hydrate_match_with_box_scores` con timeout estricto (5s default, configurable). Activado por defecto, deshabilitable con `BASKETBALL_BOX_SCORES_HYDRATE=0` o `BASEBALL_BOX_SCORES_HYDRATE=0`. Nuevo endpoint `POST /api/analysis/box-scores/hydrate` para hidratar manualmente y persistir en mongo.
-- **Fix 2**: `settle_open_live_events_for_match` ahora alimenta `record_friendly_dnb_outcome` cuando el partido es football amistoso y ya terminó. Detección de favorito vía pre-match 1X2; detección de `used_dnb` mirando si algún evento del match usó mercado DNB. Push automático cuando hay empate y DNB (sin penalizar pattern memory).
-- **Fix 3 mobile**: `normalizeManualOddsInput` helper agregado (alias estricto con floor 1.01). Input acepta tanto `1.21` como `1,21`. Validación lazy en `onBlur`.
-- **Fix 3 per-card endpoint**: nuevo alias `POST /api/analysis/live/reevaluate-one`.
-- Tests: +6 backend + 8 RTL = 14 nuevos.
-
-## 16) Phase 42 — Line Learning Engine (Entrega A) + Box-score hydrate UI ✅ COMPLETADO
-- (sin cambios; ver historial en plan original)
+## 14) Phase 44 — `hydrate_team_offensive_roster` fail-soft interno ✅ COMPLETADO
+- ✅ Reescritura robusta con bypass cache cuando `db=None`.
+- ✅ try/except por bloque (cache_get/cache_put/http/parse) y payload seguro en fallo.
+- ✅ Tests `test_hydrate_team_offensive_roster_failsoft.py` (8/8).
 
 ---
 
-## 17) Next Actions (Actualizado)
+## 15) Phase 45 — Fix 1 + Fix 2: Engine vs User Pick Divergence ✅ COMPLETADO
+
+### 45.1 Backend — Divergence Analysis + auto-liquidación engine_pick
+- ✅ Nuevo módulo: `services/pick_divergence_analysis.py`.
+- ✅ Persistencia `divergence` + `engine_result` + `user_result` en `track_pick`.
+- ✅ Nunca sobrescribir `engine_recommendation`.
+
+### 45.2 Backend — Endpoints Calibration + Backfill
+- ✅ `GET /api/calibration/summary`.
+- ✅ `GET /api/calibration/divergences`.
+- ✅ `PATCH /api/picks/{pick_uid}/user-bet`.
+
+### 45.3 Frontend — Modal + Backfill + Dashboard
+- ✅ `EnginePickConfirmModal.jsx` integrado en LiveReeval.
+- ✅ `UserBetBackfillModal.jsx` en History.
+- ✅ `/dashboard/calibration` con vista comparativa + tabla.
+- ✅ Navegación `AppHeader`.
+
+### 45.4 Tests
+- ✅ `tests/test_pick_divergence_analysis.py` (43/43).
+- ✅ `pytest tests/` completo (1496/1496).
+- ✅ `iteration_71.json` (backend+api+ui) verde.
+
+---
+
+## 16) Phase 39 — Fixes 7 + 3 + 5/6 + 2: live reeval UX + tracking source + DNB amistosos ✅ COMPLETADO
+(Sin cambios; se mantiene histórico.)
+
+## 17) Phase 41 — Fix 1/2 wiring + Mobile UX + per-card endpoint ✅ COMPLETADO
+(Sin cambios; se mantiene histórico.)
+
+## 18) Phase 42 — Line Learning Engine (Entrega A) + Box-score hydrate UI ✅ COMPLETADO
+(Sin cambios; se mantiene histórico.)
+
+---
+
+## 19) Next Actions (Actualizado)
 
 ### En curso (prioridad)
-- (P1) Injury Intelligence Basketball (Phase 5–7) — retomar ahora que MLB Offensive Injury Impact está estable.
+- (P1) Injury Intelligence Basketball (Phase 5–7) — retomar ahora que:
+  - MLB Offensive Injury Impact está estable.
+  - `hydrate_team_offensive_roster` es fail-soft.
+  - Engine vs User Divergence ya entrega métricas separadas.
 
 ### Pendiente / futuro
 - (P2) Retomar Injury Intelligence Football (Phase 2) cuando Basketball Phase 1 esté estable.
-- (P3) Consumir el endpoint `POST /api/analysis/box-scores/hydrate` desde la UI (botón “Hidratar Four Factors” en cards basket/baseball) — ya existe `BoxScoreHydrateButton`, pero se puede extender UX/descubribilidad.
+- (P3) Consumir el endpoint `POST /api/analysis/box-scores/hydrate` desde la UI (botón “Hidratar Four Factors” en cards basket/baseball) — mejorar UX/descubribilidad.
 - (P2) Tests end-to-end live → settlement (con partidos live reales).
 - (P2) Extender settlement a más mercados (handicap asiático completo, tarjetas, etc.).
 
 ---
 
-## 18) Success Criteria (Actualizado)
+## 20) Success Criteria (Actualizado)
 
 ### MLB Offensive Injury Impact (Phase 43)
 - ✅ Payload incluye `offensive_injury_impact` con `available:true` cuando hay roster + IL suficientes.
@@ -325,17 +425,29 @@
 - ✅ UI colapsable muestra bucket + top missing bats + runs/game perdidos + narrativa.
 - ✅ No-regresión: `pytest` completo verde.
 
+### `hydrate_team_offensive_roster` fail-soft (Phase 44)
+- ✅ `db=None` no rompe.
+- ✅ cache read/write failures no rompen.
+- ✅ API failure retorna payload seguro con `players: []`.
+- ✅ No-regresión: suite pytest verde.
+
+### Engine vs User Divergence (Phase 45)
+- ✅ Nunca sobrescribir recomendación original del engine.
+- ✅ Liquidación dual: `engine_result` y `user_result` siempre separados.
+- ✅ Divergence tags correctos (protected/aggressive/different_market/opposite_side).
+- ✅ Backfill retroactivo desde Historial.
+- ✅ Dashboard `/dashboard/calibration` muestra:
+  - Engine Accuracy
+  - User Accuracy
+  - Followed Engine Rate
+  - Divergences (engine_won_user_lost / engine_lost_user_won)
+  - Protección media de línea
+- ✅ No-regresión: `pytest tests/` verde y UI sin errores.
+
 ### Injury Intelligence Basketball (Phase 5–7)
 - Payload incluye `injury_intelligence` cuando hay datos.
 - Reason codes correctos y explicabilidad en español.
 - Fail-soft: si faltan datos, `available:false` y el pipeline continúa.
-
-### Live reevaluación con cuota manual (Phase 38)
-- No hay timeout UI fijo a 20s que bloquee el flujo (al menos para manual odds).
-- Mensaje útil y posibilidad de reintentar sin perder inputs.
-- Input acepta coma decimal en móvil y se normaliza correctamente.
-- Dropdown incluye Over/Under 0.5.
-- Tracking: se puede registrar outcome de recomendación o selección manual.
 
 ### Global
 - ✅ Backend: `pytest` completo en verde.

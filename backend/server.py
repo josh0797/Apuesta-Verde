@@ -3851,6 +3851,51 @@ async def track_pick(payload: TrackIn, user: dict = Depends(get_current_user)):
     except Exception as _exc_dedup:
         log.warning("pick_tracking dedup failed (non-fatal): %s", _exc_dedup)
 
+    # ── Fix 1+2: Engine vs User pick divergence analysis ─────────────
+    # If the user diverged from the engine (different market/line/side),
+    # auto-settle the engine's recommendation against the OFFICIAL final
+    # score so we can track pure Engine Accuracy separately from User
+    # Accuracy. Fail-soft: never block the track_pick response.
+    try:
+        from services import pick_divergence_analysis as _pda
+        f5h = getattr(payload.final_score, "f5_home", None) if payload.final_score else None
+        f5a = getattr(payload.final_score, "f5_away", None) if payload.final_score else None
+        fh = final_score_block.get("home") if final_score_block else None
+        fa = final_score_block.get("away") if final_score_block else None
+
+        diverg = _pda.evaluate_engine_vs_user(
+            engine_market    = payload.market,
+            engine_selection = payload.selection,
+            engine_line      = payload.line,
+            user_market      = payload.actual_market,
+            user_selection   = payload.actual_selection,
+            user_line        = payload.actual_line,
+            final_home       = fh,
+            final_away       = fa,
+            f5_home          = f5h,
+            f5_away          = f5a,
+        )
+        doc["divergence"] = {
+            "available":       diverg.get("available"),
+            "engine_result":   diverg.get("engine_result"),
+            "user_result":     diverg.get("user_result"),
+            "followed_engine": diverg.get("followed_engine"),
+            "delta":           diverg.get("delta"),
+            "line_difference": diverg.get("line_difference"),
+            "line_direction":  diverg.get("line_direction"),
+            "pick_variation":  diverg.get("pick_variation"),
+            "engine_pick":     diverg.get("engine_pick"),
+            "user_pick":       diverg.get("user_pick"),
+        }
+        # Surface the engine_result at top-level so dashboards/queries
+        # don't have to dig into the sub-document.
+        if diverg.get("engine_result") and diverg["engine_result"] != "PENDING":
+            doc["engine_result"] = diverg["engine_result"]
+        if diverg.get("user_result") and diverg["user_result"] != "PENDING":
+            doc["user_result"] = diverg["user_result"]
+    except Exception as _exc_div:
+        log.debug("pick_divergence_analysis failed (non-fatal): %s", _exc_div)
+
     await db.pick_tracking.update_one(
         {"user_id": user["id"], "match_id": str(payload.match_id), "pick_id": pick_uid},
         {"$set": doc},
@@ -6364,6 +6409,252 @@ async def understat_auto_link(
             "match_date":       result.get("match_date"),
         },
         "computed_at":         datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fix 1 + Fix 2 — Calibration: Engine Accuracy vs User Accuracy
+# ─────────────────────────────────────────────────────────────────────────────
+class UserBetIn(BaseModel):
+    """Backfill / pre-bet payload to register what the user ACTUALLY wagered.
+    Optional fields default to ``None``; the server is fail-soft on every
+    one of them.
+    """
+    market:    Optional[str]   = None
+    selection: Optional[str]   = None
+    line:      Optional[float] = None
+    odds:      Optional[float] = None
+    outcome:   Optional[str]   = None
+    final_score: Optional[FinalScoreIn] = None
+
+
+@api.patch("/picks/{pick_uid}/user-bet")
+async def patch_pick_user_bet(
+    pick_uid: str,
+    payload: UserBetIn,
+    user: dict = Depends(get_current_user),
+):
+    """Backfill / override the user's actual bet on a previously-tracked
+    pick. Recomputes divergence + engine_result + user_result and persists
+    the snapshot into ``pick_tracking.divergence``.
+
+    Never overwrites ``engine_recommendation`` — only the actual_bet
+    block + divergence fields.
+    """
+    row = await db.pick_tracking.find_one({
+        "user_id": user["id"], "pick_id": pick_uid,
+    })
+    if not row:
+        raise HTTPException(status_code=404, detail="pick not found")
+
+    # Refresh actual_bet sub-document defensively.
+    actual_bet = dict(row.get("actual_bet") or {})
+    if payload.market    is not None: actual_bet["market"]    = payload.market
+    if payload.selection is not None: actual_bet["selection"] = payload.selection
+    if payload.line      is not None: actual_bet["line"]      = payload.line
+    if payload.odds      is not None: actual_bet["odds"]      = payload.odds
+    if payload.outcome   is not None: actual_bet["outcome"]   = payload.outcome
+
+    # Final score (either supplied or read from the row).
+    fs_block = row.get("final_score") or {}
+    if payload.final_score is not None:
+        fs_block = {
+            "home":    payload.final_score.home,
+            "away":    payload.final_score.away,
+            "display": payload.final_score.display
+                       or (f"{payload.final_score.home}-{payload.final_score.away}"
+                           if payload.final_score.home is not None and payload.final_score.away is not None
+                           else None),
+        }
+
+    # Re-run divergence end-to-end.
+    try:
+        from services import pick_divergence_analysis as _pda
+        eng = row.get("engine_recommendation") or {}
+        diverg = _pda.evaluate_engine_vs_user(
+            engine_market    = eng.get("market"),
+            engine_selection = eng.get("selection"),
+            engine_line      = eng.get("line"),
+            user_market      = actual_bet.get("market"),
+            user_selection   = actual_bet.get("selection"),
+            user_line        = actual_bet.get("line"),
+            final_home       = (fs_block or {}).get("home"),
+            final_away       = (fs_block or {}).get("away"),
+        )
+    except Exception as exc:
+        log.debug("backfill divergence failed: %s", exc)
+        diverg = {"available": False}
+
+    patch: dict = {
+        "actual_bet": actual_bet,
+        "divergence": {
+            "available":       diverg.get("available"),
+            "engine_result":   diverg.get("engine_result"),
+            "user_result":     diverg.get("user_result"),
+            "followed_engine": diverg.get("followed_engine"),
+            "delta":           diverg.get("delta"),
+            "line_difference": diverg.get("line_difference"),
+            "line_direction":  diverg.get("line_direction"),
+            "pick_variation":  diverg.get("pick_variation"),
+            "engine_pick":     diverg.get("engine_pick"),
+            "user_pick":       diverg.get("user_pick"),
+        },
+        "final_score": fs_block,
+        "backfilled_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if diverg.get("engine_result") and diverg["engine_result"] != "PENDING":
+        patch["engine_result"] = diverg["engine_result"]
+    if diverg.get("user_result") and diverg["user_result"] != "PENDING":
+        patch["user_result"] = diverg["user_result"]
+
+    await db.pick_tracking.update_one(
+        {"user_id": user["id"], "pick_id": pick_uid},
+        {"$set": patch},
+    )
+    return {"ok": True, "pick_uid": pick_uid, "divergence": patch["divergence"]}
+
+
+@api.get("/calibration/summary")
+async def calibration_summary(
+    days:  int = 30,
+    sport: Optional[str] = None,
+    user:  dict = Depends(get_current_user),
+):
+    """Aggregate Engine Accuracy vs User Accuracy over the last N days.
+
+    Response shape::
+        {
+          "days": 30,
+          "sport": "baseball" | "football" | null,
+          "total_picks": int,
+          "engine":  {"wins":..,"losses":..,"pushes":..,"win_rate":..,"sample":..},
+          "user":    {"wins":..,"losses":..,"pushes":..,"win_rate":..,"sample":..},
+          "followed_engine_rate": 0..1,
+          "delta_breakdown": { "NONE":n, "USER_PROTECTED_LINE":n, ... },
+          "avg_line_protection": float,  # mean(|line_difference|) when delta != NONE
+          "engine_won_user_lost": int,
+          "engine_lost_user_won": int,
+        }
+    """
+    since_dt = datetime.now(timezone.utc) - timedelta(days=max(1, min(int(days), 365)))
+    q: dict = {
+        "user_id":    user["id"],
+        "tracked_at": {"$gte": since_dt.isoformat()},
+    }
+    if sport:
+        q["sport"] = sport.lower()
+
+    rows = await db.pick_tracking.find(q).to_list(length=20_000)
+    total = len(rows)
+
+    def _bucket(rows_, key):
+        wins   = sum(1 for r in rows_ if (r.get(key) or "").upper() == "WIN")
+        losses = sum(1 for r in rows_ if (r.get(key) or "").upper() == "LOSS")
+        pushes = sum(1 for r in rows_ if (r.get(key) or "").upper() == "PUSH")
+        decided = wins + losses
+        win_rate = round(wins / decided, 4) if decided else None
+        return {
+            "wins":    wins,
+            "losses":  losses,
+            "pushes":  pushes,
+            "sample":  decided,
+            "win_rate": win_rate,
+        }
+
+    engine_block = _bucket(rows, "engine_result")
+    user_block   = _bucket(rows, "user_result")
+
+    followed = sum(
+        1 for r in rows
+        if (r.get("divergence") or {}).get("followed_engine") is True
+    )
+
+    delta_breakdown: dict = {}
+    line_protections: list[float] = []
+    engine_won_user_lost = 0
+    engine_lost_user_won = 0
+    for r in rows:
+        d = (r.get("divergence") or {})
+        delta = d.get("delta")
+        if delta:
+            delta_breakdown[delta] = delta_breakdown.get(delta, 0) + 1
+        ld = d.get("line_difference")
+        if isinstance(ld, (int, float)) and ld > 0 and d.get("delta") != "NONE":
+            line_protections.append(float(ld))
+        er = (r.get("engine_result") or "").upper()
+        ur = (r.get("user_result")   or "").upper()
+        if er == "WIN"  and ur == "LOSS": engine_won_user_lost += 1
+        if er == "LOSS" and ur == "WIN":  engine_lost_user_won += 1
+
+    avg_protection = (
+        round(sum(line_protections) / len(line_protections), 3)
+        if line_protections else None
+    )
+
+    return {
+        "days":                  days,
+        "sport":                 sport,
+        "total_picks":           total,
+        "engine":                engine_block,
+        "user":                  user_block,
+        "followed_engine_rate":  round(followed / total, 4) if total else None,
+        "delta_breakdown":       delta_breakdown,
+        "avg_line_protection":   avg_protection,
+        "engine_won_user_lost":  engine_won_user_lost,
+        "engine_lost_user_won":  engine_lost_user_won,
+    }
+
+
+@api.get("/calibration/divergences")
+async def calibration_divergences(
+    days:  int = 30,
+    sport: Optional[str] = None,
+    limit: int = 100,
+    user:  dict = Depends(get_current_user),
+):
+    """List individual picks where the user diverged from the engine.
+
+    Filters out rows with ``followed_engine=True`` and rows without a
+    populated ``divergence`` block.
+    """
+    since_dt = datetime.now(timezone.utc) - timedelta(days=max(1, min(int(days), 365)))
+    q: dict = {
+        "user_id":    user["id"],
+        "tracked_at": {"$gte": since_dt.isoformat()},
+        "divergence.followed_engine": False,
+    }
+    if sport:
+        q["sport"] = sport.lower()
+
+    rows = await db.pick_tracking.find(q).sort("tracked_at", -1).limit(
+        max(1, min(int(limit), 500))
+    ).to_list(length=500)
+
+    items = []
+    for r in rows:
+        d = r.get("divergence") or {}
+        items.append({
+            "pick_uid":         r.get("pick_id"),
+            "match_id":         r.get("match_id"),
+            "match_label":      r.get("match_label"),
+            "sport":            r.get("sport"),
+            "tracked_at":       r.get("tracked_at"),
+            "engine_recommendation": r.get("engine_recommendation"),
+            "actual_bet":       r.get("actual_bet"),
+            "final_score":      r.get("final_score"),
+            "engine_result":    r.get("engine_result")  or d.get("engine_result"),
+            "user_result":      r.get("user_result")    or d.get("user_result"),
+            "delta":            d.get("delta"),
+            "line_difference":  d.get("line_difference"),
+            "line_direction":   d.get("line_direction"),
+            "pick_variation":   d.get("pick_variation"),
+        })
+
+    return {
+        "days":  days,
+        "sport": sport,
+        "count": len(items),
+        "items": items,
     }
 
 

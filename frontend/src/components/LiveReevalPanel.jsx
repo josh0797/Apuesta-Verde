@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { Radio, RefreshCw, AlertCircle, TrendingUp, Hand, Eye, X, Pencil } from 'lucide-react';
 import { LiveCopilotCard } from '@/components/LiveCopilotCard';
 import { MatchOutcomeModal } from '@/components/MatchOutcomeModal';
+import { EnginePickConfirmModal } from '@/components/EnginePickConfirmModal';
 import { BullpenTrafficBadge } from '@/components/BullpenTrafficBadge';
 import { SiegePressureBadge } from '@/components/SiegePressureBadge';
 
@@ -120,6 +121,12 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
   const [playSource, setPlaySource] = useState('engine');
   // Phase 42 / Fix 7 — Outcome modal lifecycle
   const [outcomeModalOpen, setOutcomeModalOpen] = useState(false);
+  // Fix 1 + Fix 2 — Engine vs User Pick confirmation modal lifecycle.
+  // Opened just before persisting won/lost/push on an engine-source
+  // track-in. Captures actual_market / actual_line / actual_odds when
+  // the user diverged from the engine recommendation.
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingOutcome, setPendingOutcome] = useState(null);
 
   const matchId = match.match_id;
 
@@ -227,20 +234,40 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
   // the engine recommendation or the user's own market+selection from
   // the manual-odds form. Source is propagated to the backend so the
   // history can show "Tuya" vs "Engine".
+  //
+  // Fix 1 + Fix 2 — When the source is "engine" and the user wants to
+  // settle (won/lost/push), we open EnginePickConfirmModal first to
+  // capture the user's REAL bet (different line/odds/market). The
+  // resulting actual_* fields feed pick_divergence_analysis backend-side
+  // so we can track Engine Accuracy vs User Accuracy independently.
+  const SETTLE_OUTCOMES = ['won', 'lost', 'push'];
+
   const track = async (outcome) => {
     if (!result || tracking) return;
+    const isManual = playSource === 'manual';
+    // Open the confirm modal ONLY for engine-source settlements.
+    // Manual-source: user is already entering their own bet — no need
+    // to ask again. Void/refund/cancelled: pure status flips, no
+    // line-divergence semantics, skip the modal.
+    if (!isManual && SETTLE_OUTCOMES.includes(outcome)) {
+      setPendingOutcome(outcome);
+      setConfirmOpen(true);
+      return;
+    }
+    // Direct path — proceed without divergence info.
+    await executeTrack(outcome, null);
+  };
+
+  const executeTrack = async (outcome, actualBet /* may be null */) => {
     setTracking(true);
     try {
       const runId = `live-reeval-${matchId}-${result.computed_at || Date.now()}`;
-      // Resolve market + selection + odds based on source.
       const isManual = playSource === 'manual';
       const useEngineMarket  = !isManual ? (result.market || 'Live') : (manualMarket || 'Live');
       const useEngineSel     = !isManual ? (result.selection || result.market || 'Live') : (manualMarket || 'Live');
       const useOdds          = isManual
         ? (normalizeDecimalOdds(manualOdds) ?? result.decimal_odds)
         : result.decimal_odds;
-      // Snapshot the live-entry context so we can reconstruct WHEN the
-      // user pulled the trigger even if the score changes later.
       const snap = result.live_snapshot || {};
       const entryMinute = snap.minute != null ? Number(snap.minute) : null;
       const entryScoreHome = snap.score?.home != null ? Number(snap.score.home) : null;
@@ -248,6 +275,17 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
       const entryScoreDisplay =
         entryScoreHome != null && entryScoreAway != null
           ? `${entryScoreHome}-${entryScoreAway}` : null;
+      // Fix 1 + Fix 2 — Build the actual_* block when the user diverged.
+      // When actualBet is null OR followed_engine=true, we leave the
+      // fields undefined so the backend treats user_pick == engine_pick.
+      const divergedFields = (actualBet && actualBet.followed_engine === false)
+        ? {
+            actual_market:    actualBet.actual_market    || null,
+            actual_selection: actualBet.actual_selection || null,
+            actual_line:      actualBet.actual_line,
+            actual_odds:      actualBet.actual_odds,
+          }
+        : {};
       await api.post('/picks/track', {
         run_id: runId,
         match_id: String(matchId),
@@ -266,6 +304,7 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
         entry_score_home: entryScoreHome,
         entry_score_away: entryScoreAway,
         entry_score_display: entryScoreDisplay,
+        ...divergedFields,
       });
       setTrackedOutcome(outcome);
       const labels = {
@@ -757,6 +796,33 @@ export function LiveReevalPanel({ match, lang = 'es', sport = 'football', testId
             // the same confirmation regardless of which path they used.
             setTrackedOutcome(payload?.outcome || 'won');
           }}
+        />
+      )}
+
+      {/* Fix 1 + Fix 2 — Engine-pick confirmation modal. Opens before
+          persisting won/lost/push from the inline buttons so we can
+          capture the user's REAL bet (different market/line/odds).
+          The `key` prop forces a remount on each open so internal
+          state resets to defaults without a set-state-in-effect. */}
+      {result && (
+        <EnginePickConfirmModal
+          key={confirmOpen ? `confirm-${matchId}-${pendingOutcome}` : 'closed'}
+          open={confirmOpen}
+          onClose={() => { setConfirmOpen(false); setPendingOutcome(null); }}
+          onConfirm={async (decision) => {
+            const out = pendingOutcome;
+            setConfirmOpen(false);
+            setPendingOutcome(null);
+            if (out) await executeTrack(out, decision);
+          }}
+          engine={{
+            market:    result.market,
+            selection: result.selection,
+            line:      result.line,
+            label:     `${(result.selection || '').toUpperCase()}${result.line != null ? ' ' + result.line : ''}`.trim(),
+          }}
+          sport={sport}
+          lang={lang}
         />
       )}
     </div>

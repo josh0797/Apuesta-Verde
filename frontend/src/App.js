@@ -11,6 +11,7 @@ import MatchDetailPage from '@/pages/MatchDetailPage';
 import HistoryPage from '@/pages/HistoryPage';
 import ProfilePage from '@/pages/ProfilePage';
 import LineLearningDashboard from '@/components/LineLearningDashboard';
+import CalibrationPage from '@/pages/CalibrationPage';
 import { useEffect } from 'react';
 import './App.css';
 
@@ -49,6 +50,7 @@ function AppShell() {
           <Route path="/match/:id" element={<MatchDetailPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/learning" element={<LineLearningDashboard />} />
+          <Route path="/dashboard/calibration" element={<CalibrationPage />} />
           <Route path="/profile" element={<ProfilePage />} />
         </Route>
         <Route path="*" element={<RootRedirect />} />
