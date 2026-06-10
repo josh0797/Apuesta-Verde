@@ -2027,6 +2027,91 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 log.debug("tail_risk failed (fail-soft): %s", _exc_tr)
                 tail_risk = {"available": False}
 
+            # ── Phase 55 — Tail Fragility Engine ──────────────────────
+            # Use existing tail_risk + structural risk drivers to compute
+            # explosive_tail_score (0-100), bucket, base_adjustment, and
+            # interaction modifiers (bullpen / defense / series / starter)
+            # with a +20 cap. Replaces the legacy p_ge_12 section in the
+            # calibrator — no double counting.
+            tail_fragility = {"available": False}
+            try:
+                from .mlb_tail_fragility import compute_tail_fragility as _ctf
+
+                # ── Bullpen fatigue high (any side) ───────────────────
+                def _bp_high(bp: Optional[dict]) -> bool:
+                    if not isinstance(bp, dict):
+                        return False
+                    b = str(bp.get("workload_bucket") or bp.get("fatigue_bucket") or "").upper()
+                    if b in {"HIGH", "EXTREME"}:
+                        return True
+                    score = bp.get("workload_score") or bp.get("fatigue_score")
+                    try:
+                        return float(score) >= 65 if score is not None else False
+                    except (TypeError, ValueError):
+                        return False
+                bp_high = _bp_high(h_bullpen_usage) or _bp_high(a_bullpen_usage)
+
+                # ── Defensive breakdown bucket ────────────────────────
+                def _bucket_from_score(s) -> Optional[str]:
+                    try:
+                        f = float(s)
+                    except (TypeError, ValueError):
+                        return None
+                    if f >= 70: return "HIGH"
+                    if f >= 50: return "MEDIUM"
+                    return "LOW"
+                dbb = _bucket_from_score(
+                    (defensive_breakdown_pregame or {}).get("defensive_breakdown_score")
+                )
+
+                # ── Series familiarity bucket ─────────────────────────
+                sfb = None
+                if isinstance(series_familiarity, dict) and series_familiarity.get("available"):
+                    sfb = series_familiarity.get("bucket")
+
+                # ── Vulnerable starter: pick the worst of the two ─────
+                def _era(p): return (p or {}).get("era") if isinstance(p, dict) else None
+                def _whip(p): return (p or {}).get("whip") if isinstance(p, dict) else None
+                home_p = conf.get("home_pitcher") if isinstance(conf, dict) else None
+                away_p = conf.get("away_pitcher") if isinstance(conf, dict) else None
+                starter_era = None; starter_whip = None
+                for cand in (home_p, away_p):
+                    e, w = _era(cand), _whip(cand)
+                    try:
+                        if e is not None and (starter_era is None or float(e) > float(starter_era)):
+                            starter_era = float(e)
+                    except (TypeError, ValueError):
+                        pass
+                    try:
+                        if w is not None and (starter_whip is None or float(w) > float(starter_whip)):
+                            starter_whip = float(w)
+                    except (TypeError, ValueError):
+                        pass
+
+                tail_fragility = _ctf(
+                    tail_risk_payload=tail_risk if isinstance(tail_risk, dict) else None,
+                    bullpen_fatigue_high=bp_high,
+                    defensive_breakdown_bucket=dbb,
+                    series_familiarity_bucket=sfb,
+                    starter_era=starter_era,
+                    starter_whip=starter_whip,
+                    market_side=_market_side,
+                )
+                pick_payload["tail_fragility"] = tail_fragility
+                pipeline_meta["tail_fragility"] = {
+                    "available":            tail_fragility.get("available"),
+                    "explosive_tail_score": tail_fragility.get("explosive_tail_score"),
+                    "tail_bucket":          tail_fragility.get("tail_bucket"),
+                    "base_adjustment":      tail_fragility.get("base_adjustment"),
+                    "interaction_total":    tail_fragility.get("interaction_total"),
+                    "total_adjustment":     tail_fragility.get("total_adjustment"),
+                    "cap_hit":              tail_fragility.get("cap_hit"),
+                    "reason_codes":         tail_fragility.get("reason_codes") or [],
+                }
+            except Exception as _exc_tf:
+                log.debug("tail_fragility failed (fail-soft): %s", _exc_tf)
+                tail_fragility = {"available": False}
+
             # ── Feature 3 — Fragility calibrator (hidden Over routes) ──
             try:
                 from .mlb_fragility_calibrator import calibrate_fragility
@@ -2049,6 +2134,7 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                                    if isinstance(traffic_score_payload, dict) else None,
                     defensive_breakdown_score=(defensive_breakdown_pregame or {}).get("defensive_breakdown_score"),
                     tail_risk=tail_risk if isinstance(tail_risk, dict) and tail_risk.get("available") else None,
+                    tail_fragility=tail_fragility if isinstance(tail_fragility, dict) and tail_fragility.get("available") else None,
                 )
                 pick_payload["fragility_calibration"] = fragility_calibration
                 pipeline_meta["fragility_calibration"] = {

@@ -112,6 +112,7 @@ def calibrate_fragility(
     traffic_score:             Optional[float] = None,
     defensive_breakdown_score: Optional[float] = None,
     tail_risk:                 Optional[dict] = None,
+    tail_fragility:            Optional[dict] = None,  # Phase 55
 ) -> dict:
     """Calibrate the base fragility upward when hidden Over routes
     exist. Returns the full audit trail.
@@ -206,21 +207,43 @@ def calibrate_fragility(
             reason_codes.append(RC_LATE_LAMBDA_RAISES_FRAGILITY)
             component_deltas["late_lambda"] = add
 
-    # ── 5. TAIL_RISK_MEDIUM_OR_HIGH ──────────────────────────────────
-    tr = tail_risk or {}
-    p_ge_12 = _safe(tr.get("p_ge_12"))
-    if p_ge_12 is not None:
-        if p_ge_12 >= 0.22:
-            add = 10
-        elif p_ge_12 >= 0.12:
-            add = 5
-        else:
-            add = 0
+    # ── 5. TAIL_FRAGILITY (Phase 55) ─────────────────────────────────
+    # When the caller supplies the Phase-55 tail_fragility payload, it
+    # is the single source of truth for ALL tail-driven adjustments
+    # (base bucket + interactions + +20 cap). The legacy p_ge_12 logic
+    # below ONLY runs when no tail_fragility is provided, preserving
+    # backward compatibility with callers that haven't been migrated.
+    tail_fragility_consumed = False
+    if isinstance(tail_fragility, dict) and tail_fragility.get("available"):
+        add = int(tail_fragility.get("total_adjustment") or 0)
         if add > 0:
             delta += add
             routes.append(HOR_TAIL_RISK_PRESENT)
             reason_codes.append(RC_TAIL_RISK_RAISES_FRAGILITY)
-            component_deltas["tail_risk"] = add
+            # Surface the Phase-55 reason codes too so the audit shows
+            # which interaction modifiers fired.
+            for rc in (tail_fragility.get("reason_codes") or []):
+                if rc not in reason_codes:
+                    reason_codes.append(rc)
+            component_deltas["tail_fragility"] = add
+        tail_fragility_consumed = True
+
+    if not tail_fragility_consumed:
+        # ── Legacy fallback (deprecated by Phase 55) ─────────────────
+        tr = tail_risk or {}
+        p_ge_12 = _safe(tr.get("p_ge_12"))
+        if p_ge_12 is not None:
+            if p_ge_12 >= 0.22:
+                add = 10
+            elif p_ge_12 >= 0.12:
+                add = 5
+            else:
+                add = 0
+            if add > 0:
+                delta += add
+                routes.append(HOR_TAIL_RISK_PRESENT)
+                reason_codes.append(RC_TAIL_RISK_RAISES_FRAGILITY)
+                component_deltas["tail_risk"] = add
 
     # ── 6. TRAFFIC_OR_DEFENSE_RISK ───────────────────────────────────
     ts = _safe(traffic_score)

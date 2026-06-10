@@ -672,6 +672,7 @@ def compute_tail_risk(
     p_ge_12 = _p_ge(12)
     p_ge_14 = _p_ge(14)
     p_ge_16 = _p_ge(16)
+    p_ge_18 = _p_ge(18)
 
     tail_bucket   = _tail_bucket_from(p_ge_12, p_ge_14, p_ge_16)
     tail_score    = _tail_risk_score(p_ge_12, p_ge_14, p_ge_16)
@@ -727,6 +728,7 @@ def compute_tail_risk(
         "p_ge_12":          p_ge_12,
         "p_ge_14":          p_ge_14,
         "p_ge_16":          p_ge_16,
+        "p_ge_18":          p_ge_18,
         "tail_bucket":      tail_bucket,
         "tail_risk_score":  tail_score,
         "under_quality":    under_quality,

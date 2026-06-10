@@ -8,17 +8,20 @@
  *   • Under-quality verdict (clean vs. mean-supported-tail-fragile, etc.)
  *   • Adjusted fragility "20 → 34" when the fragility calibrator fired,
  *     including the hidden-Over-route narrative.
+ *   • Phase 55 — TAIL FRAGILITY sub-block with explosive_tail_score,
+ *     bucket, base/interaction/total adjustment, drivers, narrative.
  *
  * Observe-only: this panel NEVER mutates the engine pick polarity.
  *
  * Backend contracts:
  *   match.tail_risk             = compute_tail_risk(...) output
+ *   match.tail_fragility        = compute_tail_fragility(...) output (Phase 55)
  *   match.market_profile        = interpret_market_profile(...) output
  *   match.fragility_calibration = calibrate_fragility(...) output
  */
 import { useState } from 'react';
 import {
-  ChevronDown, ChevronUp, Flame, ShieldAlert, AlertTriangle,
+  ChevronDown, ChevronUp, Flame, ShieldAlert, AlertTriangle, Zap,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -43,6 +46,7 @@ function fmtPct(v) {
 
 export function TailRiskPanel({
   tailRisk,
+  tailFragility,           // Phase 55 payload
   fragilityCalibration,
   marketProfile,
   lang = 'es',
@@ -151,6 +155,14 @@ export function TailRiskPanel({
               tone="tail"
               testId={`${testId || 'tail-risk-panel'}-p16`}
             />
+            {tr.p_ge_18 != null && (
+              <ProbRow
+                label={lang === 'en' ? '18+ runs' : '18+ carreras'}
+                value={tr.p_ge_18}
+                tone="tail"
+                testId={`${testId || 'tail-risk-panel'}-p18`}
+              />
+            )}
           </div>
 
           {/* Tail-risk interpretation */}
@@ -161,6 +173,17 @@ export function TailRiskPanel({
             >
               {tr.interpretation_es || mp.headline_es}
             </p>
+          )}
+
+          {/* Phase 55 — TAIL FRAGILITY sub-block. Surfaces the
+              explosive_tail_score, bucket, base + interaction deltas,
+              and the Spanish narrative. Observe-only. */}
+          {tailFragility && tailFragility.available && (
+            <TailFragilitySubBlock
+              tf={tailFragility}
+              lang={lang}
+              testId={`${testId || 'tail-risk-panel'}-fragility-engine`}
+            />
           )}
 
           {/* Fragility calibration block (when fired) */}
@@ -223,6 +246,134 @@ function ProbRow({ label, value, tone, testId }) {
       <span className={`text-[11px] font-mono font-semibold ${toneCls}`}>
         {fmtPct(value)}
       </span>
+    </div>
+  );
+}
+
+// ── Phase 55 — Tail Fragility sub-block ───────────────────────────────
+const TF_BUCKET_TONE = {
+  LOW:     'border-emerald-500/30 bg-emerald-500/5  text-emerald-200',
+  MEDIUM:  'border-cyan-500/30    bg-cyan-500/5     text-cyan-200',
+  HIGH:    'border-amber-500/40   bg-amber-500/10   text-amber-200',
+  EXTREME: 'border-red-500/40     bg-red-500/10     text-red-200',
+};
+const TF_BUCKET_LABELS = {
+  LOW:     { es: 'Bajo',     en: 'Low'     },
+  MEDIUM:  { es: 'Medio',    en: 'Medium'  },
+  HIGH:    { es: 'Alto',     en: 'High'    },
+  EXTREME: { es: 'Extremo',  en: 'Extreme' },
+};
+
+function TailFragilitySubBlock({ tf, lang = 'es', testId }) {
+  const bucket = tf.tail_bucket || 'LOW';
+  const tone   = TF_BUCKET_TONE[bucket] || TF_BUCKET_TONE.LOW;
+  const bucketLabel = (TF_BUCKET_LABELS[bucket] || {})[lang]
+                      || (TF_BUCKET_LABELS[bucket] || {}).es
+                      || bucket;
+
+  const score             = tf.explosive_tail_score;
+  const baseAdj           = tf.base_adjustment ?? 0;
+  const interactionTotal  = tf.interaction_total ?? 0;
+  const totalAdj          = tf.total_adjustment ?? 0;
+  const capHit            = Boolean(tf.cap_hit);
+  const interactions      = Array.isArray(tf.interactions) ? tf.interactions : [];
+
+  return (
+    <div
+      className={`rounded-md border ${tone} px-2 py-1.5 space-y-1.5`}
+      data-testid={testId}
+      data-bucket={bucket}
+    >
+      {/* Header line */}
+      <div className="flex items-center justify-between gap-2 text-[10.5px]">
+        <span className="flex items-center gap-1.5 font-semibold">
+          <Zap className="h-3 w-3" />
+          {lang === 'en' ? 'TAIL FRAGILITY' : 'TAIL FRAGILITY'}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <Badge
+            variant="outline"
+            className={`text-[9px] py-0 px-1 ${tone}`}
+            data-testid={`${testId}-bucket`}
+          >
+            {bucketLabel}
+          </Badge>
+          <span
+            className="font-mono text-[10.5px]"
+            data-testid={`${testId}-score`}
+          >
+            {score != null ? `${score}/100` : '—/100'}
+          </span>
+        </div>
+      </div>
+
+      {/* Adjustment breakdown */}
+      <div className="grid grid-cols-3 gap-1.5">
+        <AdjustmentCell
+          label={lang === 'en' ? 'Base' : 'Base'}
+          value={baseAdj}
+          testId={`${testId}-adj-base`}
+        />
+        <AdjustmentCell
+          label={lang === 'en' ? 'Interactions' : 'Interacciones'}
+          value={interactionTotal}
+          testId={`${testId}-adj-interactions`}
+        />
+        <AdjustmentCell
+          label={lang === 'en' ? 'Total' : 'Total'}
+          value={totalAdj}
+          highlight
+          capHit={capHit}
+          testId={`${testId}-adj-total`}
+        />
+      </div>
+
+      {/* Active interaction modifiers */}
+      {interactions.length > 0 && (
+        <div
+          className="flex flex-wrap gap-1 pt-0.5"
+          data-testid={`${testId}-interactions`}
+        >
+          {interactions.map((i) => (
+            <Badge
+              key={i.code}
+              variant="outline"
+              className="text-[8.5px] py-0 px-1 border-current/40"
+              data-testid={`${testId}-int-${i.code}`}
+            >
+              {(i.label || i.code.replaceAll('_', ' ').toLowerCase())} +{i.delta}
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {/* Narrative */}
+      {tf.narrative_es && (
+        <p
+          className="text-[10px] leading-snug opacity-90 border-l-2 border-current/40 pl-2"
+          data-testid={`${testId}-narrative`}
+        >
+          {tf.narrative_es}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AdjustmentCell({ label, value, highlight, capHit, testId }) {
+  const cls = highlight
+    ? `text-[11.5px] font-mono font-semibold ${capHit ? 'text-red-300' : 'text-foreground'}`
+    : 'text-[11px] font-mono opacity-90';
+  return (
+    <div
+      className="rounded border border-border bg-card/40 px-2 py-1"
+      data-testid={testId}
+    >
+      <p className="text-[9px] uppercase tracking-wide opacity-60">{label}</p>
+      <p className={cls}>
+        +{value}
+        {capHit && <span className="ml-1 text-[9px] opacity-70">(cap)</span>}
+      </p>
     </div>
   );
 }

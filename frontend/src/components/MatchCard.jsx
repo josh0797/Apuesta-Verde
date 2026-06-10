@@ -476,9 +476,11 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           adjusted fragility (e.g. "20 → 34") when the calibrator fires.
           Observe-only (never flips polarity). */}
       {sport === 'baseball'
-        && (m.tail_risk?.available || m.fragility_calibration?.available) && (
+        && (m.tail_risk?.available || m.fragility_calibration?.available
+            || m.tail_fragility?.available) && (
         <TailRiskPanel
           tailRisk={m.tail_risk}
+          tailFragility={m.tail_fragility}
           fragilityCalibration={m.fragility_calibration}
           marketProfile={m.market_profile}
           lang={lang}

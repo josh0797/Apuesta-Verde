@@ -1,18 +1,26 @@
 [
   {
-    "content": "Fase 1: Backend completo (módulo + endpoints + integración + auto-liquidación)",
+    "content": "Crear services/mlb_tail_fragility.py",
     "status": "completed"
   },
   {
-    "content": "Fase 2: EnginePickConfirmModal + integración LiveReevalPanel",
+    "content": "Tests pytest tail_fragility 21/21",
     "status": "completed"
   },
   {
-    "content": "Fase 3: /dashboard/calibration + UserBetBackfillModal en Historial",
+    "content": "Reemplazar sección 5 fragility_calibrator (sin doble conteo)",
     "status": "completed"
   },
   {
-    "content": "testing_agent end-to-end (1496 backend + 8 API + 6 UI todos verdes) + plan.md update",
+    "content": "Integración orchestrator: persistir + alimentar calibrator",
     "status": "completed"
+  },
+  {
+    "content": "Extender TailRiskPanel.jsx con sub-bloque TAIL FRAGILITY",
+    "status": "completed"
+  },
+  {
+    "content": "testing_agent end-to-end + plan.md update",
+    "status": "in_progress"
   }
 ]
