@@ -145,6 +145,60 @@ PARK_MULT_CEIL  = 1.15
 # usually sees ~4.4 PAs / 9-inning game; bottom of order ~3.8. Default to 4.1.
 DEFAULT_PA_PER_GAME = 4.1
 
+# Per-spot PA expectation. Critical for H+R+RBI / Hits / Runs accuracy —
+# top of the order sees materially more PAs than the bottom.
+LINEUP_POSITION_PA: dict[int, float] = {
+    1: 4.6, 2: 4.5, 3: 4.4, 4: 4.3, 5: 4.1,
+    6: 3.9, 7: 3.8, 8: 3.7, 9: 3.6,
+}
+
+
+def _resolve_pa_per_game(
+    player: dict, fallback: float = DEFAULT_PA_PER_GAME,
+) -> float:
+    """Pick a per-game plate appearance estimate.
+
+    Priority:
+      1. Explicit ``pa_per_game`` on the player.
+      2. ``batting_order`` / ``lineup_position`` (1-9 → table).
+      3. Fallback (4.1).
+    """
+    pa_explicit = _safe_float(player.get("pa_per_game"))
+    if pa_explicit is not None and pa_explicit > 0:
+        return pa_explicit
+    spot = _safe_int(
+        player.get("batting_order") or player.get("lineup_position") or 0,
+        default=0,
+    )
+    if spot in LINEUP_POSITION_PA:
+        return LINEUP_POSITION_PA[spot]
+    return fallback
+
+
+# Market priority for the per-player "best prop" selector. Lower index
+# means higher priority. H+R+RBI is the most repeatable / lowest
+# context-dependence; RBI is the most context-fragile.
+MARKET_PRIORITY_ORDER: tuple[str, ...] = (
+    "H_R_RBI",        # 0 — most stable
+    "TOTAL_BASES",    # 1
+    "HITS_1_PLUS",    # 2
+    "RUNS_1_PLUS",    # 3
+    "RBI_1_PLUS",     # 4 — most context-dependent
+)
+
+
+# Player-prop fragility model — observe-only score on a 0-100 scale.
+# HIGH fragility flags increase the score (more context dependence,
+# more noise). The bucket thresholds align with the rest of the engine.
+_FRAGILITY_HR_DEPENDENCY     = 18
+_FRAGILITY_RBI_DEPENDENCY    = 14
+_FRAGILITY_BOOM_BUST_HITTER  = 16
+_FRAGILITY_LOW_AVG_HIGH_ISO  = 12
+_FRAGILITY_ELITE_PITCHER     = 22
+_FRAGILITY_LOW_LINEUP_SPOT   = 14
+_FRAGILITY_DATA_MINIMAL      = 18
+_FRAGILITY_DATA_PARTIAL      = 8
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Reason codes
@@ -167,6 +221,17 @@ RC_PARK_HURTS             = "PARK_HURTS_HITTER"
 RC_RECENT_FORM_HOT        = "RECENT_FORM_HOT"
 RC_RECENT_FORM_COLD       = "RECENT_FORM_COLD"
 RC_POSITION_PITCHER_EXCLUDED = "POSITION_PITCHER_EXCLUDED"
+
+# Player-prop fragility reason codes (only emitted on the fragility
+# block — never on the moneyball-tier output).
+RC_FRAG_HR_DEPENDENCY     = "FRAG_HR_DEPENDENCY"
+RC_FRAG_RBI_DEPENDENCY    = "FRAG_RBI_DEPENDENCY"
+RC_FRAG_BOOM_BUST_HITTER  = "FRAG_BOOM_BUST_HITTER"
+RC_FRAG_LOW_AVG_HIGH_ISO  = "FRAG_LOW_AVG_HIGH_ISO"
+RC_FRAG_ELITE_PITCHER     = "FRAG_ELITE_PITCHER"
+RC_FRAG_LOW_LINEUP_SPOT   = "FRAG_LOW_LINEUP_SPOT"
+RC_FRAG_DATA_MINIMAL      = "FRAG_DATA_MINIMAL"
+RC_FRAG_DATA_PARTIAL      = "FRAG_DATA_PARTIAL"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -374,6 +439,91 @@ def _base_rates_per_game(player: dict, pa_per_game: float) -> dict:
     }
 
 
+def _compute_player_prop_fragility(
+    *,
+    player: dict,
+    market: str,
+    opposing_pitcher: Optional[dict],
+    data_quality: str,
+    base_rates: dict,
+) -> dict:
+    """Pure player-prop fragility score (0-100) — observe-only.
+
+    Higher score = more context-fragile (less repeatable). This is
+    intentionally independent from edge_score / confidence_tier so
+    the UI can show both axes.
+    """
+    score = 0
+    reasons: list[str] = []
+
+    avg = _safe_float(player.get("avg")) or 0.0
+    slg = _safe_float(player.get("slg")) or 0.0
+    obp = _safe_float(player.get("obp")) or 0.0
+    iso = max(0.0, slg - avg)             # ISO = SLG - AVG
+    hr  = _safe_int(player.get("hr") or player.get("home_runs"))
+    games = _safe_int(player.get("games_played"))
+
+    # HR dependency — TB market depends on power outcomes (HR ≥ 25 + ISO ≥ .220).
+    if market == MARKET_TB and hr and games:
+        hr_per_g = hr / games if games > 0 else 0
+        if hr_per_g >= 0.18 or iso >= 0.220:
+            score += _FRAGILITY_HR_DEPENDENCY
+            reasons.append(RC_FRAG_HR_DEPENDENCY)
+
+    # RBI dependency — RBI markets are extremely context-fragile.
+    if market == MARKET_RBI_1P:
+        score += _FRAGILITY_RBI_DEPENDENCY
+        reasons.append(RC_FRAG_RBI_DEPENDENCY)
+
+    # Boom/bust hitter — high SLG, low OBP, suggests volatile output.
+    if slg >= 0.470 and obp <= 0.310:
+        score += _FRAGILITY_BOOM_BUST_HITTER
+        reasons.append(RC_FRAG_BOOM_BUST_HITTER)
+
+    # Low AVG + high ISO — pure power profile, fragile for H/Hits markets.
+    if avg <= 0.230 and iso >= 0.200:
+        score += _FRAGILITY_LOW_AVG_HIGH_ISO
+        reasons.append(RC_FRAG_LOW_AVG_HIGH_ISO)
+
+    # Elite opposing pitcher.
+    if isinstance(opposing_pitcher, dict):
+        era  = _safe_float(opposing_pitcher.get("era"))
+        whip = _safe_float(opposing_pitcher.get("whip"))
+        if (era is not None and era <= 3.00) or (whip is not None and whip <= 1.05):
+            score += _FRAGILITY_ELITE_PITCHER
+            reasons.append(RC_FRAG_ELITE_PITCHER)
+
+    # Low lineup spot (7-9) — fewer PAs + worse run/RBI context.
+    spot = _safe_int(
+        player.get("batting_order") or player.get("lineup_position") or 0,
+    )
+    if spot >= 7:
+        score += _FRAGILITY_LOW_LINEUP_SPOT
+        reasons.append(RC_FRAG_LOW_LINEUP_SPOT)
+
+    # Data quality penalties.
+    if data_quality == "MINIMAL":
+        score += _FRAGILITY_DATA_MINIMAL
+        reasons.append(RC_FRAG_DATA_MINIMAL)
+    elif data_quality == "PARTIAL":
+        score += _FRAGILITY_DATA_PARTIAL
+        reasons.append(RC_FRAG_DATA_PARTIAL)
+
+    score = max(0, min(100, score))
+    if score >= 60:
+        bucket = "HIGH"
+    elif score >= 30:
+        bucket = "MEDIUM"
+    else:
+        bucket = "LOW"
+
+    return {
+        "player_prop_fragility": score,
+        "fragility_bucket":      bucket,
+        "fragility_reasons":     reasons,
+    }
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Single-prop prediction
 # ──────────────────────────────────────────────────────────────────────
@@ -387,7 +537,8 @@ def predict_player_prop(
     market: str = MARKET_H_R_RBI,
     line: Optional[float] = None,
     book_american_odds: Optional[int] = None,
-    pa_per_game: float = DEFAULT_PA_PER_GAME,
+    pa_per_game: Optional[float] = None,
+    data_quality: Optional[str] = None,
 ) -> dict:
     """Predict a single player-prop with deterministic Poisson math.
 
@@ -401,6 +552,9 @@ def predict_player_prop(
             "reason":     f"unknown_market:{market}",
         }
 
+    # PA estimate — explicit arg wins, else resolve from batting order.
+    if pa_per_game is None:
+        pa_per_game = _resolve_pa_per_game(player)
     base   = _base_rates_per_game(player, pa_per_game)
     p_mult, p_reasons    = _pitcher_quality_multiplier(opposing_pitcher or {})
     pk_mult, pk_reasons  = _park_multiplier(park_runs_mult)
@@ -478,6 +632,20 @@ def predict_player_prop(
 
     reason_codes = list(dict.fromkeys(reason_codes))
 
+    # Player-prop fragility (independent from edge_score / tier).
+    # Uses a conservative quality label if the caller didn't supply one.
+    _dq = data_quality
+    if not _dq:
+        if isinstance(savant, dict) and savant and not savant.get("_savant_failed"):
+            _dq = "COMPLETE" if isinstance(recent_form, dict) and recent_form else "PARTIAL"
+        else:
+            _dq = "PARTIAL" if isinstance(recent_form, dict) and recent_form else "MINIMAL"
+    fragility_block = _compute_player_prop_fragility(
+        player=player, market=market,
+        opposing_pitcher=opposing_pitcher,
+        data_quality=_dq, base_rates=base,
+    )
+
     return {
         "available":           True,
         "engine_version":      ENGINE_VERSION,
@@ -512,6 +680,11 @@ def predict_player_prop(
         },
         "book_american_odds":  book_american_odds,
         "reason_codes":        reason_codes,
+        # Phase-57 v2: explicit fragility (observe-only).
+        "player_prop_fragility": fragility_block["player_prop_fragility"],
+        "fragility_bucket":      fragility_block["fragility_bucket"],
+        "fragility_reasons":     fragility_block["fragility_reasons"],
+        "pa_per_game":           round(pa_per_game, 2),
     }
 
 
@@ -541,9 +714,9 @@ def _build_narrative_es(
     market_label = {
         MARKET_H_R_RBI:  f"H+R+RBI Over {line}",
         MARKET_TB:       f"Bases Totales Over {line}",
-        MARKET_HITS_1P:  f"1+ Hits",
-        MARKET_RBI_1P:   f"1+ RBI",
-        MARKET_RUNS_1P:  f"1+ Carrera Anotada",
+        MARKET_HITS_1P:  "1+ Hits",
+        MARKET_RBI_1P:   "1+ RBI",
+        MARKET_RUNS_1P:  "1+ Carrera Anotada",
     }.get(market, market)
     head = (
         f"{player_name} — {market_label}: "
@@ -617,17 +790,34 @@ async def _enrich_with_savant_failsoft(
 
 
 def _select_best_market_per_player(predictions: list[dict]) -> Optional[dict]:
-    """For each player, keep ONLY the best prop (highest edge_score for
-    a VALUE/WATCH tier; never AVOID). Returns the chosen dict or None.
+    """For each player, keep ONLY the best prop (Moneyball priority).
+
+    Selection rules
+    ---------------
+    1. Drop any prop in AVOID tier.
+    2. Within the remaining set, prefer VALUE > WATCH (tier rank).
+    3. Within tier, follow ``MARKET_PRIORITY_ORDER`` — H+R+RBI is
+       considered more repeatable than RBI 1+ even when RBI 1+ has a
+       slightly higher edge score.
+    4. Tie-break by edge_score (descending), then model_probability.
     """
     if not predictions:
         return None
     eligible = [p for p in predictions if p.get("confidence_tier") in ("VALUE", "WATCH")]
     if not eligible:
         return None
+
+    def _market_priority(p: dict) -> int:
+        m = p.get("market") or ""
+        try:
+            return MARKET_PRIORITY_ORDER.index(m)
+        except ValueError:
+            return len(MARKET_PRIORITY_ORDER)
+
     eligible.sort(
         key=lambda d: (
             0 if d.get("confidence_tier") == "VALUE" else 1,
+            _market_priority(d),
             -float(d.get("edge_score") or 0),
             -float(d.get("model_probability") or 0),
         )
@@ -719,6 +909,8 @@ async def compute_player_props_for_game(
             recent_form = player.get("recent_form_last_15") or player.get("recent_form")
 
             predictions: list[dict] = []
+            # Compute data_quality once per player so fragility & narrative align.
+            dq_for_player = _data_quality_label(player, recent_form, savant_data)
             for market in ALL_MARKETS:
                 pred = predict_player_prop(
                     player=player,
@@ -727,6 +919,7 @@ async def compute_player_props_for_game(
                     recent_form=recent_form,
                     savant=savant_data,
                     market=market,
+                    data_quality=dq_for_player,
                 )
                 if pred.get("available"):
                     predictions.append(pred)
@@ -735,7 +928,7 @@ async def compute_player_props_for_game(
             if not best:
                 continue
 
-            dq = _data_quality_label(player, recent_form, savant_data)
+            dq = dq_for_player
             if dq == "COMPLETE":
                 best.setdefault("reason_codes", []).append(RC_DATA_QUALITY_COMPLETE)
             elif dq == "PARTIAL":
@@ -839,7 +1032,11 @@ async def compute_player_props_for_day(
             "date":            date_str,
             "games_processed": 0,
             "props":           [],
+            "props_total":     0,
+            "props_value":     0,
+            "props_watch":     0,
             "data_quality_summary": {"COMPLETE": 0, "PARTIAL": 0, "MINIMAL": 0},
+            "savant_used":     use_savant,
         }
 
     games = games[:max_games]
@@ -915,6 +1112,7 @@ __all__ = [
     "ALL_MARKETS",
     "DEFAULT_BOOK_LINES", "DEFAULT_BOOK_AMERICAN_ODDS",
     "MONEYBALL_MIN_PROBABILITY", "MONEYBALL_MIN_EDGE_PTS", "LONGSHOT_PROB_FLOOR",
+    "LINEUP_POSITION_PA", "MARKET_PRIORITY_ORDER",
     "RC_MONEYBALL_VALUE", "RC_MONEYBALL_WATCH", "RC_MONEYBALL_AVOID",
     "RC_LONGSHOT_REJECTED", "RC_LOW_PROBABILITY", "RC_LOW_EDGE",
     "RC_DATA_QUALITY_COMPLETE", "RC_DATA_QUALITY_PARTIAL", "RC_DATA_QUALITY_MINIMAL",
@@ -923,7 +1121,13 @@ __all__ = [
     "RC_PARK_FAVOR", "RC_PARK_HURTS",
     "RC_RECENT_FORM_HOT", "RC_RECENT_FORM_COLD",
     "RC_POSITION_PITCHER_EXCLUDED",
+    "RC_FRAG_HR_DEPENDENCY", "RC_FRAG_RBI_DEPENDENCY",
+    "RC_FRAG_BOOM_BUST_HITTER", "RC_FRAG_LOW_AVG_HIGH_ISO",
+    "RC_FRAG_ELITE_PITCHER", "RC_FRAG_LOW_LINEUP_SPOT",
+    "RC_FRAG_DATA_MINIMAL", "RC_FRAG_DATA_PARTIAL",
     "american_odds_to_implied",
+    "_resolve_pa_per_game",
+    "_compute_player_prop_fragility",
     "predict_player_prop",
     "compute_player_props_for_game",
     "compute_player_props_for_day",

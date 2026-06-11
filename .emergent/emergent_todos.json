@@ -1,34 +1,34 @@
 [
   {
-    "content": "Cierre MLB Phase 57: endpoint /api/mlb/player-props + 26 tests verdes",
+    "content": "MLB player_prop_fragility (0-100 + bucket + reasons): HR dep, RBI dep, boom/bust, low AVG+high ISO, elite pitcher, low lineup spot, data quality",
     "status": "completed"
   },
   {
-    "content": "Crear services/football_news_context_ingestion.py (Google News RSS scraping fail-soft + keyword detection)",
+    "content": "MLB lineup-position PA mapping (1st=4.6 ... 9th=3.6) + integración en predict_player_prop",
     "status": "completed"
   },
   {
-    "content": "Crear services/football_context_trend_discovery.py (5 submódulos: squad disruption, form streaks, corners trend, protected goals, missed match rescue)",
+    "content": "MLB market priority ranking en _select_best_market_per_player (H+R+RBI > TB > Hits > Runs > RBI)",
     "status": "completed"
   },
   {
-    "content": "Añadir endpoint GET /api/football/context-trend en server.py + flag opcional en orchestrator",
+    "content": "MLB integración híbrida: analyze_mlb_day(include_player_props=True) inyecta player_props_discovery block",
     "status": "completed"
   },
   {
-    "content": "Crear tests/test_football_context_trend_discovery.py",
+    "content": "F57 nuevas frases: SE_PIERDE_PROXIMO_PARTIDO + LESIONADO (ES) + MISS_NEXT_MATCH + INJURED (EN)",
     "status": "completed"
   },
   {
-    "content": "Crear UI: FootballContextTrendCard.jsx + integración en MatchDetailPage",
+    "content": "F57 BBC Sport + Reuters Sports como direct RSS feeds (fail-soft, paralelo)",
     "status": "completed"
   },
   {
-    "content": "Correr pytest completo - sin regresiones (1606/1606)",
+    "content": "F57 integración híbrida: analyze_matches(include_context_trend=True) inyecta context_trend por pick",
     "status": "completed"
   },
   {
-    "content": "Corregir errores pre-existentes en mlb_day_orchestrator.py (F821, E701, E702)",
+    "content": "33 tests nuevos + pytest suite 1639/1639 verdes + lint 0 errores blocking",
     "status": "completed"
   }
 ]

@@ -391,7 +391,12 @@ async def _enrich_pitcher(db, pitcher_id: Optional[int]) -> dict:
 # ────────────────────────────────────────────────────────────────────────────
 # Public API
 # ────────────────────────────────────────────────────────────────────────────
-async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
+async def analyze_mlb_day(
+    date_str: str = "",
+    *,
+    db: Any = None,
+    include_player_props: bool = False,
+) -> dict:
     """Top-level orchestration for a full MLB day.
 
     Date basis
@@ -4982,6 +4987,44 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         log.debug("merge_pipeline_external_sources failed (fail-soft): %s",
                   _exc_ext)
 
+    # Phase 57 v2 — opt-in player props discovery (observe-only).
+    # The flag is OFF by default; when enabled, we adjunct
+    # `player_props_discovery` to the payload WITHOUT mutating picks.
+    player_props_block: Optional[dict] = None
+    if include_player_props:
+        try:
+            from .mlb_player_props_discovery import compute_player_props_for_day
+            pp_result = await compute_player_props_for_day(
+                date_str=date_str, db=db,
+                use_savant=True, max_games=20,
+            )
+            if isinstance(pp_result, dict):
+                props_all = pp_result.get("props") or []
+                props_by_game: dict[str, list[dict]] = {}
+                for p in props_all:
+                    gpk = str(p.get("game_pk") or "")
+                    if gpk:
+                        props_by_game.setdefault(gpk, []).append(p)
+                player_props_block = {
+                    "available":         bool(pp_result.get("available")),
+                    "engine_version":    pp_result.get("engine_version"),
+                    "props_total":       pp_result.get("props_total", len(props_all)),
+                    "props_value":       pp_result.get("props_value", 0),
+                    "props_watch":       pp_result.get("props_watch", 0),
+                    "top_props":         props_all[:25],
+                    "props_by_game":     props_by_game,
+                    "data_quality_summary": pp_result.get("data_quality_summary") or {},
+                    "savant_used":       pp_result.get("savant_used", True),
+                    "observe_only":      True,
+                }
+        except Exception as _exc_pp:
+            log.debug("player_props_discovery failed (fail-soft): %s", _exc_pp)
+            player_props_block = {
+                "available": False,
+                "reason":    "exception",
+                "observe_only": True,
+            }
+
     return {
         "picks":            picks,
         "rescued_picks":    rescued,
@@ -5000,6 +5043,9 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
         "editorial_context_signals_by_game": {str(k): v for k, v in signals_by_pk.items()},
         "parlay_suggested": parlay,
         "pipeline_meta":    pipeline_meta,
+        # Phase 57 v2 — hybrid integration. Only present when caller
+        # explicitly opted in via include_player_props=True.
+        **({"player_props_discovery": player_props_block} if player_props_block is not None else {}),
     }
 
 

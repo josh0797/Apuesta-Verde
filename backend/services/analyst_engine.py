@@ -1694,7 +1694,13 @@ def _cross_confirm_signals(signals: list[dict], external_evidence: list[dict]) -
 
 
 
-async def analyze_matches(matches_payload: list[dict], sport: str = "football", db: Any = None) -> dict:
+async def analyze_matches(
+    matches_payload: list[dict],
+    sport: str = "football",
+    db: Any = None,
+    *,
+    include_context_trend: bool = False,
+) -> dict:
     """Two-stage hybrid analyst.
 
     Args:
@@ -2880,6 +2886,60 @@ async def analyze_matches(matches_payload: list[dict], sport: str = "football", 
     # Merge editorial_signal_aggregation into pipeline_meta instead of overwriting
     pipeline_meta.update(parsed.get("_pipeline", {}))
     parsed["_pipeline"] = pipeline_meta
+
+    # Phase F57 v2 — opt-in football context+trend enrichment.
+    # Strictly observe-only: attaches a `context_trend` block to each
+    # pick whose sport == 'football'. NEVER mutates pick selection,
+    # market or polarity. Failures are fail-soft.
+    if include_context_trend and (sport or "").lower() == "football":
+        try:
+            from .football_context_trend_discovery import (
+                analyze_football_context_trend,
+            )
+            picks_list = parsed.get("picks") or []
+            for pick in picks_list:
+                if not isinstance(pick, dict):
+                    continue
+                home_t = (
+                    pick.get("home_team") or pick.get("home")
+                    or (pick.get("teams") or {}).get("home")
+                    or pick.get("homeName")
+                )
+                away_t = (
+                    pick.get("away_team") or pick.get("away")
+                    or (pick.get("teams") or {}).get("away")
+                    or pick.get("awayName")
+                )
+                if not home_t or not away_t:
+                    continue
+                try:
+                    ctx = await analyze_football_context_trend(
+                        home_team=str(home_t), away_team=str(away_t),
+                        match_id=pick.get("match_id"),
+                        db=db, use_news=True, locale="es",
+                    )
+                    pick["context_trend"] = ctx
+                except Exception as _exc_one:
+                    log.debug("context_trend per-pick failed for %s vs %s: %s",
+                              home_t, away_t, _exc_one)
+                    pick["context_trend"] = {
+                        "available": False, "reason": "exception",
+                        "observe_only": True,
+                    }
+            parsed["context_trend_enrichment"] = {
+                "available":   True,
+                "picks_enriched": sum(
+                    1 for p in picks_list if isinstance(p, dict) and p.get("context_trend", {}).get("available")
+                ),
+                "observe_only": True,
+            }
+        except Exception as _exc_ct:
+            log.debug("context_trend enrichment skipped (fail-soft): %s", _exc_ct)
+            parsed["context_trend_enrichment"] = {
+                "available": False, "reason": "exception",
+                "observe_only": True,
+            }
+
     return parsed
 
 

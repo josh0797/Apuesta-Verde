@@ -79,6 +79,9 @@ RC_KEY_PLAYERS_ABSENT              = "KEY_PLAYERS_ABSENT"
 RC_SQUAD_INSTABILITY               = "SQUAD_INSTABILITY"
 RC_INTERNAL_CONFLICT               = "INTERNAL_CONFLICT"
 RC_OPPONENT_SQUAD_DISRUPTION       = "OPPONENT_SQUAD_DISRUPTION"
+# Phase F57 v2 — injury / next-match availability.
+RC_INJURY_REPORTED                 = "INJURY_REPORTED"
+RC_MISSING_NEXT_MATCH              = "MISSING_NEXT_MATCH"
 
 # Form streaks.
 RC_LOST_STREAK                     = "LOST_STREAK"
@@ -208,6 +211,17 @@ def detect_squad_disruption(
         if code == "BALACERA":
             if RC_SQUAD_INSTABILITY not in reason_codes:
                 reason_codes.append(RC_SQUAD_INSTABILITY)
+        # Phase F57 v2 — injury / next-match availability.
+        if code in ("LESIONADO", "INJURED"):
+            if RC_INJURY_REPORTED not in reason_codes:
+                reason_codes.append(RC_INJURY_REPORTED)
+            if RC_KEY_PLAYERS_ABSENT not in reason_codes:
+                reason_codes.append(RC_KEY_PLAYERS_ABSENT)
+        if code in ("SE_PIERDE_PROXIMO_PARTIDO", "MISS_NEXT_MATCH"):
+            if RC_MISSING_NEXT_MATCH not in reason_codes:
+                reason_codes.append(RC_MISSING_NEXT_MATCH)
+            if RC_KEY_PLAYERS_ABSENT not in reason_codes:
+                reason_codes.append(RC_KEY_PLAYERS_ABSENT)
 
     if score >= _DISRUPTION_HIGH and RC_SQUAD_INSTABILITY not in reason_codes:
         reason_codes.append(RC_SQUAD_INSTABILITY)
@@ -873,6 +887,7 @@ __all__ = [
     "RC_DISCIPLINARY_REMOVALS", "RC_KEY_PLAYERS_ABSENT",
     "RC_SQUAD_INSTABILITY", "RC_INTERNAL_CONFLICT",
     "RC_OPPONENT_SQUAD_DISRUPTION",
+    "RC_INJURY_REPORTED", "RC_MISSING_NEXT_MATCH",
     "RC_LOST_STREAK", "RC_WIN_STREAK",
     "RC_SCORING_STREAK", "RC_CONCEDING_STREAK",
     "RC_TWO_PLUS_GOALS_STREAK", "RC_CLEAN_SHEET_STREAK",

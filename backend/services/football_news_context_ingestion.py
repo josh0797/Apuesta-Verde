@@ -86,6 +86,22 @@ _KEYWORDS_ES: list[tuple[str, re.Pattern]] = [
      re.compile(r"exclu[ií]d[oa]s?\s+de\s+(la\s+)?(selecci[oó]n|convocatoria|concentraci[oó]n)")),
     ("BALACERA",
      re.compile(r"balacera|tiroteo|involucrad[oa]s?\s+en\s+un?\s+(bar|incidente|altercado)")),
+    # Phase F57 v2 — injury & next-match availability.
+    ("SE_PIERDE_PROXIMO_PARTIDO",
+     re.compile(
+        r"se\s+pierde\s+(el|los)\s+pr[oó]ximo[s]?\s+partido[s]?"
+        r"|se\s+pierde\s+el\s+pr[oó]ximo\s+choque"
+        r"|no\s+jugar[aá]\s+(el|los)\s+pr[oó]ximo[s]?\s+partido[s]?"
+        r"|baja\s+(para|en)\s+el\s+pr[oó]ximo\s+partido"
+     )),
+    ("LESIONADO",
+     re.compile(
+        r"\blesionad[oa]s?\b"
+        r"|sufre\s+(una\s+)?lesi[oó]n"
+        r"|baja\s+por\s+lesi[oó]n"
+        r"|cae\s+lesionad[oa]"
+        r"|out\s+(injury|injured)"
+     )),
 ]
 
 _KEYWORDS_EN: list[tuple[str, re.Pattern]] = [
@@ -99,6 +115,20 @@ _KEYWORDS_EN: list[tuple[str, re.Pattern]] = [
      re.compile(r"disciplinary\s+(action|measure|reasons?)")),
     ("SENT_HOME",
      re.compile(r"sent\s+home\s+from\s+(camp|the\s+squad)")),
+    # Phase F57 v2 — injury & next-match availability (English).
+    ("MISS_NEXT_MATCH",
+     re.compile(
+        r"miss\s+(the\s+)?next\s+(match|game|fixture)"
+        r"|will\s+miss\s+(the\s+)?next\s+(match|game)"
+        r"|ruled\s+out\s+for\s+the\s+next"
+     )),
+    ("INJURED",
+     re.compile(
+        r"\binjured\b"
+        r"|out\s+with\s+(an\s+)?injury"
+        r"|sidelined\s+(by|with)\s+(an\s+)?injury"
+        r"|hamstring\s+injury|knee\s+injury|ankle\s+injury|muscular\s+injury"
+     )),
 ]
 
 # Severity weights (per keyword code) used by the discovery engine.
@@ -113,11 +143,15 @@ KEYWORD_SEVERITY: dict[str, int] = {
     "SANCIONADO":                    20,
     "EXCLUIDO":                      30,
     "BALACERA":                      40,
+    "SE_PIERDE_PROXIMO_PARTIDO":     28,
+    "LESIONADO":                     22,
     "REMOVED_FROM_SQUAD":            30,
     "DROPPED_FROM_NATIONAL_TEAM":    30,
     "INTERNAL_CONFLICT":             25,
     "DISCIPLINARY_ACTION":           25,
     "SENT_HOME":                     35,
+    "MISS_NEXT_MATCH":               28,
+    "INJURED":                       22,
 }
 
 
@@ -148,7 +182,19 @@ def build_google_news_rss_url(
 DEFAULT_SOURCE_NAMES = (
     "Marca", "Mundo Deportivo", "ESPN Deportes",
     "Yahoo Deportes", "Fox Sports",
+    # Phase F57 v2 — international English-language additions.
+    "BBC Sport", "Reuters Sports",
 )
+
+
+# Direct RSS feeds for sources that publish a stable, public RSS. These
+# are queried opportunistically *in addition to* Google News RSS when
+# ``fetch_team_disruption_news`` is called with ``include_direct_feeds=True``.
+# Each entry maps a source label → its RSS URL.
+DIRECT_RSS_FEEDS: dict[str, str] = {
+    "BBC Sport Football":   "http://feeds.bbci.co.uk/sport/football/rss.xml",
+    "Reuters Sports":       "https://www.reutersagency.com/feed/?best-sectors=sports&post_type=best",
+}
 
 
 # ---------------------------------------------------------------------
@@ -290,6 +336,48 @@ def _parse_rss(xml_text: str) -> list[dict]:
 # ---------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------
+async def _fetch_direct_feed(
+    label: str, url: str, *, timeout_sec: float,
+    team_name: str, locale: str,
+) -> list[dict]:
+    """Fetch a direct RSS feed and return items mentioning the team
+    name. Fail-soft; returns ``[]`` on any failure."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout_sec, follow_redirects=True,
+        ) as client:
+            resp = await client.get(
+                url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) "
+                        "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+                        "Version/17.0 Safari/605.1.15"
+                    ),
+                    "Accept": "application/rss+xml, application/xml, text/xml, */*;q=0.9",
+                },
+            )
+        if resp.status_code >= 400 or not resp.text:
+            return []
+        all_items = _parse_rss(resp.text)
+    except (httpx.HTTPError, asyncio.TimeoutError, Exception) as exc:
+        log.debug("direct feed %s failed: %s", label, exc)
+        return []
+    # Filter to items that mention the team name in title or description.
+    team_lc = (team_name or "").lower()
+    if not team_lc:
+        return []
+    matched: list[dict] = []
+    for it in all_items:
+        title = (it.get("title") or "").lower()
+        if team_lc in title:
+            # Stamp the source label so the UI can show "BBC Sport" or
+            # "Reuters Sports" instead of the raw domain.
+            it["source_name"] = it.get("source_name") or label
+            matched.append(it)
+    return matched
+
+
 async def fetch_team_disruption_news(
     team_name: str,
     *,
@@ -298,6 +386,7 @@ async def fetch_team_disruption_news(
     timeout_sec: float = _DEFAULT_TIMEOUT_SEC,
     rss_url: Optional[str] = None,
     use_cache: bool = True,
+    include_direct_feeds: bool = True,
 ) -> dict:
     """Fetch + parse disruption-relevant news for a team.
 
@@ -306,6 +395,10 @@ async def fetch_team_disruption_news(
     even when the items list is empty as long as the fetch succeeded
     — callers should rely on ``matched_items_total`` to decide whether
     a disruption signal exists.
+
+    ``include_direct_feeds=True`` (default) opportunistically queries
+    BBC Sport Football + Reuters Sports in parallel; failures from any
+    direct feed do NOT propagate.
     """
     if not team_name:
         return {
@@ -380,6 +473,43 @@ async def fetch_team_disruption_news(
         if codes:
             matched += 1
         enriched_items.append(item)
+
+    # Phase F57 v2 — opportunistically pull BBC Sport + Reuters Sports
+    # in parallel and merge results. Fail-soft per feed.
+    if include_direct_feeds and DIRECT_RSS_FEEDS:
+        feed_tasks = [
+            _fetch_direct_feed(
+                label, feed_url, timeout_sec=timeout_sec,
+                team_name=team_name, locale=locale,
+            )
+            for label, feed_url in DIRECT_RSS_FEEDS.items()
+        ]
+        try:
+            feed_results = await asyncio.gather(*feed_tasks, return_exceptions=True)
+        except Exception as exc:
+            log.debug("direct feeds gather failed: %s", exc)
+            feed_results = []
+        for label, res in zip(DIRECT_RSS_FEEDS.keys(), feed_results):
+            if isinstance(res, Exception) or not res:
+                continue
+            for it in res:
+                codes = detect_keywords(it.get("title", ""), locale=LOCALE_EN)
+                # Also scan ES library — multilingual safety.
+                if not codes:
+                    codes = detect_keywords(it.get("title", ""), locale=LOCALE_ES)
+                item = {
+                    **it,
+                    "matched_phrases": codes,
+                    "fetched_at":      fetched_at,
+                    "locale":          locale,
+                    "affected_team":   team_name,
+                    "direct_feed":     label,
+                }
+                if codes:
+                    matched += 1
+                enriched_items.append(item)
+                if len(enriched_items) >= _MAX_ITEMS_PER_TEAM * 2:
+                    break
 
     payload = {
         "available":           True,
