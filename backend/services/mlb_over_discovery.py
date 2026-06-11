@@ -577,11 +577,12 @@ def market_competition(
     Returns
     -------
     {
-        "winner":         dict | None,
-        "winner_side":    "UNDER" | "OVER" | "CURRENT" | "NONE",
-        "edge_gap":       float (|over.edge - under.edge|),
-        "swap_required":  bool,
-        "explanation":    str (es),
+        "winner":                  dict | None,
+        "winner_side":             "UNDER" | "OVER" | "CURRENT" | "NONE",
+        "edge_gap":                float (|over.edge - under.edge|),
+        "swap_required":           bool,
+        "symmetric_swap_applied":  bool   # CAMBIO 1: telemetría de simetría
+        "explanation":             str (es),
     }
     """
     u_edge = _f((under_candidate or {}).get("edge"))
@@ -593,40 +594,58 @@ def market_competition(
 
     edge_gap = round(abs(o_edge - u_edge), 2)
 
-    # Swap rule: Over must win by AT LEAST 2 runs of edge OR 8 confidence pts
-    # to overcome incumbent Under inertia. Below that, the existing Under
-    # selection stands (avoids flipping picks on noise).
-    if over_candidate and (o_edge - u_edge >= 2.0 or o_score - u_score >= 8.0):
+    # CAMBIO 1 — Swap simétrico (anti-bias estructural).
+    # Antes: Over requería superar a Under por >=2.0 edge o >=8.0 score
+    # mientras que Under sólo necesitaba >=1.0 / >=6.0. Esa asimetría
+    # generaba un sesgo sistemático a favor del Under (inercia incumbente).
+    # Ahora ambos lados comparten umbral: >=1.0 edge o >=6.0 confidence.
+    # Telemetría: `symmetric_swap_applied=True` para trazabilidad downstream.
+    SWAP_EDGE_THRESHOLD = 1.0
+    SWAP_SCORE_THRESHOLD = 6.0
+
+    # Over wins by symmetric margin → propose swap (real si incumbente es Under).
+    if over_candidate and (
+        o_edge - u_edge >= SWAP_EDGE_THRESHOLD
+        or o_score - u_score >= SWAP_SCORE_THRESHOLD
+    ):
         return {
-            "winner":         over_candidate,
-            "winner_side":    "OVER",
-            "edge_gap":       edge_gap,
-            "swap_required":  current_is_under,
-            "explanation":    (
+            "winner":                  over_candidate,
+            "winner_side":             "OVER",
+            "edge_gap":                edge_gap,
+            "swap_required":           current_is_under,
+            "symmetric_swap_applied":  True,
+            "explanation":             (
                 f"Over con mayor edge ({o_edge:+.1f} vs Under {u_edge:+.1f}) "
-                f"y confianza {o_score:.0f} — preferir mercado ofensivo."
+                f"y confianza {o_score:.0f} — preferir mercado ofensivo "
+                f"(umbral simétrico 1.0/6.0)."
             ),
         }
 
-    # Reverse case — under_candidate clearly stronger.
-    if under_candidate and (u_edge - o_edge >= 1.0 or u_score - o_score >= 6.0):
+    # Under wins by symmetric margin — mismo umbral, sin privilegio incumbente.
+    if under_candidate and (
+        u_edge - o_edge >= SWAP_EDGE_THRESHOLD
+        or u_score - o_score >= SWAP_SCORE_THRESHOLD
+    ):
         return {
-            "winner":         under_candidate,
-            "winner_side":    "UNDER",
-            "edge_gap":       edge_gap,
-            "swap_required":  False,
-            "explanation":    (
-                f"Under conserva edge superior ({u_edge:+.1f} vs Over {o_edge:+.1f})."
+            "winner":                  under_candidate,
+            "winner_side":             "UNDER",
+            "edge_gap":                edge_gap,
+            "swap_required":           False,
+            "symmetric_swap_applied":  True,
+            "explanation":             (
+                f"Under conserva edge superior ({u_edge:+.1f} vs Over {o_edge:+.1f}) "
+                f"(umbral simétrico 1.0/6.0)."
             ),
         }
 
     # Tie — keep current selection.
     return {
-        "winner":         current,
-        "winner_side":    "CURRENT" if current else "NONE",
-        "edge_gap":       edge_gap,
-        "swap_required":  False,
-        "explanation":    "Edges similares — mantener selección actual.",
+        "winner":                  current,
+        "winner_side":             "CURRENT" if current else "NONE",
+        "edge_gap":                edge_gap,
+        "swap_required":           False,
+        "symmetric_swap_applied":  True,
+        "explanation":             "Edges similares — mantener selección actual (umbral simétrico 1.0/6.0).",
     }
 
 

@@ -1,34 +1,42 @@
 [
   {
-    "content": "MLB player_prop_fragility (0-100 + bucket + reasons): HR dep, RBI dep, boom/bust, low AVG+high ISO, elite pitcher, low lineup spot, data quality",
+    "content": "CAMBIO 1 — Swap simétrico en mlb_over_discovery.py (umbral 1.0/6.0 ambos lados + telemetría symmetric_swap_applied)",
     "status": "completed"
   },
   {
-    "content": "MLB lineup-position PA mapping (1st=4.6 ... 9th=3.6) + integración en predict_player_prop",
+    "content": "CAMBIO 1 — Pytest backend completo (1639/1639 ✅)",
     "status": "completed"
   },
   {
-    "content": "MLB market priority ranking en _select_best_market_per_player (H+R+RBI > TB > Hits > Runs > RBI)",
-    "status": "completed"
+    "content": "CAMBIO 2 — Crear mlb_under_fragility_calibrator.py (espejo del Over, pure Python, observe-only)",
+    "status": "in_progress"
   },
   {
-    "content": "MLB integración híbrida: analyze_mlb_day(include_player_props=True) inyecta player_props_discovery block",
-    "status": "completed"
+    "content": "CAMBIO 2 — Pytest backend completo",
+    "status": "pending"
   },
   {
-    "content": "F57 nuevas frases: SE_PIERDE_PROXIMO_PARTIDO + LESIONADO (ES) + MISS_NEXT_MATCH + INJURED (EN)",
-    "status": "completed"
+    "content": "CAMBIO 3 — Source of Truth jerárquico en mlb_day_orchestrator.py",
+    "status": "pending"
   },
   {
-    "content": "F57 BBC Sport + Reuters Sports como direct RSS feeds (fail-soft, paralelo)",
-    "status": "completed"
+    "content": "CAMBIO 3 — Pytest backend completo",
+    "status": "pending"
   },
   {
-    "content": "F57 integración híbrida: analyze_matches(include_context_trend=True) inyecta context_trend por pick",
-    "status": "completed"
+    "content": "CAMBIO 4 — Penalización simétrica de confianza por contradicción de patrones",
+    "status": "pending"
   },
   {
-    "content": "33 tests nuevos + pytest suite 1639/1639 verdes + lint 0 errores blocking",
-    "status": "completed"
+    "content": "CAMBIO 4 — Pytest backend completo (actualizar tests con confidence_score hardcoded a los nuevos valores 64-68)",
+    "status": "pending"
+  },
+  {
+    "content": "CAMBIO 5 — Crear ConfidenceBadge.jsx reutilizable + integrar en MatchDetailPage",
+    "status": "pending"
+  },
+  {
+    "content": "CAMBIO 5 — Verificación visual con screenshot_tool",
+    "status": "pending"
   }
 ]
