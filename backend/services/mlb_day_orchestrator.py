@@ -2164,6 +2164,103 @@ async def analyze_mlb_day(
                 )
                 fragility_calibration = None
 
+            # ── CAMBIO 3 — Source of Truth jerárquico ───────────────────
+            # La distribución NB CANONIZA proyección y probabilidades base.
+            # NO gobierna confianza/fragility por sí sola: los calibradores
+            # simétricos ajustan fragility y el patrón histórico ajusta
+            # confianza. Cada capa en su nivel — la distribución no atropella
+            # conflictos reales.
+            try:
+                # Helper local: variant of _f() que retorna None si invalid
+                # (en lugar de 0.0). No existe a nivel módulo en este file.
+                def _safe_float(v):
+                    try:
+                        if v is None or v == "":
+                            return None
+                        f = float(v)
+                        return None if f != f else f
+                    except (TypeError, ValueError):
+                        return None
+
+                _erd = pick_payload.get("expected_runs_distribution") or {}
+
+                # Resolución defensiva del mean canónico y la línea.
+                _mean_eff_sot = (
+                    _safe_float(_erd.get("mean"))
+                    or _safe_float(pick_payload.get("expected_runs"))
+                    or _safe_float(pick_payload.get("projected_runs"))
+                )
+                _line_sot = (
+                    _safe_float(_erd.get("market_line"))
+                    or _extract_line_number_from_market(_market)
+                )
+                _market_side_sot = "under" if "under" in str(_market or "").lower() \
+                                else "over" if "over" in str(_market or "").lower() \
+                                else None
+
+                # ── Calibrador de fragility según polaridad ──────────
+                _frag_cal = pick_payload.get("fragility_calibration") or {}
+                _under_cal = None
+                if _market_side_sot == "over":
+                    # Over → hidden Under routes (calibrador espejo nuevo).
+                    from .mlb_under_fragility_calibrator import calibrate_under_fragility
+                    _rrs = pick_payload.get("recent_run_split") or {}
+                    _under_cal = calibrate_under_fragility(
+                        base_fragility=(_frag_cal.get("adjusted_fragility")
+                                        if _frag_cal.get("available")
+                                        else pick_payload.get("fragility_score")),
+                        market_side="over",
+                        expected_runs=_mean_eff_sot,
+                        market_line=_line_sot,
+                        inning_lambda_projection=inning_lambda_projection,
+                        home_pitcher=conf.get("home_pitcher") if isinstance(conf, dict) else None,
+                        away_pitcher=conf.get("away_pitcher") if isinstance(conf, dict) else None,
+                        park_runs_mult=(_park_dyn or {}).get("dynamic")
+                                        or (_park_dyn or {}).get("park_runs_mult"),
+                        weather_temp_f=(conf.get("weather") or {}).get("temp_f")
+                                        if isinstance(conf, dict) else None,
+                        home_recent_runs_l5=(_rrs.get("home") or {}).get("l5")
+                                             if isinstance(_rrs, dict) else None,
+                        away_recent_runs_l5=(_rrs.get("away") or {}).get("l5")
+                                             if isinstance(_rrs, dict) else None,
+                        combined_ops=(scoring_ctx or {}).get("combined_ops"),
+                    )
+                    pick_payload["under_fragility_calibration"] = _under_cal
+                    _effective_fragility = _under_cal.get("adjusted_fragility")
+                else:
+                    # Under (o sin polaridad) → calibrador Over routes existente.
+                    _effective_fragility = (
+                        _frag_cal.get("adjusted_fragility")
+                        if _frag_cal.get("available")
+                        else pick_payload.get("fragility_score")
+                    )
+
+                # Escribir fragility efectiva al campo que lee el veto.
+                # ESTE es el cambio que saca la cadena de observe-only.
+                if _effective_fragility is not None:
+                    if not isinstance(pick_payload.get("fragility"), dict):
+                        pick_payload["fragility"] = {}
+                    pick_payload["fragility"]["score"] = float(_effective_fragility)
+                    pick_payload["fragility"]["source"] = "distribution_calibrated"
+                    pick_payload["fragility_score"] = float(_effective_fragility)
+
+                # ── Telemetría single-source (depura 10.1 vs 7.1 vs 6.2) ──
+                pick_payload["mlb_source_of_truth"] = {
+                    "canonical_model":         "expected_runs_distribution",
+                    "canonical_expected_runs": _erd.get("mean"),
+                    "canonical_under_prob":    _erd.get("under_probability")
+                                                or (_erd.get("over_lines") or {}),
+                    "legacy_expected_runs":    pick_payload.get("legacy_expected_runs")
+                                                or pick_payload.get("expected_runs"),
+                    "historical_heuristic_runs": (pick_payload.get("baseballHistoricalProfile") or {}).get("projectedRuns"),
+                    "market_side":             _market_side_sot,
+                    "market_line":             _line_sot,
+                    "fragility_source":        "distribution_calibrated",
+                    "effective_fragility":     _effective_fragility,
+                }
+            except Exception as _exc_sot:
+                log.debug("source-of-truth wiring failed (non-fatal): %s", _exc_sot)
+
             # ── Phase 56 — Layer Interaction Audit (observe-only) ──────
             # Diagnoses possible signal double-counting between:
             #   * expected_runs_distribution (PMF/CDF + tail probs)
