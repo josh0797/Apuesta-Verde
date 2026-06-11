@@ -4762,8 +4762,91 @@ async def analyze_mlb_day(
                 combined_block["patternAlignment"] = alignment_payload
                 hp["combined"] = combined_block
                 pick_payload["baseballHistoricalProfile"] = hp
+
+                # CAMBIO 4 — Atajo en raíz con keys normalizadas para que
+                # la penalización simétrica de confianza pueda leer
+                # supporting/contradicting sin navegar el árbol nested.
+                _counts_pa = alignment_payload.get("counts") or {}
+                pick_payload["pattern_alignment"] = {
+                    "supporting":          alignment_payload.get("supports") or [],
+                    "contradicting":       alignment_payload.get("opposes") or [],
+                    "supporting_count":    int(_counts_pa.get("supports") or 0),
+                    "contradicting_count": int(_counts_pa.get("opposes") or 0),
+                    "neutral_count":       int(_counts_pa.get("neutral") or 0),
+                    "consistency":         alignment_payload.get("consistency"),
+                    "recommended_market":  alignment_payload.get("recommendedMarket"),
+                    "market_polarity":     alignment_payload.get("marketPolarity"),
+                }
         except Exception as exc:
             log.debug("pattern_alignment_classifier failed: %s", exc)
+
+        # ── CAMBIO 4 — Confianza honesta: penalizar contradicción de patrones ──
+        # SIMÉTRICO por polaridad: un Under con 5 patrones en contra y
+        # un Over con 5 patrones en contra reciben la MISMA penalización.
+        # No cambia el pick — cambia cuán seguro se muestra. Esta es la
+        # capa que ajusta CONFIANZA (la distribución canoniza proyección,
+        # los calibradores ajustan fragility, esto ajusta confianza).
+        try:
+            # Helper local (no existe a nivel módulo; ver CAMBIO 3).
+            def _safe_float(v):
+                try:
+                    if v is None or v == "":
+                        return None
+                    f = float(v)
+                    return None if f != f else f
+                except (TypeError, ValueError):
+                    return None
+
+            _pat = pick_payload.get("pattern_alignment") or {}
+            _supporting = int(_pat.get("supporting_count")
+                              or len(_pat.get("supporting") or []))
+            _contradicting = int(_pat.get("contradicting_count")
+                                 or len(_pat.get("contradicting") or []))
+            _rec = pick_payload.get("recommendation") or {}
+            _conf = _safe_float(_rec.get("confidence_score"))
+
+            if _conf is not None and (_supporting + _contradicting) >= 3:
+                _ratio = _contradicting / max(1, _supporting + _contradicting)
+                if _ratio >= 0.80:
+                    _pen, _state = 18, "VALUE_CON_CONFLICTO"
+                elif _ratio >= 0.65:
+                    _pen, _state = 12, "VALUE_CON_CONFLICTO"
+                elif _ratio >= 0.55:
+                    _pen, _state = 8, "VALUE_REVISAR"
+                else:
+                    _pen, _state = 0, None
+
+                if _pen > 0:
+                    _new_conf = max(0.0, _conf - _pen)
+                    pick_payload["confidence_pre_pattern_penalty"] = _conf
+                    _rec["confidence_score"] = round(_new_conf, 2)
+                    _rec.setdefault("reason_codes", []).append(
+                        "PATTERN_CONTRADICTION_CONFIDENCE_PENALTY"
+                    )
+                    pick_payload["recommendation"] = _rec
+                    pick_payload["pick_conflict_state"] = _state
+                    pick_payload["pattern_penalty_applied"] = {
+                        "supporting":    _supporting,
+                        "contradicting": _contradicting,
+                        "ratio":         round(_ratio, 2),
+                        "penalty":       _pen,
+                        "market_side":   pick_payload.get("mlb_source_of_truth", {}).get("market_side"),
+                    }
+                    log.info(
+                        "Pattern contradiction penalty game=%s %d-vs-%d "
+                        "conf %.1f→%.1f state=%s",
+                        conf.get("game_pk"), _supporting, _contradicting,
+                        _conf, _new_conf, _state,
+                    )
+
+            # Completar la telemetría single-source con el resultado del patrón.
+            if isinstance(pick_payload.get("mlb_source_of_truth"), dict):
+                pick_payload["mlb_source_of_truth"]["pattern_penalty_applied"] = bool(
+                    pick_payload.get("pattern_penalty_applied")
+                )
+                pick_payload["mlb_source_of_truth"]["conflict_state"] = pick_payload.get("pick_conflict_state")
+        except Exception as _exc_pat:
+            log.debug("pattern penalty failed (non-fatal): %s", _exc_pat)
 
         # ── MLB-V10 — Script Survival & Fragility model (pure enrichment) ─
         # Adds a separate _mlb_script_v5 payload with Script Survival 0-100,

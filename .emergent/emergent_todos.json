@@ -1,42 +1,30 @@
 [
   {
-    "content": "CAMBIO 1 — Swap simétrico mlb_over_discovery.py",
+    "content": "CAMBIO 1 — Swap simétrico mlb_over_discovery.py ✅",
     "status": "completed"
   },
   {
-    "content": "CAMBIO 1 — Pytest backend (1639/1639 ✅)",
+    "content": "CAMBIO 2 — mlb_under_fragility_calibrator.py creado ✅",
     "status": "completed"
   },
   {
-    "content": "CAMBIO 2 — mlb_under_fragility_calibrator.py creado",
+    "content": "CAMBIO 3 — Source of Truth jerárquico integrado en orchestrator ✅",
     "status": "completed"
   },
   {
-    "content": "CAMBIO 2 — Pytest backend (1639/1639 ✅)",
+    "content": "CAMBIO 4 — Penalización simétrica de confianza + 10 tests nuevos ✅",
     "status": "completed"
   },
   {
-    "content": "CAMBIO 3 — Source of Truth jerárquico integrado en orchestrator",
+    "content": "CAMBIO 5 — ConfidenceBadge.jsx reutilizable + integrado en MatchDetailPage ✅",
     "status": "completed"
   },
   {
-    "content": "CAMBIO 3 — Pytest backend (1639/1639 ✅)",
+    "content": "Verificación visual de los 4 estados del badge (screenshot OK) ✅",
     "status": "completed"
   },
   {
-    "content": "CAMBIO 4 — Penalización simétrica de confianza por contradicción de patrones",
-    "status": "in_progress"
-  },
-  {
-    "content": "CAMBIO 4 — Pytest backend (actualizar tests con confidence_score hardcoded)",
-    "status": "pending"
-  },
-  {
-    "content": "CAMBIO 5 — Crear ConfidenceBadge.jsx reutilizable + integrar en MatchDetailPage",
-    "status": "pending"
-  },
-  {
-    "content": "CAMBIO 5 — Verificación visual con screenshot_tool",
-    "status": "pending"
+    "content": "Pytest final completo 1649/1649 ✅",
+    "status": "completed"
   }
 ]

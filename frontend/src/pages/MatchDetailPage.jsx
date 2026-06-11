@@ -10,6 +10,7 @@ import { MotivationBadge, MotivationContextBlock } from '@/components/Motivation
 import { FreshnessBadge } from '@/components/FreshnessBadge';
 import { LivePulse } from '@/components/LivePulse';
 import { ConfidenceMeter, ConfidenceIntelligenceCard } from '@/components/ConfidenceMeter';
+import { ConfidenceBadge } from '@/components/ConfidenceBadge';
 import { OddsComparisonTable } from '@/components/OddsComparisonTable';
 import { LineMovement } from '@/components/LineMovement';
 import { MatchIntelligencePanel } from '@/components/MatchIntelligencePanel';
@@ -237,9 +238,12 @@ export default function MatchDetailPage() {
                         </div>
                       )}
                     </div>
-                    <ConfidenceMeter
-                      score={llmPick.recommendation?.confidence_score || 0}
-                      size="inline"
+                    <ConfidenceBadge
+                      confidence={llmPick.recommendation?.confidence_score || 0}
+                      conflictState={llmPick.pick_conflict_state}
+                      penaltyApplied={llmPick.pattern_penalty_applied}
+                      confidencePrePenalty={llmPick.confidence_pre_pattern_penalty}
+                      testId="confidence-badge-detail-top"
                     />
                   </div>
                 </div>
@@ -256,7 +260,13 @@ export default function MatchDetailPage() {
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">{t.match.oddsRange}: <span className="text-foreground mono font-mono-tabular">{llmPick.recommendation?.odds_range}</span></div>
                 </div>
-                <ConfidenceMeter score={llmPick.recommendation?.confidence_score || 0} size="inline" />
+                <ConfidenceBadge
+                  confidence={llmPick.recommendation?.confidence_score || 0}
+                  conflictState={llmPick.pick_conflict_state}
+                  penaltyApplied={llmPick.pattern_penalty_applied}
+                  confidencePrePenalty={llmPick.confidence_pre_pattern_penalty}
+                  testId="confidence-badge-detail-main"
+                />
               </div>
               {llmPick.reasoning && <p className="text-sm text-muted-foreground leading-relaxed border-l-2 border-cyan-500/40 pl-3">{llmPick.reasoning}</p>}
               {(llmPick.risks || []).length > 0 && (
