@@ -4848,6 +4848,119 @@ async def analyze_mlb_day(
         except Exception as _exc_pat:
             log.debug("pattern penalty failed (non-fatal): %s", _exc_pat)
 
+        # ── PHASE 59 — L5 vs L15 Run Profile Cross ─────────────────────
+        # Contextual layer applied AFTER the CAMBIO 4 pattern-contradiction
+        # penalty. Cross-classifies both teams' L5 vs L15 offensive +
+        # run-prevention profile into one of five buckets and applies
+        # symmetric confidence/fragility deltas:
+        #
+        #   * Bonus  capped at +8 when cross supports the pick side.
+        #   * Penalty capped at -12 when it contradicts (non-NEUTRAL).
+        #   * NEVER flips polarity. NEVER overrides the NB distribution.
+        #   * Appears as a VISUAL entry on pattern_alignment.entries —
+        #     it does NOT count toward supporting_count/contradicting_count
+        #     (those are reserved for CAMBIO 4 to prevent double accounting).
+        try:
+            from .mlb_run_profile_cross import (
+                compute_combined_run_profile_cross,
+                apply_run_profile_cross_to_pick,
+                build_pattern_alignment_entry,
+            )
+
+            _rrs59 = pick_payload.get("recent_run_split") or {}
+            _cross = compute_combined_run_profile_cross(
+                home_scored_l5=_rrs59.get("runs_scored_avg_last_5_home"),
+                home_scored_l15=_rrs59.get("runs_scored_avg_last_15_home"),
+                home_allowed_l5=_rrs59.get("runs_allowed_avg_last_5_home"),
+                home_allowed_l15=_rrs59.get("runs_allowed_avg_last_15_home"),
+                away_scored_l5=_rrs59.get("runs_scored_avg_last_5_away"),
+                away_scored_l15=_rrs59.get("runs_scored_avg_last_15_away"),
+                away_allowed_l5=_rrs59.get("runs_allowed_avg_last_5_away"),
+                away_allowed_l15=_rrs59.get("runs_allowed_avg_last_15_away"),
+            )
+            pick_payload["combined_run_profile_cross"] = _cross
+            # Mirror into baseballHistoricalProfile (camelCase) so the
+            # HistoricalProfilePanel can render the new "Cruce ofensiva/
+            # prevención" section without an extra payload pass.
+            _hp59 = pick_payload.get("baseballHistoricalProfile") or {}
+            _hp59["combinedRunProfileCross"] = _cross
+            pick_payload["baseballHistoricalProfile"] = _hp59
+
+            if _cross.get("available") and _cross.get("supports") != "NEUTRAL":
+                # Resolve current pick side from market label.
+                _rec59 = pick_payload.get("recommendation") or {}
+                _market59 = (_rec59.get("market") or "").lower()
+                _pick_side59 = (
+                    "under" if "under" in _market59 and "team total" not in _market59
+                    else "over" if "over" in _market59 and "team total" not in _market59
+                    else None
+                )
+                _conf59 = _rec59.get("confidence_score")
+                _frag59 = (pick_payload.get("fragility") or {}).get("score") \
+                          or pick_payload.get("fragility_score")
+
+                _applied = apply_run_profile_cross_to_pick(
+                    cross_payload=_cross,
+                    pick_side=_pick_side59,
+                    current_confidence=_conf59,
+                    current_fragility=_frag59,
+                )
+
+                if _applied.get("applied"):
+                    # Write back the clamped confidence/fragility.
+                    if _applied.get("new_confidence") is not None:
+                        _rec59["confidence_score"] = round(float(_applied["new_confidence"]), 2)
+                        _rec59.setdefault("reason_codes", [])
+                        for _rc in _applied.get("reason_codes") or []:
+                            if _rc not in _rec59["reason_codes"]:
+                                _rec59["reason_codes"].append(_rc)
+                        pick_payload["recommendation"] = _rec59
+                    if _applied.get("new_fragility") is not None:
+                        if not isinstance(pick_payload.get("fragility"), dict):
+                            pick_payload["fragility"] = {}
+                        pick_payload["fragility"]["score"] = float(_applied["new_fragility"])
+                        pick_payload["fragility"]["source"] = "distribution_calibrated+run_profile_cross"
+                        pick_payload["fragility_score"] = float(_applied["new_fragility"])
+
+                    # Telemetry block (auditable).
+                    pick_payload["run_profile_cross_applied"] = {
+                        "profile":                  _cross.get("profile"),
+                        "supports":                 _cross.get("supports"),
+                        "interaction":              _applied.get("interaction"),
+                        "confidence_delta_signed":  _applied.get("confidence_delta_signed"),
+                        "fragility_delta_signed":   _applied.get("fragility_delta_signed"),
+                        "pick_side":                _pick_side59,
+                        "reason_codes":             _applied.get("reason_codes") or [],
+                    }
+                    log.info(
+                        "Run-profile-cross applied game=%s profile=%s "
+                        "interaction=%s Δconf=%s Δfrag=%s",
+                        conf.get("game_pk"),
+                        _cross.get("profile"),
+                        _applied.get("interaction"),
+                        _applied.get("confidence_delta_signed"),
+                        _applied.get("fragility_delta_signed"),
+                    )
+
+                # Visual-only entry in pattern_alignment.entries (does NOT
+                # affect supporting/contradicting counts of CAMBIO 4).
+                _entry = build_pattern_alignment_entry(_cross, _pick_side59)
+                if _entry:
+                    _pa = pick_payload.get("pattern_alignment") or {}
+                    _entries = list(_pa.get("entries") or [])
+                    _entries.append(_entry)
+                    _pa["entries"] = _entries
+                    pick_payload["pattern_alignment"] = _pa
+
+            # Add to SOT telemetry.
+            if isinstance(pick_payload.get("mlb_source_of_truth"), dict):
+                pick_payload["mlb_source_of_truth"]["run_profile_cross_profile"] = \
+                    _cross.get("profile") if _cross.get("available") else None
+                pick_payload["mlb_source_of_truth"]["run_profile_cross_supports"] = \
+                    _cross.get("supports") if _cross.get("available") else None
+        except Exception as _exc_rpc:
+            log.debug("run_profile_cross failed (non-fatal): %s", _exc_rpc)
+
         # ── MLB-V10 — Script Survival & Fragility model (pure enrichment) ─
         # Adds a separate _mlb_script_v5 payload with Script Survival 0-100,
         # Fragility 0-100, stability classification (ELITE_STABLE / STABLE /

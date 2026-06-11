@@ -226,6 +226,7 @@ export function HistoricalProfilePanel({ profile, sport = 'basketball', testId =
               runSplit={profile.recentRunSplit}
               runTrend={profile.recentRunTrend}
               onBase={profile.onBaseProfileL5}
+              runProfileCross={profile.combinedRunProfileCross}
               testId={`${testId}-recent-form`}
             />
           ) : null}
@@ -842,7 +843,7 @@ const TREND_TONE_CLS = {
  * Combinado) and two columns for the on-base block (Local / Visitante),
  * each with L15, L5, Δ and a trend chip.
  */
-function RecentFormSplitBlock({ runSplit, runTrend, onBase, testId }) {
+function RecentFormSplitBlock({ runSplit, runTrend, onBase, runProfileCross, testId }) {
   const rs   = runSplit || {};
   const home = onBase?.home || {};
   const away = onBase?.away || {};
@@ -872,7 +873,8 @@ function RecentFormSplitBlock({ runSplit, runTrend, onBase, testId }) {
               || rs.runs_scored_avg_last_5_away != null;
   const anyOb  = home.times_on_base_avg_last_5 != null
               || away.times_on_base_avg_last_5 != null;
-  if (!anyRun && !anyOb) return null;
+  const anyCross = runProfileCross?.available && runProfileCross?.profile;
+  if (!anyRun && !anyOb && !anyCross) return null;
 
   return (
     <div
@@ -921,6 +923,13 @@ function RecentFormSplitBlock({ runSplit, runTrend, onBase, testId }) {
         </div>
       )}
 
+      {anyCross ? (
+        <RunProfileCrossBlock
+          cross={runProfileCross}
+          testId={`${testId}-cross`}
+        />
+      ) : null}
+
       {anyOb ? (
         <>
           <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-300 font-semibold pt-1">
@@ -950,6 +959,150 @@ function RecentFormSplitBlock({ runSplit, runTrend, onBase, testId }) {
     </div>
   );
 }
+
+/**
+ * RunProfileCrossBlock
+ * --------------------
+ * Phase 59 — visualizes the L5 vs L15 offensive + run-prevention cross
+ * between both teams. Reads `combinedRunProfileCross` from
+ * baseballHistoricalProfile (mirrored by the orchestrator).
+ *
+ * - Header badge: shows whether the cross "Apoya Under" / "Apoya Over" /
+ *   "Mixto" depending on the `supports` field.
+ * - Per-team mini-grid: Anota L5 vs L15 (with arrow) and Permite L5 vs L15.
+ * - Narrative line in Spanish from the backend `narrative_es`.
+ *
+ * Self-hides when the cross is unavailable or NEUTRAL with no profile.
+ */
+export function RunProfileCrossBlock({ cross, testId }) {
+  if (!cross || !cross.available || !cross.profile) return null;
+
+  const supports = (cross.supports || 'NEUTRAL').toUpperCase();
+  const profile = cross.profile;
+
+  // Tone & label by profile bucket.
+  const isUnderSide = supports === 'UNDER';
+  const isOverSide = supports === 'OVER';
+  const strong = profile === 'STRONG_UNDER_CROSS' || profile === 'STRONG_OVER_CROSS';
+  const tone = isUnderSide
+    ? (strong ? 'bg-emerald-500/[0.07] border-emerald-500/30 text-emerald-200'
+              : 'bg-emerald-500/[0.05] border-emerald-500/20 text-emerald-200')
+    : isOverSide
+    ? (strong ? 'bg-rose-500/[0.07] border-rose-500/30 text-rose-200'
+              : 'bg-rose-500/[0.05] border-rose-500/20 text-rose-200')
+    : 'bg-amber-500/[0.05] border-amber-500/25 text-amber-200';
+
+  const headerLabel = isUnderSide
+    ? (strong ? 'Apoya Under (fuerte)' : 'Apoya Under')
+    : isOverSide
+    ? (strong ? 'Apoya Over (fuerte)' : 'Apoya Over')
+    : 'Cruce mixto';
+
+  const arrow = (delta) => {
+    if (delta === null || delta === undefined || Number.isNaN(Number(delta))) return '';
+    const d = Number(delta);
+    if (d >= 0.5)  return ' ↑';
+    if (d <= -0.5) return ' ↓';
+    return '';
+  };
+
+  const sideRow = (label, scoredL5, scoredL15, scoredDelta, allowedL5, allowedL15, allowedDelta, sideKey) => (
+    <div
+      className="rounded-md bg-black/30 border border-slate-700/30 p-2 space-y-1"
+      data-testid={`${testId}-${sideKey}`}
+    >
+      <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+        {label}
+      </div>
+      <div className="text-[10.5px] text-slate-300 leading-tight">
+        <span className="text-slate-500">Anota</span>{' '}
+        L5: <span className="text-slate-100 font-medium tabular-nums">{fmtNum(scoredL5)}</span>
+        <span className="text-slate-500"> vs L15: </span>
+        <span className="text-slate-100 font-medium tabular-nums">{fmtNum(scoredL15)}</span>
+        <span className={Number(scoredDelta) >= 0.5 ? 'text-rose-300' : Number(scoredDelta) <= -0.5 ? 'text-emerald-300' : 'text-slate-500'}>
+          {arrow(scoredDelta)}
+        </span>
+      </div>
+      <div className="text-[10.5px] text-slate-300 leading-tight">
+        <span className="text-slate-500">Permite</span>{' '}
+        L5: <span className="text-slate-100 font-medium tabular-nums">{fmtNum(allowedL5)}</span>
+        <span className="text-slate-500"> vs L15: </span>
+        <span className="text-slate-100 font-medium tabular-nums">{fmtNum(allowedL15)}</span>
+        <span className={Number(allowedDelta) >= 0.5 ? 'text-rose-300' : Number(allowedDelta) <= -0.5 ? 'text-emerald-300' : 'text-slate-500'}>
+          {arrow(allowedDelta)}
+        </span>
+      </div>
+    </div>
+  );
+
+  const homeScoredDelta = (cross.home_scored_l5 != null && cross.home_scored_l15 != null)
+    ? cross.home_scored_l5 - cross.home_scored_l15 : null;
+  const homeAllowedDelta = (cross.home_allowed_l5 != null && cross.home_allowed_l15 != null)
+    ? cross.home_allowed_l5 - cross.home_allowed_l15 : null;
+  const awayScoredDelta = (cross.away_scored_l5 != null && cross.away_scored_l15 != null)
+    ? cross.away_scored_l5 - cross.away_scored_l15 : null;
+  const awayAllowedDelta = (cross.away_allowed_l5 != null && cross.away_allowed_l15 != null)
+    ? cross.away_allowed_l5 - cross.away_allowed_l15 : null;
+
+  return (
+    <div
+      className="rounded-md border border-slate-700/40 bg-slate-900/30 p-2.5 space-y-2"
+      data-testid={testId}
+      data-cross-profile={profile}
+      data-cross-supports={supports}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-300 font-semibold">
+          <TrendingUp className="w-3 h-3 text-cyan-300" />
+          Cruce ofensiva/prevención
+        </div>
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold tabular-nums ${tone}`}
+          data-testid={`${testId}-header-tag`}
+        >
+          {headerLabel}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {sideRow(
+          'Local',
+          cross.home_scored_l5, cross.home_scored_l15, homeScoredDelta,
+          cross.home_allowed_l5, cross.home_allowed_l15, homeAllowedDelta,
+          'home',
+        )}
+        {sideRow(
+          'Visitante',
+          cross.away_scored_l5, cross.away_scored_l15, awayScoredDelta,
+          cross.away_allowed_l5, cross.away_allowed_l15, awayAllowedDelta,
+          'away',
+        )}
+      </div>
+
+      {cross.narrative_es ? (
+        <div
+          className="text-[11px] text-slate-300 italic leading-snug pt-0.5"
+          data-testid={`${testId}-narrative`}
+        >
+          {cross.narrative_es}
+        </div>
+      ) : null}
+
+      {(cross.combined_scored_l5 != null && cross.combined_allowed_l5 != null) ? (
+        <div className="text-[10px] text-slate-500 tabular-nums leading-tight">
+          Combinado · Anotan L5:{' '}
+          <span className="text-slate-300">{fmtNum(cross.combined_scored_l5)}</span>
+          {' '}(L15: {fmtNum(cross.combined_scored_l15)})
+          <span className="text-slate-600"> · </span>
+          Permiten L5:{' '}
+          <span className="text-slate-300">{fmtNum(cross.combined_allowed_l5)}</span>
+          {' '}(L15: {fmtNum(cross.combined_allowed_l15)})
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 
 function RunTrendCell({ label, l15, l5, delta, trendCode, unit, testId, emphasis }) {
   const meta = RUN_TREND_META_ES[trendCode] || RUN_TREND_META_ES.UNKNOWN_RUN_ENVIRONMENT;

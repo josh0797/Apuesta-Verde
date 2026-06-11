@@ -1,30 +1,34 @@
 [
   {
-    "content": "CAMBIO 1 — Swap simétrico mlb_over_discovery.py ✅",
+    "content": "Crear backend/services/mlb_run_profile_cross.py ✅",
     "status": "completed"
   },
   {
-    "content": "CAMBIO 2 — mlb_under_fragility_calibrator.py creado ✅",
+    "content": "Crear tests/test_mlb_run_profile_cross.py (28 tests ✅)",
     "status": "completed"
   },
   {
-    "content": "CAMBIO 3 — Source of Truth jerárquico integrado en orchestrator ✅",
+    "content": "Extender mlb_recent_form_split.py (runs_allowed_avg_last_5/15 ✅)",
     "status": "completed"
   },
   {
-    "content": "CAMBIO 4 — Penalización simétrica de confianza + 10 tests nuevos ✅",
+    "content": "Integrar en mlb_day_orchestrator.py DESPUÉS del CAMBIO 4 ✅",
     "status": "completed"
   },
   {
-    "content": "CAMBIO 5 — ConfidenceBadge.jsx reutilizable + integrado en MatchDetailPage ✅",
+    "content": "Test integración end-to-end orchestrator (7 tests ✅)",
     "status": "completed"
   },
   {
-    "content": "Verificación visual de los 4 estados del badge (screenshot OK) ✅",
+    "content": "UI: RunProfileCrossBlock + integración en HistoricalProfilePanel ✅",
     "status": "completed"
   },
   {
-    "content": "Pytest final completo 1649/1649 ✅",
+    "content": "Screenshot validation de 5 perfiles ✅",
+    "status": "completed"
+  },
+  {
+    "content": "Pytest final 1684/1684 ✅ + cleanup debug page ✅",
     "status": "completed"
   }
 ]

@@ -308,6 +308,13 @@ def _aggregate(per_game: list[dict]) -> dict:
         return {}
     return {
         "runs":      _avg([float(g.get("runs", 0))      for g in per_game]),
+        # 2026-06 — runs allowed derived from opponent stats in the same
+        # boxscore (set during _fetch_primary_recent_form). May be None
+        # for some games — _avg filters Nones.
+        "runs_allowed": _avg([
+            g.get("runs_allowed") for g in per_game
+            if g.get("runs_allowed") is not None
+        ]),
         "hits":      _avg([float(g.get("hits", 0))      for g in per_game]),
         "walks":     _avg([float(g.get("walks", 0))     for g in per_game]),
         "hbp":       _avg([float(g.get("hbp", 0))       for g in per_game]),
@@ -438,6 +445,16 @@ async def _fetch_primary_recent_form(
     for game_meta, box in zip(top15, box_results):
         line = (box or {}).get(int(team_id))
         if line:
+            # Derive runs allowed from the SAME boxscore (no extra API call):
+            # the opponent's runs in this game equal what THIS team
+            # allowed. Fail-soft when opponent block missing.
+            opp_runs: Optional[int] = None
+            for other_id, other_line in (box or {}).items():
+                if int(other_id) != int(team_id) and other_line is not None:
+                    opp_runs = other_line.get("runs")
+                    break
+            if opp_runs is not None:
+                line = {**line, "runs_allowed": opp_runs}
             per_game_lines.append(line)
 
     if len(per_game_lines) < 1:
@@ -459,6 +476,9 @@ async def _fetch_primary_recent_form(
         "team_id":                  int(team_id),
         "runs_scored_avg_last_5":   a5.get("runs"),
         "runs_scored_avg_last_15":  a15.get("runs"),
+        # 2026-06 — runs allowed (Phase 59: L5 vs L15 cross profile).
+        "runs_allowed_avg_last_5":  a5.get("runs_allowed"),
+        "runs_allowed_avg_last_15": a15.get("runs_allowed"),
         "hits_avg_last_5":          a5.get("hits"),
         "hits_avg_last_15":         a15.get("hits"),
         "walks_avg_last_5":         a5.get("walks"),
@@ -583,6 +603,19 @@ def build_recent_form_payload(home_form: dict, away_form: dict) -> dict:
             ),
             "runs_scored_delta_5_vs_15_away": _delta(
                 runs_total_l5_away, runs_total_l15_away,
+            ),
+            # 2026-06 — Phase 59 — runs allowed for L5/L15 cross profile.
+            "runs_allowed_avg_last_5_home":   home_form.get("runs_allowed_avg_last_5"),
+            "runs_allowed_avg_last_15_home":  home_form.get("runs_allowed_avg_last_15"),
+            "runs_allowed_avg_last_5_away":   away_form.get("runs_allowed_avg_last_5"),
+            "runs_allowed_avg_last_15_away":  away_form.get("runs_allowed_avg_last_15"),
+            "runs_allowed_delta_5_vs_15_home": _delta(
+                home_form.get("runs_allowed_avg_last_5"),
+                home_form.get("runs_allowed_avg_last_15"),
+            ),
+            "runs_allowed_delta_5_vs_15_away": _delta(
+                away_form.get("runs_allowed_avg_last_5"),
+                away_form.get("runs_allowed_avg_last_15"),
             ),
             "total_runs_avg_last_5":         total_l5,
             "total_runs_avg_last_15":        total_l15,

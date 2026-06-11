@@ -1,4 +1,4 @@
-# Development Plan — PHASE 56 (✅) + PHASE 57 (✅ Backend) + PHASE F57 (✅) + PHASE 58 (✅)
+# Development Plan — PHASE 56 (✅) + PHASE 57 (✅ Backend) + PHASE F57 (✅) + PHASE 58 (✅) + PHASE 59 (✅)
 
 ## 1) Objectives
 
@@ -77,6 +77,59 @@ Calidad / verificación:
 - ✅ Verificación visual: badge validado en 4 estados via screenshot tool
 - ✅ Página de debug temporal creada y eliminada tras la validación
 
+### PHASE 59 — MLB L5 vs L15 Run Profile Cross Analysis ✅ COMPLETADO
+Mejorar la interpretación del “Historial profundo / últimos 15 juegos” separando **ofensiva (anota)** vs **prevención (permite)** en L5 vs L15, y generando un **cruce** entre ambos equipos que aporte:
+- Clasificación de perfil (5 buckets)
+- Señal contextual (apoya UNDER/OVER/NEUTRAL)
+- Ajuste simétrico de **confianza** y **fragility** (sin cambiar polaridad)
+- Integración con `pattern_alignment` como **entrada visual/auditable** (`visual_only=true`) sin alterar el ratio del CAMBIO 4
+
+Perfiles combinados soportados:
+- `STRONG_UNDER_CROSS`
+- `LOW_SCORING_CROSS`
+- `HIGH_SCORING_CROSS`
+- `STRONG_OVER_CROSS`
+- `MIXED_PROFILE`
+
+Contrato de capa (alineado con jerarquía SOT de Phase 58):
+- La distribución NB canoniza proyección y probabilidades base.
+- CAMBIO 4 (contradicción de patrones) ajusta confianza primero.
+- **Phase 59 aplica DESPUÉS** como capa contextual:
+  - bonus máximo: **+8**
+  - penalty máximo: **-12**
+  - fragility clamp: **0–100**
+- Fail-soft y no-op cuando faltan datos.
+
+Implementación completada:
+- ✅ Nuevo `backend/services/mlb_run_profile_cross.py`
+  - Per-team signals (reason codes):
+    - `TEAM_OFFENSE_COOLING`, `TEAM_OFFENSE_HEATING`
+    - `TEAM_RUN_PREVENTION_IMPROVING`, `TEAM_RUN_PREVENTION_WEAKENING`
+  - Combined cross payload: `combined_run_profile_cross`
+  - Helper simétrico: `apply_run_profile_cross_to_pick`
+  - Entry visual para `pattern_alignment.entries`: `visual_only=true`
+- ✅ Extensión `backend/services/mlb_recent_form_split.py`
+  - Deriva `runs_allowed_avg_last_5/15` desde el **mismo boxscore** (sin nuevas llamadas API)
+  - Propaga al payload `recent_run_split`:
+    - `runs_allowed_avg_last_5_home/away`, `runs_allowed_avg_last_15_home/away`
+    - `runs_allowed_delta_5_vs_15_home/away`
+- ✅ Integración en `backend/services/mlb_day_orchestrator.py`
+  - Se ejecuta **después** del bloque CAMBIO 4
+  - Telemetría:
+    - `combined_run_profile_cross`
+    - `run_profile_cross_applied`
+    - `mlb_source_of_truth.run_profile_cross_profile` / `run_profile_cross_supports`
+  - Entrada visual en `pattern_alignment.entries` (no afecta counts)
+  - Mirror a `baseballHistoricalProfile.combinedRunProfileCross`
+- ✅ Frontend
+  - `RunProfileCrossBlock` (exportado) dentro de `HistoricalProfilePanel.jsx`
+  - Integrado en el panel existente **“Tendencia carreras 5 vs 15 juegos”**
+  - UI: badge semántico (verde=Under, rose=Over, ámbar=Mixto), flechas direccionales, narrativa ES
+- ✅ Tests
+  - 28 tests unitarios: `backend/tests/test_mlb_run_profile_cross.py`
+  - 7 tests integración de wiring/order: `backend/tests/test_phase59_run_profile_cross_integration.py`
+- ✅ Verificación visual: 5 estados validados via screenshot tool (página debug temporal creada y eliminada)
+
 ### Cleanup técnico ✅ COMPLETADO
 - Resolver errores pre-existentes (ruff blocking) en `mlb_day_orchestrator.py`:
   - F821 `traffic_score_payload` undefined
@@ -91,146 +144,83 @@ Calidad / verificación:
 
 **Implementación (✅ COMPLETADA)**
 - ✅ `backend/scripts/audit_mlb_layer_interactions.py`
-  - 4 modos: `FULL_CURRENT`, `NO_DIRECT_TRAFFIC_DEFENSE_IN_CALIBRATOR`, `NO_DISPERSION_SIGNAL_MODULATION`, `LEGACY_SCALAR`
-  - Default: `--mode synthetic` (determinístico, `--seed 56`)
-  - Soporte opt-in: `--mode real --days N` (fail-soft con fallback a synthetic)
-  - Output JSON en `/app/backend/scripts/out/` + resumen por stdout
-  - Guardrails:
-    - `n<10` → `HIGH_RISK_WARNING`
-    - `10<=n<30` → `LOW_SAMPLE_WARNING`
-    - `30<=n<100` → `USEFUL_SAMPLE`
-    - `n>=100` → `VALIDATED_SAMPLE`
-    - tails: `tail_high_or_extreme_samples_full_current < 20` → `TAIL_SAMPLE_TOO_LOW`
 - ✅ `backend/services/mlb_layer_interaction_audit.py`
-  - `build_layer_interaction_audit()`
-  - `build_distribution_market_selection_effect()`
-  - `summarise_for_pipeline_meta()`
 - ✅ Integración en `backend/services/mlb_day_orchestrator.py` (observe-only)
-  - `pick_payload.layer_interaction_audit`
-  - `pick_payload.distribution_market_selection_effect`
-  - `pipeline_meta.layer_interaction_audit` (agregado por slate)
 - ✅ Tests: `backend/tests/test_phase56_layer_interaction_audit.py` (17)
 
 ### Phase 2 — PHASE 57 (✅ COMPLETADO): Datos y Enriquecimiento (Stats API + Savant batter)
-**User stories (Phase 57 - Data)**
-1. Como usuario, quiero props aun si Savant falla (fail-soft).
-2. Como usuario, quiero saber si el prop fue generado con datos completos o parciales (`data_quality`).
-3. Como sistema, quiero cache por jugador para evitar latencia y rate limits.
-
-**Implementación (✅ COMPLETADA)**
 - ✅ `backend/services/baseball_savant_batter.py`
-  - Fetch de CSV Savant para bateadores, fail-soft
-  - Cache (mem + Mongo opcional) TTL 24h
 - ✅ `backend/services/mlb_player_props_discovery.py`
-  - Motor determinístico Poisson + multiplicadores
-  - Mercados: H+R+RBI, TB, Hits 1+, RBI 1+, Runs 1+
-  - Moneyball filters: prob min, edge min, anti-longshot
-  - `data_quality`: COMPLETE/PARTIAL/MINIMAL
 
 ### Phase 3 — PHASE 57 (✅ COMPLETADO): API (server.py)
-**User stories (Phase 57 - API)**
-1. Endpoint estable para consultar props por fecha.
-2. Respuesta fail-soft.
-
-**Implementación (✅ COMPLETADA)**
-- ✅ Endpoint:
-  - `GET /api/mlb/player-props?date=YYYY-MM-DD&use_savant=true&max_games=20`
-  - Llama `compute_player_props_for_day()`
-- ✅ Tests:
-  - `backend/tests/test_mlb_player_props_discovery.py` (26)
+- ✅ Endpoint `/api/mlb/player-props`
+- ✅ Tests: `backend/tests/test_mlb_player_props_discovery.py`
 
 ### Phase 4 — PHASE 57: UI básica (⏸️ DIFERIDA)
-**User stories (Phase 57 - UI)**
-1. Tabla simple con props recomendados.
-2. Filtros por juego/mercado.
-3. Badges de `data_quality`.
-
-**Estado**
-- ⏸️ No implementado (por alcance). Siguiente paso sugerido:
-  - `frontend/src/pages/MLBPlayerPropsPage.jsx` + route `/mlb/player-props`.
+- ⏸️ `frontend/src/pages/MLBPlayerPropsPage.jsx` + route `/mlb/player-props`
 
 ### Phase 5 — PHASE F57 (✅ COMPLETADO): Football Context + Trend Discovery Engine (observe-only)
-**Submódulos implementados**
-1. ✅ `services/football_news_context_ingestion.py`
-   - Ingestión de noticias via Google News RSS
-   - Reglas: opcional, timeout corto, cache 6h, fail-soft
-   - Detección por frases clave (ES + fallback EN)
-   - Transparencia: `source_url`, `source_name`, `queried_url`, `fetched_at`
-2. ✅ `services/football_context_trend_discovery.py`
-   - Squad Disruption Detector (score 0-100 + bucket)
-   - Recent Form Streak Detector
-   - Corners Trend Engine (prom últimos 10 vs últimos 5)
-   - Protected Goals Trend Engine (Over 1.5 / Over 1.75 preferidos)
-   - Missed Match Rescue
-   - Output: `observe_only: True`, `recommended_markets`, `narrative_es`
-3. ✅ Endpoint:
-   - `GET /api/football/context-trend?home_team=X&away_team=Y&match_id=...&use_news=true|false&locale=es`
-4. ✅ UI:
-   - `frontend/src/components/FootballContextTrendCard.jsx`
-   - Integrado en `frontend/src/pages/MatchDetailPage.jsx`
-   - Self-gating: solo renderiza si hay señales reales
-5. ✅ Tests:
-   - `backend/tests/test_football_context_trend_discovery.py` (35)
+- ✅ `services/football_news_context_ingestion.py`
+- ✅ `services/football_context_trend_discovery.py`
+- ✅ Endpoint `/api/football/context-trend`
+- ✅ UI: `FootballContextTrendCard.jsx` en `MatchDetailPage.jsx`
+- ✅ Tests: `backend/tests/test_football_context_trend_discovery.py`
 
 ### Phase 6 — Post-work: Cleanup técnico (✅ COMPLETADO)
-- ✅ `mlb_day_orchestrator.py`
-  - Reemplazo de referencias a `traffic_score_payload` por `pick_payload["traffic_score_obj"]`
-  - Corrección de estilos E701/E702
-  - Ruff sin errores blocking
+- ✅ Fixes ruff + wiring
 
 ### Phase 7 — PHASE 58 (✅ COMPLETADO): Symmetry + Hierarchical SOT + UI conflict badge
 **Backend**
-1. ✅ `mlb_over_discovery.py`
-   - Swap simétrico Over/Under con umbral 1.0/6.0
-   - Telemetría `symmetric_swap_applied`
-2. ✅ `mlb_under_fragility_calibrator.py`
-   - Calibración de fragility “hidden Under routes” para picks Over
-   - Guard de polaridad (no-op si no es Over)
-3. ✅ `mlb_day_orchestrator.py`
-   - Source of Truth jerárquico:
-     - NB canoniza mean y probs
-     - Calibradores ajustan fragility
-     - Patrones ajustan confianza
-   - `mlb_source_of_truth` + `under_fragility_calibration`
-4. ✅ Penalización simétrica por contradicción de patrones
-   - Campos: `pick_conflict_state`, `pattern_penalty_applied`, `confidence_pre_pattern_penalty`
-   - Ajuste de `recommendation.confidence_score`
-   - `pattern_alignment` root-normalizado
-5. ✅ Tests
-   - `backend/tests/test_cambio4_pattern_contradiction_penalty.py` (10)
+- ✅ Swap simétrico, calibrador under-routes, SOT jerárquico
+- ✅ Penalización simétrica por contradicción de patrones
+- ✅ Tests: `test_cambio4_pattern_contradiction_penalty.py` (10)
 
 **Frontend**
-1. ✅ `frontend/src/components/ConfidenceBadge.jsx` (reutilizable)
-2. ✅ Integración en `MatchDetailPage.jsx`
-3. ✅ Verificación visual vía screenshot tool (4 estados) + eliminación de página debug temporal
+- ✅ `ConfidenceBadge.jsx` + integración en `MatchDetailPage.jsx`
+- ✅ Verificación visual
+
+### Phase 8 — PHASE 59 (✅ COMPLETADO): L5 vs L15 Run Profile Cross Analysis
+**Backend**
+1) ✅ Crear `services/mlb_run_profile_cross.py` (5 perfiles + per-team reason codes + clamps simétricos)
+2) ✅ Extender `services/mlb_recent_form_split.py` para runs_allowed L5/L15 (derivado del boxscore)
+3) ✅ Integrar en `services/mlb_day_orchestrator.py` **después** del CAMBIO 4
+   - Ajuste simétrico de confianza/fragility (sin flip)
+   - Telemetría + entry visual `pattern_alignment.entries` (`visual_only=true`)
+   - Mirror a `baseballHistoricalProfile.combinedRunProfileCross`
+4) ✅ Tests
+   - `test_mlb_run_profile_cross.py` (28)
+   - `test_phase59_run_profile_cross_integration.py` (7)
+
+**Frontend**
+1) ✅ Export + integración `RunProfileCrossBlock` dentro del panel **“Tendencia carreras 5 vs 15 juegos”**
+2) ✅ Badges semánticos + flechas direccionales + narrativa ES
+3) ✅ Verificación visual (página debug temporal creada y eliminada)
 
 
 ## 3) Next Actions
 
 ### Próximos pasos recomendados (prioridad)
-1) **Completar adopción del ConfidenceBadge (UI)**
+1) **Completar adopción del ConfidenceBadge (UI) — pendiente parcial**
    - Integrar `ConfidenceBadge` en:
      - `frontend/src/components/MatchCard.jsx` (listado / dashboard)
-     - Panel histórico (HistoricalProfilePanel o equivalente)
-   - Asegurar que se pasen las props mínimas (confianza final + estado de conflicto + pre-penalty + payload de penalización).
+     - Panel histórico (si se desea mostrar también allí; actualmente se integró en MatchDetailPage)
 
 2) **Observabilidad en producción / logs reales**
    - Monitorear frecuencia real de:
      - `pick_conflict_state`
      - `pattern_penalty_applied.ratio` y distribución de penalties
-   - Validar que el ajuste de confianza no cause confusión (ej. picks con score alto pero “VALUE_CON_CONFLICTO”).
+     - `combined_run_profile_cross.profile` y `run_profile_cross_applied.interaction`
 
-3) **Tests de UI (RTL) para el badge**
+3) **Tests de UI (RTL)**
    - Añadir tests de React Testing Library para:
-     - Render de `VALUE_REVISAR` vs `VALUE_CON_CONFLICTO`
-     - Tooltip con breakdown
-     - Tachado del `confidencePrePenalty`
+     - `ConfidenceBadge` (render + tooltip + tachado pre-penalty)
+     - `RunProfileCrossBlock` (render de 5 perfiles, badges, flechas)
 
 4) **MLB Phase 57 UI (pendiente)**
    - Implementar `MLBPlayerPropsPage.jsx` + ruta `/mlb/player-props`
 
 5) **Football F57 integración híbrida con orchestrator (opcional)**
-   - Agregar flag para inyectar el bloque `context_trend` dentro del output del engine principal de football, manteniendo observe-only.
+   - Inyectar bloque `context_trend` en output del engine principal, manteniendo observe-only.
 
 
 ## 4) Success Criteria
@@ -242,7 +232,7 @@ Calidad / verificación:
 
 ### Phase 57 (✅ Backend)
 - ✅ Endpoint `/api/mlb/player-props` devuelve props Moneyball por fecha, fail-soft.
-- ✅ Savant batter enrichment opcional con cache + timeout, sin bloquear generación.
+- ✅ Savant batter enrichment opcional con cache + timeout.
 - ✅ Motor determinístico con filtros anti-longshot + `data_quality`.
 - ⏸️ UI básica pendiente.
 
@@ -258,9 +248,20 @@ Calidad / verificación:
 - ✅ Penalización simétrica de confianza por contradicción de patrones.
 - ✅ UI actualizada con `ConfidenceBadge.jsx` y tooltips.
 
+### Phase 59 (✅)
+- ✅ Panel separa claramente:
+  - Carreras anotadas L5 vs L15
+  - Carreras recibidas (permitidas) L5 vs L15
+- ✅ Detecta 5 perfiles:
+  - `STRONG_UNDER_CROSS`, `LOW_SCORING_CROSS`, `HIGH_SCORING_CROSS`, `STRONG_OVER_CROSS`, `MIXED_PROFILE`
+- ✅ Integración con `pattern_alignment` como entrada visual (`visual_only=true`) sin alterar counts
+- ✅ Ajuste simétrico de confianza/fragility con clamps; no sobreescribe NB ni cambia polaridad
+- ✅ Fail-soft
+- ✅ Tests sintéticos cubren los 5 casos
+
 ### Calidad / regresiones
-- ✅ `pytest tests/` → **1649/1649 passed**
-- ✅ Verificación visual: badge en 4 estados validado via screenshot tool
+- ✅ `pytest tests/` → **1684/1684 passed**
+- ✅ Verificación visual: cross UI validado para 5 perfiles via screenshot tool
 
 ---
 
