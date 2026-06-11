@@ -1,280 +1,160 @@
-# Development Plan — PHASE 56 (✅) + PHASE 57 (✅ Backend) + PHASE F57 (✅) + PHASE 58 (✅) + PHASE 59 (✅)
+# Plan — Phase F58 (Football L5 vs L15 Profile Cross + Player Props Discovery)
 
-## 1) Objectives
+## 1) Objetivos
+- Implementar un **cross L5 vs L15** para fútbol (goles, xG, xGA, tiros, SOT, corners) con 7 perfiles y deltas simétricos.
+- Añadir **ingestión híbrida** para hidratar stats de jugador usadas por props:
+  - StatMuse primario (rápido y estable para shots/SOT/minutos)
+  - FBref para enriquecer mercados de volumen (pases/tackles/fouls/cards/xG) cuando sea accesible
+  - Understat como último recurso para xG/shots/sot cuando aplica
+- Implementar **Player Props Discovery Moneyball** (tiers + gates) con degradación fail-soft.
+- Integrar en el flujo football existente con un modo más agresivo: **override contextual** cuando el cross sea “muy fuerte”.
+- Añadir **smoke tests** (mínimos) y mantener la suite global verde (cero regresiones).
+- (P2) **UI wiring**: panel independiente en cards football para visualizar Cross + Override + Player Props.
 
-### PHASE 56 — MLB Layer Interaction Audit (observe-only) ✅ COMPLETADO
-- Detectar y **medir posible double-counting** de señales entre:
-  - `mlb_expected_runs_distribution` (PMF/CDF + tail probs)
-  - `mlb_tail_fragility` (Phase 55: base + interactions)
-  - `mlb_fragility_calibrator` (hidden over routes: component_deltas)
-- Añadir **telemetría profunda** en `mlb_day_orchestrator.py` sin alterar picks, mercado elegido ni polaridad (**observe-only**).
-- Entregar un **script de auditoría** reproducible (default synthetic) que compare 4 modos y genere JSON + resumen por stdout.
-- Incorporar **guardrails observe-only** (warnings/labels) basados en tamaño de muestra, incluyendo regla especial para tails.
-- **Estado actual**: ✅ Objetivos completados.
+**Estado actual:**
+- ✅ Backend Phase F58 completado (módulos core + integración + tests).
+- ✅ UI panel independiente completado y cableado en `MatchCard` (fail-soft).
+- ✅ Probe real EPL ejecutado (StatMuse OK; FBref directo 403 sin Bright Data).
+- ✅ FBref scraper implementado (con caveat anti-bot) + smart merge.
+- ✅ Test suite verde: **1744/1744 passing**.
 
-### PHASE 57 — MLB Player Props Discovery (Moneyball) ✅ COMPLETADO (Backend + endpoint)
-Construir un motor de descubrimiento de player props “Moneyball” centrado en props **repetibles**, **baja fragilidad** y **alta probabilidad**, evitando longshots.
+## 2) Implementación (fases)
 
-Decisiones implementadas:
-- **Mercados soportados**:
-  - Principales: **H+R+RBI**, **Total Bases**
-  - Conservadores adicionales: **Hits 1+**, **RBI 1+**, **Runs 1+**
-- **Datos**:
-  - Base obligatoria: **MLB Stats API** (season stats + roster/hydrate)
-  - Enriquecimiento opcional: **Baseball Savant para bateadores** (xwOBA, xSLG, Barrel %, Hard Hit %, Exit Velocity, etc.)
-    - Fail-soft, timeout corto, cache (TTL ~24h)
-    - `data_quality` por prop: `COMPLETE|PARTIAL|MINIMAL`
-- **Scoring / Edge**: Pure Python determinístico (Poisson + multiplicadores conservadores).
-- **Alcance entregado**: Backend + endpoint **/api/mlb/player-props**.
-- **UI**: diferida (no implementada en este turno por decisión de alcance).
+### Fase 1 — POC (Aislamiento): Scraping/ingestión de stats de jugador (core frágil)
+**Por qué aquí:** el scraping es el punto más propenso a romperse (estructura HTML/anti-bot) y condiciona toda la discovery.
 
-### PHASE F57 — Football Context + Trend Discovery ✅ COMPLETADO (observe-only)
-Implementar una nueva capa de fútbol para capturar contexto humano + tendencias que el engine actual omite:
-- Squad disruption (indisciplina, apartados, conflictos internos, etc.) vía ingestión de noticias
-- Recent form streaks (racha, goles a favor/en contra)
-- Corners trend (comparar promedio últimos 10 vs últimos 5)
-- Protected goals trend (prefiere Over 1.5 / Over 1.75 vs mercados agresivos)
-- Missed match rescue (si el engine descarta/omite un partido con señales fuertes)
+**User stories (POC)**
+1. Como caller, quiero pedir stats de un jugador y obtener un dict normalizado aunque falten campos.
+2. Como caller, quiero que si StatMuse falla, el sistema intente fallback automáticamente.
+3. Como caller, quiero que si todo falla, el ingestor responda fail-soft sin romper el pipeline.
+4. Como dev, quiero poder ejecutar un script local que pruebe jugadores reales end-to-end.
+5. Como sistema, quiero cachear resultados para no golpear la fuente repetidamente.
 
-**Estado actual**: ✅ módulo backend + endpoint + UI en MatchDetailPage (self-gating) completados.
+**Pasos (COMPLETADO + ACTUALIZADO)**
+- ✅ Crear `backend/services/football_player_stats_ingestor.py`.
+  - ✅ API: `hydrate_player_stats(*, player_name: str, team: str | None = None, league: str | None = None) -> dict`.
+  - ✅ Salida estándar (siempre):
+    - `{"available": bool, "source": str, "confidence_penalty": int, "minutes_sample": int|None, "stats": {...}, "raw": {...}}`.
+  - ✅ Normaliza métricas: `shots_p90`, `sot_p90`, `passes_p90`, `tackles_p90`, `fouls_p90`, `cards_p90`, `xg_p90`, `minutes_p_game`, `minutes_sample`.
+  - ✅ Implementación (cadena final):
+    - ✅ **StatMuse scraping** (primario): HTMLParser + cache + fail-soft.
+    - ✅ **FBref scraper** (terciario/enriquecimiento):
+      - Search → player page → tabla Standard Stats (usa `data-stat` para robustez).
+      - Prefer Bright Data cuando esté disponible; `direct_fetch` como último intento.
+      - **Caveat**: FBref puede devolver 403 desde IPs de datacenter (sin Bright Data).
+    - ✅ **Understat fallback** (último recurso): xG/shots/sot cuando se dispone de helper.
+  - ✅ **Smart merge**:
+    - Si StatMuse devuelve stats parciales → se intenta FBref y se rellenan `None` sin sobre-escribir valores de StatMuse.
+    - Si StatMuse viene completo → NO se consulta FBref (politeness/perf).
+    - `source` ∈ {`statmuse`, `fbref`, `understat`, `statmuse+fbref`, `unavailable`}.
+  - ✅ Cache in-memory TTL **6h**.
 
-### PHASE 58 — MLB Structural Symmetry + Hierarchical Source of Truth ✅ COMPLETADO
-Eliminar sesgos estructurales MLB y formalizar una jerarquía de “source-of-truth”:
-- **Distribución NB** canoniza proyección y probabilidades base.
-- **Calibradores simétricos** ajustan fragility sin alterar polaridad.
-- **Patrones históricos** ajustan confianza (penalización simétrica por contradicción).
-- **UI** refleja conflictos/penalizaciones con un badge explícito y tooltip.
+### Fase 2 — V1 App Dev: Football Team Profile Cross (L5 vs L15)
+**User stories**
+1. Como analista, quiero ver un perfil de cruce L5 vs L15 para entender si el partido cambió de régimen.
+2. Como sistema, quiero deltas de confidence/fragility consistentes con el patrón MLB.
+3. Como UI, quiero un entry “pattern_alignment” visual para explicar el cross.
+4. Como caller, quiero un resultado fail-soft si faltan inputs.
+5. Como trader, quiero que en señales muy fuertes se pueda **override** (según reglas).
 
-Resultados / entregables (CAMBIOS 1–5):
-1) ✅ Swap simétrico Over/Under en `mlb_over_discovery.py` con umbral exacto:
-   - `o_edge - u_edge >= 1.0` **o** `o_score - u_score >= 6.0`
-   - Telemetría: `symmetric_swap_applied: True`
-2) ✅ Nuevo `backend/services/mlb_under_fragility_calibrator.py` (mirror del calibrador Over)
-   - Guard de polaridad estricto: solo corre para `market_side == "over"`
-   - Caps idénticos: `MAX_DELTA=20`, `MAX_CEILING=85`
-3) ✅ Source of Truth jerárquico integrado en `mlb_day_orchestrator.py`
-   - Escribe **fragility efectiva** en `pick_payload.fragility.score` y `pick_payload.fragility_score`
-   - Telemetría: `pick_payload.mlb_source_of_truth` + `under_fragility_calibration` cuando aplica
-4) ✅ Penalización simétrica de confianza por contradicción de patrones (CAMBIO 4)
-   - Estados: `VALUE_CON_CONFLICTO` (ámbar), `VALUE_REVISAR` (azul/cyan)
-   - Campos: `pick_conflict_state`, `pattern_penalty_applied`, `confidence_pre_pattern_penalty`
-   - Añade `PATTERN_CONTRADICTION_CONFIDENCE_PENALTY` a `recommendation.reason_codes`
-   - Normalización: `pick_payload.pattern_alignment` (atajo root) + telemetría SOT actualizada
-5) ✅ UI: `frontend/src/components/ConfidenceBadge.jsx` + integración en `MatchDetailPage.jsx`
-   - Props mínimas (establecidas por usuario):
-     ```jsx
-     <ConfidenceBadge
-       confidence={recommendation.confidence_score}
-       conflictState={pick.pick_conflict_state}
-       penaltyApplied={pick.pattern_penalty_applied}
-       confidencePrePenalty={pick.confidence_pre_pattern_penalty}
-     />
-     ```
-   - Tooltip explicativo y estilo por estado
+**Pasos (COMPLETADO)**
+- ✅ Crear `backend/services/football_team_profile_cross.py`:
+  - ✅ `classify_team_football_profile(...)`.
+  - ✅ `compute_combined_football_profile_cross(home, away)` → 7 perfiles.
+  - ✅ `apply_profile_cross_to_pick(...)`:
+    - Override gating:
+      - Solo `STRONG_UNDER_CROSS`, `STRONG_OVER_CROSS`, `CORNERS_OVER_CROSS`.
+      - Umbral “muy fuerte”: `confidence_delta >= 10`.
+      - Solo si el cross contradice el pick.
+  - ✅ `build_pattern_alignment_entry(...)` visual-only (`visual_only=True`).
 
-Calidad / verificación:
-- ✅ Pytest backend: **1649/1649 passed** (10 tests nuevos para CAMBIO 4)
-- ✅ Verificación visual: badge validado en 4 estados via screenshot tool
-- ✅ Página de debug temporal creada y eliminada tras la validación
+### Fase 3 — V1 App Dev: Football Player Props Discovery (Moneyball)
+**User stories**
+1. Como usuario, quiero props “aburridas” (alto volumen) en vez de longshots.
+2. Como sistema, quiero rechazar props con prob baja aunque parezcan +EV.
+3. Como caller, quiero una lista ordenada por edge_score con metadata completa.
+4. Como sistema, quiero degradar a “no props” si faltan stats del jugador.
+5. Como usuario, quiero que “Player to score” solo aparezca si es ultra-élite (edge≥90 y fragility≤35).
 
-### PHASE 59 — MLB L5 vs L15 Run Profile Cross Analysis ✅ COMPLETADO
-Mejorar la interpretación del “Historial profundo / últimos 15 juegos” separando **ofensiva (anota)** vs **prevención (permite)** en L5 vs L15, y generando un **cruce** entre ambos equipos que aporte:
-- Clasificación de perfil (5 buckets)
-- Señal contextual (apoya UNDER/OVER/NEUTRAL)
-- Ajuste simétrico de **confianza** y **fragility** (sin cambiar polaridad)
-- Integración con `pattern_alignment` como **entrada visual/auditable** (`visual_only=true`) sin alterar el ratio del CAMBIO 4
+**Pasos (COMPLETADO)**
+- ✅ Crear `backend/services/football_player_props_discovery.py`:
+  - ✅ Tier 1: `SHOTS_OVER`, `SOT_OVER`, `PASSES_OVER`, `TACKLES_OVER`.
+  - ✅ Tier 2: `FOULS_OVER`, `CARDS_OVER`.
+  - ✅ Tier 3: `PLAYER_TO_SCORE` (gate duro: `edge_score>=90` & `fragility<=35`).
+  - ✅ Poisson λ y Moneyball gates (`min_prob=0.55`, `min_edge_pts=4.0`, `longshot_floor=0.50`).
+  - ✅ Consume `hydrate_player_stats` por defecto (o inyectable).
 
-Perfiles combinados soportados:
-- `STRONG_UNDER_CROSS`
-- `LOW_SCORING_CROSS`
-- `HIGH_SCORING_CROSS`
-- `STRONG_OVER_CROSS`
-- `MIXED_PROFILE`
+### Fase 4 — Integración en Football pipeline (override incluido)
+**User stories**
+1. Como sistema, quiero que el cross pueda modificar/override el pick final cuando sea muy fuerte.
+2. Como UI, quiero ver claramente cuándo hubo override y por qué.
+3. Como sistema, quiero que fallos de scraping no rompan el refresh de football.
+4. Como analista, quiero poder auditar reason_codes y fuentes.
+5. Como QA, quiero que los cambios no afecten baseball/basketball.
 
-Contrato de capa (alineado con jerarquía SOT de Phase 58):
-- La distribución NB canoniza proyección y probabilidades base.
-- CAMBIO 4 (contradicción de patrones) ajusta confianza primero.
-- **Phase 59 aplica DESPUÉS** como capa contextual:
-  - bonus máximo: **+8**
-  - penalty máximo: **-12**
-  - fragility clamp: **0–100**
-- Fail-soft y no-op cuando faltan datos.
+**Pasos (COMPLETADO)**
+- ✅ Crear `backend/services/football_phaseF58_integration.py`:
+  - Deriva inputs L5/L15 desde `recent_fixtures`.
+  - Adjunta `combined_football_profile_cross` al payload.
+  - Aplica deltas simétricos + escribe `football_profile_cross_applied`.
+  - Añade entry visual-only en `pattern_alignment.entries`.
+  - **No muta** el market final: emite `override` como sugerencia auditable.
+- ✅ Cableado en `backend/services/football_moneyball/football_pattern_matcher.py` (paso 5, antes de persist).
 
-Implementación completada:
-- ✅ Nuevo `backend/services/mlb_run_profile_cross.py`
-  - Per-team signals (reason codes):
-    - `TEAM_OFFENSE_COOLING`, `TEAM_OFFENSE_HEATING`
-    - `TEAM_RUN_PREVENTION_IMPROVING`, `TEAM_RUN_PREVENTION_WEAKENING`
-  - Combined cross payload: `combined_run_profile_cross`
-  - Helper simétrico: `apply_run_profile_cross_to_pick`
-  - Entry visual para `pattern_alignment.entries`: `visual_only=true`
-- ✅ Extensión `backend/services/mlb_recent_form_split.py`
-  - Deriva `runs_allowed_avg_last_5/15` desde el **mismo boxscore** (sin nuevas llamadas API)
-  - Propaga al payload `recent_run_split`:
-    - `runs_allowed_avg_last_5_home/away`, `runs_allowed_avg_last_15_home/away`
-    - `runs_allowed_delta_5_vs_15_home/away`
-- ✅ Integración en `backend/services/mlb_day_orchestrator.py`
-  - Se ejecuta **después** del bloque CAMBIO 4
-  - Telemetría:
-    - `combined_run_profile_cross`
-    - `run_profile_cross_applied`
-    - `mlb_source_of_truth.run_profile_cross_profile` / `run_profile_cross_supports`
-  - Entrada visual en `pattern_alignment.entries` (no afecta counts)
-  - Mirror a `baseballHistoricalProfile.combinedRunProfileCross`
-- ✅ Frontend
-  - `RunProfileCrossBlock` (exportado) dentro de `HistoricalProfilePanel.jsx`
-  - Integrado en el panel existente **“Tendencia carreras 5 vs 15 juegos”**
-  - UI: badge semántico (verde=Under, rose=Over, ámbar=Mixto), flechas direccionales, narrativa ES
-- ✅ Tests
-  - 28 tests unitarios: `backend/tests/test_mlb_run_profile_cross.py`
-  - 7 tests integración de wiring/order: `backend/tests/test_phase59_run_profile_cross_integration.py`
-- ✅ Verificación visual: 5 estados validados via screenshot tool (página debug temporal creada y eliminada)
+### Fase 5 — UI Wiring (P2) — Panel independiente Cross + Override + Player Props
+**User stories**
+1. Como usuario, quiero visualizar el cross L5 vs L15 y entender qué apoya.
+2. Como usuario, quiero ver un aviso claro cuando existe un override sugerido.
+3. Como usuario, quiero ver props Moneyball por jugador (tiers) cuando estén disponibles.
+4. Como sistema, el panel no debe romper cards sin payload (self-hide).
 
-### Cleanup técnico ✅ COMPLETADO
-- Resolver errores pre-existentes (ruff blocking) en `mlb_day_orchestrator.py`:
-  - F821 `traffic_score_payload` undefined
-  - E701/E702 statements múltiples en una línea
-- **Estado actual**: ✅ 0 errores blocking + suite completa verde.
+**Pasos (COMPLETADO)**
+- ✅ Crear `frontend/src/components/FootballProfileCrossPropsPanel.jsx` (diseño propio, no replica MLB):
+  - Header + sección Cross + sección Override + sección Player Props.
+  - Paleta emerald/cyan (sin purple), microtipografía estilo terminal, `data-testid`.
+  - Self-hide si no hay datos.
+- ✅ Integrar en `frontend/src/components/MatchCard.jsx` para `sport === 'football'`.
+- ✅ Verificación de compilación con esbuild.
 
+### Fase 6 — Prueba con datos reales (P2) — validar `hydrate_player_stats`
+**User stories**
+1. Como operador, quiero confirmar que StatMuse funciona en el entorno.
+2. Como operador, quiero saber si FBref está bloqueado por anti-bot y qué requiere.
+3. Como sistema, quiero que el chain degrade sin fallar.
 
-## 2) Implementation Steps
+**Pasos (COMPLETADO + DOCUMENTADO)**
+- ✅ Crear `backend/scripts/test_phaseF58_real_player.py`.
+- ✅ Ejecutar probe EPL (Haaland, Saka, Salah):
+  - StatMuse **OK** (200) → shots_p90/sot_p90/minutes_sample.
+  - FBref **403** sin Bright Data (anti-bot) → se documenta como caveat.
+- ✅ Persistir resultados en `backend/scripts/out/phaseF58_real_player_probe.json`.
 
-### Phase 1 — PHASE 56 (✅ COMPLETADO): Auditoría sintética reproducible + telemetría
-> Core workflow = generar dataset sintético, ejecutar 4 modos, producir reporte JSON con métricas y flags de overlap/double-count.
+### Fase 7 — Smoke tests + verificación final
+**User stories**
+1. Como dev, quiero que `pytest` siga pasando sin regresiones.
+2. Como dev, quiero smoke tests que validen contratos y merges.
 
-**Implementación (✅ COMPLETADA)**
-- ✅ `backend/scripts/audit_mlb_layer_interactions.py`
-- ✅ `backend/services/mlb_layer_interaction_audit.py`
-- ✅ Integración en `backend/services/mlb_day_orchestrator.py` (observe-only)
-- ✅ Tests: `backend/tests/test_phase56_layer_interaction_audit.py` (17)
+**Pasos (COMPLETADO + ACTUALIZADO)**
+- ✅ Smoke tests existentes F58 (49).
+- ✅ Añadidos 11 tests FBref + merge:
+  - `tests/test_phaseF58_fbref_scraper_smoke.py`
+- ✅ Pytest suite completa: **1744/1744 passing** (0 regresiones).
 
-### Phase 2 — PHASE 57 (✅ COMPLETADO): Datos y Enriquecimiento (Stats API + Savant batter)
-- ✅ `backend/services/baseball_savant_batter.py`
-- ✅ `backend/services/mlb_player_props_discovery.py`
+## 3) Next Actions (orden de ejecución)
+**Estado actual: DONE para backend + UI panel. Próximos pasos recomendados (P2/P3):**
+1. (P2) **RTL tests** del nuevo `FootballProfileCrossPropsPanel.jsx`.
+2. (P2) **Wiring del payload de props en football pipeline**:
+   - Actualmente el panel espera `pick.player_props_discovery`.
+   - Falta adjuntar automáticamente `discover_player_props(...)` en el flujo que construye el match/pick payload (por ejemplo en `attach_football_intelligence_to_payload` o en el stage que arma la card).
+3. (P3) **Configurar Bright Data en producción** para activar FBref enrichment:
+   - Requiere `BRIGHTDATA_API_KEY` + `BRIGHTDATA_CUSTOMER_ID` (según `services/external_sources/base.py`).
+4. (P3) **Ampliar StatMuse slugs** para cubrir pases/tackles si StatMuse soporta endpoints equivalentes (reduce dependencia en FBref).
+5. (P3) **Backtest del override gating** (tasa de override, hit-rate/ROI) antes de aplicar auto-flip en producción.
 
-### Phase 3 — PHASE 57 (✅ COMPLETADO): API (server.py)
-- ✅ Endpoint `/api/mlb/player-props`
-- ✅ Tests: `backend/tests/test_mlb_player_props_discovery.py`
-
-### Phase 4 — PHASE 57: UI básica (⏸️ DIFERIDA)
-- ⏸️ `frontend/src/pages/MLBPlayerPropsPage.jsx` + route `/mlb/player-props`
-
-### Phase 5 — PHASE F57 (✅ COMPLETADO): Football Context + Trend Discovery Engine (observe-only)
-- ✅ `services/football_news_context_ingestion.py`
-- ✅ `services/football_context_trend_discovery.py`
-- ✅ Endpoint `/api/football/context-trend`
-- ✅ UI: `FootballContextTrendCard.jsx` en `MatchDetailPage.jsx`
-- ✅ Tests: `backend/tests/test_football_context_trend_discovery.py`
-
-### Phase 6 — Post-work: Cleanup técnico (✅ COMPLETADO)
-- ✅ Fixes ruff + wiring
-
-### Phase 7 — PHASE 58 (✅ COMPLETADO): Symmetry + Hierarchical SOT + UI conflict badge
-**Backend**
-- ✅ Swap simétrico, calibrador under-routes, SOT jerárquico
-- ✅ Penalización simétrica por contradicción de patrones
-- ✅ Tests: `test_cambio4_pattern_contradiction_penalty.py` (10)
-
-**Frontend**
-- ✅ `ConfidenceBadge.jsx` + integración en `MatchDetailPage.jsx`
-- ✅ Verificación visual
-
-### Phase 8 — PHASE 59 (✅ COMPLETADO): L5 vs L15 Run Profile Cross Analysis
-**Backend**
-1) ✅ Crear `services/mlb_run_profile_cross.py` (5 perfiles + per-team reason codes + clamps simétricos)
-2) ✅ Extender `services/mlb_recent_form_split.py` para runs_allowed L5/L15 (derivado del boxscore)
-3) ✅ Integrar en `services/mlb_day_orchestrator.py` **después** del CAMBIO 4
-   - Ajuste simétrico de confianza/fragility (sin flip)
-   - Telemetría + entry visual `pattern_alignment.entries` (`visual_only=true`)
-   - Mirror a `baseballHistoricalProfile.combinedRunProfileCross`
-4) ✅ Tests
-   - `test_mlb_run_profile_cross.py` (28)
-   - `test_phase59_run_profile_cross_integration.py` (7)
-
-**Frontend**
-1) ✅ Export + integración `RunProfileCrossBlock` dentro del panel **“Tendencia carreras 5 vs 15 juegos”**
-2) ✅ Badges semánticos + flechas direccionales + narrativa ES
-3) ✅ Verificación visual (página debug temporal creada y eliminada)
-
-
-## 3) Next Actions
-
-### Próximos pasos recomendados (prioridad)
-1) **Completar adopción del ConfidenceBadge (UI) — pendiente parcial**
-   - Integrar `ConfidenceBadge` en:
-     - `frontend/src/components/MatchCard.jsx` (listado / dashboard)
-     - Panel histórico (si se desea mostrar también allí; actualmente se integró en MatchDetailPage)
-
-2) **Observabilidad en producción / logs reales**
-   - Monitorear frecuencia real de:
-     - `pick_conflict_state`
-     - `pattern_penalty_applied.ratio` y distribución de penalties
-     - `combined_run_profile_cross.profile` y `run_profile_cross_applied.interaction`
-
-3) **Tests de UI (RTL)**
-   - Añadir tests de React Testing Library para:
-     - `ConfidenceBadge` (render + tooltip + tachado pre-penalty)
-     - `RunProfileCrossBlock` (render de 5 perfiles, badges, flechas)
-
-4) **MLB Phase 57 UI (pendiente)**
-   - Implementar `MLBPlayerPropsPage.jsx` + ruta `/mlb/player-props`
-
-5) **Football F57 integración híbrida con orchestrator (opcional)**
-   - Inyectar bloque `context_trend` en output del engine principal, manteniendo observe-only.
-
-
-## 4) Success Criteria
-
-### Phase 56 (✅)
-- ✅ Script genera JSON + resumen stdout.
-- ✅ Telemetría per-pick + pipeline_meta agregada.
-- ✅ Observe-only verificado.
-
-### Phase 57 (✅ Backend)
-- ✅ Endpoint `/api/mlb/player-props` devuelve props Moneyball por fecha, fail-soft.
-- ✅ Savant batter enrichment opcional con cache + timeout.
-- ✅ Motor determinístico con filtros anti-longshot + `data_quality`.
-- ⏸️ UI básica pendiente.
-
-### Phase F57 (✅)
-- ✅ Endpoint `/api/football/context-trend` devuelve señales (news/form/corners/goals/rescue), observe-only.
-- ✅ News ingestion fail-soft con cache + URLs de fuente.
-- ✅ UI integrada en MatchDetailPage con self-gating.
-
-### Phase 58 (✅)
-- ✅ Simetría Over/Under en swap de mercado.
-- ✅ Calibrador simétrico Under-routes agregado y separado por polaridad.
-- ✅ Jerarquía SOT aplicada (NB canoniza, calibradores fragility, patrones confianza).
-- ✅ Penalización simétrica de confianza por contradicción de patrones.
-- ✅ UI actualizada con `ConfidenceBadge.jsx` y tooltips.
-
-### Phase 59 (✅)
-- ✅ Panel separa claramente:
-  - Carreras anotadas L5 vs L15
-  - Carreras recibidas (permitidas) L5 vs L15
-- ✅ Detecta 5 perfiles:
-  - `STRONG_UNDER_CROSS`, `LOW_SCORING_CROSS`, `HIGH_SCORING_CROSS`, `STRONG_OVER_CROSS`, `MIXED_PROFILE`
-- ✅ Integración con `pattern_alignment` como entrada visual (`visual_only=true`) sin alterar counts
-- ✅ Ajuste simétrico de confianza/fragility con clamps; no sobreescribe NB ni cambia polaridad
-- ✅ Fail-soft
-- ✅ Tests sintéticos cubren los 5 casos
-
-### Calidad / regresiones
-- ✅ `pytest tests/` → **1684/1684 passed**
-- ✅ Verificación visual: cross UI validado para 5 perfiles via screenshot tool
-
----
-
-## Apéndice — Findings preliminares (Phase 56 synthetic n=200, seed=56)
-- Overlap (FULL_CURRENT) por familia:
-  - `starter`: **22%** (avg_redundant≈5.0) — candidato principal
-  - `series`: **15%** (avg_redundant≈3.0)
-  - `defense`: **9%** (avg_redundant≈4.0)
-  - `bullpen`: **6%** (avg_redundant≈5.0)
-  - `tail`: 0% (correcto: Phase-55 consume tail una sola vez)
-  - `traffic`: 0% (solo calibrator; no existe en tail_fragility)
-- Comparación de modos:
-  - `NO_DIRECT_TRAFFIC_DEFENSE_IN_CALIBRATOR` reduce `cal_delta_avg` ~1.74 pts y baja `cap_hit_rate`.
-  - `LEGACY_SCALAR` incrementa `cal_delta_avg` y cap-hit.
-
-> Nota: findings synthetic sirven para ejercitar y detectar patrones de overlap; antes de refactor se recomienda correr `--mode real` y aplicar guardrails de sample size.
+## 4) Criterios de éxito
+- ✅ Ingestor devuelve siempre un dict normalizado; en fallo devuelve `available=False` y no rompe.
+- ✅ Cross profile produce uno de los 7 perfiles cuando hay inputs suficientes; si no, `available=False`.
+- ✅ Override ocurre **solo** para perfiles permitidos y umbral “muy fuerte” (y solo si contradice).
+- ✅ Player props: Tier 1/2 generables con stats; Tier 3 solo si `edge_score≥90` y `fragility≤35`.
+- ✅ UI panel se renderiza sin romper cards (self-hide) y respeta design system.
+- ✅ `pytest` completo pasa (sin regresiones) y los smoke tests cubren parsing/merge FBref.

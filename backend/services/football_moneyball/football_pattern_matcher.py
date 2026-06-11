@@ -119,7 +119,36 @@ async def attach_football_intelligence_to_payload(
     except Exception as exc:
         log.debug("select_football_market failed: %s", exc)
 
-    # 5. Persist the snapshot (best-effort).
+    # 5. Phase F58 — Football L5 vs L15 Profile Cross (+ optional override).
+    # Contextual layer applied AFTER market selection. Cross-classifies
+    # both teams' L5 vs L15 profile (goals, xG, shots, SOT, corners) and
+    # applies symmetric confidence/fragility deltas:
+    #   * Bonus capped at +8 when cross supports the pick side.
+    #   * Penalty capped at -12 when it contradicts (non-NEUTRAL).
+    #   * For STRONG_UNDER_CROSS / STRONG_OVER_CROSS / CORNERS_OVER_CROSS
+    #     with confidence_delta >= STRONG_OVERRIDE_THRESHOLD and the
+    #     current pick contradicting, an `override` block is emitted in
+    #     ``pick_payload["football_profile_cross_applied"]`` so the UI
+    #     and downstream selectors can decide whether to flip the market.
+    #   * Visual entry on pattern_alignment.entries (visual_only=True).
+    try:
+        from services.football_phaseF58_integration import (
+            attach_football_profile_cross_to_payload,
+        )
+        f58_audit = attach_football_profile_cross_to_payload(
+            pick_payload, match, allow_override=True,
+        )
+        audit["football_profile_cross"] = {
+            "available":   bool(f58_audit.get("available")),
+            "profile":     f58_audit.get("profile"),
+            "supports":    f58_audit.get("supports"),
+            "interaction": f58_audit.get("interaction"),
+            "override":    f58_audit.get("override"),
+        }
+    except Exception as exc:
+        log.debug("football_phaseF58 integration failed: %s", exc)
+
+    # 6. Persist the snapshot (best-effort).
     if persist:
         try:
             full_snap = build_full_intelligence_snapshot(

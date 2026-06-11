@@ -32,6 +32,7 @@ import { MLBScriptPanel } from './MLBScriptPanel';
 import { MLBScriptV3Panel, MLBDiversityBadge, MLBBullpenSwapBadge, MLBOverSwapBadge, MLBFalseCompetitiveUnderdogBadge } from './MLBScriptV3Panel';
 import { MLBAdvancedStatsPanel } from './MLBAdvancedStatsPanel';
 import { FootballIntelligencePanel, FootballPatternMemoryPanel, FootballLiveVsPregamePanel } from './FootballMoneyballPanels';
+import { FootballProfileCrossPropsPanel } from './FootballProfileCrossPropsPanel';
 import { FootballTotalsModelPanel, FootballOverSupportPanel } from './FootballDcNbPanels';
 import { LiveRecommendationTimeline } from './LiveRecommendationTimeline';
 import { InlineManualOddsInput } from './InlineManualOddsInput';
@@ -557,6 +558,12 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           <FootballPatternMemoryPanel
             pick={m}
             testId={`football-pattern-${m.match_id}`}
+          />
+          {/* Phase F58 — Cross Profile (L5 vs L15) + Override + Player Props.
+              Self-hides when none of the three sub-blocks have data. */}
+          <FootballProfileCrossPropsPanel
+            pick={m}
+            testId={`football-f58-${m.match_id}`}
           />
           <FootballLiveVsPregamePanel
             diff={m.football_live_vs_pregame || m._live_reeval?.football_live_vs_pregame}

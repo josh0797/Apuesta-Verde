@@ -1,0 +1,75 @@
+{
+  "results": [
+    {
+      "player": "Erling Haaland",
+      "team": "Manchester City",
+      "league": "EPL",
+      "elapsed_ms": 392.8,
+      "available": true,
+      "source": "statmuse",
+      "confidence_penalty": 0,
+      "minutes_sample": 2953,
+      "stats": {
+        "shots_p90": 3.84,
+        "sot_p90": 1.798,
+        "passes_p90": null,
+        "tackles_p90": null,
+        "fouls_p90": null,
+        "cards_p90": null,
+        "xg_p90": null,
+        "minutes_p_game": null
+      },
+      "raw_reason": null
+    },
+    {
+      "player": "Bukayo Saka",
+      "team": "Arsenal",
+      "league": "EPL",
+      "elapsed_ms": 253.3,
+      "available": true,
+      "source": "statmuse",
+      "confidence_penalty": 0,
+      "minutes_sample": 2222,
+      "stats": {
+        "shots_p90": 2.876,
+        "sot_p90": 1.094,
+        "passes_p90": null,
+        "tackles_p90": null,
+        "fouls_p90": null,
+        "cards_p90": null,
+        "xg_p90": null,
+        "minutes_p_game": null
+      },
+      "raw_reason": null
+    },
+    {
+      "player": "Mohamed Salah",
+      "team": "Liverpool",
+      "league": "EPL",
+      "elapsed_ms": 249.8,
+      "available": true,
+      "source": "statmuse",
+      "confidence_penalty": 0,
+      "minutes_sample": 2146,
+      "stats": {
+        "shots_p90": 2.852,
+        "sot_p90": 0.797,
+        "passes_p90": null,
+        "tackles_p90": null,
+        "fouls_p90": null,
+        "cards_p90": null,
+        "xg_p90": null,
+        "minutes_p_game": null
+      },
+      "raw_reason": null
+    }
+  ],
+  "summary": {
+    "players_total": 3,
+    "available_count": 3,
+    "failed_count": 0,
+    "by_source": {
+      "statmuse": 3
+    }
+  }
+}

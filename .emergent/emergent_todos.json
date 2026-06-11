@@ -1,34 +1,18 @@
 [
   {
-    "content": "Crear backend/services/mlb_run_profile_cross.py ✅",
+    "content": "Crear FootballProfileCrossPropsPanel.jsx (panel nuevo independiente) + integrar en MatchCard",
     "status": "completed"
   },
   {
-    "content": "Crear tests/test_mlb_run_profile_cross.py (28 tests ✅)",
+    "content": "Crear script standalone backend/scripts/test_phaseF58_real_player.py (3 jugadores EPL) y ejecutarlo",
     "status": "completed"
   },
   {
-    "content": "Extender mlb_recent_form_split.py (runs_allowed_avg_last_5/15 ✅)",
+    "content": "Implementar FBref scraper completo en football_player_stats_ingestor.py como 3ra fuente",
     "status": "completed"
   },
   {
-    "content": "Integrar en mlb_day_orchestrator.py DESPUÉS del CAMBIO 4 ✅",
-    "status": "completed"
-  },
-  {
-    "content": "Test integración end-to-end orchestrator (7 tests ✅)",
-    "status": "completed"
-  },
-  {
-    "content": "UI: RunProfileCrossBlock + integración en HistoricalProfilePanel ✅",
-    "status": "completed"
-  },
-  {
-    "content": "Screenshot validation de 5 perfiles ✅",
-    "status": "completed"
-  },
-  {
-    "content": "Pytest final 1684/1684 ✅ + cleanup debug page ✅",
+    "content": "Tests del FBref scraper + correr pytest completo",
     "status": "completed"
   }
 ]
