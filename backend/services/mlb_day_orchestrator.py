@@ -1971,8 +1971,8 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 nb_dispersion_ratio=_nb_ratio,
                 fragility_score=_frag,
                 script_survival=(pick_payload or {}).get("script_survival"),
-                traffic_score=(traffic_score_payload or {}).get("traffic_score")
-                               if isinstance(traffic_score_payload, dict) else None,
+                traffic_score=(pick_payload.get("traffic_score_obj") or {}).get("traffic_score")
+                               if isinstance(pick_payload.get("traffic_score_obj"), dict) else None,
                 defensive_breakdown_score=(defensive_breakdown_pregame or {}).get("defensive_breakdown_score"),
                 bullpen_fatigue=(h_bullpen_usage or {}).get("bullpen_fatigue")
                                   or (a_bullpen_usage or {}).get("bullpen_fatigue"),
@@ -2057,8 +2057,10 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                         f = float(s)
                     except (TypeError, ValueError):
                         return None
-                    if f >= 70: return "HIGH"
-                    if f >= 50: return "MEDIUM"
+                    if f >= 70:
+                        return "HIGH"
+                    if f >= 50:
+                        return "MEDIUM"
                     return "LOW"
                 dbb = _bucket_from_score(
                     (defensive_breakdown_pregame or {}).get("defensive_breakdown_score")
@@ -2070,11 +2072,15 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                     sfb = series_familiarity.get("bucket")
 
                 # ── Vulnerable starter: pick the worst of the two ─────
-                def _era(p): return (p or {}).get("era") if isinstance(p, dict) else None
-                def _whip(p): return (p or {}).get("whip") if isinstance(p, dict) else None
+                def _era(p):
+                    return (p or {}).get("era") if isinstance(p, dict) else None
+
+                def _whip(p):
+                    return (p or {}).get("whip") if isinstance(p, dict) else None
                 home_p = conf.get("home_pitcher") if isinstance(conf, dict) else None
                 away_p = conf.get("away_pitcher") if isinstance(conf, dict) else None
-                starter_era = None; starter_whip = None
+                starter_era = None
+                starter_whip = None
                 for cand in (home_p, away_p):
                     e, w = _era(cand), _whip(cand)
                     try:
@@ -2130,8 +2136,8 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                     bullpen_home=h_bullpen_usage,
                     bullpen_away=a_bullpen_usage,
                     series_familiarity=series_familiarity if isinstance(series_familiarity, dict) else None,
-                    traffic_score=(traffic_score_payload or {}).get("traffic_score")
-                                   if isinstance(traffic_score_payload, dict) else None,
+                    traffic_score=(pick_payload.get("traffic_score_obj") or {}).get("traffic_score")
+                                   if isinstance(pick_payload.get("traffic_score_obj"), dict) else None,
                     defensive_breakdown_score=(defensive_breakdown_pregame or {}).get("defensive_breakdown_score"),
                     tail_risk=tail_risk if isinstance(tail_risk, dict) and tail_risk.get("available") else None,
                     tail_fragility=tail_fragility if isinstance(tail_fragility, dict) and tail_fragility.get("available") else None,
@@ -2149,6 +2155,164 @@ async def analyze_mlb_day(date_str: str = "", *, db: Any = None) -> dict:
                 log.debug("fragility_calibration failed (fail-soft): %s", _exc_fc)
                 pipeline_meta.setdefault(
                     "fragility_calibration",
+                    {"available": False, "reason": "exception"},
+                )
+                fragility_calibration = None
+
+            # ── Phase 56 — Layer Interaction Audit (observe-only) ──────
+            # Diagnoses possible signal double-counting between:
+            #   * expected_runs_distribution (PMF/CDF + tail probs)
+            #   * mlb_tail_fragility         (Phase 55 explosive-tail)
+            #   * mlb_fragility_calibrator   (hidden-over-route deltas)
+            # NEVER modifies picks/market/polarity. See
+            # services.mlb_layer_interaction_audit for the contract.
+            try:
+                from .mlb_layer_interaction_audit import (
+                    build_layer_interaction_audit,
+                    build_distribution_market_selection_effect,
+                    summarise_for_pipeline_meta,
+                )
+
+                _series_score = None
+                _series_bucket = None
+                if isinstance(series_familiarity, dict):
+                    _series_score  = series_familiarity.get("series_familiarity_score")
+                    _series_bucket = series_familiarity.get("bucket")
+
+                _defensive_score  = (defensive_breakdown_pregame or {}).get("defensive_breakdown_score")
+                _defensive_bucket = (defensive_breakdown_pregame or {}).get("bucket")
+                _ts_obj_audit = pick_payload.get("traffic_score_obj") or {}
+                _traffic_score    = (
+                    _ts_obj_audit.get("traffic_score")
+                    if isinstance(_ts_obj_audit, dict) else None
+                )
+
+                # Worst-case starter ERA/WHIP across both probables.
+                _era_worst  = None
+                _whip_worst = None
+                for _cand in (
+                    conf.get("home_pitcher") if isinstance(conf, dict) else None,
+                    conf.get("away_pitcher") if isinstance(conf, dict) else None,
+                    home_p, away_p,
+                ):
+                    if not isinstance(_cand, dict):
+                        continue
+                    try:
+                        _e = _cand.get("era")
+                        if _e is not None:
+                            _e = float(_e)
+                            if _era_worst is None or _e > _era_worst:
+                                _era_worst = _e
+                    except (TypeError, ValueError):
+                        pass
+                    try:
+                        _w = _cand.get("whip")
+                        if _w is not None:
+                            _w = float(_w)
+                            if _whip_worst is None or _w > _whip_worst:
+                                _whip_worst = _w
+                    except (TypeError, ValueError):
+                        pass
+
+                # Bullpen-fatigue HIGH (any side).
+                def _bp_high_audit(bp: Any) -> bool:
+                    if not isinstance(bp, dict):
+                        return False
+                    b = str(bp.get("workload_bucket") or bp.get("fatigue_bucket") or "").upper()
+                    if b in {"HIGH", "EXTREME"}:
+                        return True
+                    s = bp.get("workload_score") or bp.get("fatigue_score")
+                    try:
+                        return float(s) >= 65 if s is not None else False
+                    except (TypeError, ValueError):
+                        return False
+                _bullpen_fatigue_high = _bp_high_audit(h_bullpen_usage) or _bp_high_audit(a_bullpen_usage)
+
+                _bullpen_usage_home = None
+                _bullpen_usage_away = None
+                try:
+                    _bullpen_usage_home = float(
+                        (h_bullpen_usage or {}).get("bullpen_usage_3d")
+                        or (h_bullpen_usage or {}).get("usage_3d") or 0
+                    ) or None
+                except (TypeError, ValueError):
+                    _bullpen_usage_home = None
+                try:
+                    _bullpen_usage_away = float(
+                        (a_bullpen_usage or {}).get("bullpen_usage_3d")
+                        or (a_bullpen_usage or {}).get("usage_3d") or 0
+                    ) or None
+                except (TypeError, ValueError):
+                    _bullpen_usage_away = None
+
+                layer_audit_payload = build_layer_interaction_audit(
+                    expected_runs_distribution=erd,
+                    tail_risk=tail_risk if isinstance(tail_risk, dict) else None,
+                    tail_fragility=tail_fragility if isinstance(tail_fragility, dict) else None,
+                    fragility_calibration=fragility_calibration if isinstance(fragility_calibration, dict) else None,
+                    raw_traffic_score=_traffic_score,
+                    raw_defensive_breakdown_score=_defensive_score,
+                    raw_defensive_breakdown_bucket=_defensive_bucket,
+                    raw_series_familiarity_score=_series_score,
+                    raw_series_familiarity_bucket=_series_bucket,
+                    raw_bullpen_fatigue_high=_bullpen_fatigue_high,
+                    raw_bullpen_usage_3d_home=_bullpen_usage_home,
+                    raw_bullpen_usage_3d_away=_bullpen_usage_away,
+                    raw_starter_era_worst=_era_worst,
+                    raw_starter_whip_worst=_whip_worst,
+                )
+                pick_payload["layer_interaction_audit"] = layer_audit_payload
+
+                # Per-slate condensed summary.
+                pm_audit_summary = summarise_for_pipeline_meta(layer_audit_payload)
+                slate_audit = pipeline_meta.setdefault(
+                    "layer_interaction_audit", {
+                        "available": False, "picks_evaluated": 0,
+                        "double_count_total": 0,
+                        "families_with_double_count_counter": {},
+                        "tail_via_phase55": 0,
+                        "tail_via_legacy":  0,
+                        "engine_version":  pm_audit_summary.get("engine_version"),
+                    },
+                )
+                if pm_audit_summary.get("available"):
+                    slate_audit["available"] = True
+                    slate_audit["picks_evaluated"] = int(slate_audit.get("picks_evaluated") or 0) + 1
+                    slate_audit["double_count_total"] = (
+                        int(slate_audit.get("double_count_total") or 0)
+                        + int(pm_audit_summary.get("double_count_count") or 0)
+                    )
+                    counter = slate_audit.setdefault("families_with_double_count_counter", {})
+                    for fam in (pm_audit_summary.get("families_with_double_count") or []):
+                        counter[fam] = int(counter.get(fam) or 0) + 1
+                    if pm_audit_summary.get("tail_consumed_via_phase55"):
+                        slate_audit["tail_via_phase55"] = int(slate_audit.get("tail_via_phase55") or 0) + 1
+                    if pm_audit_summary.get("tail_consumed_via_legacy"):
+                        slate_audit["tail_via_legacy"] = int(slate_audit.get("tail_via_legacy") or 0) + 1
+
+                # Distribution / market-selection effect (per pick).
+                _chosen = (
+                    chosen_market if isinstance(chosen_market, dict)
+                    else None
+                )
+                _dist_effect = build_distribution_market_selection_effect(
+                    expected_runs_distribution=erd,
+                    tail_risk=tail_risk if isinstance(tail_risk, dict) else None,
+                    fragility_calibration=fragility_calibration if isinstance(fragility_calibration, dict) else None,
+                    market=(_chosen.get("market") if _chosen else None),
+                    market_line=_line,
+                    market_side=_market_side,
+                    chosen_market_score=(_chosen.get("score") if _chosen else None),
+                    fragility_score_pre=_frag,
+                )
+                pick_payload["distribution_market_selection_effect"] = _dist_effect
+            except Exception as _exc_audit:
+                log.debug("phase56 layer_interaction_audit failed (fail-soft): %s", _exc_audit)
+                pick_payload.setdefault(
+                    "layer_interaction_audit", {"available": False, "reason": "exception"},
+                )
+                pick_payload.setdefault(
+                    "distribution_market_selection_effect",
                     {"available": False, "reason": "exception"},
                 )
         except Exception as _exc_erd:

@@ -1,14 +1,34 @@
 [
   {
-    "content": "Phase 55: Backend completo (módulo + tests + integración calibrator + orchestrator)",
+    "content": "Cierre MLB Phase 57: endpoint /api/mlb/player-props + 26 tests verdes",
     "status": "completed"
   },
   {
-    "content": "Phase 55: Frontend completo (TailRiskPanel + sub-bloque TAIL FRAGILITY + MatchCard wiring)",
+    "content": "Crear services/football_news_context_ingestion.py (Google News RSS scraping fail-soft + keyword detection)",
     "status": "completed"
   },
   {
-    "content": "testing_agent end-to-end (1528 backend PASS, 0 críticos, 0 regresiones) + plan.md actualizado",
+    "content": "Crear services/football_context_trend_discovery.py (5 submódulos: squad disruption, form streaks, corners trend, protected goals, missed match rescue)",
+    "status": "completed"
+  },
+  {
+    "content": "Añadir endpoint GET /api/football/context-trend en server.py + flag opcional en orchestrator",
+    "status": "completed"
+  },
+  {
+    "content": "Crear tests/test_football_context_trend_discovery.py",
+    "status": "completed"
+  },
+  {
+    "content": "Crear UI: FootballContextTrendCard.jsx + integración en MatchDetailPage",
+    "status": "completed"
+  },
+  {
+    "content": "Correr pytest completo - sin regresiones (1606/1606)",
+    "status": "completed"
+  },
+  {
+    "content": "Corregir errores pre-existentes en mlb_day_orchestrator.py (F821, E701, E702)",
     "status": "completed"
   }
 ]

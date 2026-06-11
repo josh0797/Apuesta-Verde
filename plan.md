@@ -1,265 +1,197 @@
-# Plataforma — Roadmap de Alineación Moneyball + Injury Intelligence + Football Moneyball + Football DC/NB Calibration + Live Recommendation History + Over Support Market Selection + RTL Tests + Game Openness + Unilateral Dominance + Corner Settlement + Pattern Memory Voids + Basketball Possessions/Four Factors + Live Reeval UX + **MLB Offensive Injury Impact** + **Engine vs User Pick Divergence** + **MLB Tail Fragility Engine** (plan.md)
+# Development Plan — PHASE 56 (✅) + PHASE 57 (✅ Backend) + PHASE F57 (✅)
 
 ## 1) Objectives
 
-### Objetivos completados (MLB Moneyball)
-- ✅ Alinear backend MLB al pipeline Moneyball: **Market Selection como capa final**, módulos legacy solo como contexto.
-- ✅ Estandarizar `pick_payload` con contrato fail-soft (`available:false` por capa) sin romper UI ni picks viejos.
-- ✅ Enriquecer `mlb_run_evaluations_summary` con breakdowns Moneyball, manteniendo compatibilidad legacy.
-- ✅ Convertir **editorial** en capa de confirmación/contexto (no motor) + mapper con vocabulario MLB/NBA y `sport_hint`.
-- ✅ UI Moneyball: paneles explicables (market selection, ghost-edges, fragility/survival, pattern memory, manual odds, etc.).
-- ✅ Live MLB: corregido gating y contradicciones en comparación pregame vs live.
+### PHASE 56 — MLB Layer Interaction Audit (observe-only) ✅ COMPLETADO
+- Detectar y **medir posible double-counting** de señales entre:
+  - `mlb_expected_runs_distribution` (PMF/CDF + tail probs)
+  - `mlb_tail_fragility` (Phase 55: base + interactions)
+  - `mlb_fragility_calibrator` (hidden over routes: component_deltas)
+- Añadir **telemetría profunda** en `mlb_day_orchestrator.py` sin alterar picks, mercado elegido ni polaridad (**observe-only**).
+- Entregar un **script de auditoría** reproducible (default synthetic) que compare 4 modos y genere JSON + resumen por stdout.
+- Incorporar **guardrails observe-only** (warnings/labels) basados en tamaño de muestra, incluyendo regla especial para tails.
+- **Estado actual**: ✅ Objetivos completados. Output listo para futuros refactors (no incluidos en Phase 56).
 
----
+### PHASE 57 — MLB Player Props Discovery (Moneyball) ✅ COMPLETADO (Backend + endpoint)
+Construir un motor de descubrimiento de player props “Moneyball” centrado en props **repetibles**, **baja fragilidad** y **alta probabilidad**, evitando longshots.
 
-### Objetivo (MLB): Offensive Injury Impact Score ✅ COMPLETADO (end-to-end)
-**Problema:** el motor trataba todas las lesiones igual (“52 jugadores lesionados”).
+Decisiones implementadas:
+- **Mercados soportados**:
+  - Principales: **H+R+RBI**, **Total Bases**
+  - Conservadores adicionales: **Hits 1+**, **RBI 1+**, **Runs 1+**
+- **Datos**:
+  - Base obligatoria: **MLB Stats API** (season stats + roster/hydrate)
+  - Enriquecimiento opcional: **Baseball Savant para bateadores** (xwOBA, xSLG, Barrel %, Hard Hit %, Exit Velocity, etc.)
+    - Fail-soft, timeout corto, cache (TTL ~24h)
+    - `data_quality` por prop: `COMPLETE|PARTIAL|MINIMAL`
+- **Scoring / Edge**: Pure Python determinístico (Poisson + multiplicadores conservadores).
+- **Alcance entregado**: Backend + endpoint **/api/mlb/player-props**.
+- **UI**: diferida (no implementada en este turno por decisión de alcance).
 
-**Solución implementada:** medir si los lesionados son realmente **bates importantes** (top-5 ofensivo) y cuantificar el daño.
+### PHASE F57 — Football Context + Trend Discovery ✅ COMPLETADO (observe-only)
+Implementar una nueva capa de fútbol para capturar contexto humano + tendencias que el engine actual omite:
+- Squad disruption (indisciplina, apartados, conflictos internos, etc.) vía ingestión de noticias
+- Recent form streaks (racha, goles a favor/en contra)
+- Corners trend (comparar promedio últimos 10 vs últimos 5)
+- Protected goals trend (prefiere Over 1.5 / Over 1.75 vs mercados agresivos)
+- Missed match rescue (si el engine descarta/omite un partido con señales fuertes)
 
-- ✅ `services/mlb_offensive_injury_impact.py`
-  - Score 0–100 por equipo (`offensive_injury_score`) basado en ranking top-5 por score compuesto:
-    - OPS / wRC+ (35%)
-    - Runs + RBI (25%)
-    - HR + XBH (20%)
-    - OBP (10%)
-    - PA / volumen (10%)
-  - Buckets: `LOW` / `MEDIUM` / `HIGH`.
-  - Reason codes explícitos (incluye señales de Under cuando ambos equipos están depletados).
-  - Reglas duras:
-    - Pitchers y lesiones de banca **no penalizan**.
-    - Two-way players tipo Ohtani: `P/DH` con `PA ≥ 50` cuenta como ofensivo.
-    - Fail-soft cuando hay datos insuficientes (pool < 5 ofensivos): `{available: False, ...}`.
-  - Ajustes pipeline: `apply_impact_to_pipeline` devuelve multiplicadores con cap de supresión `0.85×`.
-  - **Nunca auto-flip** de polaridad de mercado (solo supresión y narrativa).
+**Estado actual**: ✅ módulo backend + endpoint + UI en MatchDetailPage (self-gating) completados.
 
-- ✅ Tests
-  - `tests/test_mlb_offensive_injury_impact.py`: **19/19 passing**.
+### Cleanup técnico ✅ COMPLETADO
+- Resolver errores pre-existentes (ruff blocking) en `mlb_day_orchestrator.py`:
+  - F821 `traffic_score_payload` undefined
+  - E701/E702 statements múltiples en una línea
+- **Estado actual**: ✅ 0 errores blocking + suite completa verde.
 
-- ✅ Integración backend
-  - `services/mlb_stats_api.py`: `hydrate_team_offensive_roster()` (cache 6h; roster activo + stats de bateo).
-  - `services/mlb_day_orchestrator.py`:
-    - Hidrata roster ofensivo en paralelo con IL.
-    - Calcula `compute_offensive_injury_impact`.
-    - Persiste en `pick_payload['offensive_injury_impact']` y `pipeline_meta['offensive_injury_impact']`.
-    - Aplica supresión al `_mean_eff` antes de `compute_expected_runs_distribution` usando el promedio de multipliers home/away.
-    - No toca el pick principal: observe-only, supresión de runs/λ/traffic.
 
-- ✅ Integración frontend
-  - `components/OffensiveInjuryImpactPanel.jsx`: panel colapsable estilo `TailRiskPanel`.
-    - Colores: `LOW=emerald`, `MEDIUM=amber`, `HIGH=rose/destructive`.
-    - Header: pills por equipo con bucket + missing_count.
-    - Contenido: narrativa ES, top bates ausentes (OPS/HR), runs/game perdidos estimados, badge “Apoyo al Under” cuando aplica.
-    - Fail-soft: no renderiza si `available:false` o sin datos relevantes.
-  - `components/MatchCard.jsx`: panel cableado después de `TailRiskPanel` (gated por MLB).
+## 2) Implementation Steps
 
-**Notas:**
-- Picks previos sin `offensive_injury_impact` → panel oculto (compatibilidad backward).
-- Warning F821 `traffic_score_payload` en `mlb_day_orchestrator.py` es preexistente/latente (no introducido por esta feature).
+### Phase 1 — PHASE 56 (✅ COMPLETADO): Auditoría sintética reproducible + telemetría
+> Core workflow = generar dataset sintético, ejecutar 4 modos, producir reporte JSON con métricas y flags de overlap/double-count.
 
----
+**Implementación (✅ COMPLETADA)**
+- ✅ `backend/scripts/audit_mlb_layer_interactions.py`
+  - 4 modos: `FULL_CURRENT`, `NO_DIRECT_TRAFFIC_DEFENSE_IN_CALIBRATOR`, `NO_DISPERSION_SIGNAL_MODULATION`, `LEGACY_SCALAR`
+  - Default: `--mode synthetic` (determinístico, `--seed 56`)
+  - Soporte opt-in: `--mode real --days N` (fail-soft con fallback a synthetic)
+  - Output JSON en `/app/backend/scripts/out/` + resumen por stdout
+  - Guardrails:
+    - `n<10` → `HIGH_RISK_WARNING`
+    - `10<=n<30` → `LOW_SAMPLE_WARNING`
+    - `30<=n<100` → `USEFUL_SAMPLE`
+    - `n>=100` → `VALIDATED_SAMPLE`
+    - tails: `tail_high_or_extreme_samples_full_current < 20` → `TAIL_SAMPLE_TOO_LOW`
+- ✅ `backend/services/mlb_layer_interaction_audit.py`
+  - `build_layer_interaction_audit()`
+  - `build_distribution_market_selection_effect()`
+  - `summarise_for_pipeline_meta()`
+- ✅ Integración en `backend/services/mlb_day_orchestrator.py` (observe-only)
+  - `pick_payload.layer_interaction_audit`
+  - `pick_payload.distribution_market_selection_effect`
+  - `pipeline_meta.layer_interaction_audit` (agregado por slate)
+- ✅ Tests: `backend/tests/test_phase56_layer_interaction_audit.py` (17)
 
-### Objetivo (MLB): `hydrate_team_offensive_roster` fail-soft interno ✅ COMPLETADO
-**Problema:** el contrato decía “nunca levantar excepción”, pero el primer draft dependía del `try/except` del orchestrator.
 
-**Solución implementada (defensa en profundidad):**
-- ✅ `services/mlb_stats_api.py::hydrate_team_offensive_roster()` reescrito como fail-soft de extremo a extremo:
-  - `db=None` → bypass cache; warm fetch directo.
-  - cache_get exceptions → ignoradas, continúa.
-  - cache_put exceptions → ignoradas, retorna payload igualmente.
-  - HTTP/JSON/parse failures → retorna payload seguro `{available: False, reason: ..., players: []}`.
-  - parse-per-player con `try/except` defensivo.
-  - debug logs con contexto (team_id, error).
-- ✅ Tests nuevos:
-  - `tests/test_hydrate_team_offensive_roster_failsoft.py`: **8/8 passing**.
+### Phase 2 — PHASE 57 (✅ COMPLETADO): Datos y Enriquecimiento (Stats API + Savant batter)
+**User stories (Phase 57 - Data)**
+1. Como usuario, quiero props aun si Savant falla (fail-soft).
+2. Como usuario, quiero saber si el prop fue generado con datos completos o parciales (`data_quality`).
+3. Como sistema, quiero cache por jugador para evitar latencia y rate limits.
 
----
+**Implementación (✅ COMPLETADA)**
+- ✅ `backend/services/baseball_savant_batter.py`
+  - Fetch de CSV Savant para bateadores, fail-soft
+  - Cache (mem + Mongo opcional) TTL 24h
+- ✅ `backend/services/mlb_player_props_discovery.py`
+  - Motor determinístico Poisson + multiplicadores
+  - Mercados: H+R+RBI, TB, Hits 1+, RBI 1+, Runs 1+
+  - Moneyball filters: prob min, edge min, anti-longshot
+  - `data_quality`: COMPLETE/PARTIAL/MINIMAL
 
-### Objetivo (Fix 1 + Fix 2): Validar apuesta real del usuario + Comparador Engine vs User ✅ COMPLETADO
-**Problema:** al liquidar un pick, el sistema asumía automáticamente que el usuario apostó exactamente la recomendación del engine.
 
-**Objetivo:** separar completamente:
-- **LO QUE RECOMENDÓ EL ENGINE** (engine_accuracy)
-- **LO QUE REALMENTE APOSTÓ EL USUARIO** (user_accuracy)
+### Phase 3 — PHASE 57 (✅ COMPLETADO): API (server.py)
+**User stories (Phase 57 - API)**
+1. Endpoint estable para consultar props por fecha.
+2. Respuesta fail-soft.
 
-**Scope confirmado:**
-- ✅ Deportes: **MLB + Fútbol**.
-- ✅ Modal obligatorio en dos momentos: **pre-bet (Track In live)** y **settlement**.
-- ✅ Backfill retroactivo desde Historial.
-- ✅ Dashboard dedicado: `/dashboard/calibration`.
-- ✅ Liquidación dual SIEMPRE: el engine_pick se auto-liquida con el score oficial (métricas puras de Engine Accuracy).
-
-#### Backend ✅
-- ✅ Nuevo módulo fail-soft: `services/pick_divergence_analysis.py` (puro Python)
-  - `parse_pick` (MLB + fútbol, ES/EN)
-  - `settle_pick_against_score`
-  - `compute_divergence` (`NONE/PROTECTED/AGGRESSIVE/DIFFERENT_MARKET/OPPOSITE_SIDE` + `line_difference`)
-  - `evaluate_engine_vs_user`
-- ✅ Inyección en `POST /api/picks/track` (`track_pick`):
-  - Persiste `divergence` + `engine_result` + `user_result`.
-  - Si faltan `actual_*` → asume followed_engine=true (fail-soft).
-  - **Nunca sobrescribe** `engine_recommendation`.
-- ✅ Endpoints:
-  - `GET /api/calibration/summary`
-  - `GET /api/calibration/divergences`
-  - `PATCH /api/picks/{pick_uid}/user-bet`
+**Implementación (✅ COMPLETADA)**
+- ✅ Endpoint:
+  - `GET /api/mlb/player-props?date=YYYY-MM-DD&use_savant=true&max_games=20`
+  - Llama `compute_player_props_for_day()`
 - ✅ Tests:
-  - `tests/test_pick_divergence_analysis.py`: **43/43 passing**.
+  - `backend/tests/test_mlb_player_props_discovery.py` (26)
 
-#### Frontend ✅
-- ✅ `components/EnginePickConfirmModal.jsx` (Sí/No + formulario mercado/lado/línea/cuota con normalización decimal/americana).
-- ✅ Integración en `LiveReevalPanel.jsx` (engine-source settlement) sin set-state-in-effect (reset via `key`).
-- ✅ `components/UserBetBackfillModal.jsx` (botón lápiz desktop/mobile en Historial).
-- ✅ `pages/CalibrationPage.jsx` + ruta `/dashboard/calibration`.
-- ✅ `AppHeader.jsx` tab “Calibración” (`data-testid='nav-calibration'`).
 
-#### Testing agent ✅
-- ✅ `iteration_71.json` verde.
+### Phase 4 — PHASE 57: UI básica (⏸️ DIFERIDA)
+**User stories (Phase 57 - UI)**
+1. Tabla simple con props recomendados.
+2. Filtros por juego/mercado.
+3. Badges de `data_quality`.
 
----
+**Estado**
+- ⏸️ No implementado (por alcance). Siguiente paso sugerido:
+  - `frontend/src/pages/MLBPlayerPropsPage.jsx` + route `/mlb/player-props`.
 
-### Objetivo (MLB): Phase 55 — Tail Fragility Engine ✅ COMPLETADO (end-to-end)
-**Problema:** fragility tenía drivers estructurales (bullpen, lambda tarde, breakdown, etc.) pero no capturaba explícitamente la probabilidad de eventos extremos (colas explosivas) cuando dos juegos comparten la misma media (ER).
 
-**Objetivo:** distinguir escenarios con misma media (ER=8.0) pero distinto riesgo de blow-up tardío, y reflejarlo en fragility/confidence **sin** tocar `expected_runs`, `run_distribution` ni la polaridad Over/Under.
+### Phase 5 — PHASE F57 (✅ COMPLETADO): Football Context + Trend Discovery Engine (observe-only)
+**Submódulos implementados**
+1. ✅ `services/football_news_context_ingestion.py`
+   - Ingestión de noticias via Google News RSS (agregador de Marca / Mundo Deportivo / ESPN / Yahoo / Fox Sports, etc.)
+   - Reglas: opcional, timeout corto, cache 6h, fail-soft
+   - Detección por frases clave (ES + fallback EN)
+   - Transparencia: `source_url`, `source_name`, `queried_url`, `fetched_at`
+2. ✅ `services/football_context_trend_discovery.py`
+   - Squad Disruption Detector (score 0-100 + bucket)
+   - Recent Form Streak Detector
+   - Corners Trend Engine (prom últimos 10 vs últimos 5)
+   - Protected Goals Trend Engine (Over 1.5 / Over 1.75 preferidos)
+   - Missed Match Rescue
+   - Output: `observe_only: True`, `recommended_markets`, `narrative_es`
+3. ✅ Endpoint:
+   - `GET /api/football/context-trend?home_team=X&away_team=Y&match_id=...&use_news=true|false&locale=es`
+4. ✅ UI:
+   - `frontend/src/components/FootballContextTrendCard.jsx`
+   - Integrado en `frontend/src/pages/MatchDetailPage.jsx`
+   - Self-gating: solo renderiza si hay señales reales
+5. ✅ Tests:
+   - `backend/tests/test_football_context_trend_discovery.py` (35)
 
-#### Backend ✅
-- ✅ Extendido `services/mlb_expected_runs_distribution.py::compute_tail_risk()`:
-  - Incluye `p_ge_18` (P(total_runs ≥ 18)) junto con `p_ge_12/14/16`.
-  - **No recalcula** distribución; consume CDF existente.
 
-- ✅ Nuevo módulo `services/mlb_tail_fragility.py` (puro Python, fail-soft):
-  - `compute_tail_fragility(tail_risk_payload, bullpen_fatigue_high, defensive_breakdown_bucket, series_familiarity_bucket, starter_era, starter_whip, market_side)`
-  - Probabilidades: `p_ge_12`, `p_ge_14`, `p_ge_16`, `p_ge_18`.
-  - **Explosive Tail Score (0-100):**
-    - `tail = p12·0.30 + p14·0.30 + p16·0.25 + p18·0.15`
-    - `explosive_tail_score = round(tail * 100)`
-  - Buckets: `LOW [0-24]`, `MEDIUM [25-49]`, `HIGH [50-74]`, `EXTREME [75+]`.
-  - Base adjustment: `LOW=0`, `MEDIUM=+5`, `HIGH=+10`, `EXTREME=+15`.
-  - Interaction modifiers (solo si bucket ≥ HIGH):
-    - Bullpen fatigado +5 (`TAIL_BULLPEN_INTERACTION`)
-    - Defensive breakdown ≥ MEDIUM +4 (`TAIL_DEFENSE_INTERACTION`)
-    - Series familiarity ≥ MEDIUM +3 (`TAIL_SERIES_INTERACTION`)
-    - Abridor vulnerable (ERA>4.50 o WHIP>1.35) +5 (`TAIL_STARTER_INTERACTION`)
-  - **Cap total +20** (base + interactions) con `TAIL_FRAGILITY_CAP_HIT`.
-  - Helper `apply_to_fragility()` para sumar delta y clamp `[0,100]`.
-  - Restricciones honradas: **no** modifica ER, distribución ni polaridad.
+### Phase 6 — Post-work: Cleanup técnico (✅ COMPLETADO)
+- ✅ `mlb_day_orchestrator.py`
+  - Reemplazo de referencias a `traffic_score_payload` por `pick_payload["traffic_score_obj"]`
+  - Corrección de estilos E701/E702
+  - Ruff sin errores blocking
 
-- ✅ Reemplazo sin doble conteo en calibrator:
-  - `services/mlb_fragility_calibrator.py::calibrate_fragility` acepta `tail_fragility`.
-  - Si `tail_fragility.available=True` → usa `total_adjustment` + reason codes Phase 55.
-  - Si NO se provee → fallback a lógica legacy con `p_ge_12` (backward compat).
 
-- ✅ Integración orchestrator:
-  - `services/mlb_day_orchestrator.py` computa `tail_fragility` después de `tail_risk` y antes del calibrator.
-  - Derivación de drivers:
-    - `bullpen_fatigue_high`: bucket HIGH/EXTREME o score ≥ 65.
-    - `defensive_breakdown_bucket`: score ≥70 HIGH, ≥50 MEDIUM.
-    - `series_familiarity_bucket`: desde payload.
-    - `starter_era/whip`: “worst-case” del matchup.
-  - Persiste:
-    - `pick_payload['tail_fragility']`
-    - `pipeline_meta['tail_fragility']`
-  - Alimenta `calibrate_fragility(..., tail_fragility=...)`.
+## 3) Next Actions
 
-- ✅ Tests:
-  - `tests/test_mlb_tail_fragility.py`: **21/21 passing** (incluye caso Cole vs Cecconi que llega al cap +20).
-  - Suite completa backend: **1528/1528 passing** (`iteration_72.json` verde, 0 críticos, 0 regresiones).
+### Próximos pasos recomendados (prioridad)
+1. **MLB Phase 57 UI (pendiente)**
+   - Implementar `MLBPlayerPropsPage.jsx` + ruta `/mlb/player-props`
+   - Mostrar tabla simple (player, game, market, line, prob, edge, data_quality, narrative)
+2. **Football F57 integración híbrida con orchestrator (pendiente opcional)**
+   - Agregar flag para inyectar el bloque `context_trend` dentro del output del engine principal de football, manteniendo observe-only.
+3. **Hardening / monitoring**
+   - Log de latencia y tasa de fallos del news ingestion
+   - Ajustar keywords y severidades en base a falsos positivos
 
-#### Frontend ✅
-- ✅ Extensión de `components/TailRiskPanel.jsx`:
-  - Nueva prop `tailFragility`.
-  - ProbRow adicional para `18+ carreras` cuando `p_ge_18` existe.
-  - Sub-bloque `TAIL FRAGILITY` debajo de las probabilidades:
-    - Bucket (LOW/MEDIUM/HIGH/EXTREME) + `explosive_tail_score`.
-    - Desglose de ajuste: Base / Interacciones / Total (con highlight del cap).
-    - Badges por interacción activa con delta.
-    - Narrativa ES.
-  - Colores por bucket: LOW=emerald, MEDIUM=cyan, HIGH=amber, EXTREME=red.
-- ✅ `components/MatchCard.jsx` pasa `tailFragility={m.tail_fragility}` y habilita el panel si hay `tail_fragility` aunque `tail_risk` no esté presente.
 
-**Notas UI:**
-- Si no hay datos suficientes para `tail_risk`/CDF (fail-soft), `tail_fragility.available=False` y el sub-bloque no renderiza.
+## 4) Success Criteria
 
----
+### Phase 56 (✅)
+- ✅ Script genera JSON + resumen stdout.
+- ✅ Telemetría per-pick + pipeline_meta agregada.
+- ✅ Observe-only verificado.
 
-### Objetivos en curso (Injury Intelligence Layer)
-- ⏳ Implementar **Injury Intelligence Layer** para **Basketball (Phase 1)** y luego Football (Phase 2), sin tocar MLB.
-- Arquitectura: **fail-soft**, multi-source, cache-aware, sport-specific, explicable, conservadora.
-- Entregar un bloque `injury_intelligence` que ajuste (conservadoramente) confidence/fragility/market warnings **sin forzar picks**.
-- UI: `InjuryIntelligencePanel` para football/basketball (no MLB).
+### Phase 57 (✅ Backend)
+- ✅ Endpoint `/api/mlb/player-props` devuelve props Moneyball por fecha, fail-soft.
+- ✅ Savant batter enrichment opcional con cache + timeout, sin bloquear generación.
+- ✅ Motor determinístico con filtros anti-longshot + `data_quality`.
+- ⏸️ UI básica pendiente.
+
+### Phase F57 (✅)
+- ✅ Endpoint `/api/football/context-trend` devuelve señales (news/form/corners/goals/rescue), observe-only.
+- ✅ News ingestion fail-soft con cache + URLs de fuente.
+- ✅ UI integrada en MatchDetailPage con self-gating.
+
+### Calidad / regresiones
+- ✅ `pytest tests/` → **1606/1606 passed**
+- ✅ `mlb_day_orchestrator.py` sin errores blocking de ruff.
 
 ---
 
-### Objetivo (Basketball): Possessions + Pace + Efficiency + Four Factors (Fix 1)
-- 🎯 Crear capa avanzada basada en posesiones reales y Four Factors.
-- Fail-soft estricto con fallback a `basketball_historical`.
+## Apéndice — Findings preliminares (Phase 56 synthetic n=200, seed=56)
+- Overlap (FULL_CURRENT) por familia:
+  - `starter`: **22%** (avg_redundant≈5.0) — candidato principal
+  - `series`: **15%** (avg_redundant≈3.0)
+  - `defense`: **9%** (avg_redundant≈4.0)
+  - `bullpen`: **6%** (avg_redundant≈5.0)
+  - `tail`: 0% (correcto: Phase-55 consume tail una sola vez)
+  - `traffic`: 0% (solo calibrator; no existe en tail_fragility)
+- Comparación de modos:
+  - `NO_DIRECT_TRAFFIC_DEFENSE_IN_CALIBRATOR` reduce `cal_delta_avg` ~1.74 pts y baja `cap_hit_rate`.
+  - `LEGACY_SCALAR` incrementa `cal_delta_avg` y cap-hit.
 
----
-
-### Objetivo (Live UX/Timeout): Reevaluación live con cuota manual + mercados 0.5 (Fix 2)
-- 🎯 Corregir timeout UI (>20s) al reevaluar con cuota manual.
-- 🎯 Aceptar coma/punto en odds.
-- 🎯 Añadir Over/Under 0.5 en fútbol.
-
----
-
-### Objetivos completados (Football Moneyball + DC/NB + Timeline + Over Support + Game Openness + Dominance + Corners + Voids)
-- ✅ (Sin cambios respecto al plan previo; se mantiene histórico.)
-
----
-
-## 2) Implementation Steps (Phases)
-
-### Phase 1 — Core Flow POC ✅
-
-### Phase 2 — V1 Backend Development ✅
-
-### Phase 3 — V1 Frontend Development ✅
-
-### Phase 4 — Comprehensive Testing & Regression ✅
-
-> **Estado tests (actual):** ✅ Backend `pytest tests/` **1528 passing**.
-
----
-
-## 3) Injury Intelligence Layer — Basketball (Phase 1) (EN CURSO)
-
-### Phase 5 — Backend (pendiente)
-### Phase 6 — Frontend/UI (pendiente)
-### Phase 7 — Tests (pendiente)
-
----
-
-## 4) Fútbol Moneyball + Pattern Memory ✅ (histórico)
-
----
-
-## 5) Next Actions (Actualizado)
-
-### En curso (prioridad)
-- (P1) Injury Intelligence Basketball (Phase 5–7).
-
-### Pendiente / futuro
-- (P2) RTL tests para sub-bloque **TAIL FRAGILITY** (render/no render + colores por bucket + cap).
-- (P3) Mejorar descubribilidad del botón “Hidratar Four Factors”.
-- (P2) Tests end-to-end live → settlement con partidos reales.
-
----
-
-## 6) Success Criteria (Actualizado)
-
-### Phase 55 — Tail Fragility Engine
-- ✅ No recalcula distribución; consume CDF existente.
-- ✅ Añade `p_ge_18` a tail_risk.
-- ✅ Explosive tail score 0-100 con fórmula de weights.
-- ✅ Bucket correcto y base adjustment +0/+5/+10/+15.
-- ✅ Interactions solo si bucket ≥ HIGH.
-- ✅ Cap total +20 (sin doble conteo).
-- ✅ No modifica `expected_runs`, `run_distribution` ni polaridad.
-- ✅ UI: TailRiskPanel muestra sub-bloque TAIL FRAGILITY + narrativa.
-- ✅ No-regresión: `pytest tests/` verde (1528 passing) + `iteration_72.json` verde.
-
-### Global
-- ✅ Fail-soft mantenido.
-- ✅ Backend y frontend estables sin regresiones.
+> Nota: findings synthetic sirven para ejercitar y detectar patrones de overlap; antes de refactor se recomienda correr `--mode real` y aplicar guardrails de sample size.

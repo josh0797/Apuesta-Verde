@@ -3618,6 +3618,80 @@ async def mlb_day(date: Optional[str] = None, user: dict = Depends(get_current_u
     return {"date": date, "engine": "mlb_pregame_analytics_v1", **result}
 
 
+@api.get("/mlb/player-props")
+async def mlb_player_props(
+    date: Optional[str] = None,
+    use_savant: bool = True,
+    max_games: int = 20,
+    user: dict = Depends(get_current_user),
+):
+    """MLB Player Props Discovery — Moneyball edition (Phase 57).
+
+    Surfaces *repeatable, low-fragility, high-probability* player props
+    (H+R+RBI, Total Bases, Hits 1+, RBI 1+, Runs 1+) using MLB Stats API
+    (mandatory) + optional Baseball Savant batter enrichment (fail-soft,
+    cached). Strictly observe-only — does NOT affect existing picks.
+
+    Query params
+    ------------
+    date         : YYYY-MM-DD. Defaults to today (ET).
+    use_savant   : Enable Baseball Savant enrichment (default True).
+    max_games    : Cap on games processed per call (default 20).
+    """
+    try:
+        from services.mlb_player_props_discovery import compute_player_props_for_day
+        result = await compute_player_props_for_day(
+            date_str=date, db=db, use_savant=use_savant, max_games=max_games,
+        )
+    except Exception as exc:
+        log.exception("mlb_player_props failed")
+        raise HTTPException(status_code=500, detail=f"mlb_player_props_failed: {exc}")
+    return result
+
+
+
+
+@api.get("/football/context-trend")
+async def football_context_trend(
+    home_team: str,
+    away_team: str,
+    match_id: Optional[str] = None,
+    use_news: bool = True,
+    locale: str = "es",
+    user: dict = Depends(get_current_user),
+):
+    """Football Context + Trend Discovery (Phase F57) — observe-only.
+
+    Surfaces squad-disruption, form-streaks, corners trend, protected-goals
+    trend and missed-match rescue signals for a single fixture. Strictly
+    observe-only — never modifies engine picks.
+
+    Query params
+    ------------
+    home_team : Name of the home team (e.g. "Inglaterra").
+    away_team : Name of the away team (e.g. "Costa Rica").
+    match_id  : Optional fixture id (echoed back; used by UI).
+    use_news  : Enable Google News RSS ingestion (default True, fail-soft).
+    locale    : "es" (default) or "en" — controls news keyword library.
+    """
+    try:
+        from services.football_context_trend_discovery import (
+            analyze_football_context_trend,
+        )
+        result = await analyze_football_context_trend(
+            home_team=home_team, away_team=away_team,
+            match_id=match_id, db=db,
+            use_news=use_news, locale=locale,
+        )
+    except Exception as exc:
+        log.exception("football_context_trend failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"football_context_trend_failed: {exc}",
+        )
+    return result
+
+
 
 
 @api.get("/picks/history")

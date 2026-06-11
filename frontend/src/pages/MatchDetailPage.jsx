@@ -22,6 +22,7 @@ import { InjuryIntelligencePanel } from '@/components/InjuryIntelligencePanel';
 import { LivePreMatchComparisonPanel } from '@/components/LivePreMatchComparisonPanel';
 import { useLiveMatchDetail } from '@/hooks/useLiveMatchDetail';
 import { LiveTerritorialControlPanel } from '@/components/LiveTerritorialControlPanel';
+import { FootballContextTrendCard } from '@/components/FootballContextTrendCard';
 import { formatDateTime, humanizeSelection } from '@/lib/format';
 
 export default function MatchDetailPage() {
@@ -362,6 +363,18 @@ export default function MatchDetailPage() {
               visible) + recommendation (surfaced only above threshold),
               and the dynamic live-market ranking. */}
           <LiveTerritorialControlPanel sport={sport} match={match} t={t} />
+
+          {/* Phase F57 — Football Context + Trend Discovery (observe-only).
+              Self-gates: returns null unless sport==='football' and the
+              backend surfaces meaningful signals (squad disruption,
+              form streaks, corners trend, protected-goals trend, or
+              rescue). NEVER modifies the engine pick. */}
+          <FootballContextTrendCard
+            sport={sport}
+            homeName={home?.name}
+            awayName={away?.name}
+            matchId={id}
+          />
 
           {/* Motivational context */}
           <section className="rounded-xl border border-border bg-card p-5">
