@@ -1,23 +1,23 @@
 [
   {
-    "content": "CAMBIO 1 — Swap simétrico en mlb_over_discovery.py (umbral 1.0/6.0 ambos lados + telemetría symmetric_swap_applied)",
+    "content": "CAMBIO 1 — Swap simétrico en mlb_over_discovery.py",
     "status": "completed"
   },
   {
-    "content": "CAMBIO 1 — Pytest backend completo (1639/1639 ✅)",
+    "content": "CAMBIO 1 — Pytest backend (1639/1639 ✅)",
     "status": "completed"
   },
   {
-    "content": "CAMBIO 2 — Crear mlb_under_fragility_calibrator.py (espejo del Over, pure Python, observe-only)",
+    "content": "CAMBIO 2 — mlb_under_fragility_calibrator.py creado (mirror Over, pure Python, polarity guard)",
+    "status": "completed"
+  },
+  {
+    "content": "CAMBIO 2 — Pytest backend (1639/1639 ✅)",
+    "status": "completed"
+  },
+  {
+    "content": "CAMBIO 3 — Source of Truth jerárquico en mlb_day_orchestrator.py + integración del nuevo calibrator",
     "status": "in_progress"
-  },
-  {
-    "content": "CAMBIO 2 — Pytest backend completo",
-    "status": "pending"
-  },
-  {
-    "content": "CAMBIO 3 — Source of Truth jerárquico en mlb_day_orchestrator.py",
-    "status": "pending"
   },
   {
     "content": "CAMBIO 3 — Pytest backend completo",
@@ -28,7 +28,7 @@
     "status": "pending"
   },
   {
-    "content": "CAMBIO 4 — Pytest backend completo (actualizar tests con confidence_score hardcoded a los nuevos valores 64-68)",
+    "content": "CAMBIO 4 — Pytest backend (actualizar tests con confidence_score hardcoded)",
     "status": "pending"
   },
   {
