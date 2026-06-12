@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.  
 > **Estado histórico:** ✅ F58–F70 completadas (ver secciones abajo).  
-> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** (implementación + tests).  
+> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA**.  
 > **Idioma operativo:** Español.
 
 ---
@@ -19,6 +19,16 @@
 - Integrar en el flujo football existente con override contextual.
 - Añadir smoke tests y mantener suite global verde.
 - (P2) UI wiring: panel independiente para Cross + Override + Player Props.
+
+### Objetivos nuevos / extendidos (F69–F74)
+- Editorial interno específico por partido (no genérico).
+- Scrapers externos (Forebet / Sportytrader) como fallback.
+- Normalización de identidad de mercado y reconciliación interno vs externo.
+- Auditoría de predicciones externas contra fuerza del rival.
+- Guardrails para **mercados UNKNOWN** (no edge, no trap, no discard).
+- F74: **schema canónico** para enriquecimiento fútbol + probabilidades estimadas.
+- F74-post: **adaptadores** para eliminar fragmentación de datos anidados.
+- F74-post v2: **fallback de odds con TheStatsAPI** (incluye opening/last_seen → line movement sin snapshots históricos).
 
 ### Estado global (Phases F58–F70)
 - ✅ F58 completado (backend + UI + scripts + tests).
@@ -61,12 +71,12 @@
 ---
 
 ## Phase F69 — Fix análisis editorial interno match-specific (COMPLETED ✅)
-**(COMPLETADO)** — ver historial en este mismo archivo (sin cambios).
+**(COMPLETADO)** — ver historial en este mismo archivo.
 
 ---
 
 ## Phase F70 — Reemplazo externo (Sportytrader / Forebet) (COMPLETED ✅)
-**(COMPLETADO)** — ver historial en este mismo archivo (sin cambios).
+**(COMPLETADO)** — ver historial en este mismo archivo.
 
 ---
 
@@ -97,39 +107,7 @@
   - Heurística logística: **observe-only**.
 
 ## Implementación ejecutada (F74-1 … F74-7)
-
-### ✅ F74-1 — Recalibración PROTECTED: mover Over 1.5 a PROTECTED
-- Archivo: `backend/services/market_tolerance.py`
-- Cambio: `Over 1.5 / Más de 1.5` reclasificado como **PROTECTED**.
-
-### ✅ F74-2 — Floors granulares: `get_protected_floor(...)`
-- Archivo: `backend/services/market_tolerance.py`
-- Función nueva: `get_protected_floor(market, selection, *, market_identity=None)`
-- Aplica floors granulares por familia/side/line, usando `market_identity` si está disponible.
-
-### ✅ F74-3 — Floors completos: `resolve_edge_floors(...)`
-- Archivo: `backend/services/market_tolerance.py`
-- Función nueva: `resolve_edge_floors(category, *, market=None, selection=None, market_identity=None)`
-- Devuelve `negative_edge_floor` y `watchlist_floor` efectivos.
-
-### ✅ F74-4 — Integración en `moneyball_layer.py` (rama PROTECTED) + guard UNKNOWN
-- Archivo: `backend/services/moneyball_layer.py`
-- Cambios:
-  - `classify_pick(...)` acepta `market`, `selection`, `market_identity`.
-  - Si `market_identity` es UNKNOWN/inválida → `classification=MARKET_IDENTITY_MISSING`, `state=REQUIRES_MARKET_IDENTIFICATION`.
-  - Rama PROTECTED usa `market_tolerance.resolve_edge_floors(...)`.
-
-### ✅ F74-5 — Schema canónico unificado: `football_data_enrichment.py`
-- Archivo nuevo: `backend/services/football_data_enrichment.py`
-- Normalizador canónico + helper `attach_estimated_probability(...)` con gates (THIN/UNKNOWN/requires MI).
-
-### ✅ F74-6 — Enriquecimiento TheStatsAPI: `thestatsapi_football_enrichment.py`
-- Archivo nuevo: `backend/services/external_sources/thestatsapi_football_enrichment.py`
-- Dixon-Coles/Poisson/Logística observe-only → `estimated_probabilities`.
-
-### ✅ F74-7 — Tests (pytest) + suite verde
-- Archivo nuevo: `backend/tests/test_f74_unified_football_enrichment.py` (30 tests)
-- Suite global (en ese punto): ✅ **2106 passed**
+- ✅ F74-1 … F74-7 (ver historial en este mismo archivo).
 
 ---
 
@@ -137,104 +115,75 @@
 
 ## Estado: ✅ COMPLETADA
 
-## Objetivo (post-F74)
+## Objetivo
 Reducir falsos positivos de:
 - `REQUIRES_MARKET_IDENTIFICATION`
 - “Análisis interno no disponible / THIN”
 
 …cuando los datos sí existen pero están anidados/fragmentados.
 
-Se implementa un orden de pipeline práctico sin migrar todo a TheStatsAPI:
-- API-Sports sigue como base de fixtures/odds
-- TheStatsAPI enriquece stats y alimenta normalización/odds
-
 ## Implementación ejecutada — 9 cambios
+- ✅ Cambio 1–9 (adapter editorial + normalizer compat + resolver por odds + aliases rescue + UI debug collapsible + match-id por nombres (client legacy) + pipeline bucketing).
 
-### ✅ Cambio 1 + 6 — Adaptador para editorial interno (nuevo)
-- Archivo nuevo: `backend/services/football_editorial_payload_adapter.py`
-- Función: `build_editorial_ready_match_payload(match) -> dict`
-- Lee y aplana:
-  - `home_team.context.recent_fixtures`, `away_team.context.recent_fixtures`
-  - `home_team.context.seasonal_form`, `away_team.context.seasonal_form`
-  - `live_stats`, `_thestatsapi_enrichment`, `thestatsapi_snapshot`, `football_data_enrichment`
-  - `h2h_recent`, `odds_snapshots`
-- Produce campos planos tipo:
-  - `home_xg`, `away_xg`
-  - `home_goals_scored_l5`, `away_goals_scored_l5`, `home_goals_allowed_l5`, etc.
-  - `home_btts_rate_l15`, `home_clean_sheet_rate_l15`, etc.
-- Eleva `data_quality` cuando hay señales de forma reciente (spec del usuario).
-- Incluye `internal_analysis_debug` para UI (missing list + flags + reason_codes).
+## Testing
+- ✅ `backend/tests/test_f74_post_fixes.py` (19 tests)
+- ✅ Suite global (en ese punto): **2125 passed**
 
-### ✅ Cambio 2 — Normalizador único TheStatsAPI (adapter/compat)
-- Archivo nuevo: `backend/services/football_data_enrichment_normalizer.py`
-- Función: `normalize_football_data_enrichment(match) -> dict`
-- Regla confirmada: **F74 `football_data_enrichment.py` es el schema canónico interno**.
-- Este normalizer:
-  - lee `_thestatsapi_enrichment` / `thestatsapi_snapshot` / `football_data_enrichment` / `live_stats`
-  - produce un payload canónico **F74 extendido** (`team_stats`, `corners`, `official_friendly_split`)
-  - persiste **el mismo objeto** en:
-    - `match["football_data_enrichment"]`
-    - `match["thestatsapi_snapshot"]`
-  - evita volver a fragmentar el schema entre capas legacy.
+---
 
-### ✅ Cambio 3 — Usar el adaptador antes del análisis editorial
-- Archivos:
-  - `backend/services/football_structural_value_review.py`
-  - `backend/services/possible_alternative_markets.py`
-- Cambios:
-  - antes de `generate_football_editorial_prediction(...)`:
-    1) `normalize_football_data_enrichment(match)`
-    2) `build_editorial_ready_match_payload(match)`
-  - Se propaga `internal_analysis_debug` al bloque editorial para la UI.
+# Phase F74-post v2 — TheStatsAPI Odds Fallback Wiring (5 cambios) (COMPLETED ✅)
 
-### ✅ Cambio 4 — Resolver market identity desde odds reales
-- Archivo nuevo: `backend/services/football_market_identity_resolver.py`
-- Función: `resolve_market_identity_for_discarded_entry(match, discarded_entry) -> dict`
-- Resuelve desde:
-  1) `evaluated_market` / `market_trace`
-  2) `recommendation.market + recommendation.selection`
-  3) `protected_alternative`
-  4) **odds_snapshots** por cuota detectada (tolerancia ±0.01)
-- Si hay una sola coincidencia → `state=RESOLVED` + `market_identity_key`.
-- Si hay varias → `state=REQUIRES_MANUAL_MARKET_SELECTION` + `candidate_markets`.
+## Estado: ✅ COMPLETADA
 
-### ✅ Cambio 5 — Normalizar alias de mercados en alternative_rescue
-- Archivo: `backend/services/alternative_rescue.py`
-- Añadido:
-  - `OVER_UNDER_ALIASES`, `DOUBLE_CHANCE_ALIASES`
-  - `DOUBLE_CHANCE_SELECTION_ALIASES`
-  - helper `get_market_rows_by_alias(markets, aliases)` (case/accent-insensitive)
-  - `_find_line_odds` ahora soporta:
-    - `lines` como dict **y** lista (`[{value, odd}]`)
-    - equivalencias EN↔ES (Over↔Más de, Under↔Menos de)
+## Objetivo
+Cablear TheStatsAPI como **fallback de odds** en la ingesta de fútbol:
+- API-Sports sigue siendo **primario**.
+- Cuando API-Sports devuelve odds vacías/inútiles, TheStatsAPI rescata odds.
+- Preservar `opening` + `last_seen` por selección para habilitar line movement sin snapshots históricos.
 
-### ✅ Cambio 7 — Mejorar mensaje UI + debug collapsible
-- Archivo: `frontend/src/components/EditorialPredictionPanel.jsx`
-- Se añade:
-  - collapsible **“Ver detalle del análisis”** (siempre disponible)
-  - mensajes específicos cuando `internal_analysis_debug` está presente.
+## Implementación ejecutada — 5 cambios
 
-### ✅ Cambio 8 — TheStatsAPI mapping cuando no hay raw_id
-- Archivo: `backend/services/thestatsapi_client.py`
-- Función nueva:
-  - `resolve_thestatsapi_match_id_by_names(home_team, away_team, date, competition=None, db=None)`
-- Estrategia:
-  - lista matches por fecha: `/api/football/matches?date_from=...&date_to=...`
-  - matchea por nombres normalizados
-  - cachea resultado (positivo o negativo) en `thestatsapi_match_mapping_cache`
-  - fail-soft con log `THESTATSAPI_MATCH_MAPPING_NOT_FOUND`
+### ✅ Cambio 1 — `services/external_sources/thestatsapi_client.py`
+- Agregado: `odds_for_fixture(client, thestatsapi_match_id)`
+  - Endpoint: `GET /football/matches/{match_id}/odds` (Bearer)
+  - Fail-soft, usa `_request` (rate-limit + retries).
+- Agregado: `resolve_thestatsapi_match_id_by_names(client, *, home, away, date, competition=None)`
+  - Lista `GET /football/matches?date_from=DAY&date_to=DAY`
+  - Matching por nombres normalizados (acentos-insensitive)
+  - Fail-soft.
 
-### ✅ Cambio 9 — Orden correcto del pipeline (aplicado en moneyball bucketing)
-- Archivo: `backend/services/moneyball_layer.py`
-- `apply_moneyball_layer` ahora:
-  - antes de rutear a `requires_market_identity`, intenta resolver identity con el resolver.
-  - si `RESOLVED` re-evalúa el pick.
-  - si `AMBIGUOUS` agrega `candidate_markets` para selección manual.
+### ✅ Cambio 2 — `services/external_sources/thestatsapi_normalizer.py`
+- Agregado: `normalize_thestatsapi_odds_to_apisports_shape(data)`
+  - Traduce payload nested (bookmaker→markets→selections{opening,last_seen}) a shape API-Sports.
+  - Usa `last_seen` como cuota actual.
+  - Preserva opening en `_opening_odds` (key: `bookmaker|market|value`).
+  - Cubre: `match_odds`, `btts`, `total_goals`, `match_corners`, `asian_handicap`.
+- Helpers añadidos:
+  - `_ts_extract_last_opening`
+  - `_ts_line_key_to_label` (`over_2_5` → `2.5`).
 
-## Tests (F74-post)
-- Archivo nuevo: `backend/tests/test_f74_post_fixes.py` (19 tests)
-- Estado suite global:
-  - ✅ **2125 passed**, 5 warnings, 0 regresiones.
+### ✅ Cambio 3 — `services/data_ingestion.py` (`_enrich_football`)
+- Bloque odds reescrito:
+  - API-Sports primario → `nz.normalize_odds(odds_resp)`.
+  - Si no hay odds útiles → fallback a TheStatsAPI:
+    - si no hay `_thestatsapi_raw_id`, resolver match-id por nombres+fecha+liga.
+    - `odds_for_fixture` → normalización a shape API-Sports → `nz.normalize_odds(...)`.
+  - Propaga `_opening_odds` al `norm_odds`.
+  - Stamp `_odds_source`: `api_sports | thestatsapi_fallback | api_sports_empty | no_odds`.
+- Fix: eliminada línea duplicada `norm_odds = nz.normalize_odds(odds_resp)` que sobrescribía el fallback.
+
+### ✅ Cambio 4 — Provenance en `match_doc`
+- `match_doc["_odds_source"]` + `match_doc["odds_source"]` (alias para UI)
+- Si odds provienen de TheStatsAPI fallback:
+  - `external_sources_covered` incluye `"thestatsapi"`.
+
+### ✅ Cambio 5 — Telemetría granular en `ingest_upcoming`
+- Al final del ciclo de fútbol se loguea:
+  - `[odds_coverage] {api_sports, thestatsapi_fallback, api_sports_empty, no_odds, total}`
+
+## Testing
+- ✅ 22 tests nuevos: `backend/tests/test_f74_post_thestatsapi_odds_fallback.py`
+- ✅ Suite global: **2145 passed**, **2 skipped**, 5 warnings, 0 regresiones.
 
 ---
 
@@ -242,20 +191,18 @@ Se implementa un orden de pipeline práctico sin migrar todo a TheStatsAPI:
 
 ### Pendientes no bloqueantes (actualizadas)
 - (P1) **Alternative rescue**: implementar `alternative_rescue.infer_original_pick_side()`
-  - Inferencia: `recommendation.selection` → Forebet → favorito por cuota → edge TheStatsAPI
+  - Inferencia: `recommendation.selection` → Forebet → favorito por cuota → edge TheStatsAPI.
   - Bloquear rescates direccionales si la dirección original no es inferible.
 - (P2) Bucket UI + acción manual:
-  - Exponer un bucket separado para `REQUIRES_MANUAL_MARKET_SELECTION` con input manual de cuota/mercado.
-  - (Backend ya entrega `candidate_markets`, falta wiring UI si el panel no lo consume aún.)
+  - Exponer bucket para `REQUIRES_MANUAL_MARKET_SELECTION` con `candidate_markets` + input manual de cuota.
 - (P3) Expandir `team_name_translations.py` para clubes UCL/UEL.
-- (P4) Validar resolver TheStatsAPI por nombres con datos reales + ajustar filtros por competition si es necesario.
-- (P5) Continuar migración gradual de lógica estructural de API-Sports a TheStatsAPI **solo** tras estabilidad.
+- (P4) Validar resolver TheStatsAPI por nombres con datos reales y mejorar filtros por `competition` donde aplique.
+- (P5) (Opcional) Conectar `_opening_odds` al `odds_value_engine.evaluate_market(opening_odds=..., current_odds=...)` en la construcción de pick_payload para activar line movement desde día 1.
 
-### Validación del usuario (post-F74-post)
-- Verificar en UI/JSON:
-  - Cuando hay `recent_fixtures` anidados, el editorial deja de caer en THIN y aparece `internal_analysis_debug`.
-  - Unknown markets:
-    - se intenta resolver por odds snapshot
-    - si AMBIGUOUS, aparece bucket/manual con `candidate_markets`
-    - si UNKNOWN real, cae a `requires_market_identity` sin edge/trap.
-  - Alias ES/EN en `alternative_rescue` detectan Over/Under y DC aunque el proveedor no use los nombres exactos.
+### Validación esperada (post-F74-post v2)
+- UI/JSON:
+  - `odds_source` visible y consistente (`api_sports` vs `thestatsapi_fallback`).
+  - Si API-Sports devuelve odds vacías, TheStatsAPI rescata y `odds_snapshots[0].available == True`.
+  - `_opening_odds` poblado cuando venga de TheStatsAPI.
+  - `[odds_coverage]` en logs detecta regresiones.
+  - `internal_analysis_debug` disponible (collapsible) y evita el mensaje genérico sin diagnóstico.

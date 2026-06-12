@@ -594,3 +594,198 @@ def merge_live_stats(primary: dict | None, secondary: dict | None) -> dict | Non
     if sources:
         merged["_sources"] = sorted(sources)
     return merged
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase F74-post v2 — Odds adapter: TheStatsAPI → API-Sports shape
+# ─────────────────────────────────────────────────────────────────────
+def _ts_extract_last_opening(selection: Any) -> tuple[float | None, float | None]:
+    """Return ``(last_seen, opening)`` parsed as floats. Both None on bad input.
+
+    TheStatsAPI odds come as STRINGS ("2.100") — must be parsed to float.
+    Rejects odds <= 1.01 (treated as invalid).
+    """
+    if not isinstance(selection, dict):
+        return None, None
+
+    def _to_float(v: Any) -> float | None:
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            return f if f >= 1.01 else None
+        except (TypeError, ValueError):
+            return None
+
+    return _to_float(selection.get("last_seen")), _to_float(selection.get("opening"))
+
+
+def _ts_line_key_to_label(line_key: str) -> str | None:
+    """Convert ``"over_2_5"`` → ``"2.5"``, ``"over_3_5"`` → ``"3.5"``, etc.
+
+    Format expected: ``"<over|under>_<int>_<decimal>"`` or bare digits.
+    Defensive — returns ``None`` on unexpected input.
+    """
+    if not isinstance(line_key, str):
+        return None
+    parts = line_key.lower().split("_")
+    digits = [p for p in parts if p.isdigit()]
+    if len(digits) >= 2:
+        return f"{digits[0]}.{digits[1]}"
+    if len(digits) == 1:
+        return digits[0]
+    return None
+
+
+def normalize_thestatsapi_odds_to_apisports_shape(
+    thestatsapi_odds_data: dict,
+) -> list[dict]:
+    """Translate TheStatsAPI odds payload to the API-Football shape that
+    ``normalizer.normalize_odds()`` expects.
+
+    Input (raw TheStatsAPI ``data`` sub-dict)::
+
+        {
+          "match_id": "mt_14502",
+          "bookmakers": [{
+            "bookmaker": "Pinnacle",
+            "markets": {
+              "match_odds":    {"home":{"opening":"2.100","last_seen":"2.050"}, ...},
+              "btts":          {"yes":{...}, "no":{...}},
+              "total_goals":   {"over_2_5":{"over":{...},"under":{...}}, ...},
+              "match_corners": {"over_9_5":{"over":{...},"under":{...}}, ...},
+              "asian_handicap":{"home":{...},"away":{...}},
+            }
+          }]
+        }
+
+    Output (API-Football shape — one entry per match)::
+
+        [{"bookmakers": [{"name": "...", "bets": [{"name": "...", "values": [...]}]}],
+          "_source":      "thestatsapi",
+          "_opening_odds": {"<bm>|<market>|<value>": float, ...}}]
+
+    Uses ``last_seen`` as the current odd. Preserves opening separately
+    in ``_opening_odds`` so ``odds_value_engine`` can compute line movement
+    from day one without snapshot history.
+
+    Fail-soft: returns ``[]`` if no valid bookmaker/market is found.
+    """
+    if not isinstance(thestatsapi_odds_data, dict):
+        return []
+    bookmakers_raw = thestatsapi_odds_data.get("bookmakers") or []
+    if not isinstance(bookmakers_raw, list) or not bookmakers_raw:
+        return []
+
+    bookmakers_out: list[dict] = []
+    # Preserve opening by (bookmaker, market, value) so the engine can
+    # compute movement = last_seen - opening.
+    opening_index: dict[tuple[str, str, str], float] = {}
+
+    for bm in bookmakers_raw:
+        if not isinstance(bm, dict):
+            continue
+        bm_name = str(bm.get("bookmaker") or "TheStatsAPI")
+        markets = bm.get("markets") or {}
+        if not isinstance(markets, dict):
+            continue
+
+        bets: list[dict] = []
+
+        # ── match_odds → "Match Winner" (Home/Draw/Away) ─────────────
+        mo = markets.get("match_odds")
+        if isinstance(mo, dict):
+            mo_values = []
+            for ts_key, api_value in (("home", "Home"),
+                                        ("draw", "Draw"),
+                                        ("away", "Away")):
+                last, opening = _ts_extract_last_opening(mo.get(ts_key))
+                if last is not None:
+                    mo_values.append({"value": api_value, "odd": str(last)})
+                    if opening is not None:
+                        opening_index[(bm_name, "Match Winner", api_value)] = opening
+            if mo_values:
+                bets.append({"name": "Match Winner", "values": mo_values})
+
+        # ── btts → "Both Teams Score" (Yes/No) ───────────────────────
+        btts = markets.get("btts")
+        if isinstance(btts, dict):
+            btts_values = []
+            for ts_key, api_value in (("yes", "Yes"), ("no", "No")):
+                last, opening = _ts_extract_last_opening(btts.get(ts_key))
+                if last is not None:
+                    btts_values.append({"value": api_value, "odd": str(last)})
+                    if opening is not None:
+                        opening_index[(bm_name, "Both Teams Score", api_value)] = opening
+            if btts_values:
+                bets.append({"name": "Both Teams Score", "values": btts_values})
+
+        # ── total_goals → "Goals Over/Under" ─────────────────────────
+        tg = markets.get("total_goals")
+        if isinstance(tg, dict):
+            tg_values = []
+            for line_key, sides in tg.items():
+                if not isinstance(sides, dict):
+                    continue
+                line_label = _ts_line_key_to_label(line_key)
+                if line_label is None:
+                    continue
+                for side_key, side_label in (("over", "Over"), ("under", "Under")):
+                    last, opening = _ts_extract_last_opening(sides.get(side_key))
+                    if last is not None:
+                        api_value = f"{side_label} {line_label}"
+                        tg_values.append({"value": api_value, "odd": str(last)})
+                        if opening is not None:
+                            opening_index[(bm_name, "Goals Over/Under", api_value)] = opening
+            if tg_values:
+                bets.append({"name": "Goals Over/Under", "values": tg_values})
+
+        # ── match_corners → "Corners Over/Under" ─────────────────────
+        mc = markets.get("match_corners")
+        if isinstance(mc, dict):
+            mc_values = []
+            for line_key, sides in mc.items():
+                if not isinstance(sides, dict):
+                    continue
+                line_label = _ts_line_key_to_label(line_key)
+                if line_label is None:
+                    continue
+                for side_key, side_label in (("over", "Over"), ("under", "Under")):
+                    last, opening = _ts_extract_last_opening(sides.get(side_key))
+                    if last is not None:
+                        api_value = f"{side_label} {line_label}"
+                        mc_values.append({"value": api_value, "odd": str(last)})
+                        if opening is not None:
+                            opening_index[(bm_name, "Corners Over/Under", api_value)] = opening
+            if mc_values:
+                bets.append({"name": "Corners Over/Under", "values": mc_values})
+
+        # ── asian_handicap → "Asian Handicap" ────────────────────────
+        # TheStatsAPI only exposes home/away sides (no explicit line label).
+        # Pass through as-is; downstream resolvers may enrich the line.
+        ah = markets.get("asian_handicap")
+        if isinstance(ah, dict):
+            ah_values = []
+            for ts_key, api_value in (("home", "Home"), ("away", "Away")):
+                last, opening = _ts_extract_last_opening(ah.get(ts_key))
+                if last is not None:
+                    ah_values.append({"value": api_value, "odd": str(last)})
+                    if opening is not None:
+                        opening_index[(bm_name, "Asian Handicap", api_value)] = opening
+            if ah_values:
+                bets.append({"name": "Asian Handicap", "values": ah_values})
+
+        if bets:
+            bookmakers_out.append({"name": bm_name, "bets": bets})
+
+    if not bookmakers_out:
+        return []
+
+    return [{
+        "bookmakers":    bookmakers_out,
+        "_source":       "thestatsapi",
+        "_opening_odds": {
+            f"{bm}|{mkt}|{val}": opening
+            for (bm, mkt, val), opening in opening_index.items()
+        },
+    }]

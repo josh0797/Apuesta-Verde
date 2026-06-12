@@ -279,6 +279,117 @@ async def fetch_player_stats(
     return data
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Phase F74-post v2 — Odds fallback (TheStatsAPI → API-Sports shape)
+# ─────────────────────────────────────────────────────────────────────
+async def odds_for_fixture(
+    client: httpx.AsyncClient,
+    thestatsapi_match_id: str,
+    *,
+    timeout: float = DEFAULT_TIMEOUT_SEC,
+) -> dict:
+    """Fetch odds for a fixture from TheStatsAPI.
+
+    Endpoint: ``GET /api/football/matches/{match_id}/odds`` (Bearer auth).
+
+    Returns the raw ``data`` sub-dict from the response::
+
+        {"match_id": "mt_14502", "bookmakers": [{...}, ...]}
+
+    Fail-soft: returns ``{}`` on any error (HTTP, parse, timeout, disabled).
+    The ``match_id`` format is "mt_XXXXX" — pass it as-is, do not strip
+    the prefix.
+    """
+    if not thestatsapi_match_id:
+        return {}
+    payload = await _request(
+        client, "GET",
+        f"/football/matches/{thestatsapi_match_id}/odds",
+        timeout=timeout,
+    )
+    if not isinstance(payload, dict):
+        return {}
+    data = payload.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase F74-post v2 — Resolver match-id por nombres + fecha (fallback)
+# ─────────────────────────────────────────────────────────────────────
+def _normalize_team_name_for_search(name: str) -> str:
+    """lower + strip-accents."""
+    if not isinstance(name, str):
+        return ""
+    import unicodedata as _u
+    nf = _u.normalize("NFD", name)
+    return "".join(c for c in nf if _u.category(c) != "Mn").lower().strip()
+
+
+async def resolve_thestatsapi_match_id_by_names(
+    client: httpx.AsyncClient,
+    *,
+    home: str,
+    away: str,
+    date: str,
+    competition: str | None = None,
+) -> str | None:
+    """Resolve TheStatsAPI ``match_id`` by listing fixtures of the day
+    and matching by normalised team names.
+
+    Used by ``_enrich_football`` when the API-Sports fixture has no
+    ``_thestatsapi_raw_id`` (no Batch-3 mapping).
+
+    Args:
+        client: shared ``httpx.AsyncClient`` (injected from caller).
+        home, away: API-Sports team names.
+        date: ISO-8601 (any datetime parseable) — we only use the date.
+        competition: optional name to filter ambiguous cross-competition matches.
+
+    Returns:
+        ``"mt_XXXXX"`` if a unique match is found, else ``None``.
+    """
+    if not (home and away and date):
+        return None
+    if not is_enabled():
+        return None
+    # Date window of 1 day (we accept "2026-04-19" or "2026-04-19T20:00:00Z").
+    day = str(date)[:10]
+    matches = await fetch_fixtures(client, date_from=day, date_to=day)
+    if not matches:
+        return None
+    h_norm = _normalize_team_name_for_search(home)
+    a_norm = _normalize_team_name_for_search(away)
+    c_norm = _normalize_team_name_for_search(competition or "")
+    for entry in matches:
+        if not isinstance(entry, dict):
+            continue
+        ht = entry.get("home_team") or entry.get("home") or {}
+        at = entry.get("away_team") or entry.get("away") or {}
+        ht_name = (ht.get("name") if isinstance(ht, dict) else None) or entry.get("home_team_name") or ""
+        at_name = (at.get("name") if isinstance(at, dict) else None) or entry.get("away_team_name") or ""
+        ht_norm = _normalize_team_name_for_search(ht_name)
+        at_norm = _normalize_team_name_for_search(at_name)
+        match_ok = (
+            (ht_norm == h_norm and at_norm == a_norm)
+            or (h_norm and ht_norm and (h_norm in ht_norm or ht_norm in h_norm)
+                 and a_norm and at_norm
+                 and (a_norm in at_norm or at_norm in a_norm))
+        )
+        if not match_ok:
+            continue
+        if c_norm:
+            comp = entry.get("competition") or {}
+            comp_name = (comp.get("name") if isinstance(comp, dict) else None) or entry.get("competition_name") or ""
+            comp_norm = _normalize_team_name_for_search(comp_name)
+            if comp_norm and c_norm not in comp_norm:
+                continue
+        match_id = entry.get("id") or entry.get("match_id") or entry.get("_id")
+        if match_id:
+            return str(match_id)
+    log.info("[thestatsapi] match-id not found for %s vs %s @%s", h_norm, a_norm, day)
+    return None
+
+
 async def health_check(client: httpx.AsyncClient) -> dict:
     """Lightweight ping for the `/api/debug/thestatsapi/health` endpoint.
 

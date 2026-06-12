@@ -385,6 +385,19 @@ async def ingest_upcoming(
         except Exception as exc:
             log.exception("ingest enrich failed [%s]: %s", sport, exc)
     log.info("Sent %d candidates downstream after enrichment (sport=%s)", len(enriched), sport)
+    # Phase F74-post v2 — odds coverage telemetry. Surfaces regressions
+    # in odds availability: if "no_odds" / "api_sports_empty" grow day
+    # by day, there's a provider gap to investigate. States are
+    # mutually exclusive per fixture.
+    if sport == "football" and enriched:
+        odds_coverage = {
+            "api_sports":           sum(1 for m in enriched if m.get("_odds_source") == "api_sports"),
+            "thestatsapi_fallback": sum(1 for m in enriched if m.get("_odds_source") == "thestatsapi_fallback"),
+            "api_sports_empty":     sum(1 for m in enriched if m.get("_odds_source") == "api_sports_empty"),
+            "no_odds":              sum(1 for m in enriched if m.get("_odds_source") == "no_odds"),
+            "total":                len(enriched),
+        }
+        log.info("[odds_coverage] %s", odds_coverage)
     return enriched
 
 
@@ -554,11 +567,73 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
         kickoff = fx_raw["fixture"]["date"]
         venue = (fx_raw.get("fixture", {}).get("venue") or {}).get("name")
 
+        # ── Odds fetch — API-Sports primario, TheStatsAPI fallback ───
+        # Phase F74-post v2 — cuando API-Sports devuelve [] o estructura
+        # inútil (sin bookmakers), intentar rescatar con TheStatsAPI.
+        # Mantiene API-Sports como autoridad cuando funciona.
+        league_name = (fx_raw.get("league") or {}).get("name")
+        odds_source = "no_odds"
+
         try:
             odds_resp = await af.odds_for_fixture(client, fid, db=db)
         except Exception as e:
             log.warning("odds failed for %s: %s", fid, e)
             odds_resp = []
+
+        # Normalizamos primero (criterio: "available" indica si tiene
+        # bookmakers utilizables).
+        norm_odds = nz.normalize_odds(odds_resp)
+        api_sports_ok = bool(norm_odds.get("available"))
+
+        if api_sports_ok:
+            odds_source = "api_sports"
+        else:
+            odds_source = "api_sports_empty"
+            # Fallback — TheStatsAPI.
+            try:
+                ts_raw_id = fx_raw.get("_thestatsapi_raw_id") or (
+                    fx_raw.get("_external_source_id")
+                    if fx_raw.get("_external_source") == "thestatsapi"
+                    else None
+                )
+                from .external_sources import thestatsapi_client as _ts_client
+                if not ts_raw_id:
+                    ts_raw_id = await _ts_client.resolve_thestatsapi_match_id_by_names(
+                        client, home=home["name"], away=away["name"],
+                        date=kickoff, competition=league_name,
+                    )
+                if ts_raw_id:
+                    from .external_sources import thestatsapi_normalizer as _ts_norm
+                    ts_odds_data = await _ts_client.odds_for_fixture(client, ts_raw_id)
+                    if ts_odds_data:
+                        ts_apisports_shape = _ts_norm.normalize_thestatsapi_odds_to_apisports_shape(
+                            ts_odds_data,
+                        )
+                        if ts_apisports_shape:
+                            ts_norm_odds = nz.normalize_odds(ts_apisports_shape)
+                            if ts_norm_odds.get("available"):
+                                # Preserve opening odds so odds_value_engine
+                                # can compute line movement from day one.
+                                ts_norm_odds["_opening_odds"] = (
+                                    ts_apisports_shape[0].get("_opening_odds") or {}
+                                )
+                                odds_resp = ts_apisports_shape
+                                norm_odds = ts_norm_odds
+                                odds_source = "thestatsapi_fallback"
+                                log.info(
+                                    "[odds_fallback] fixture=%s rescued by TheStatsAPI "
+                                    "(API-Sports empty). bookmakers=%d",
+                                    fid, len(norm_odds.get("bookmakers") or []),
+                                )
+            except Exception as exc_ts:
+                log.debug("thestatsapi odds fallback failed for %s: %s", fid, exc_ts)
+
+            if not norm_odds.get("available"):
+                odds_source = "no_odds"
+
+        # Stamp source en el snapshot para auditoría downstream.
+        if isinstance(norm_odds, dict):
+            norm_odds["_odds_source"] = odds_source
         try:
             stand_resp = await af.standings(client, lid, db=db)
         except Exception as e:
@@ -587,7 +662,8 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             try: recent_a_raw = await af.fixtures_last_n(client, away["id"], n=15, season=season, db=db)
             except Exception: pass
 
-        norm_odds = nz.normalize_odds(odds_resp)
+        # NOTE: ``norm_odds`` was computed earlier (with TheStatsAPI fallback
+        # baked in). Do NOT recompute here — that would discard the fallback.
         ctx_home = nz.normalize_team_context(stats_h, stand_resp, inj_h, home["id"])
         ctx_away = nz.normalize_team_context(stats_a, stand_resp, inj_a, away["id"])
         # Attach last-15 goal distributions used by statsbomb_features and the
@@ -690,6 +766,8 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             "home_team": {"id": home["id"], "name": home["name"], "logo": home.get("logo"), "context": ctx_home},
             "away_team": {"id": away["id"], "name": away["name"], "logo": away.get("logo"), "context": ctx_away},
             "odds_snapshots": [norm_odds] if norm_odds.get("available") else [],
+            "_odds_source":   odds_source,
+            "odds_source":    odds_source,   # alias sin prefix para la UI
             "live_stats": live_stats,
             "h2h_recent": h2h_clean,
             "data_complete": norm_odds.get("available") and bool(ctx_home.get("position") or ctx_home.get("form_last_5")),
@@ -703,6 +781,12 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
         _ext_covered = fx_raw.get("_external_sources_covered") or [_ext_src]
         match_doc["external_source"] = _ext_src
         match_doc["external_sources_covered"] = sorted(set(_ext_covered))
+        # Phase F74-post v2 — if odds were rescued by TheStatsAPI, mark
+        # provenance so the UI can show the badge.
+        if odds_source == "thestatsapi_fallback":
+            match_doc["external_sources_covered"] = sorted(
+                set(match_doc["external_sources_covered"] + ["thestatsapi"])
+            )
         if fx_raw.get("_is_national_team"):
             match_doc["is_national_team"] = True
         if fx_raw.get("_is_international"):
