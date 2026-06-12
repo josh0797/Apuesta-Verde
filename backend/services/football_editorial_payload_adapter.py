@@ -385,6 +385,11 @@ def build_editorial_ready_match_payload(match: dict) -> dict:
     if not market_identity_found:
         missing.append("market_identity")
 
+    # Phase F82 — propagate rich h2h_context so the editorial output can
+    # render concrete H2H results, not just count.
+    if isinstance(match.get("h2h_context"), dict):
+        out["h2h_context"] = match["h2h_context"]
+
     out["internal_analysis_debug"] = {
         "recent_fixtures_found":     recent_found,
         "recent_fixtures_flattened": signals["recent"],

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { MapPin, Activity, Target, TrendingUp, ListChecks, History, Trophy, AlertTriangle, Info } from 'lucide-react';
 import { PlayerHeatmapDialog } from '@/components/PlayerHeatmapDialog';
 import { ExternalEditorialPanel } from '@/components/ExternalEditorialPanel';
+import { H2HContextPanel } from '@/components/H2HContextPanel';
 
 
 /**
@@ -252,6 +253,13 @@ export function EditorialPredictionPanel({
         testIdPrefix={`${testIdPrefix}-key-players`}
         lang={lang}
       />
+      {/* Phase F82 — Rich H2H Context: shows concrete results + metrics. */}
+      {editorial.h2h_context && (
+        <H2HContextPanel
+          context={editorial.h2h_context}
+          testIdPrefix={`${testIdPrefix}-h2h-context`}
+        />
+      )}
       {/* Phase F70 — External editorial enrichment (Forebet + Sportytrader). */}
       {homeTeamName && awayTeamName && (
         <ExternalEditorialPanel

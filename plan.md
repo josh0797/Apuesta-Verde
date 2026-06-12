@@ -1,8 +1,8 @@
-# Plan — Phases F58–F74 (bitácora)
+# Plan — Phases F58–F82 (bitácora)
 
 > **Nota:** Este plan se mantiene como bitácora completa.  
 > **Estado histórico:** ✅ F58–F70 completadas (ver secciones abajo).  
-> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA**.  
+> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA**.  
 > **Idioma operativo:** Español.
 
 ---
@@ -29,7 +29,12 @@
 - F74: **schema canónico** para enriquecimiento fútbol + probabilidades estimadas.
 - F74-post: **adaptadores** para eliminar fragmentación de datos anidados.
 - F74-post v2: **fallback de odds con TheStatsAPI** (incluye opening/last_seen → line movement sin snapshots históricos).
-- F74-post v2.5: **line movement desde día 1** usando `opening` TheStatsAPI + `last_seen` (sin necesidad de snapshots históricos).
+- F74-post v2.5: **line movement desde día 1** usando `opening` TheStatsAPI + `last_seen`.
+
+### Objetivos nuevos / extendidos (F82)
+- **H2H rico**: dejar de mostrar “se identifican N enfrentamientos…” y renderizar resultados concretos + señales (Under 3.5, BTTS, promedio de goles).
+- **Córners con fuente secundaria real**: ingestión de stats de córners usando **365Scores** como fallback (a través de scrape.do) y persistencia consistente en `football_data_enrichment.corners`.
+- **Recomendación conservadora de córners**: no recomendar si `corners.available=false` o si solo hay córners actuales sin tendencia; permitir *watchlist* bajo condiciones live (futuro ajuste si hace falta).
 
 ### Estado global (Phases F58–F70)
 - ✅ F58 completado (backend + UI + scripts + tests).
@@ -98,17 +103,11 @@
   - **Under 3.5 / Under 4.5** → `negative_edge_floor = -0.03`
   - **Over 1.5** → `negative_edge_floor = -0.02`
   - Resto de PROTECTED → default `-0.015`
-- ✅ `football_data_enrichment.py`:
-  - acepta datos desde `_thestatsapi_enrichment`, `thestatsapi_snapshot`, `external_context.thestatsapi`, API-Sports (si trae stats útiles), y Forebet (contexto externo);
-  - devuelve **un schema único**;
-  - incluye `estimated_probabilities` por `market_identity_key` **solo si `data_quality != THIN`**.
+- ✅ `football_data_enrichment.py` canónico:
+  - Acepta `_thestatsapi_enrichment`, `thestatsapi_snapshot`, `external_context.thestatsapi`, API-Sports (si hay stats útiles), Forebet.
+  - `estimated_probabilities` solo si `data_quality != THIN`.
 - ✅ Probabilidades:
-  - **Dixon-Coles** si hay datos suficientes (xG por equipo).
-  - **Poisson simple** fallback.
-  - Heurística logística: **observe-only**.
-
-## Implementación ejecutada (F74-1 … F74-7)
-- ✅ F74-1 … F74-7 (ver historial en este mismo archivo).
+  - Dixon-Coles → Poisson fallback → logística observe-only.
 
 ---
 
@@ -124,67 +123,30 @@ Reducir falsos positivos de:
 …cuando los datos sí existen pero están anidados/fragmentados.
 
 ## Implementación ejecutada — 9 cambios
-- ✅ Cambio 1–9 (adapter editorial + normalizer compat + resolver por odds + aliases rescue + UI debug collapsible + match-id por nombres (client legacy) + pipeline bucketing).
-
-## Testing
-- ✅ `backend/tests/test_f74_post_fixes.py` (19 tests)
-- ✅ Suite global (en ese punto): **2125 passed**
+- ✅ Adapter editorial (`football_editorial_payload_adapter.py`) para aplanar recent fixtures + TheStatsAPI + live_stats.
+- ✅ Normalizer compat (`football_data_enrichment_normalizer.py`) que persiste un solo payload en:
+  - `match['football_data_enrichment']` y `match['thestatsapi_snapshot']` (alias del mismo objeto).
+- ✅ Resolver de market identity por odds y bucket AMBIGUOUS.
+- ✅ Aliases ES/EN en alternative_rescue.
+- ✅ UI debug collapsible “Ver detalle del análisis”.
 
 ---
 
-# Phase F74-post v2 — TheStatsAPI Odds Fallback Wiring (5 cambios) (COMPLETED ✅)
+# Phase F74-post v2 — TheStatsAPI Odds Fallback Wiring (COMPLETED ✅)
 
 ## Estado: ✅ COMPLETADA
 
 ## Objetivo
-Cablear TheStatsAPI como **fallback de odds** en la ingesta de fútbol:
-- API-Sports sigue siendo **primario**.
-- Cuando API-Sports devuelve odds vacías/inútiles, TheStatsAPI rescata odds.
-- Preservar `opening` + `last_seen` por selección para habilitar line movement sin snapshots históricos.
+API-Sports como fuente primaria de odds; si viene vacío/inútil, rescatar con TheStatsAPI:
+- Endpoint odds: `/football/matches/{match_id}/odds`.
+- Convertir shape nested → API-Sports shape.
+- Preservar `opening` para line movement sin snapshots.
 
-## Implementación ejecutada — 5 cambios
-
-### ✅ Cambio 1 — `services/external_sources/thestatsapi_client.py`
-- Agregado: `odds_for_fixture(client, thestatsapi_match_id)`
-  - Endpoint: `GET /football/matches/{match_id}/odds` (Bearer)
-  - Fail-soft, usa `_request` (rate-limit + retries).
-- Agregado: `resolve_thestatsapi_match_id_by_names(client, *, home, away, date, competition=None)`
-  - Lista `GET /football/matches?date_from=DAY&date_to=DAY`
-  - Matching por nombres normalizados (acentos-insensitive)
-  - Fail-soft.
-
-### ✅ Cambio 2 — `services/external_sources/thestatsapi_normalizer.py`
-- Agregado: `normalize_thestatsapi_odds_to_apisports_shape(data)`
-  - Traduce payload nested (bookmaker→markets→selections{opening,last_seen}) a shape API-Sports.
-  - Usa `last_seen` como cuota actual.
-  - Preserva opening en `_opening_odds` (key: `bookmaker|market|value`).
-  - Cubre: `match_odds`, `btts`, `total_goals`, `match_corners`, `asian_handicap`.
-- Helpers añadidos:
-  - `_ts_extract_last_opening`
-  - `_ts_line_key_to_label` (`over_2_5` → `2.5`).
-
-### ✅ Cambio 3 — `services/data_ingestion.py` (`_enrich_football`)
-- Bloque odds reescrito:
-  - API-Sports primario → `nz.normalize_odds(odds_resp)`.
-  - Si no hay odds útiles → fallback a TheStatsAPI:
-    - si no hay `_thestatsapi_raw_id`, resolver match-id por nombres+fecha+liga.
-    - `odds_for_fixture` → normalización a shape API-Sports → `nz.normalize_odds(...)`.
-  - Propaga `_opening_odds` al `norm_odds`.
-  - Stamp `_odds_source`: `api_sports | thestatsapi_fallback | api_sports_empty | no_odds`.
-- Fix: eliminada línea duplicada `norm_odds = nz.normalize_odds(odds_resp)` que sobrescribía el fallback.
-
-### ✅ Cambio 4 — Provenance en `match_doc`
-- `match_doc["_odds_source"]` + `match_doc["odds_source"]` (alias para UI)
-- Si odds provienen de TheStatsAPI fallback:
-  - `external_sources_covered` incluye `"thestatsapi"`.
-
-### ✅ Cambio 5 — Telemetría granular en `ingest_upcoming`
-- Al final del ciclo de fútbol se loguea:
-  - `[odds_coverage] {api_sports, thestatsapi_fallback, api_sports_empty, no_odds, total}`
-
-## Testing
-- ✅ 22 tests nuevos: `backend/tests/test_f74_post_thestatsapi_odds_fallback.py`
-- ✅ Suite global (en ese punto): **2145 passed**, **2 skipped**, 5 warnings, 0 regresiones.
+## Implementación ejecutada
+- ✅ Client `odds_for_fixture`.
+- ✅ Normalizer `normalize_thestatsapi_odds_to_apisports_shape` + `_opening_odds`.
+- ✅ Wiring en `_enrich_football` + `_odds_source`.
+- ✅ Telemetría `[odds_coverage]`.
 
 ---
 
@@ -193,40 +155,93 @@ Cablear TheStatsAPI como **fallback de odds** en la ingesta de fútbol:
 ## Estado: ✅ COMPLETADA
 
 ## Objetivo
-Activar detección de **line movement desde el día 1** usando el `opening` por selección que TheStatsAPI trae (preservado en `_opening_odds`) sin necesidad de snapshots históricos.
+Activar line movement desde día 1:
+- Leer `_opening_odds` del snapshot.
+- Calcular `detect_line_movement(opening_odds, current_odds, market_side)`.
+- Inyectar a `pick.key_data.line_movement` antes de moneyball.
 
 ## Implementación ejecutada
-
-### ✅ Nuevo — `services/opening_odds_movement.py`
-- `attach_line_movement_from_opening_odds(pick, match_doc)`:
-  - lee `match_doc["odds_snapshots"][0]["_opening_odds"]`;
-  - resuelve market+selection canónicos con aliases ES/EN (ej.: `Goles totales`→`Goals Over/Under`, `Local`→`Home`, `Sí`→`Yes`, `Más de 2.5`→`Over 2.5`);
-  - recupera `opening` por key `bookmaker|market|value` y `current` desde `bookmakers[].bets[].values[]`;
-  - llama `detect_line_movement(opening_odds=opening, current_odds=current, market_side=hint)`;
-  - muta el pick añadiendo:
-    - `pick["_line_movement"]` (payload completo)
-    - `pick["key_data"]["line_movement"]` (forma legacy ya consumida por moneyball).
-  - fail-soft (inputs malformados / faltantes → no-op).
-- `enrich_picks_with_opening_movement(parsed, matches_payload)`:
-  - itera `parsed["picks"]` y cruza con `matches_payload` por `match_id`.
-
-### ✅ Edit — `services/analyst_engine.py`
-- Justo antes de `_mb.apply_moneyball_layer(...)`:
-  - invoca `enrich_picks_with_opening_movement(parsed, matches_payload)`;
-  - esto garantiza que moneyball lea el `line_movement_favourable` desde el primer pase.
-
-## Testing
-- ✅ 44 tests nuevos: `backend/tests/test_f74_post_opening_odds_movement.py`
-- ✅ Suite global: **2189 passed**, **2 skipped**, 0 regresiones (subió de 2145 → 2189).
-
-## Verificación manual
-- Match Winner Home → opening 2.10 / current 2.05 → `odds_movement = -0.05`.
-- Goles totales Más de 2.5 → opening 1.85 / current 1.87 → `odds_movement = +0.02`.
-- Normalización ES/EN confirmada.
+- ✅ `services/opening_odds_movement.py` (attach + batch enrich)
+- ✅ Hook en `analyst_engine.py` antes de `apply_moneyball_layer`.
 
 ---
 
-## 3) Pendientes y siguientes pasos (post-F74)
+# Phase F82 — Rich H2H Context + 365Scores Corners Ingestion (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Objetivo
+1) Evitar H2H genérico: renderizar resultados concretos + métricas.
+2) Ingestar córners vía 365Scores (scrape.do) y persistir al schema canónico.
+3) Ajustar recomendador de córners con gates conservadores.
+
+## Implementación ejecutada
+
+### ✅ 1) Rich H2H builder
+- **NEW** `services/football_h2h_context_builder.py`
+  - `build_h2h_context(match_doc)` → payload con:
+    - `matches[].result` (ej. “USA 1-0 Paraguay”)
+    - `summary` (avg_goals, under_3_5_rate, btts_rate, over_2_5_rate, home_unbeaten_rate)
+    - `editorial_text` compacto
+    - `sample_quality` (STRONG/USABLE/LIMITED/NONE)
+    - downgrade por amistosos / muy antiguos.
+
+### ✅ 2) Integración en ingesta
+- **MOD** `services/data_ingestion.py`
+  - Añade `match_doc['h2h_context'] = build_h2h_context(match_doc)` con logs:
+    - `[h2h_context] fixture=... sample=... avg_goals=... under35=... btts=...`
+  - Ejecuta corners provider (ver abajo).
+
+### ✅ 3) UI H2H (panel independiente)
+- **NEW** `frontend/src/components/H2HContextPanel.jsx`
+  - Lista: fecha + result + badge “amistoso”
+  - Métricas: avg goles, Under 3.5 %, BTTS %, Over 2.5 %
+- **MOD** `EditorialPredictionPanel.jsx`
+  - Importa y renderiza `<H2HContextPanel context={editorial.h2h_context} />`.
+
+### ✅ 4) 365Scores corners (Fase 1 + Fase 2)
+- **NEW** `services/external_sources/score365_client.py`
+  - fetch JSON vía **scrape.do**:
+    - `fetch_game_stats`, `fetch_game_data`
+  - `normalize_365scores_match_stats(raw)` extrae corners/shots/SOT/possession/cards con aliases ES/EN/PT.
+  - ID resolvers:
+    - Fase 1: `resolve_game_id_from_match_doc` (external_ids o URL)
+    - Fase 2: `resolve_game_id_by_date_and_names` (lista games del día ±1 con alias map: USA↔United States, Bosnia 6 Herzegovina, etc.).
+
+### ✅ 5) Corners provider cascade + persistencia
+- **NEW** `services/football_corners_provider.py`
+  - `enrich_match_corners(client, db, match_doc)` cascade:
+    1) API-Sports (`live_stats.home_stats/away_stats` con “Corner Kicks/Corners”)
+    2) 365Scores
+    3) TheStatsAPI (si corners existen)
+    4) none → `available=false`
+  - Persistencia:
+    - `match_doc['football_data_enrichment']['corners']`
+    - `match_doc['thestatsapi_snapshot']['corners']` (si existe)
+    - `match_doc['corners_snapshot']`
+  - Logs:
+    - `[corners_provider] fixture=... source=... total=... home=... away=...`
+
+### ✅ 6) Normalizer corners ingestion
+- **MOD** `services/football_data_enrichment_normalizer.py`
+  - `_extract_corners_block()` ahora acepta:
+    - `corners_snapshot`, `match_corners`, `current_match_corners`
+    - derivación desde `live_stats.home_stats/away_stats` (Corner Kicks / Córners / Tiros de esquina).
+
+### ✅ 7) Recomendador de córners (conservador)
+- **MOD** `services/corner_market_layer.py`
+  - Gate: respeta `football_data_enrichment.corners.available`/`corners_snapshot.available`.
+  - Abort si presión asimétrica fuerte y NO hay corners provider.
+  - Mantiene compat con el modo pregame protegido existente.
+
+## Testing
+- ✅ 18 tests nuevos: `backend/tests/test_f82_h2h_and_corners.py`
+- ✅ Suite global: **2207 passed**, 2 skipped, 0 regresiones.
+- ✅ Lint limpio. Backend RUNNING. Frontend esbuild OK.
+
+---
+
+## 3) Pendientes y siguientes pasos (post-F82)
 
 ### Pendientes no bloqueantes (actualizadas)
 - (P1) **Alternative rescue**: implementar `alternative_rescue.infer_original_pick_side()`
@@ -236,12 +251,15 @@ Activar detección de **line movement desde el día 1** usando el `opening` por 
   - Exponer bucket para `REQUIRES_MANUAL_MARKET_SELECTION` con `candidate_markets` + input manual de cuota.
 - (P3) Expandir `team_name_translations.py` para clubes UCL/UEL.
 - (P4) Validar resolver TheStatsAPI por nombres con datos reales y mejorar filtros por `competition` donde aplique.
+- (P5) Extender corner engine live/watchlist:
+  - permitir watchlist solo si hay presión ofensiva alta de ambos equipos + total actual bajo vs ritmo.
 
-### Validación esperada (post-F74-post v2.5)
+### Validación esperada (post-F82)
 - UI/JSON:
-  - `odds_source` visible y consistente (`api_sports` vs `thestatsapi_fallback`).
-  - Si API-Sports devuelve odds vacías, TheStatsAPI rescata y `odds_snapshots[0].available == True`.
-  - `_opening_odds` poblado cuando venga de TheStatsAPI.
-  - `key_data.line_movement` poblado en picks cuando hay opening+current.
-  - `[odds_coverage]` en logs detecta regresiones.
-  - `internal_analysis_debug` disponible (collapsible) y evita el mensaje genérico sin diagnóstico.
+  - `editorial.h2h_context.matches[]` con resultados concretos (no solo conteo).
+  - `football_data_enrichment.corners.available` con fuente y reason_codes claros.
+  - Mensajes de debug: si no hay corners por falta de ID/blocked, reason_codes lo explican.
+- Logs:
+  - `[h2h_context] ...`
+  - `[corners_provider] ...`
+  - `[odds_coverage] ...`

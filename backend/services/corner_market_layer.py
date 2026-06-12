@@ -579,6 +579,19 @@ def find_corner_value(
         log.debug("corner_market_layer skipped: sport=%s is not football", sport)
         return None
 
+    # ── Phase F82 — corners provider gate ─────────────────────────────
+    # If the canonical corners provider explicitly says corners data is
+    # NOT available (no API-Sports stats, no 365Scores ID, no TheStatsAPI
+    # block), do NOT recommend a corners market. The exception is "live
+    # watchlist" mode below: even without provider corners we can still
+    # produce a watchlist hint when there's strong live offensive
+    # pressure from BOTH teams.
+    corners_provider = (match.get("football_data_enrichment") or {}).get("corners") \
+        or match.get("corners_snapshot") or {}
+    corners_provider_ok = bool(
+        isinstance(corners_provider, dict) and corners_provider.get("available")
+    )
+
     corner_form = match.get("_corner_form") or {}
     home_form_raw = corner_form.get("home") or {}
     away_form_raw = corner_form.get("away") or {}
@@ -591,7 +604,32 @@ def find_corner_value(
 
     if not home_form or not away_form:
         return None
-    if (home_form.get("sample_size") or 0) < 1 and (away_form.get("sample_size") or 0) < 1:
+    home_sample = home_form.get("sample_size") or 0
+    away_sample = away_form.get("sample_size") or 0
+    if home_sample < 1 and away_sample < 1:
+        return None
+
+    # ── Phase F82 — conservative gate for asymmetric pressure ────────
+    # If only one team has L5/L15 sample and the other doesn't, avoid
+    # recommending Over corners: a one-sided possession game can starve
+    # the corner market.
+    home_for_avg = (home_form.get("corners_for_avg")
+                     or (home_form_raw.get("corners_for_l5"))
+                     or 0)
+    away_for_avg = (away_form.get("corners_for_avg")
+                     or (away_form_raw.get("corners_for_l5"))
+                     or 0)
+    asymmetric_pressure = (
+        (home_for_avg or 0) > 5.0 and (away_for_avg or 0) < 3.5
+    ) or (
+        (away_for_avg or 0) > 5.0 and (home_for_avg or 0) < 3.5
+    )
+    if asymmetric_pressure and not corners_provider_ok:
+        log.info(
+            "[corner_market_layer] asymmetric_pressure detected (home=%.1f away=%.1f) "
+            "and no provider corners — skipping recommendation",
+            home_for_avg, away_for_avg,
+        )
         return None
 
     # Extraer líneas de córners disponibles

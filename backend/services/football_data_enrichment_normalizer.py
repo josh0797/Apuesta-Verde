@@ -132,11 +132,52 @@ def _normalize_team_stats_block(side_stats: Optional[dict]) -> dict:
 
 
 def _extract_corners_block(d: Optional[dict]) -> dict:
-    """Best-effort: corners sub-block (si existe)."""
+    """Best-effort: corners sub-block (si existe).
+
+    Phase F82 — acepta múltiples claves donde distintos proveedores
+    persisten corners: ``corners``, ``corner_stats``, ``corners_snapshot``,
+    ``match_corners``, ``current_match_corners``. Adicionalmente, si el
+    payload trae ``live_stats.home_stats`` / ``away_stats`` con un
+    stat tipo "Corner Kicks" / "Corners" / "Córners" / "Tiros de
+    esquina", lo extrae y compone un sub-bloque ``{home, away, total}``.
+    """
     if not isinstance(d, dict):
         return {}
-    corners = d.get("corners") or d.get("corner_stats")
-    return corners if isinstance(corners, dict) else {}
+    for key in ("corners", "corner_stats", "corners_snapshot",
+                 "match_corners", "current_match_corners"):
+        corners = d.get(key)
+        if isinstance(corners, dict) and corners:
+            return corners
+
+    # Fallback: derive from live_stats.home_stats / away_stats
+    live = d.get("live_stats") or {}
+    if isinstance(live, dict):
+        hs = live.get("home_stats") or {}
+        as_ = live.get("away_stats") or {}
+        if isinstance(hs, dict) and isinstance(as_, dict):
+            corner_keys = ("corner kick", "corners", "córner", "corner",
+                            "tiros de esquina", "tiros esquina")
+
+            def _find(blob: dict) -> Optional[int]:
+                for k, v in blob.items():
+                    if not isinstance(k, str):
+                        continue
+                    low = k.lower()
+                    if any(needle in low for needle in corner_keys):
+                        try:
+                            return int(str(v).strip())
+                        except (TypeError, ValueError):
+                            return None
+                return None
+
+            home = _find(hs)
+            away = _find(as_)
+            if home is not None or away is not None:
+                total = ((home or 0) + (away or 0)
+                          if (home is not None and away is not None) else None)
+                return {"home": home, "away": away, "total": total,
+                         "source": "live_stats"}
+    return {}
 
 
 def _extract_official_friendly_split(d: Optional[dict]) -> dict:

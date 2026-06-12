@@ -467,6 +467,10 @@ def compute_structural_value_review(
             ) or []:
                 if code not in editorial.get("reason_codes", []):
                     editorial.setdefault("reason_codes", []).append(code)
+        # Phase F82 — propagar el rich H2H context al editorial output.
+        if (isinstance(editorial_payload, dict)
+                and editorial_payload.get("h2h_context")):
+            editorial["h2h_context"] = editorial_payload["h2h_context"]
 
         out["editorial_prediction"] = editorial
         for code in editorial.get("reason_codes", []) or []:

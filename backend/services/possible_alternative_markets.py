@@ -232,6 +232,11 @@ def attach_alternatives_to_summary(summary: dict, sport: str,
                             editorial["internal_analysis_debug"] = editorial_payload[
                                 "internal_analysis_debug"
                             ]
+                        # Phase F82 — propagar rich H2H context.
+                        if (isinstance(editorial_payload, dict)
+                                and editorial_payload.get("h2h_context")
+                                and isinstance(editorial, dict)):
+                            editorial["h2h_context"] = editorial_payload["h2h_context"]
                         entry["editorial_prediction"] = editorial
                     except Exception:  # noqa: BLE001
                         # Never let a single bad payload poison the whole

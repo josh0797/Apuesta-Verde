@@ -787,6 +787,27 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             match_doc["external_sources_covered"] = sorted(
                 set(match_doc["external_sources_covered"] + ["thestatsapi"])
             )
+        # Phase F82 — rich H2H context (renders concrete results, not just count).
+        try:
+            from .football_h2h_context_builder import build_h2h_context
+            match_doc["h2h_context"] = build_h2h_context(match_doc)
+            _h2h_ctx = match_doc["h2h_context"]
+            if _h2h_ctx.get("available"):
+                log.info(
+                    "[h2h_context] fixture=%s sample=%d avg_goals=%s under35=%s btts=%s",
+                    fid, _h2h_ctx.get("sample_size"),
+                    (_h2h_ctx.get("summary") or {}).get("avg_goals"),
+                    (_h2h_ctx.get("summary") or {}).get("under_3_5_rate"),
+                    (_h2h_ctx.get("summary") or {}).get("btts_rate"),
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("h2h_context build failed for %s: %s", fid, exc)
+        # Phase F82 — corners provider (API-Sports → 365Scores → TheStatsAPI).
+        try:
+            from .football_corners_provider import enrich_match_corners
+            await enrich_match_corners(client, db, match_doc)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("corners_provider failed for %s: %s", fid, exc)
         if fx_raw.get("_is_national_team"):
             match_doc["is_national_team"] = True
         if fx_raw.get("_is_international"):
