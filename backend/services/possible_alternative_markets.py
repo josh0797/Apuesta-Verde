@@ -206,7 +206,33 @@ def attach_alternatives_to_summary(summary: dict, sport: str,
                     if entry.get("match_id") is not None:
                         match_doc["match_id"] = entry["match_id"]
                     try:
-                        entry["editorial_prediction"] = editorial_fn(match_doc)
+                        # Phase F74-post — adaptador editorial + normalizador
+                        # TheStatsAPI antes de invocar el motor editorial.
+                        try:
+                            from services.football_data_enrichment_normalizer import (
+                                normalize_football_data_enrichment,
+                            )
+                            from services.football_editorial_payload_adapter import (
+                                build_editorial_ready_match_payload,
+                            )
+                            normalize_football_data_enrichment(match_doc)
+                            editorial_payload = build_editorial_ready_match_payload(match_doc)
+                        except Exception:  # noqa: BLE001
+                            editorial_payload = match_doc
+
+                        editorial = editorial_fn(
+                            editorial_payload,
+                            h2h_matches=(editorial_payload.get("h2h_recent")
+                                         if isinstance(editorial_payload, dict) else None),
+                        )
+                        # Propagar debug block del adapter al editorial.
+                        if (isinstance(editorial_payload, dict)
+                                and editorial_payload.get("internal_analysis_debug")
+                                and isinstance(editorial, dict)):
+                            editorial["internal_analysis_debug"] = editorial_payload[
+                                "internal_analysis_debug"
+                            ]
+                        entry["editorial_prediction"] = editorial
                     except Exception:  # noqa: BLE001
                         # Never let a single bad payload poison the whole
                         # summary annotation pass.

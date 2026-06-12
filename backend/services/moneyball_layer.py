@@ -988,6 +988,11 @@ def analyze_pick(pick: dict, sport: str, stake: float = 10.0) -> dict:
         "learning_tags": learning_tags,
         "line_movement_favourable": line_favourable,
     }
+    # Phase F74 — propagate state + reason_codes (used by REQUIRES_MARKET_IDENTITY bucket)
+    if "state" in cls:
+        moneyball["state"] = cls["state"]
+    if "reason_codes" in cls:
+        moneyball["reason_codes"] = cls["reason_codes"]
 
     # Back-compat: keep `_market_edge` populated so the legacy panel keeps
     # working until it's fully replaced. Verdict here mirrors classification.
@@ -1033,6 +1038,12 @@ PROTECTED_ACCEPTABLE_CLASSIFICATIONS = {"PROTECTED_ACCEPTABLE"}
 # Classes routed to `watchlist` bucket — not actionable, monitor only.
 WATCHLIST_CLASSIFICATIONS = {"WATCHLIST"}
 
+# Phase F74 — Classes routed to `requires_market_identity` bucket: when the
+# market identity is UNKNOWN/missing we MUST NOT classify as trap, discard,
+# or below-floor. Instead the pick lands here so the operator can map the
+# market manually. Never terminal.
+REQUIRES_MARKET_IDENTITY_CLASSIFICATIONS = {"MARKET_IDENTITY_MISSING"}
+
 
 def apply_moneyball_layer(parsed: dict, sport: str = "football", stake: float = 10.0) -> dict:
     """Mutates `parsed`:
@@ -1053,12 +1064,15 @@ def apply_moneyball_layer(parsed: dict, sport: str = "football", stake: float = 
     disc_mkt          = list(summary.get("discarded_market") or [])
     protected_accept  = list(summary.get("protected_acceptable") or [])
     watchlist         = list(summary.get("watchlist") or [])
+    # Phase F74 — new bucket for picks blocked by missing market identity.
+    requires_mi       = list(summary.get("requires_market_identity") or [])
 
     kept: list[dict] = []
     counts: dict[str, int] = {}
     rerouted = 0
     accepted_protected = 0
     watchlisted = 0
+    requires_mi_count = 0
 
     for p in picks:
         result = analyze_pick(p, sport=sport, stake=stake)
@@ -1066,6 +1080,73 @@ def apply_moneyball_layer(parsed: dict, sport: str = "football", stake: float = 
         p["_moneyball"]   = result["_moneyball"]
         cls = result["_moneyball"]["classification"]
         counts[cls] = counts.get(cls, 0) + 1
+
+        if cls in REQUIRES_MARKET_IDENTITY_CLASSIFICATIONS:
+            # Phase F74 — UNKNOWN market identity. NUNCA descartar, NUNCA
+            # marcar como trampa: rutear a bucket dedicado para que la UI
+            # solicite identificación manual del mercado.
+            # Phase F74-post — antes de rutear, intentar **resolver** la
+            # identity desde odds_snapshots o pistas en la entry. Si lo
+            # logramos, re-clasificamos el pick con la nueva identity.
+            resolved_mi = None
+            resolution_state = None
+            candidate_markets: list[dict] = []
+            try:
+                from . import football_market_identity_resolver as _mir
+                resolution = _mir.resolve_market_identity_for_discarded_entry(
+                    p, p,
+                )
+                resolution_state = resolution.get("state")
+                if resolution_state == _mir.STATE_RESOLVED:
+                    resolved_mi = resolution.get("market_identity")
+                elif resolution_state == _mir.STATE_REQUIRES_MANUAL:
+                    candidate_markets = resolution.get("candidate_markets") or []
+            except Exception as exc:  # noqa: BLE001
+                log.debug("[F74_POST_RESOLVER_FAIL] %s", exc)
+
+            if resolved_mi:
+                # Re-evaluar con la identity recién resuelta.
+                p["market_identity"] = resolved_mi
+                rec_block = p.get("recommendation") or {}
+                rec_block["market_identity"] = resolved_mi
+                p["recommendation"] = rec_block
+                result = analyze_pick(p, sport=sport, stake=stake)
+                p["_market_edge"] = result["_market_edge"]
+                p["_moneyball"]   = result["_moneyball"]
+                cls = result["_moneyball"]["classification"]
+                counts[cls] = counts.get(cls, 0) + 1
+                # NO continue — caer en el flujo normal de buckets abajo.
+            else:
+                p["_bucket"] = "requires_market_identity"
+                mb_block = result.get("_moneyball") or {}
+                rec_block = p.get("recommendation") or {}
+                entry = {
+                    "match_id":    p.get("match_id"),
+                    "match_label": p.get("match_label"),
+                    "market_raw":  rec_block.get("market"),
+                    "selection_raw": rec_block.get("selection"),
+                    "odds_range":  rec_block.get("odds_range"),
+                    "reason":      mb_block.get("classification_reason"),
+                    "state":       (resolution_state
+                                     if resolution_state else
+                                     mb_block.get("state")
+                                     or "REQUIRES_MARKET_IDENTIFICATION"),
+                    "reason_codes": mb_block.get("reason_codes") or [
+                        "MARKET_IDENTITY_MISSING",
+                        "EDGE_CALCULATION_BLOCKED_UNKNOWN_MARKET",
+                    ],
+                    "_moneyball_classification": cls,
+                    "_market_edge":  result["_market_edge"],
+                    "_moneyball":    result["_moneyball"],
+                }
+                if candidate_markets:
+                    # Phase F74-post — bucket separado AMBIGUOUS con
+                    # candidatos para que la UI permita selección manual.
+                    entry["candidate_markets"] = candidate_markets
+                    entry["state"] = "REQUIRES_MANUAL_MARKET_SELECTION"
+                requires_mi.append(entry)
+                requires_mi_count += 1
+                continue
 
         if cls in REROUTE_CLASSIFICATIONS:
             disc_mkt.append({
@@ -1097,6 +1178,8 @@ def apply_moneyball_layer(parsed: dict, sport: str = "football", stake: float = 
     summary["discarded_market"]    = disc_mkt
     summary["protected_acceptable"] = protected_accept
     summary["watchlist"]            = watchlist
+    if requires_mi:
+        summary["requires_market_identity"] = requires_mi
     parsed["summary"] = summary
     parsed.setdefault("_pipeline", {})
     parsed["_pipeline"]["moneyball"] = {
@@ -1105,14 +1188,15 @@ def apply_moneyball_layer(parsed: dict, sport: str = "football", stake: float = 
         "rerouted":           rerouted,
         "protected_accepted": accepted_protected,
         "watchlisted":        watchlisted,
+        "requires_market_identity": requires_mi_count,
         "by_classification":  counts,
         "stake_used":         stake,
         "thresholds":         EDGE_THRESHOLDS,
     }
     if picks:
         log.info(
-            "moneyball[%s]: %d picks → %d kept (%d protected_accept) / %d watchlist / %d rerouted | %s",
+            "moneyball[%s]: %d picks → %d kept (%d protected_accept) / %d watchlist / %d rerouted / %d requires_market_identity | %s",
             sport, len(picks), len(kept), accepted_protected,
-            watchlisted, rerouted, counts,
+            watchlisted, rerouted, requires_mi_count, counts,
         )
     return parsed

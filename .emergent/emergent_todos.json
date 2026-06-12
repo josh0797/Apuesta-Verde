@@ -1,30 +1,38 @@
 [
   {
-    "content": "F74-1: Mover Over 1.5 a PROTECTED en market_tolerance.py",
+    "content": "Cambio 1+6: football_editorial_payload_adapter.py (aplanado + data_quality upgrade)",
     "status": "completed"
   },
   {
-    "content": "F74-2: Crear get_protected_floor(market_identity)",
+    "content": "Cambio 2: football_data_enrichment_normalizer.py (alias legacy persist)",
     "status": "completed"
   },
   {
-    "content": "F74-3: Crear resolve_edge_floors(category, market_identity, selection)",
+    "content": "Cambio 3: integración adapter en structural_value_review + possible_alternative_markets",
     "status": "completed"
   },
   {
-    "content": "F74-4: Integrar floors granulares + UNKNOWN guard en moneyball_layer.py",
+    "content": "Cambio 4: football_market_identity_resolver.py (resolución por odds)",
     "status": "completed"
   },
   {
-    "content": "F74-5: Crear football_data_enrichment.py (schema canónico)",
+    "content": "Cambio 5: aliases ES/EN + helper get_market_rows_by_alias + _find_line_odds list-form",
     "status": "completed"
   },
   {
-    "content": "F74-6: Crear thestatsapi_football_enrichment.py con DC/Poisson",
+    "content": "Cambio 7: UI collapsible + mensajes específicos en EditorialPredictionPanel",
     "status": "completed"
   },
   {
-    "content": "F74-7: Tests pytest verdes (F74 + global)",
+    "content": "Cambio 8: resolve_thestatsapi_match_id_by_names + cache",
+    "status": "completed"
+  },
+  {
+    "content": "Cambio 9: moneyball intenta resolver identity UNKNOWN antes del bucket",
+    "status": "completed"
+  },
+  {
+    "content": "Tests + suite global verde",
     "status": "completed"
   }
 ]

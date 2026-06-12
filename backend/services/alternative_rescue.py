@@ -58,6 +58,69 @@ BASEBALL_PROTECTED_CANDIDATES = [
 ]
 
 
+# ── Phase F74-post — aliases de mercado por proveedor ──────────────────────
+# Diferentes proveedores (API-Sports, OddsPortal, Forebet, etc.) usan
+# nombres distintos para los mismos mercados. Centralizamos los alias.
+OVER_UNDER_ALIASES: list[str] = [
+    "Over/Under",
+    "Goals Over/Under",
+    "Total Goals",
+    "Totals",
+    "Total",
+    "Match Goals",
+    "Goles Totales",
+    "Over Under",
+    "Over_Under",
+    "Total de goles",
+]
+
+DOUBLE_CHANCE_ALIASES: list[str] = [
+    "Double Chance",
+    "Doble Oportunidad",
+    "Double chance",
+    "1X2 Double Chance",
+    "doble oportunidad",
+    "DC",
+]
+
+# Selección DC: normalisar variantes ES/EN a la convención canónica
+# (``1X`` / ``X2`` / ``12``).
+DOUBLE_CHANCE_SELECTION_ALIASES: dict[str, str] = {
+    "Home/Draw":           "1X",
+    "Draw/Away":           "X2",
+    "Home/Away":           "12",
+    "Local/Empate":        "1X",
+    "Empate/Visitante":    "X2",
+    "Local/Visitante":     "12",
+    "home_draw":           "1X",
+    "draw_away":           "X2",
+    "home_away":           "12",
+}
+
+
+def get_market_rows_by_alias(markets: dict, aliases: list[str]) -> list[dict]:
+    """Devuelve las filas de bookmaker para el primer alias que matchee.
+
+    Es **case-insensitive** y normaliza acentos (NFD). Si ningún alias
+    matchea, devuelve lista vacía (fail-soft).
+    """
+    if not isinstance(markets, dict) or not markets:
+        return []
+    import unicodedata as _u
+
+    def _norm(s: str) -> str:
+        if not isinstance(s, str):
+            return ""
+        nf = _u.normalize("NFD", s)
+        return "".join(c for c in nf if _u.category(c) != "Mn").lower().strip()
+
+    norm_aliases = {_norm(a) for a in aliases}
+    for k, v in markets.items():
+        if _norm(k) in norm_aliases and isinstance(v, list):
+            return v
+    return []
+
+
 # ── Helpers ─────────────────────────────────────────────────────────────────
 def _best_odds_from_market_list(rows: list[dict], key: str) -> Optional[float]:
     """Encuentra la mejor cuota (más alta) para una clave dada en filas de bookmaker."""
@@ -72,19 +135,43 @@ def _best_odds_from_market_list(rows: list[dict], key: str) -> Optional[float]:
 
 def _find_line_odds(rows: list[dict], line: str) -> Optional[float]:
     """Encuentra cuota Over/Total para una línea específica en rows tipo
-    `[{"bookmaker":..., "lines":{"Over 3.5": 1.45, "Under 3.5": 2.75}}]`."""
+    ``[{"bookmaker":..., "lines":{"Over 3.5": 1.45, "Under 3.5": 2.75}}]``
+    o bien (Phase F74-post) ``[{"lines":[{"value":"Más de 1.5","odd":1.30}, ...]}]``.
+
+    Acepta también equivalencias EN/ES (``Over``↔``Más de``,
+    ``Under``↔``Menos de``).
+    """
     best = None
     target = line.strip()
+    # Equivalencias EN↔ES.
+    targets = {target}
+    for en, es in (("Over", "Más de"), ("Under", "Menos de"),
+                    ("Over", "Mas de"), ("Under", "Menos De")):
+        if target.startswith(en):
+            targets.add(target.replace(en, es, 1))
+        if target.startswith(es):
+            targets.add(target.replace(es, en, 1))
     for r in rows or []:
         lines = r.get("lines") or {}
+        # Pattern A: dict de "Over 3.5" → 1.45
         if isinstance(lines, dict):
-            # Try several key formats
             for k, v in lines.items():
                 if not isinstance(v, (int, float)) or v <= 1.01:
                     continue
                 k_str = str(k).strip()
-                # Exact match or contains the line value
-                if k_str == target or target in k_str:
+                if any(t == k_str or t in k_str or k_str in t for t in targets):
+                    if best is None or v > best:
+                        best = float(v)
+        # Pattern B: lista de {"value":"Más de 1.5","odd":1.30}
+        elif isinstance(lines, list):
+            for ln in lines:
+                if not isinstance(ln, dict):
+                    continue
+                v = ln.get("odd")
+                val = str(ln.get("value") or "").strip()
+                if not isinstance(v, (int, float)) or v <= 1.01:
+                    continue
+                if any(t == val or t in val or val in t for t in targets):
                     if best is None or v > best:
                         best = float(v)
     return best
@@ -93,25 +180,39 @@ def _find_line_odds(rows: list[dict], line: str) -> Optional[float]:
 def _football_extract_protected_odds(markets: dict) -> dict[str, float]:
     """De los markets, extrae odds disponibles para los candidatos football protegidos.
 
+    Phase F74-post — soporta aliases de mercado (los proveedores usan
+    distintos nombres para el mismo mercado): ``Over/Under``,
+    ``Goals Over/Under``, ``Total Goals``, ``Goles Totales``, etc.
+
     Returns: { "Under 3.5": 1.85, "Over 1.5": 1.30, "1X": 1.40, ... }
     """
     out: dict[str, float] = {}
 
-    # Over/Under
-    ou_rows = markets.get("Over/Under") or []
+    # Over/Under — aliases conocidos (ES/EN, varios proveedores)
+    ou_rows = get_market_rows_by_alias(markets, OVER_UNDER_ALIASES)
     for line in ["3.5", "4.5", "1.5", "2.5"]:
         # Try "Under X.X" then "Over X.X"
-        for side_label in [f"Under {line}", f"Over {line}"]:
+        for side_label in [f"Under {line}", f"Over {line}",
+                            f"Menos de {line}", f"Más de {line}"]:
             o = _find_line_odds(ou_rows, side_label)
             if o:
-                out[side_label] = o
+                # Persist under the EN-canonical key so downstream code
+                # (which expects Under/Over) keeps working.
+                canon = side_label.replace("Menos de", "Under").replace("Más de", "Over")
+                out[canon] = o
 
-    # Double Chance
-    dc_rows = markets.get("Double Chance") or []
-    for sel in ("Home/Draw", "Draw/Away", "Home/Away", "1X", "X2", "12"):
+    # Double Chance — aliases ES/EN
+    dc_rows = get_market_rows_by_alias(markets, DOUBLE_CHANCE_ALIASES)
+    for sel in (
+        "Home/Draw", "Draw/Away", "Home/Away",
+        "Local/Empate", "Empate/Visitante", "Local/Visitante",
+        "1X", "X2", "12",
+    ):
         o = _best_odds_from_market_list(dc_rows, sel)
         if o:
-            out[sel] = o
+            # Normalise selection name to canonical (1X / X2 / 12).
+            canon = DOUBLE_CHANCE_SELECTION_ALIASES.get(sel, sel)
+            out[canon] = o
     return out
 
 

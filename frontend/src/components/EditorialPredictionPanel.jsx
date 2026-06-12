@@ -63,9 +63,64 @@ export function EditorialPredictionPanel({
     return null;
   }
   const audit = editorial.internal_editorial_analysis || {};
+  // Phase F74-post — internal_analysis_debug surfaces WHY this match
+  // couldn't generate an editorial (recent_fixtures, TheStatsAPI,
+  // market_identity availability). Always rendered as collapsible so the
+  // operator can diagnose THIN-data cases without cluttering the UI.
+  const debugBlock = editorial.internal_analysis_debug;
+  const renderDebugCollapsible = () => {
+    if (!debugBlock || typeof debugBlock !== 'object') return null;
+    const flagLabel = (ok) => (ok
+      ? <span className="text-emerald-300">✓</span>
+      : <span className="text-rose-300">✗</span>);
+    return (
+      <details
+        className="mt-2 rounded-md border border-slate-700/50 bg-slate-950/40 px-3 py-2 text-[11px] text-slate-400"
+        data-testid={`${testIdPrefix}-internal-debug`}
+      >
+        <summary className="cursor-pointer select-none font-medium text-slate-300">
+          Ver detalle del análisis
+        </summary>
+        <ul className="mt-2 space-y-1 pl-1">
+          <li>{flagLabel(debugBlock.recent_fixtures_found)} Forma reciente encontrada</li>
+          <li>{flagLabel(debugBlock.recent_fixtures_flattened)} Forma reciente normalizada para el editorial</li>
+          <li>{flagLabel(debugBlock.thestatsapi_found)} TheStatsAPI / xG disponible</li>
+          <li>{flagLabel(debugBlock.h2h_found)} H2H reciente cargado</li>
+          <li>{flagLabel(debugBlock.market_identity_found)} Mercado identificado</li>
+          <li className="pt-1 text-slate-400">
+            <span className="font-medium">Calidad de datos:</span>{' '}
+            <span className="text-slate-200">{debugBlock.data_quality || 'THIN'}</span>
+          </li>
+          {Array.isArray(debugBlock.missing) && debugBlock.missing.length > 0 && (
+            <li className="pt-1 text-slate-400">
+              <span className="font-medium">Faltantes:</span>{' '}
+              <span className="text-amber-200">{debugBlock.missing.join(', ')}</span>
+            </li>
+          )}
+        </ul>
+      </details>
+    );
+  };
+
   // Phase F69 — when the agregator flagged the editorial as a generic
   // template, render an honest empty state instead of misleading content.
   if (audit.is_generic_fallback === true) {
+    // Phase F74-post — texto específico cuando hay debug info: explicar
+    // qué falta exactamente en lugar del genérico "Datos insuficientes".
+    const specificMessages = [];
+    if (debugBlock) {
+      if (debugBlock.recent_fixtures_found && !debugBlock.recent_fixtures_flattened) {
+        specificMessages.push('Forma reciente encontrada, pero no normalizada para el editorial.');
+      } else if (!debugBlock.recent_fixtures_found) {
+        specificMessages.push('Sin forma reciente (últimos 5/15 partidos) disponible.');
+      }
+      if (!debugBlock.thestatsapi_found) {
+        specificMessages.push('TheStatsAPI no disponible o no mapeado.');
+      }
+      if (!debugBlock.market_identity_found) {
+        specificMessages.push('Mercado no identificado.');
+      }
+    }
     return (
       <div
         className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-3 py-3 text-xs text-slate-400"
@@ -77,9 +132,16 @@ export function EditorialPredictionPanel({
             Análisis interno no disponible
           </span>
         </div>
-        <p className="mt-1 pl-6">
-          Datos insuficientes para generar una lectura específica del partido.
-        </p>
+        {specificMessages.length > 0 ? (
+          <ul className="mt-1 list-disc pl-6 space-y-0.5" data-testid={`${testIdPrefix}-specific-reasons`}>
+            {specificMessages.map((msg, i) => <li key={i}>{msg}</li>)}
+          </ul>
+        ) : (
+          <p className="mt-1 pl-6">
+            Datos insuficientes para generar una lectura específica del partido.
+          </p>
+        )}
+        {renderDebugCollapsible()}
       </div>
     );
   }
@@ -201,6 +263,10 @@ export function EditorialPredictionPanel({
           onExternalLoaded={setExternalPayload}
         />
       )}
+      {/* Phase F74-post — collapsible diagnostic block showing which
+          sub-sources fed (o no) este análisis. Disponible siempre como
+          diagnóstico, sin invadir la UI cuando todo está bien. */}
+      {renderDebugCollapsible()}
     </div>
   );
 }

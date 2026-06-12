@@ -433,7 +433,41 @@ def compute_structural_value_review(
         from services.football_editorial_prediction import (
             generate_football_editorial_prediction,
         )
-        editorial = generate_football_editorial_prediction(match)
+        # Phase F74-post — pasar el match por el adapter editorial primero
+        # para aplanar recent_fixtures / TheStatsAPI / live_stats al schema
+        # que espera el motor. Esto evita el síntoma "Análisis interno no
+        # disponible / THIN" cuando los datos sí existían en sub-paths.
+        try:
+            from services.football_editorial_payload_adapter import (
+                build_editorial_ready_match_payload,
+            )
+            from services.football_data_enrichment_normalizer import (
+                normalize_football_data_enrichment,
+            )
+            # Normalizar TheStatsAPI primero (persiste también en legacy keys).
+            normalize_football_data_enrichment(match)
+            editorial_payload = build_editorial_ready_match_payload(match)
+        except Exception as adapt_exc:  # noqa: BLE001
+            log.debug("[F74_ADAPTER_FAIL] %s", adapt_exc)
+            editorial_payload = match  # fail-soft: use raw match
+
+        editorial = generate_football_editorial_prediction(
+            editorial_payload,
+            h2h_matches=editorial_payload.get("h2h_recent")
+                         if isinstance(editorial_payload, dict) else None,
+        )
+        # Phase F74-post — propagar el debug block al editorial.
+        if (isinstance(editorial_payload, dict)
+                and editorial_payload.get("internal_analysis_debug")):
+            editorial["internal_analysis_debug"] = editorial_payload[
+                "internal_analysis_debug"
+            ]
+            for code in editorial_payload["internal_analysis_debug"].get(
+                "reason_codes", []
+            ) or []:
+                if code not in editorial.get("reason_codes", []):
+                    editorial.setdefault("reason_codes", []).append(code)
+
         out["editorial_prediction"] = editorial
         for code in editorial.get("reason_codes", []) or []:
             if code not in out["reason_codes"]:

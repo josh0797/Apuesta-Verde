@@ -211,6 +211,124 @@ async def get_player_heatmap(
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Phase F74-post — fallback resolver: match-id por (fecha, home, away)
+# ─────────────────────────────────────────────────────────────────────
+def _normalize_team_name_for_search(name: str) -> str:
+    """Pasada simple: lower + acentos + alias internos (cuando estén)."""
+    if not isinstance(name, str):
+        return ""
+    import unicodedata as _u
+    nf = _u.normalize("NFD", name)
+    base = "".join(c for c in nf if _u.category(c) != "Mn").lower().strip()
+    # Aliases internos opcionales (best-effort)
+    try:
+        from services.team_name_translations import _slug_accented as _slug
+        slugged = _slug(base)
+        if slugged:
+            base = slugged
+    except Exception:  # noqa: BLE001
+        pass
+    return base
+
+
+async def resolve_thestatsapi_match_id_by_names(
+    home_team: str,
+    away_team: str,
+    date: str,
+    *,
+    competition: Optional[str] = None,
+    db=None,
+) -> Optional[str]:
+    """Fallback: cuando no tenemos ``_thestatsapi_raw_id`` ni
+    ``_external_source_id``, intentar resolver el match en TheStatsAPI
+    listando ``/api/football/matches?date_from=DATE&date_to=DATE`` y
+    matcheando por nombres normalizados.
+
+    Cachea POSITIVOS y NEGATIVOS para no martillar el endpoint.
+
+    Returns
+    -------
+    Optional[str]
+        El ``match_id`` de TheStatsAPI si encuentra coincidencia, o
+        ``None`` si no (con código ``THESTATSAPI_MATCH_MAPPING_NOT_FOUND``
+        registrado en logs).
+    """
+    if not (home_team and away_team and date):
+        return None
+    if not is_enabled():
+        return None
+
+    norm_home = _normalize_team_name_for_search(home_team)
+    norm_away = _normalize_team_name_for_search(away_team)
+    cache_key = f"{date}:{norm_home}:{norm_away}"
+
+    cached = await _cache_get(db, "thestatsapi_match_mapping_cache", cache_key)
+    if cached is not None:
+        # Cache puede contener {"match_id": "..."} o {"match_id": None} (negativo).
+        return (cached or {}).get("match_id")
+
+    data = await _http_get(
+        f"/api/football/matches?date_from={date}&date_to={date}",
+    )
+    if not isinstance(data, list):
+        # API puede devolver dict con "data" — ya lo desempaquetamos en _http_get,
+        # pero si por algún motivo viene dict puro, intentar 'matches' clave.
+        if isinstance(data, dict):
+            data = data.get("matches") or data.get("data") or []
+        else:
+            data = []
+
+    found_id: Optional[str] = None
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        h = (entry.get("home_team") or entry.get("home") or {}) if isinstance(
+            entry.get("home_team") or entry.get("home"), dict
+        ) else {"name": entry.get("home_team")}
+        a = (entry.get("away_team") or entry.get("away") or {}) if isinstance(
+            entry.get("away_team") or entry.get("away"), dict
+        ) else {"name": entry.get("away_team")}
+        h_name = _normalize_team_name_for_search(
+            (h or {}).get("name") or entry.get("home_team_name") or ""
+        )
+        a_name = _normalize_team_name_for_search(
+            (a or {}).get("name") or entry.get("away_team_name") or ""
+        )
+        # Match exact or substring fallback (e.g. "Brazil" ⊂ "Brazil U23").
+        match_ok = (
+            (h_name == norm_home and a_name == norm_away)
+            or (h_name and norm_home and (h_name in norm_home or norm_home in h_name)
+                and a_name and norm_away
+                and (a_name in norm_away or norm_away in a_name))
+        )
+        if competition:
+            comp_name = _normalize_team_name_for_search(
+                (entry.get("competition") or {}).get("name", "")
+                if isinstance(entry.get("competition"), dict)
+                else (entry.get("competition_name") or "")
+            )
+            norm_comp = _normalize_team_name_for_search(competition)
+            if comp_name and norm_comp and norm_comp not in comp_name:
+                continue
+        if match_ok:
+            found_id = (entry.get("id") or entry.get("match_id")
+                        or entry.get("_id"))
+            break
+
+    # Cache resultado (positivo o negativo) para evitar repetir lookups.
+    await _cache_set(
+        db, "thestatsapi_match_mapping_cache", cache_key,
+        {"match_id": found_id, "home": norm_home,
+         "away": norm_away, "date": date},
+    )
+    if not found_id:
+        log.info("[THESTATSAPI_MATCH_MAPPING_NOT_FOUND] %s vs %s @%s",
+                 norm_home, norm_away, date)
+        return None
+    return str(found_id)
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Normalisation helpers — used by the editorial engine and by tests.
 # ─────────────────────────────────────────────────────────────────────
 def _safe_float(v: Any) -> Optional[float]:
@@ -301,5 +419,6 @@ __all__ = [
     "GOAL_LINES", "CORNER_LINES",
     "is_enabled",
     "get_prematch_odds", "get_live_odds", "get_player_heatmap",
+    "resolve_thestatsapi_match_id_by_names",
     "extract_normalised_markets",
 ]
