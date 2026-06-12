@@ -549,3 +549,80 @@ Promoción del `dc_nb_delta_2_5_pts` de telemetry-only a scoring real, tras vali
 - (P3) Expandir `team_name_translations.py` Champions/Europa League (sigue pendiente desde F64).
 - (P4) Considerar proveedores alternativos para gambling sites cuando se requiera (ScrapingBee, Zyte) — *fuera de scope hoy*.
 
+
+---
+
+## Phase F66 — Internal Editorial Prediction Engine + TheStatsAPI Integration (COMPLETED)
+
+### Objetivo
+Reemplazar la dependencia runtime de Scores24 (bloqueado por política de Bright Data) por un motor editorial PROPIO que genera 4 secciones dinámicas para cada partido descartado, con cuotas reales servidas por **TheStatsAPI**.
+
+### Implementación
+
+#### A) TheStatsAPI integration — `services/thestatsapi_client.py` (NUEVO, ~225 LOC)
+- **Auth**: `Authorization: Bearer <STATSAPI_API_KEY>` (verificado live contra `api.thestatsapi.com`).
+- **3 endpoints**: `/api/football/matches/{id}/odds`, `/odds/live`, `/players/{pid}/competitions/{cid}/seasons/{sid}/heatmap`.
+- **Cache TTL en Mongo** (3 colecciones con TTL indexes auto-creados en startup):
+  - `thestatsapi_prematch_cache` → 15 min
+  - `thestatsapi_live_cache` → 60s
+  - `thestatsapi_heatmap_cache` → 24h
+- **Opt-IN**: gateado por `STATSAPI_API_KEY`. Sin key, `is_enabled()` retorna False y el editorial sigue funcionando sin cuotas.
+- **Circuit breaker reuse**: usa el mismo módulo F65 (per-host, 5 fallos → pausa 30 min, policy block → 24h).
+- **`extract_normalised_markets()`**: aplana respuesta Kambi-style (`opening`/`last_seen`) a dict consumible por el editorial.
+
+#### B) Dixon-Coles scoreline grid — `services/football_dixon_coles.py` (NUEVO, ~180 LOC)
+- **Tier 1 Dixon-Coles** (Poisson + tau low-score, rho=-0.13) → **Tier 2 Poisson** → **Tier 3 Heurística por perfil** (UNDER/OVER/DOMINANT/BTTS/NEUTRAL).
+- Solo stdlib (math). Fail-soft total. Garbage → NEUTRAL heuristic.
+
+#### C) Editorial Prediction engine — `services/football_editorial_prediction.py` (NUEVO, ~580 LOC)
+Función pública: `generate_football_editorial_prediction(match_payload, odds=None, h2h_matches=None)`.
+
+**4 sub-secciones + H2H placeholder**:
+1. **corners_prediction** — `football_corner_profile_cross` + flat L5/L15. Reglas verbatim (STRONG_UNDER→Under, ASYMMETRIC→Team Over, MIXED→Watchlist).
+2. **goals_prediction** — `team_profile_cross` + `under_support` + `over_support` + xG. NO fuerza Over 2.5/BTTS.
+3. **key_trends** — top-5 desde L5/L15, prioriza tendencias que apoyen el mercado recomendado.
+4. **head_to_head** — placeholder fail-soft (insufficient_sample por defecto).
+5. **probable_score** — cascada DC→Poisson→Heurística con top-5 scorelines + narrativa que cita el método.
+
+Salida con `best_protected_market`, `overall_narrative_es`, `reason_codes` consolidados.
+
+#### D) Integración pipeline de descartes
+- `compute_structural_value_review()` adjunta `editorial_prediction` al output.
+- `possible_alternative_markets.attach_alternatives_to_summary()` extendido: TODOS los buckets (`discarded_market`, `discarded_motivation`, `incomplete_data`) reciben `editorial_prediction`.
+
+#### E) Endpoint REST `/api/football/editorial-prediction/{match_id}?use_odds=true`
+Resuelve match doc desde `analyst_runs`, llama TheStatsAPI (cache 15min), normaliza, alimenta editorial.
+
+#### F) UI — `components/EditorialPredictionPanel.jsx` (NUEVO, ~155 LOC)
+Header verde-esmeralda, banner `best_protected_market`, 5 sub-secciones con chips de mercado+cuota cuando OK, chips amber "Watchlist", chips mono para scorelines. Renderizado **arriba** del `StructuralReviewPanel`.
+
+#### G) MongoDB TTL indexes auto-creados al startup
+`thestatsapi_prematch_cache` (15m), `thestatsapi_live_cache` (60s), `thestatsapi_heatmap_cache` (24h).
+
+### Tests
+- **`tests/test_football_dixon_coles_smoke.py`** — 10 tests (DC vs Poisson, heuristic fallback, garbage).
+- **`tests/test_football_editorial_prediction_smoke.py`** — 21 tests (4 secciones, fail-soft, normaliser Kambi-style).
+- **Suite total: 1980/1980 passing** (+31 nuevos vs 1949, **0 regresiones**).
+
+### Verificación end-to-end (producción real)
+- TheStatsAPI live: `GET /api/football/competitions` → 200, 1000+ competitions ✓
+- `mt_511134637`: odds completos con total_goals, match_corners 7.5-11.5, btts, match_odds ✓
+- Endpoint propio `/api/football/editorial-prediction/mt_511134637?use_odds=true` → `available=true`, `odds_attached=true` ✓
+- Smoke sintético Brazil vs Morocco UNDER: "Brazil promedia 3.5 córners… Morocco apenas 3.7… apostar por Under 9.5 córners a cuota 1.42*" — coincide con ejemplo del spec ✓
+
+### Variables env nuevas (todas opt-IN)
+| Variable | Default | Propósito |
+|---|---|---|
+| `STATSAPI_API_KEY` | (vacío) | API key TheStatsAPI |
+| `STATSAPI_BASE_URL` | `https://api.thestatsapi.com` | Override opcional |
+
+### Cumplimiento Acceptance Criteria (1-10 del spec)
+1. ✅ No depende de Scores24. 2. ✅ 5 secciones. 3. ✅ Corners L5/L15. 4. ✅ Goals con xG+support. 5. ✅ Trends desde datos reales. 6. ✅ H2H como contexto. 7. ✅ Probable score desde engine. 8. ✅ No fuerza picks. 9. ✅ PARTIAL/MISSING. 10. ✅ Todo fail-soft.
+
+### Próximos pasos sugeridos (P3)
+- (P3) UI heatmaps consumiendo TheStatsAPI player heatmap endpoint.
+- (P3) UI Backtest Lab consumiendo `/api/backtest/watchlist-odds-needed` (pendiente desde F65).
+- (P3) Colección `head_to_head_matches` + cron de ingesta para activar 5ª sección real.
+- (P3) Expandir `team_name_translations.py` Champions/Europa League (desde F64).
+- (P4) Mapping `match_id` API-Sports ↔ TheStatsAPI `mt_*`.
+

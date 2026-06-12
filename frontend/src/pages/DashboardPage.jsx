@@ -26,6 +26,7 @@ import { ManualOddsReviewPanel } from '@/components/ManualOddsReviewPanel';
 import { FootballMarketAuditPanel } from '@/components/FootballMarketAuditPanel';
 import { CornerPregamePanel } from '@/components/CornerPregamePanel';
 import { StructuralReviewPanel } from '@/components/StructuralReviewPanel';
+import { EditorialPredictionPanel } from '@/components/EditorialPredictionPanel';
 
 function GroupSection({ title, count, tier, children, defaultOpen = true, testId, sectionRef, icon: Icon }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -119,7 +120,9 @@ function DiscardedRow({ item, testId, type, sport }) {
     || externalEvidence.some((e) => e.status === 'ok')
     || possibleAlts.length > 0
     || hasFootballAudit
-    || (item.structural_review && item.structural_review.available);
+    || (item.structural_review && item.structural_review.available)
+    || (item.editorial_prediction && item.editorial_prediction.available)
+    || (item.structural_review?.editorial_prediction?.available);
   const trapCount = structuredTraps.length;
   const sigCount = editorialSignals.length;
   const humanReason = useMemo(() => {
@@ -217,10 +220,19 @@ function DiscardedRow({ item, testId, type, sport }) {
               testIdPrefix={`${testId}-${item.match_id || 'na'}`}
             />
           )}
-          {/* Phase F64 — Structural value review (only attached for football
-              soft-discards). Renders the goal/corner profile cross + under
-              /over support scores + market candidates BEFORE the editorial
-              signals so the user sees the structural rescue rationale first. */}
+          {/* Phase F66 — Internal Editorial Prediction (FIRST, more readable).
+              Pulls from either entry.editorial_prediction or from the
+              structural review's embedded copy. Replaces the runtime
+              dependency on Scores24 while keeping Scores24 as a secondary
+              enrichment when reachable. */}
+          {(item.editorial_prediction || item.structural_review?.editorial_prediction) && (
+            <EditorialPredictionPanel
+              editorial={item.editorial_prediction || item.structural_review?.editorial_prediction}
+              lang={lang}
+              testIdPrefix={`${testId}-editorial`}
+            />
+          )}
+          {/* Phase F64 — Structural value review (technical / auditable). */}
           {item.structural_review && item.structural_review.available && (
             <StructuralReviewPanel
               review={item.structural_review}

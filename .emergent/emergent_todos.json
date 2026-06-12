@@ -1,38 +1,38 @@
 [
   {
-    "content": "Crear circuit breaker para Bright Data (5 fallos consecutivos → pausa 30 min)",
+    "content": "Crear thestatsapi_client.py (async httpx + cache TTL Mongo) con auth Bearer",
     "status": "completed"
   },
   {
-    "content": "Añadir opt-IN flag BRIGHTDATA_ENABLED y gateway en external_sources/base.py + scores24_scraper.py",
+    "content": "Crear football_dixon_coles.py (scoreline grid Poisson + tau DC)",
     "status": "completed"
   },
   {
-    "content": "Subir timeout FBref de 10s a 60s + country=us",
+    "content": "Crear football_editorial_prediction.py (4 secciones: corners/goals/key_trends/probable_score)",
     "status": "completed"
   },
   {
-    "content": "Tests unitarios del circuit breaker",
+    "content": "Tests pytest: editorial engine + dixon_coles + thestatsapi cache",
     "status": "completed"
   },
   {
-    "content": "Backtest: crear colección watchlist_odds_snapshots + cron snapshot job",
+    "content": "Integrar editorial engine en compute_structural_value_review (TODOS los descartes)",
     "status": "completed"
   },
   {
-    "content": "Backtest: endpoint /api/backtest/watchlist-odds-needed (métricas hit-rate, ROI, edge promedio)",
+    "content": "Endpoint REST /api/football/editorial-prediction/{match_id}",
     "status": "completed"
   },
   {
-    "content": "Backtest: dataset sintético inicial + tests del scorer",
+    "content": "TTL indexes thestatsapi_prematch_cache, thestatsapi_live_cache, thestatsapi_heatmap_cache",
     "status": "completed"
   },
   {
-    "content": "Documentar bloqueo de scores24.live (gambling policy) + ruta DuckDuckGo F63 fallback como permanente",
+    "content": "Crear EditorialPredictionPanel.jsx + cablear en DashboardPage.jsx (arriba del Structural)",
     "status": "completed"
   },
   {
-    "content": "Pytest completo + plan.md update",
+    "content": "Pytest suite completa + esbuild + plan.md F66 COMPLETED",
     "status": "completed"
   }
 ]

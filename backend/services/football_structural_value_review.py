@@ -334,6 +334,8 @@ def compute_structural_value_review(
         "rescued_market":                None,
         "reason_codes":                  [RC_STRUCTURAL_REQUIRED],
         "narrative_es":                  "Análisis estructural no disponible.",
+        # Phase F66 — always present, populated below when match is usable.
+        "editorial_prediction":          {"available": False, "status": "MISSING"},
     }
     if not isinstance(match, dict):
         return out
@@ -422,6 +424,23 @@ def compute_structural_value_review(
         out["narrative_es"] = (
             "Sin soporte estructural suficiente — descarte confirmado tras revisión completa."
         )
+
+    # ── Phase F66 — attach the internal editorial prediction (always when
+    #    the match payload is usable). This REPLACES the runtime dependency
+    #    on Scores24 for the discard preview UI. The editorial engine is
+    #    fail-soft and only enriches; it never changes the structural verdict.
+    try:
+        from services.football_editorial_prediction import (
+            generate_football_editorial_prediction,
+        )
+        editorial = generate_football_editorial_prediction(match)
+        out["editorial_prediction"] = editorial
+        for code in editorial.get("reason_codes", []) or []:
+            if code not in out["reason_codes"]:
+                out["reason_codes"].append(code)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[F66_EDITORIAL_ATTACH_FAIL] %s", exc)
+        out["editorial_prediction"] = {"available": False, "_error": str(exc)}
 
     return out
 

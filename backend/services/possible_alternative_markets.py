@@ -137,15 +137,35 @@ def generate_alternatives(
     return _filter_by_reason(menu, reason, signals or [])
 
 
-def attach_alternatives_to_summary(summary: dict, sport: str) -> int:
+def attach_alternatives_to_summary(summary: dict, sport: str,
+                                    match_lookup: dict | None = None) -> int:
     """Mutates `summary` in place, attaching `possible_alternative_markets`
     to every entry in discarded_market / discarded_motivation /
     incomplete_data. Returns the number of entries annotated.
+
+    Phase F66 — also attaches the internal ``editorial_prediction`` to
+    every football entry. The editorial engine is fail-soft and ONLY
+    requires the match payload to exist; it surfaces 4 sections
+    (corners / goals / key_trends / probable_score) and replaces the
+    runtime dependency on Scores24 in the UI.
 
     The function is fail-soft — any per-entry crash is swallowed.
     """
     if not isinstance(summary, dict):
         return 0
+    # Phase F66 — preload editorial engine once (import is cheap but a
+    # module-level cache avoids repeated lookups across hundreds of picks).
+    editorial_fn = None
+    if sport == "football":
+        try:
+            from services.football_editorial_prediction import (
+                generate_football_editorial_prediction as _editorial,
+            )
+            editorial_fn = _editorial
+        except Exception:  # noqa: BLE001
+            editorial_fn = None
+    match_lookup = match_lookup or {}
+
     count = 0
     for bucket_key in ("discarded_market", "discarded_motivation", "incomplete_data"):
         bucket = summary.get(bucket_key) or []
@@ -159,6 +179,15 @@ def attach_alternatives_to_summary(summary: dict, sport: str) -> int:
                 alts = generate_alternatives(entry, sport, signals=signals)
                 entry["possible_alternative_markets"] = alts
                 entry["user_review_note"] = _build_review_note(entry, alts)
+                # Phase F66 — internal editorial prediction.
+                if editorial_fn and not entry.get("editorial_prediction"):
+                    match_doc = match_lookup.get(entry.get("match_id")) or entry
+                    try:
+                        entry["editorial_prediction"] = editorial_fn(match_doc)
+                    except Exception:  # noqa: BLE001
+                        # Never let a single bad payload poison the whole
+                        # summary annotation pass.
+                        pass
                 count += 1
             except Exception:
                 continue

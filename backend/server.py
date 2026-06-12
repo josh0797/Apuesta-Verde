@@ -114,6 +114,20 @@ async def on_startup() -> None:
         log.info("[WATCHLIST_ODDS_SNAPSHOTS] indexes ensured (TTL 60d)")
     except Exception as exc:
         log.warning("[WATCHLIST_ODDS_SNAPSHOTS] index ensure failed: %s", exc)
+    # Phase F66 — TheStatsAPI cache TTL indexes (auto-purge).
+    try:
+        await db.thestatsapi_prematch_cache.create_index(
+            "fetched_at", expireAfterSeconds=15 * 60,
+        )
+        await db.thestatsapi_live_cache.create_index(
+            "fetched_at", expireAfterSeconds=60,
+        )
+        await db.thestatsapi_heatmap_cache.create_index(
+            "fetched_at", expireAfterSeconds=24 * 3600,
+        )
+        log.info("[THESTATSAPI_CACHE] TTL indexes ensured (15m/60s/24h)")
+    except Exception as exc:
+        log.warning("[THESTATSAPI_CACHE] index ensure failed: %s", exc)
     await auth_module.seed_demo_user(db)
     # Knowledge Base — seed the user-validated learning cases (idempotent).
     try:
@@ -166,6 +180,82 @@ async def on_shutdown() -> None:
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 SUPPORTED_SPORTS = {"football", "basketball", "baseball"}
+
+
+# ── Phase F66 — Internal Editorial Prediction endpoint ────────────────
+@app.get("/api/football/editorial-prediction/{match_id}")
+async def football_editorial_prediction_endpoint(
+    match_id: str,
+    use_odds: bool = True,
+) -> dict:
+    """Phase F66 — On-demand editorial preview for a single football match.
+
+    Always fail-soft. When ``STATSAPI_API_KEY`` is set, also fetches
+    normalised prematch odds from TheStatsAPI and feeds them to the
+    engine so the recommended markets carry real prices.
+
+    Path param ``match_id`` is the canonical match identifier used
+    throughout the platform — either the API-Sports id OR a
+    ``mt_*`` TheStatsAPI id (the latter is forwarded as-is to the odds
+    endpoint).
+    """
+    try:
+        # Resolve match payload from analyst_runs / current_run.
+        match_doc = None
+        try:
+            doc = await db.analyst_runs.find_one(
+                {"$or": [
+                    {"summary.discarded_market.match_id":     match_id},
+                    {"summary.discarded_motivation.match_id": match_id},
+                    {"summary.incomplete_data.match_id":      match_id},
+                    {"summary.watchlist_odds_needed.match_id": match_id},
+                    {"picks.match_id": match_id},
+                ]},
+                sort=[("created_at", -1)],
+            )
+            if doc:
+                for bucket in ("picks", "discarded_market", "discarded_motivation",
+                                "incomplete_data", "watchlist_odds_needed"):
+                    src = doc.get(bucket) if bucket == "picks" else \
+                          (doc.get("summary") or {}).get(bucket) or []
+                    for e in src or []:
+                        if isinstance(e, dict) and e.get("match_id") == match_id:
+                            match_doc = e
+                            break
+                    if match_doc:
+                        break
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[F66_LOOKUP_FAIL] %s: %s", match_id, exc)
+
+        if not match_doc:
+            match_doc = {"match_id": match_id}
+
+        # Try to enrich with TheStatsAPI odds (only when match_id has a
+        # `mt_` prefix or the operator confirmed the mapping elsewhere).
+        odds_normalised = None
+        if use_odds:
+            try:
+                from services.thestatsapi_client import (
+                    get_prematch_odds, extract_normalised_markets,
+                )
+                raw_odds = await get_prematch_odds(match_id, db=db)
+                if raw_odds:
+                    odds_normalised = extract_normalised_markets(raw_odds)
+            except Exception as exc:  # noqa: BLE001
+                log.debug("[F66_ODDS_FETCH_FAIL] %s: %s", match_id, exc)
+
+        from services.football_editorial_prediction import (
+            generate_football_editorial_prediction,
+        )
+        out = generate_football_editorial_prediction(
+            match_doc, odds=odds_normalised,
+        )
+        out["match_id"] = match_id
+        out["odds_attached"] = bool(odds_normalised)
+        return out
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[F66_EDITORIAL_ENDPOINT_FAIL] %s: %s", match_id, exc)
+        return {"available": False, "_error": str(exc), "match_id": match_id}
 
 
 # ── Phase F65 — Watchlist Odds-Needed Backtest endpoint ──────────────
