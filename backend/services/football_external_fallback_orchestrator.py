@@ -59,6 +59,13 @@ def reconcile_internal_vs_external_analysis(internal: dict,
 
     forebet = external.get("forebet") or {}
     sporty  = external.get("sportytrader") or {}
+    # Phase F72 — audit verdict guides what we apply.
+    f72_audit         = external.get("forebet_audit") or {}
+    direction_audit   = f72_audit.get("forebet_direction_signal") or {}
+    scoreline_audit   = f72_audit.get("forebet_scoreline_audit") or {}
+    direction_status  = direction_audit.get("status")
+    scoreline_status  = scoreline_audit.get("status")
+    opponent_audit    = f72_audit.get("opponent_strength_audit") or {}
 
     audit: dict[str, Any] = {
         "applied":           False,
@@ -78,11 +85,17 @@ def reconcile_internal_vs_external_analysis(internal: dict,
     fb_xg    = forebet.get("expected_goals") or forebet.get("goals_avg")
 
     # ── Rule 1: probable_score override when Forebet has BOTH score + xG.
+    #   Phase F72 — but ONLY when the F72 scoreline audit allows it
+    #   (status == TRUSTED). If status is DEGRADED or BLOCKED, we keep
+    #   the internal score but annotate the degradation reason so the
+    #   UI can suppress its display.
     if fb_score and fb_xg is not None:
         internal_score = score_sec.get("score")
-        # If internal score is missing OR contradicts Forebet, prefer
-        # Forebet's algorithmic call.
-        if not internal_score or _scores_contradict(internal_score, fb_score):
+        forebet_trusted = scoreline_status in (None, "TRUSTED")
+        scoreline_blocked = scoreline_status == "BLOCKED_FOR_AGGRESSIVE_MARKETS"
+        scoreline_degraded = scoreline_status == "DEGRADED"
+        if forebet_trusted and (not internal_score
+                                 or _scores_contradict(internal_score, fb_score)):
             audit["actions"].append({
                 "type":             "PROBABLE_SCORE_OVERRIDE",
                 "from":             internal_score,
@@ -94,8 +107,6 @@ def reconcile_internal_vs_external_analysis(internal: dict,
                 "INTERNAL_PROBABLE_SCORE_SUPPRESSED_BY_FOREBET"
             )
             audit["applied"] = True
-            # Suppress the contradictory internal score AND surface the
-            # external one in a new field so the UI can render it.
             score_sec["available"]            = True
             score_sec["score"]                = fb_score
             score_sec["method"]               = "FOREBET_ALGORITHMIC"
@@ -109,38 +120,74 @@ def reconcile_internal_vs_external_analysis(internal: dict,
                 "PROBABLE_SCORE_OVERRIDDEN_BY_EXTERNAL_FOREBET"
             ]
             secs["probable_score"] = score_sec
+        elif scoreline_blocked or scoreline_degraded:
+            # Annotate the internal score with the degradation reason so
+            # the UI hides the aggressive scoreline / Over.
+            score_sec["external_audit_status"] = scoreline_status
+            score_sec["external_audit_text"]   = scoreline_audit.get("text")
+            score_sec["external_audit_block_aggressive_overs"] = bool(
+                scoreline_audit.get("block_aggressive_overs")
+            )
+            score_sec["reason_codes"] = (score_sec.get("reason_codes") or []) + [
+                f"FOREBET_SCORELINE_{scoreline_status}"
+            ]
+            audit["actions"].append({
+                "type":             "PROBABLE_SCORE_AUDIT_ANNOTATION",
+                "scoreline_status": scoreline_status,
+                "block_aggressive_overs":
+                    bool(scoreline_audit.get("block_aggressive_overs")),
+            })
+            audit["reason_codes"].append(
+                f"FOREBET_SCORELINE_{scoreline_status}_APPLIED"
+            )
+            audit["applied"] = True
+            secs["probable_score"] = score_sec
         elif internal_score == fb_score:
             audit["reason_codes"].append("PROBABLE_SCORE_INTERNAL_AGREES_WITH_FOREBET")
 
     # ── Rule 2: Over/Under tilt from expected_goals.
+    #   Phase F72 — gate by audit verdicts:
+    #     * Direction CONFLICTED → skip OVER tilt (Forebet may be wrong).
+    #     * Scoreline BLOCKED_FOR_AGGRESSIVE_MARKETS → skip OVER tilt
+    #       (we already blocked aggressive overs).
     if fb_xg is not None:
         try:
             xg = float(fb_xg)
         except Exception:  # noqa: BLE001
             xg = None
-        if xg is not None:
+        # Apply gate.
+        skip_over_tilt = (
+            direction_status == "CONFLICTED"
+            or scoreline_status == "BLOCKED_FOR_AGGRESSIVE_MARKETS"
+        )
+        if xg is not None and skip_over_tilt and xg >= 2.8:
+            audit["reason_codes"].append("EXTERNAL_OVER_TILT_SUPPRESSED_BY_AUDIT")
+            xg_for_tilt = None
+        else:
+            xg_for_tilt = xg
+        if xg_for_tilt is not None:
             goals_sec = secs.get("goals_prediction") or {}
-            if xg >= 2.8:
+            if xg_for_tilt >= 2.8:
                 audit["actions"].append({
                     "type":   "OU_TILT",
                     "to":     "OVER",
-                    "xg":     xg,
+                    "xg":     xg_for_tilt,
                 })
                 audit["reason_codes"].append("EXTERNAL_TILT_OVER_FROM_FOREBET_XG")
                 goals_sec["external_tilt"] = "OVER"
                 goals_sec["external_tilt_reason"] = (
-                    f"Forebet estima {xg:.2f} goles → inclinación Over"
+                    f"Forebet estima {xg_for_tilt:.2f} goles → inclinación Over"
                 )
-            elif xg <= 2.1:
+            elif xg_for_tilt <= 2.1:
                 audit["actions"].append({
                     "type":   "OU_TILT",
                     "to":     "UNDER",
-                    "xg":     xg,
+                    "xg":     xg_for_tilt,
                 })
                 audit["reason_codes"].append("EXTERNAL_TILT_UNDER_FROM_FOREBET_XG")
                 goals_sec["external_tilt"] = "UNDER"
                 goals_sec["external_tilt_reason"] = (
-                    f"Forebet estima {xg:.2f} goles → inclinación Under"
+                    f"Forebet estima {xg_for_tilt:.2f} goles → inclinación Under"
                 )
             if "external_tilt" in goals_sec:
                 secs["goals_prediction"] = goals_sec
@@ -162,6 +209,21 @@ def reconcile_internal_vs_external_analysis(internal: dict,
                 audit["applied"] = True
 
     internal["external_reconciliation"] = audit
+    # Phase F72 — surface verdict at top-level so the UI can render it.
+    if direction_status:
+        audit["direction_status"]  = direction_status
+        audit["direction_text"]    = direction_audit.get("text")
+        audit["direction_favorite"] = direction_audit.get("favorite")
+    if scoreline_status:
+        audit["scoreline_status"]  = scoreline_status
+        audit["scoreline_text"]    = scoreline_audit.get("text")
+        audit["scoreline_block_aggressive_overs"] = bool(
+            scoreline_audit.get("block_aggressive_overs")
+        )
+    if opponent_audit.get("available"):
+        audit["opponent_strength_text"] = opponent_audit.get("text")
+        audit["goals_inflation_risk"]    = opponent_audit.get("goals_inflation_risk")
+
     # Bubble up to top-level reason_codes for telemetry.
     top_codes = internal.get("reason_codes") or []
     for c in audit["reason_codes"]:
@@ -292,6 +354,30 @@ async def build_external_fallback_context(match_payload: dict,
     if not out["sources_used"] and not out.get("odds_validation"):
         out["available"] = False
         out["reason_codes"].append("NO_EXTERNAL_SOURCES_AVAILABLE")
+        return out
+
+    # Phase F72 — Forebet audit (favoritism vs scoreline separated,
+    # with opponent-strength and official/friendly splits taken into
+    # account). Runs only when Forebet returned a fixture so the audit
+    # has something to validate against.
+    forebet_payload = (out.get("forebet") or {})
+    if forebet_payload.get("forebet_pct_1") is not None:
+        try:
+            from services.football_external_prediction_audit import (
+                audit_forebet_prediction_against_match_splits,
+            )
+            statsapi_snap = match_payload.get("thestatsapi_snapshot") or None
+            audit = audit_forebet_prediction_against_match_splits(
+                forebet_payload, match_payload, statsapi=statsapi_snap,
+            )
+            out["forebet_audit"] = audit
+            for c in (audit.get("reason_codes") or []):
+                if c not in out["reason_codes"]:
+                    out["reason_codes"].append(c)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[F72_AUDIT] failed: %s", exc)
+            out["reason_codes"].append("FOREBET_AUDIT_ERROR")
+
     return out
 
 

@@ -1,26 +1,26 @@
 [
   {
-    "content": "F71a-1: services/market_identity.py — normalize_market_identity()",
+    "content": "F72-1: football_external_prediction_audit.py — opponent tier classifier + split official/friendly",
     "status": "completed"
   },
   {
-    "content": "F71a-2: services/football_external_fallback_orchestrator.py — build_context + reconcile",
+    "content": "F72-2: audit_opponent_strength_context() — comparación rival actual vs últimos 5",
     "status": "completed"
   },
   {
-    "content": "F71a-3: Wire reconciliación al endpoint /api/football/external-editorial/{match_id} + market_evaluated en trace",
+    "content": "F72-3: audit_forebet_prediction_against_match_splits() — direction vs scoreline separado",
     "status": "completed"
   },
   {
-    "content": "F71c-1: UI — frontend reconciliation (suprimir 1-1 contradictorio cuando Forebet difiere)",
+    "content": "F72-4: Wire al orchestrator + reconcile (degradar marcador, bloquear Overs, suprimir tilt en CONFLICTED)",
     "status": "completed"
   },
   {
-    "content": "F71c-2: UI — mostrar market identity trace (no \"Mercado evaluado —\")",
+    "content": "F72-5: UI — ForebetAuditSection con direction/scoreline/opponent + matchId routing",
     "status": "completed"
   },
   {
-    "content": "Tests F71 (12/12 passing) + suite global 2053/2053 verde",
+    "content": "F72-6: Tests F72 (12/12 passing) + suite global 2065/2065 verde",
     "status": "completed"
   }
 ]

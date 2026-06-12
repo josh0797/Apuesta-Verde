@@ -20,6 +20,7 @@ import { Sparkles, ExternalLink, Activity, History, ChevronDown, ChevronUp } fro
 export function ExternalEditorialPanel({
   homeTeam,
   awayTeam,
+  matchId = null,
   testIdPrefix = 'external-editorial',
   lang = 'es',
   onExternalLoaded = null,
@@ -30,19 +31,35 @@ export function ExternalEditorialPanel({
   useEffect(() => {
     if (!homeTeam || !awayTeam) return;
     const backendUrl = process.env.REACT_APP_BACKEND_URL || '';
-    const url = `${backendUrl}/api/football/external-editorial/by-teams`
-              + `?home=${encodeURIComponent(homeTeam)}`
-              + `&away=${encodeURIComponent(awayTeam)}`;
+    // Phase F72 — prefer the match_id endpoint when available because
+    // it triggers the full Forebet audit (direction + scoreline +
+    // opponent strength). Fall back to by-teams which is faster but
+    // skips the audit.
+    const url = matchId
+      ? `${backendUrl}/api/football/external-editorial/${encodeURIComponent(matchId)}`
+      : `${backendUrl}/api/football/external-editorial/by-teams`
+          + `?home=${encodeURIComponent(homeTeam)}`
+          + `&away=${encodeURIComponent(awayTeam)}`;
     let cancelled = false;
     setState({ loading: true, data: null, error: null });
     fetch(url)
       .then(r => r.json())
       .then(data => {
+        // F72 — if the matchId endpoint failed (e.g. stale run / not found),
+        // retry against /by-teams so the UI still gets Forebet enrichment.
+        if (matchId && data && data.available === false
+            && Array.isArray(data.reason_codes)
+            && data.reason_codes.includes('MATCH_NOT_FOUND_IN_LATEST_RUN')) {
+          return fetch(`${backendUrl}/api/football/external-editorial/by-teams`
+                       + `?home=${encodeURIComponent(homeTeam)}`
+                       + `&away=${encodeURIComponent(awayTeam)}`)
+                  .then(r => r.json());
+        }
+        return data;
+      })
+      .then(data => {
         if (!cancelled) {
           setState({ loading: false, data, error: null });
-          // Phase F71 — bubble the external payload up so the parent
-          // (EditorialPredictionPanel) can apply reconciliation
-          // (suppress contradictory internal "1-1" chips, etc.).
           if (typeof onExternalLoaded === 'function') {
             try { onExternalLoaded(data); } catch (_) { /* noop */ }
           }
@@ -50,7 +67,7 @@ export function ExternalEditorialPanel({
       })
       .catch(err => { if (!cancelled) setState({ loading: false, data: null, error: String(err) }); });
     return () => { cancelled = true; };
-  }, [homeTeam, awayTeam]);
+  }, [homeTeam, awayTeam, matchId]);
 
   if (state.loading) {
     return (
@@ -111,6 +128,13 @@ export function ExternalEditorialPanel({
         </div>
       </div>
       <div className="text-[11px] text-cyan-300/70 -mt-2">{t.sub}</div>
+
+      {/* Phase F72 — Forebet audit summary (direction + scoreline). */}
+      <ForebetAuditSection
+        audit={data.forebet_audit}
+        testId={`${testIdPrefix}-audit`}
+        lang={lang}
+      />
 
       {/* ── Forebet algorithm ──────────────────────────────────────── */}
       {forebet && forebet.forebet_pct_1 != null && (
@@ -300,6 +324,117 @@ function SportyStatsTable({ homeStats, awayStats, homeName, awayName, testId, la
           <span className="text-slate-100 text-right" data-testid={`${testId}-row-${i}-away`}>{a}</span>
         </React.Fragment>
       ))}
+    </div>
+  );
+}
+
+
+
+/**
+ * Phase F72 — Forebet Audit Section.
+ * Renders the direction signal + scoreline audit + opponent strength
+ * verdicts so the user understands WHY the engine kept or degraded the
+ * Forebet projection.
+ */
+function ForebetAuditSection({ audit, testId, lang = 'es' }) {
+  if (!audit || audit.available !== true) return null;
+  const direction  = audit.forebet_direction_signal || {};
+  const scoreline  = audit.forebet_scoreline_audit || {};
+  const opponent   = audit.opponent_strength_audit || {};
+  const t = lang === 'en'
+    ? { header: 'Forebet audit', directionLabel: 'Direction',
+        scorelineLabel: 'Scoreline', opponentLabel: 'Opponent context' }
+    : { header: 'Auditoría Forebet', directionLabel: 'Dirección',
+        scorelineLabel: 'Marcador', opponentLabel: 'Contexto rival' };
+
+  const STATUS_STYLE = {
+    CONFIRMED:                     'bg-emerald-500/15 text-emerald-200 border-emerald-500/40',
+    TRUSTED:                       'bg-emerald-500/15 text-emerald-200 border-emerald-500/40',
+    WEAK_CONFIRMED:                'bg-amber-500/15 text-amber-200 border-amber-500/40',
+    DEGRADED:                      'bg-amber-500/15 text-amber-200 border-amber-500/40',
+    CONFLICTED:                    'bg-red-500/15 text-red-200 border-red-500/40',
+    BLOCKED_FOR_AGGRESSIVE_MARKETS:'bg-red-500/15 text-red-200 border-red-500/40',
+    INSUFFICIENT_DATA:             'bg-slate-500/15 text-slate-300 border-slate-500/40',
+  };
+
+  return (
+    <div
+      className="rounded-md border border-cyan-400/30 bg-slate-900/30 px-3 py-2 text-xs space-y-2"
+      data-testid={`${testId}-root`}
+    >
+      <div className="text-[11px] font-semibold text-cyan-200">
+        {t.header}
+      </div>
+      {direction.status && (
+        <div className="flex flex-col gap-1" data-testid={`${testId}-direction`}>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-400 w-16 shrink-0">{t.directionLabel}</span>
+            <span
+              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border ${
+                STATUS_STYLE[direction.status] || STATUS_STYLE.INSUFFICIENT_DATA
+              }`}
+              data-testid={`${testId}-direction-status`}
+            >
+              {direction.status.replace(/_/g, ' ')}
+            </span>
+          </div>
+          {direction.text && (
+            <p className="text-[11px] text-slate-300 pl-[4.5rem] leading-relaxed">
+              {direction.text}
+            </p>
+          )}
+        </div>
+      )}
+      {scoreline.status && (
+        <div className="flex flex-col gap-1" data-testid={`${testId}-scoreline`}>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-400 w-16 shrink-0">{t.scorelineLabel}</span>
+            <span
+              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border ${
+                STATUS_STYLE[scoreline.status] || STATUS_STYLE.INSUFFICIENT_DATA
+              }`}
+              data-testid={`${testId}-scoreline-status`}
+            >
+              {scoreline.status.replace(/_/g, ' ')}
+            </span>
+            {scoreline.block_aggressive_overs && (
+              <span
+                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-red-500/20 text-red-200 border border-red-500/50"
+                data-testid={`${testId}-scoreline-blocked`}
+              >
+                Over agresivo bloqueado
+              </span>
+            )}
+          </div>
+          {scoreline.text && (
+            <p className="text-[11px] text-slate-300 pl-[4.5rem] leading-relaxed">
+              {scoreline.text}
+            </p>
+          )}
+        </div>
+      )}
+      {opponent.available && opponent.text && (
+        <div className="flex flex-col gap-1" data-testid={`${testId}-opponent`}>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-400 w-16 shrink-0">{t.opponentLabel}</span>
+            {opponent.goals_inflation_risk && opponent.goals_inflation_risk !== 'LOW' && (
+              <span
+                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border ${
+                  opponent.goals_inflation_risk === 'HIGH'
+                    ? 'bg-red-500/15 text-red-200 border-red-500/40'
+                    : 'bg-amber-500/15 text-amber-200 border-amber-500/40'
+                }`}
+                data-testid={`${testId}-opponent-risk`}
+              >
+                Inflación de goles: {opponent.goals_inflation_risk}
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-300 pl-[4.5rem] leading-relaxed">
+            {opponent.text}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

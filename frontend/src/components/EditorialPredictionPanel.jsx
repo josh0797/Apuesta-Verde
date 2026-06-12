@@ -195,6 +195,7 @@ export function EditorialPredictionPanel({
         <ExternalEditorialPanel
           homeTeam={homeTeamName}
           awayTeam={awayTeamName}
+          matchId={matchId}
           lang={lang}
           testIdPrefix={`${testIdPrefix}-external`}
           onExternalLoaded={setExternalPayload}
