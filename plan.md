@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.  
 > **Estado histórico:** ✅ F58–F70 completadas (ver secciones abajo).  
-> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA**.  
+> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA**.  
 > **Idioma operativo:** Español.
 
 ---
@@ -29,6 +29,7 @@
 - F74: **schema canónico** para enriquecimiento fútbol + probabilidades estimadas.
 - F74-post: **adaptadores** para eliminar fragmentación de datos anidados.
 - F74-post v2: **fallback de odds con TheStatsAPI** (incluye opening/last_seen → line movement sin snapshots históricos).
+- F74-post v2.5: **line movement desde día 1** usando `opening` TheStatsAPI + `last_seen` (sin necesidad de snapshots históricos).
 
 ### Estado global (Phases F58–F70)
 - ✅ F58 completado (backend + UI + scripts + tests).
@@ -183,7 +184,45 @@ Cablear TheStatsAPI como **fallback de odds** en la ingesta de fútbol:
 
 ## Testing
 - ✅ 22 tests nuevos: `backend/tests/test_f74_post_thestatsapi_odds_fallback.py`
-- ✅ Suite global: **2145 passed**, **2 skipped**, 5 warnings, 0 regresiones.
+- ✅ Suite global (en ese punto): **2145 passed**, **2 skipped**, 5 warnings, 0 regresiones.
+
+---
+
+# Phase F74-post v2.5 — Opening Odds → Line Movement Wiring (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Objetivo
+Activar detección de **line movement desde el día 1** usando el `opening` por selección que TheStatsAPI trae (preservado en `_opening_odds`) sin necesidad de snapshots históricos.
+
+## Implementación ejecutada
+
+### ✅ Nuevo — `services/opening_odds_movement.py`
+- `attach_line_movement_from_opening_odds(pick, match_doc)`:
+  - lee `match_doc["odds_snapshots"][0]["_opening_odds"]`;
+  - resuelve market+selection canónicos con aliases ES/EN (ej.: `Goles totales`→`Goals Over/Under`, `Local`→`Home`, `Sí`→`Yes`, `Más de 2.5`→`Over 2.5`);
+  - recupera `opening` por key `bookmaker|market|value` y `current` desde `bookmakers[].bets[].values[]`;
+  - llama `detect_line_movement(opening_odds=opening, current_odds=current, market_side=hint)`;
+  - muta el pick añadiendo:
+    - `pick["_line_movement"]` (payload completo)
+    - `pick["key_data"]["line_movement"]` (forma legacy ya consumida por moneyball).
+  - fail-soft (inputs malformados / faltantes → no-op).
+- `enrich_picks_with_opening_movement(parsed, matches_payload)`:
+  - itera `parsed["picks"]` y cruza con `matches_payload` por `match_id`.
+
+### ✅ Edit — `services/analyst_engine.py`
+- Justo antes de `_mb.apply_moneyball_layer(...)`:
+  - invoca `enrich_picks_with_opening_movement(parsed, matches_payload)`;
+  - esto garantiza que moneyball lea el `line_movement_favourable` desde el primer pase.
+
+## Testing
+- ✅ 44 tests nuevos: `backend/tests/test_f74_post_opening_odds_movement.py`
+- ✅ Suite global: **2189 passed**, **2 skipped**, 0 regresiones (subió de 2145 → 2189).
+
+## Verificación manual
+- Match Winner Home → opening 2.10 / current 2.05 → `odds_movement = -0.05`.
+- Goles totales Más de 2.5 → opening 1.85 / current 1.87 → `odds_movement = +0.02`.
+- Normalización ES/EN confirmada.
 
 ---
 
@@ -197,12 +236,12 @@ Cablear TheStatsAPI como **fallback de odds** en la ingesta de fútbol:
   - Exponer bucket para `REQUIRES_MANUAL_MARKET_SELECTION` con `candidate_markets` + input manual de cuota.
 - (P3) Expandir `team_name_translations.py` para clubes UCL/UEL.
 - (P4) Validar resolver TheStatsAPI por nombres con datos reales y mejorar filtros por `competition` donde aplique.
-- (P5) (Opcional) Conectar `_opening_odds` al `odds_value_engine.evaluate_market(opening_odds=..., current_odds=...)` en la construcción de pick_payload para activar line movement desde día 1.
 
-### Validación esperada (post-F74-post v2)
+### Validación esperada (post-F74-post v2.5)
 - UI/JSON:
   - `odds_source` visible y consistente (`api_sports` vs `thestatsapi_fallback`).
   - Si API-Sports devuelve odds vacías, TheStatsAPI rescata y `odds_snapshots[0].available == True`.
   - `_opening_odds` poblado cuando venga de TheStatsAPI.
+  - `key_data.line_movement` poblado en picks cuando hay opening+current.
   - `[odds_coverage]` en logs detecta regresiones.
   - `internal_analysis_debug` disponible (collapsible) y evita el mensaje genérico sin diagnóstico.

@@ -2008,6 +2008,18 @@ async def analyze_matches(
     #     / NO_BET_VALUE / MARKET_TRAP / PUBLIC_OVERREACTION)
     #   • reroutes the no-value classes to summary.discarded_market.
     from . import moneyball_layer as _mb
+    # Phase F74-post v2.5 — enrich picks with opening→current line
+    # movement (from TheStatsAPI `_opening_odds`) BEFORE moneyball so
+    # the classification reads ``line_movement_favourable`` correctly.
+    try:
+        from .opening_odds_movement import enrich_picks_with_opening_movement
+        _enriched_lm = enrich_picks_with_opening_movement(parsed, matches_payload)
+        if _enriched_lm:
+            pipeline_meta.setdefault("opening_odds_movement", {})[
+                "picks_enriched"
+            ] = _enriched_lm
+    except Exception as exc:  # noqa: BLE001
+        log.debug("opening_odds_movement enrichment skipped: %s", exc)
     parsed = _mb.apply_moneyball_layer(parsed, sport=sport, stake=10.0)
 
     # ── Phase 8.9 — Football DC + NB Calibration Wiring ──────────────────
