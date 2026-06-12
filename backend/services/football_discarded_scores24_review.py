@@ -658,10 +658,14 @@ async def review_discarded_match_with_scores24(
             # All direct attempts failed.
             extra_codes.append(RC_DIRECT_SLUG_FAILED)
 
-    # Search fallback (opt-in via env).
+    # Search fallback. Default: ``duckduckgo`` (opt-OUT via env =``off`` or
+    # ``none``). DuckDuckGo HTML scrape is free, rate-limited and CHEAP
+    # for the ≤10 reviews per run we cap at — so we activate it
+    # automatically once direct slug candidates have all failed.
     if not scrape.get("available"):
-        fallback_mode = (os.environ.get("SCORES24_SEARCH_FALLBACK") or "").strip().lower()
-        if fallback_mode == "duckduckgo" and scrape_fn is not None:
+        fallback_mode = (os.environ.get("SCORES24_SEARCH_FALLBACK") or "duckduckgo").strip().lower()
+        fallback_enabled = fallback_mode not in ("off", "none", "false", "0", "disabled")
+        if fallback_enabled and fallback_mode in ("duckduckgo", "ddg", "default") and scrape_fn is not None:
             home_raw = _team_name(match_payload.get("home_team")) or match_payload.get("home_team_name")
             away_raw = _team_name(match_payload.get("away_team")) or match_payload.get("away_team_name")
             date_str = (_date_candidates(match_payload) or [None])[0]

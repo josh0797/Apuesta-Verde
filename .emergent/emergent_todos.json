@@ -1,42 +1,34 @@
 [
   {
-    "content": "F63.A: Crear team_name_translations.py con dict EN<->ES + helper normalize_team_name_for_scores24 y variantes",
+    "content": "Fix 1: Cambiar SCORES24_SEARCH_FALLBACK a opt-OUT (default activado), documentar en plan.md",
     "status": "completed"
   },
   {
-    "content": "F63.A: Actualizar build_scores24_slug_candidates para emitir variantes EN+ES+sin-acentos+mixed",
+    "content": "Fix 2: TTL index Mongo en scores24_discarded_review_cache.expires_at (purga automatica)",
     "status": "completed"
   },
   {
-    "content": "F63.B: Anadir duckduckgo_search_scores24_url opt-in (SCORES24_SEARCH_FALLBACK=duckduckgo)",
+    "content": "Fix 3.A: Crear football_structural_value_review.py (orchestrator que llama a 4-5 modulos estructurales existentes)",
     "status": "completed"
   },
   {
-    "content": "F63.B: Iterar candidatos en orden hasta encontrar URL valida; agregar reason codes (DIRECT_FAILED, SEARCH_USED, TRANSLATION_USED)",
+    "content": "Fix 3.B: Anadir post-processor en market_guardrail: SOFT_DISCARD + structural_support>=75 -> WATCHLIST_ODDS_NEEDED (no terminal)",
     "status": "completed"
   },
   {
-    "content": "F63.C: Localizar descarte por edge negativo y aplicar regla soft/hard (-25.0 threshold) con marker discard_strength",
+    "content": "Fix 3.C: Anadir reason codes nuevos (10 codes del spec)",
     "status": "completed"
   },
   {
-    "content": "F63.D: Cablear discarted_unknown + soft_discard al sweep automatico en analyst_engine",
-    "status": "completed"
+    "content": "Fix 3.D: Frontend - extender Scores24ReviewBadge / DiscardedRow para mostrar structural_analysis + WATCHLIST_ODDS_NEEDED state",
+    "status": "in_progress"
   },
   {
-    "content": "F63.E: Endpoint live deltas patch (goals, red_cards, minute) + frontend merge sin re-correr analisis",
-    "status": "completed"
+    "content": "Tests (8 escenarios del spec)",
+    "status": "pending"
   },
   {
-    "content": "F63.F: UI badge Scores24ReviewBadge.jsx en cards descartadas (pendiente/buscando/revisado/alternativa/confirmado/no-encontrado)",
-    "status": "completed"
-  },
-  {
-    "content": "Tests para los 9 escenarios obligatorios del spec (extender suite)",
-    "status": "completed"
-  },
-  {
-    "content": "Pytest completo + actualizar plan.md (Phase F61.1 + F63)",
-    "status": "completed"
+    "content": "Pytest completo + actualizar plan.md (Phase F64)",
+    "status": "pending"
   }
 ]

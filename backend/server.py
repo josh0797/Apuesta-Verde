@@ -89,6 +89,18 @@ async def on_startup() -> None:
         )
     except Exception as exc:
         log.warning("[MLB_MANUAL_ODDS_OVERRIDES] index ensure failed: %s", exc)
+    # Phase F62/F63 — Scores24 discarded review cache + quota indexes.
+    # TTL index on `expires_at` autonomously purges stale cache entries.
+    try:
+        await db.scores24_discarded_review_cache.create_index(
+            "expires_at", expireAfterSeconds=0,
+        )
+        await db.scores24_discarded_quota.create_index(
+            "updated_at", expireAfterSeconds=14 * 24 * 3600,  # rotate after 14d
+        )
+        log.info("[SCORES24_DISCARDED_REVIEW] cache/quota indexes ensured")
+    except Exception as exc:
+        log.warning("[SCORES24_DISCARDED_REVIEW] index ensure failed: %s", exc)
     await auth_module.seed_demo_user(db)
     # Knowledge Base — seed the user-validated learning cases (idempotent).
     try:

@@ -184,12 +184,21 @@ def evaluate_pick(pick: dict, sport: str = "football") -> dict:
 
 
 # ── Pipeline integration: filter picks and update summary ────────────────────
-def apply_market_guardrail(parsed: dict, sport: str = "football") -> dict:
+def apply_market_guardrail(parsed: dict, sport: str = "football",
+                            *, match_lookup: Optional[dict] = None) -> dict:
     """Mutates `parsed`:
         • Attaches `_market_edge` to every kept pick (for UI).
         • Re-routes NO_BET_VALUE picks from `picks` → `summary.discarded_market`.
+        • Phase F64: Picks with ``discard_strength="SOFT_DISCARD_REVIEW"``
+          AND structural support >= 75 are FURTHER re-routed to
+          ``summary.watchlist_odds_needed`` (a new bucket, NOT terminal).
         • Annotates INSUFFICIENT_DATA picks with `_market_edge` (kept, no reroute).
         • Adds `_pipeline.market_guardrail` summary stats.
+
+    ``match_lookup`` (optional) is a dict ``{match_id: match_doc}`` used by
+    the Phase F64 structural review to find the full team context. When
+    omitted, the structural review still runs but only with what's already
+    in the pick (fail-soft).
     """
     if not parsed or not isinstance(parsed, dict):
         return parsed
@@ -197,6 +206,10 @@ def apply_market_guardrail(parsed: dict, sport: str = "football") -> dict:
     picks = list(parsed.get("picks") or [])
     summary = parsed.get("summary") or {}
     disc_mkt = list(summary.get("discarded_market") or [])
+    # Phase F64 — new bucket: SOFT discards with strong structural value
+    # but a current odds gap. NOT terminal — the UI surfaces these as
+    # "Watchlist por cuota" instead of "Descartado".
+    watchlist_odds = list(summary.get("watchlist_odds_needed") or [])
 
     kept: list[dict] = []
     rerouted = 0
@@ -232,7 +245,28 @@ def apply_market_guardrail(parsed: dict, sport: str = "football") -> dict:
                     "SCORES24_REVIEW_REQUIRED_FOR_SOFT_DISCARD",
                 ]
                 scores24_review_required = True
-            disc_mkt.append({
+
+            # ── Phase F64 — Structural review BEFORE confirming discard.
+            # If support >= 75 and the discard is SOFT, the pick goes to
+            # the new ``watchlist_odds_needed`` bucket. HARD discards
+            # short-circuit (terminal).
+            structural_review = None
+            if sport == "football":
+                try:
+                    from services.football_structural_value_review import (
+                        compute_structural_value_review,
+                        STATE_WATCHLIST_ODDS_NEEDED,
+                    )
+                    match_doc = (match_lookup or {}).get(p.get("match_id")) or p
+                    structural_review = compute_structural_value_review(
+                        match_doc,
+                        edge_pct=round(edge_pct, 2),
+                        discard_strength=discard_strength,
+                    )
+                except Exception as exc_sr:  # noqa: BLE001
+                    log.debug("[F64] structural review failed: %s", exc_sr)
+
+            entry = {
                 "match_id":   p.get("match_id"),
                 "match_label": p.get("match_label"),
                 "reason":     edge_info["reason"],
@@ -242,7 +276,25 @@ def apply_market_guardrail(parsed: dict, sport: str = "football") -> dict:
                 "f63_reason_codes":          f63_reasons,
                 "_market_guardrail":         edge_info,
                 "_market_guardrail_reroute": True,
-            })
+            }
+            if structural_review:
+                entry["structural_review"] = structural_review
+
+            # F64 routing: SOFT + structural_support >= 75 → watchlist_odds_needed.
+            if (sport == "football"
+                and structural_review
+                and structural_review.get("final_state") == "WATCHLIST_ODDS_NEEDED"
+                and discard_strength == "SOFT_DISCARD_REVIEW"):
+                entry["bucket"] = "watchlist_odds_needed"
+                entry["f63_reason_codes"].append("WATCHLIST_ODDS_NEEDED")
+                entry["f63_reason_codes"].append(
+                    "EDGE_CHECK_MOVED_AFTER_STRUCTURAL_ANALYSIS"
+                )
+                # Pull rescued market into the entry for UI convenience.
+                entry["rescued_market"] = structural_review.get("rescued_market")
+                watchlist_odds.append(entry)
+            else:
+                disc_mkt.append(entry)
             rerouted += 1
         else:  # INSUFFICIENT_DATA
             kept.append(p)
@@ -252,6 +304,8 @@ def apply_market_guardrail(parsed: dict, sport: str = "football") -> dict:
 
     parsed["picks"] = kept
     summary["discarded_market"] = disc_mkt
+    if watchlist_odds:
+        summary["watchlist_odds_needed"] = watchlist_odds
     parsed["summary"] = summary
 
     avg_edge = round(sum(edges) / len(edges), 4) if edges else None
@@ -264,6 +318,7 @@ def apply_market_guardrail(parsed: dict, sport: str = "football") -> dict:
         "average_edge":  avg_edge,
         "thresholds":    EDGE_THRESHOLDS,
         "edge_hard_discard_threshold_pct": EDGE_HARD_DISCARD_THRESHOLD,
+        "watchlist_odds_needed_count":    len(watchlist_odds),
     }
     if rerouted or insufficient:
         log.info(
