@@ -109,9 +109,21 @@ def _run_corner_profile_cross(match: dict) -> dict:
     try:
         from services.football_corner_profile_cross import (
             compute_football_corner_profile_cross,
+            extract_corner_side_from_match,
         )
-        home_side = _team_side(match.get("home_team") or match.get("home"))
-        away_side = _team_side(match.get("away_team") or match.get("away"))
+        # Phase F64 — prefer FLAT match-root keys (home_corners_for_l5 …)
+        # when present, so callers can pass the canonical shape directly
+        # without wrapping it inside ``home_team.context.recent_fixtures``.
+        flat_home = extract_corner_side_from_match(match, "home")
+        flat_away = extract_corner_side_from_match(match, "away")
+        if any(flat_home.get(k) is not None for k in (
+                "corners_for_l5", "corners_against_l5")) and \
+           any(flat_away.get(k) is not None for k in (
+                "corners_for_l5", "corners_against_l5")):
+            home_side, away_side = flat_home, flat_away
+        else:
+            home_side = _team_side(match.get("home_team") or match.get("home"))
+            away_side = _team_side(match.get("away_team") or match.get("away"))
         return compute_football_corner_profile_cross(
             home=home_side, away=away_side, scores24_payload=None,
         ) or {"available": False}
@@ -223,7 +235,7 @@ def _market_candidates_from_signals(
                 "fragility":          24,
                 "reason_codes":       [profile, "CORNERS_OVER_PROFILE"],
             })
-        elif supports == "TEAM_CORNERS":
+        elif supports == "TEAM_CORNERS_OVER":
             candidates.append({
                 "market":             "Team corners Over",
                 "family":             "CORNERS",

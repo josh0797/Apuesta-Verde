@@ -359,3 +359,193 @@ Promoción del `dc_nb_delta_2_5_pts` de telemetry-only a scoring real, tras vali
 - (P3) Activar `SCORES24_SEARCH_FALLBACK=duckduckgo` en producción tras observar conversion rates de URLs directas vs fallback.
 - (P3) Expandir el dict de traducciones a clubes top-30 (Premier League, La Liga, Bundesliga) para Champions League / Europa League.
 - (P3) TTL index Mongo en `scores24_discarded_review_cache.expires_at` (purga automática).
+
+
+---
+
+## Phase F64 — Pre-Discard Structural Match Analysis + Watchlist por Cuota (COMPLETED)
+
+### Objetivos
+1. **Fix 1**: Activar `SCORES24_SEARCH_FALLBACK=duckduckgo` por defecto (opt-OUT) en `football_discarded_scores24_review.py`.
+2. **Fix 2**: TTL index en MongoDB para `scores24_discarded_review_cache.expires_at` (purga automática del cache).
+3. **Fix 3 (core)**: NO descartar un pick por edge negativo sin antes correr el análisis estructural completo (xG / goles L5–L15 / córners L5–L15 / under-over support / scores24). Si el edge cae en `[-25, 0)` pero el soporte estructural es alto (≥ 75), enrutar al nuevo bucket `watchlist_odds_needed` en vez de a `discarded_market`. Solo `HARD_DISCARD` (`edge ≤ -25`) o soporte < 60 confirma el descarte.
+
+### Implementación
+- ✅ **`services/football_structural_value_review.py`** (NUEVO, ~437 LOC, pure orchestration, fail-soft):
+  - Sub-engines (todos fail-soft): `football_corner_profile_cross`, `football_team_profile_cross`, `football_under_support`, `football_over_support`.
+  - Decision matrix:
+    - `support ≥ 75` + `edge ≥ 0` → `VALUE_CANDIDATE`.
+    - `support ≥ 75` + `edge < 0` → `WATCHLIST_ODDS_NEEDED` + `rescued_market`.
+    - `60 ≤ support < 75` → `MOVE_TO_WATCHLIST` + `SCORES24_REVIEW_REQUIRED_BEFORE_FINAL_DISCARD`.
+    - `support < 60` → `NO_STRUCTURAL_VALUE` + `DISCARD_CONFIRMED_AFTER_FULL_STRUCTURAL_REVIEW`.
+    - `discard_strength=HARD_DISCARD` short-circuit → `NO_STRUCTURAL_VALUE` (terminal).
+  - Reason codes nuevos: `EDGE_CHECK_MOVED_AFTER_STRUCTURAL_ANALYSIS`, `STRUCTURAL_ANALYSIS_REQUIRED_BEFORE_DISCARD`, `WATCHLIST_ODDS_NEEDED`, `GOAL_PROFILE_ANALYZED_BEFORE_DISCARD`, `CORNER_PROFILE_ANALYZED_BEFORE_DISCARD`, `XG_PROFILE_ANALYZED_BEFORE_DISCARD`, `SCORES24_REVIEW_REQUIRED_BEFORE_FINAL_DISCARD`, `DISCARD_CONFIRMED_AFTER_FULL_STRUCTURAL_REVIEW`, `ALTERNATIVE_MARKET_FOUND_DESPITE_NEGATIVE_EDGE`.
+  - Narrativa ES dinámica según `final_state`.
+- ✅ **`services/football_corner_profile_cross.py`** (EXTENDIDO):
+  - Nueva fn pública `extract_corner_side_from_match(match, prefix)` que parsea las claves planas `{home,away}_corners_{for,against}_{l5,l15}` desde el match root y las normaliza al shape canónico que el classifier ya consume.
+  - Mantiene los 6 perfiles existentes (STRONG/LOW UNDER, STRONG/HIGH OVER, ASYMMETRIC, MIXED) sin cambios de lógica.
+- ✅ **`services/market_guardrail.py`** (EXTENDIDO):
+  - Antes de añadir un pick `NO_BET_VALUE` a `discarded_market`, se corre `compute_structural_value_review(...)`.
+  - Si `final_state == WATCHLIST_ODDS_NEEDED` y `discard_strength == SOFT_DISCARD_REVIEW`, el pick va a `summary.watchlist_odds_needed` (NO a `discarded_market`), con `bucket="watchlist_odds_needed"`, `rescued_market` y reason codes específicos.
+  - Audit `_pipeline.market_guardrail.watchlist_odds_needed_count`.
+- ✅ **`server.py`**: TTL index `expires_at` en `scores24_discarded_review_cache` (Fix 2).
+- ✅ **`services/football_discarded_scores24_review.py`**: `SCORES24_SEARCH_FALLBACK` default cambiado a `"duckduckgo"` (Fix 1, opt-OUT).
+- ✅ **Frontend**:
+  - **NUEVO `frontend/src/components/StructuralReviewPanel.jsx`** (154 LOC) — renderiza scores Under/Over/Max, perfil goles, perfil córners, top 3 candidatos de mercado y narrativa.
+  - **`frontend/src/pages/DashboardPage.jsx`**:
+    - Import + render del panel en `DiscardedRow` cuando `item.structural_review.available`.
+    - Chip compacto inline (color amber/cyan según soporte) en el header del row cerrado, antes del toggle.
+    - Nuevo bucket `watchlistOddsNeeded = summary.watchlist_odds_needed || []`.
+    - Sección dedicada **"Watchlist por cuota — soporte estructural alto"** con paleta amber, renderizada ENCIMA de los descartes regulares.
+    - `hasAnyDiscarded` actualizado para incluir el nuevo bucket.
+
+### Tests
+- ✅ **`tests/test_football_structural_value_review_smoke.py`** (NUEVO, 15 tests):
+  - T1: edge -18.8% + STRONG corner over support 78 → `WATCHLIST_ODDS_NEEDED`.
+  - T2: edge -20.5% + STRONG corner under support 80 → `WATCHLIST_ODDS_NEEDED` con rescued market "Total corners Under".
+  - T3: edge -26.0% + `HARD_DISCARD` → `NO_STRUCTURAL_VALUE` (short-circuit, no rescate).
+  - T4: SOFT_DISCARD invoca los 4 sub-engines en el output (contrato de audit).
+  - T5: soporte ASYMMETRIC = 72 (rango [60, 75)) → `MOVE_TO_WATCHLIST` + `SCORES24_REVIEW_REQUIRED`.
+  - T6: match sin señal (~9.0 corners totales, profile MIXED) → soporte < 60 → `NO_STRUCTURAL_VALUE`.
+  - T7: edge +4.5% + soporte ≥ 75 → `VALUE_CANDIDATE` / `VALUE_FOUND`.
+  - T8: inputs basura (None, "", 42, [], {}, 0) → `available=False`, sin raise, sub-engines vacíos.
+  - +contract test del nuevo helper `extract_corner_side_from_match` (flat keys + prefix invalid + missing keys).
+  - +integration test confirmando `STRONG_CORNERS_UNDER_CROSS` end-to-end con flat keys.
+- ✅ **Suite total: 1912/1912 passing** (+15 nuevos, 0 regresiones desde 1897).
+
+### Bug encontrado y corregido durante implementación
+- `football_structural_value_review._market_candidates_from_signals` esperaba `supports == "TEAM_CORNERS"` pero el engine de córners emite `"TEAM_CORNERS_OVER"`. Sin el fix, ningún match con perfil asimétrico generaba candidato → soporte = 0 → siempre confirmaba descarte. Corregido para reconocer la cadena correcta.
+
+### Tarea adicional pedida por usuario
+- `football_corner_profile_cross` ahora acepta explícitamente las claves planas:
+  - `home_corners_for_l5`, `home_corners_for_l15`, `home_corners_against_l5`, `home_corners_against_l15`
+  - `away_corners_for_l5`, `away_corners_for_l15`, `away_corners_against_l5`, `away_corners_against_l15`
+- Detección automática de los 6 perfiles cruzados (sin cambios de lógica, sólo nuevo path de entrada): STRONG_CORNERS_UNDER_CROSS, LOW_CORNERS_CROSS, STRONG_CORNERS_OVER_CROSS, HIGH_CORNERS_CROSS, ASYMMETRIC_CORNERS_PROFILE, MIXED_CORNERS_PROFILE.
+
+### Verificación end-to-end
+- Synthetic match con `home_corners_for_l5=6.5 … away_corners_against_l15=5.5` + odds 1.40 / confidence 55:
+  - edge calculado = **-24.68%** (SOFT_DISCARD)
+  - structural support = **78** (STRONG_CORNERS_OVER_CROSS)
+  - bucket final = `watchlist_odds_needed` ✓
+  - rescued_market = "Total corners Over" (support 78) ✓
+  - reason codes = `["NEGATIVE_EDGE_SOFT_DISCARD_REVIEW", "SCORES24_REVIEW_REQUIRED_FOR_SOFT_DISCARD", "WATCHLIST_ODDS_NEEDED", "EDGE_CHECK_MOVED_AFTER_STRUCTURAL_ANALYSIS"]` ✓
+
+### Próximos pasos sugeridos
+- (P3) Expandir dict `team_name_translations.py` a clubes top-30 Champions/Europa League.
+- (P3) Activar Bright Data en producción para FBref enrichment de player props (queda como caveat documentado).
+- (P3) Backtest del hit-rate/ROI de los rescates `watchlist_odds_needed` cuando la cuota baja en T+24h.
+
+---
+
+## Phase F65 — Bright Data Productionisation + Watchlist Backtest (COMPLETED)
+
+### Objetivos (P3 del Phase F64)
+1. **Configurar Bright Data en producción** para FBref enrichment + scores24 fallback (con circuit breaker y opt-IN gate para no quemar plan).
+2. **Backtest hit-rate / ROI del bucket `watchlist_odds_needed`** para validar empíricamente la rentabilidad del rescate estructural introducido en Phase F64.
+
+### Diagnóstico real de Bright Data (probado contra el plan del usuario)
+- ✅ `understat.com` → 200 OK en ~3s.
+- ✅ `fbref.com/en/comps/9/Premier-League-Stats` → 200 OK con `country=us` + timeout 90s (~45s) → 910 KB HTML correctos.
+- ❌ `scores24.live/...` → **BLOQUEO DE POLÍTICA** (`brd_err_code=proxy_error`, mensaje *"Access denied: scores24.live is classified as Gambling and blocked by Bright Data as it might breach Bright Data usage policy."*). **No se levanta con dominios premium** — es policy refusal global.
+- **Mitigación permanente del bloqueo scores24**: la ruta opt-OUT de DuckDuckGo HTML Search (`SCORES24_SEARCH_FALLBACK=duckduckgo`, activada en Phase F63) sigue siendo el único camino viable para Scores24. Bright Data se reserva para FBref, Understat, FotMob, SofaScore, etc. (no-gambling).
+
+### Implementación
+
+#### A) Circuit Breaker — `services/external_sources/circuit_breaker.py` (NUEVO, ~245 LOC)
+- **Estado por host** (`fbref.com`, `scores24.live`, `understat.com`…). Las subdomains colapsan al apex (`en.fbref.com` → `fbref.com`).
+- **Tres estados**: CLOSED → OPEN → HALF_OPEN con probe único por gap.
+- **Defaults env-overridables**:
+  - `BRIGHTDATA_BREAKER_FAIL_THRESHOLD = 5` (failures consecutivos para abrir).
+  - `BRIGHTDATA_BREAKER_PAUSE_SEC = 1800` (30 min de pausa estándar).
+  - `BRIGHTDATA_BREAKER_POLICY_PAUSE_SEC = 86400` (24h cuando el error es `Access denied … Gambling/Adult/Copyright` — pausa agresiva porque no se recupera esperando).
+  - `BRIGHTDATA_BREAKER_HALF_OPEN_GAP_SEC = 60`.
+- **Detección automática de policy block**: heurística sobre `error_code` + `error_msg` (substrings `policy`, `gambling`, `adult`, `copyright`, `access denied … bright data`).
+- **Snapshot público** (`snapshot_all()`) + `reset()` admin helper.
+- **Fail-soft**: nunca lanza, in-memory (state se resetea en cada deploy intencionalmente).
+
+#### B) Opt-IN Gate `BRIGHTDATA_ENABLED`
+- `services/external_sources/base.brightdata_available()` ahora consulta `is_brightdata_enabled()` además de las credenciales.
+- Default ON cuando hay credenciales (backward-compat). Set `BRIGHTDATA_ENABLED=false` en `.env` para apagado global de emergencia (incident response, presupuesto agotado, etc.) **sin** tener que borrar credenciales.
+
+#### C) Integración del breaker
+- `services/external_sources/base.brightdata_fetch()`: short-circuit cuando `is_open(url)` → True; `record_success` / `record_failure` con `error_code = type(exc).__name__`.
+- `services/scores24_scraper._fetch_scores24_html()`: además del breaker, respeta `BRIGHTDATA_ENABLED`, expone reason codes `breaker_open` y `brightdata_disabled_by_flag` en el diagnostic. Critical: pasa el `brd_error` literal al breaker → la heurística detecta automáticamente "Gambling" y abre 24h.
+- `services/football_player_stats_ingestor._fetch_fbref_player()`: timeouts subidos de **10s → 55s** (Bright Data tarda ~45s en servir FBref con `country=us`, antes el código se rendía solo).
+
+#### D) Endpoints admin nuevos
+- `GET /api/admin/brightdata/circuit-breaker` → estado completo (flag opt-IN, thresholds, lista de hosts con su estado y contadores).
+- `POST /api/admin/brightdata/circuit-breaker/reset?host=…` → limpia un host (o todos cuando se omite el parámetro).
+
+#### E) Backtest del Watchlist — `services/watchlist_odds_backtest.py` (NUEVO, ~430 LOC)
+- **Scorer puro y funcional**: no toca Mongo, recibe `picks` + `settlements_by_match` + `snapshots_by_match`, devuelve un report JSON-serialisable.
+- **Métricas calculadas**:
+  - `n_picks_total`, `n_picks_settled`, `n_picks_won`, `n_picks_lost`, `n_picks_no_positive_edge`.
+  - `hit_rate_pct` (sobre picks settled con outcome conocido — pushes excluidos).
+  - `roi_pct` flat-stake 1u, asentando al **mejor odds observado** en snapshots (asume que el usuario sí esperó la mejor cuota).
+  - `avg_edge_at_pick` vs `avg_edge_at_best`.
+  - `median_hours_to_positive_edge` (cuánto tarda el mercado en moverse al rango positivo).
+  - Breakdown por **familia** (CORNERS / GOALS / UNDER / OVER) y por **league tier** (Tier 1 / 2 / 3 / Other).
+- **`did_rescued_market_win()`**: mapea `rescued_market` → outcome ganador/perdedor/push contra `finished_matches.{final_corners_total, final_goals_total, home_corners, away_corners}`.
+- **Dataset sintético**: `_synthetic_demo_dataset()` con 5 picks que ejercen todos los code paths (win corners over, loss corners under, win goals over no-snapshot, unsettled, push). Usado por tests y por el endpoint en modo `demo=true`.
+
+#### F) Endpoint REST
+- `GET /api/backtest/watchlist-odds-needed?demo=true` → corre el dataset sintético (smoke test instantáneo, útil para front-end mientras llegan datos reales).
+- `GET /api/backtest/watchlist-odds-needed` → live: agrega los últimos 30 días de `analyst_runs.summary.watchlist_odds_needed`, hace join con `finished_matches` y `watchlist_odds_snapshots`, devuelve report completo + `mode: "live"`.
+
+#### G) Cron Job — `_job_snapshot_watchlist_odds`
+- **Cadencia: cada 1h** (`IntervalTrigger(hours=1)`, primer run +10 min tras boot).
+- Para cada `match_id` único de `analyst_runs.summary.watchlist_odds_needed` en las últimas 48h, lee la última `odds_snapshots`, recomputa edge y persiste a `watchlist_odds_snapshots` con `captured_at` UTC.
+- `_status["last_run"]["snapshot_watchlist_odds"]` registra duración + `written` + `matches` para observabilidad.
+
+#### H) MongoDB indexes nuevos (auto-creados en startup)
+- `watchlist_odds_snapshots`:
+  - `(match_id, captured_at desc)` — query path para el backtest endpoint.
+  - `captured_at` con TTL **60 días** — un cuarto de season de retención.
+
+### Tests
+- ✅ **`tests/test_brightdata_circuit_breaker_smoke.py`** — 21 tests:
+  - `host_for` normaliza subdomains (`www.fbref.com` → `fbref.com`).
+  - Transición CLOSED → OPEN al alcanzar threshold.
+  - `record_success` cierra el breaker y resetea contadores.
+  - **Aislamiento per-host** (open fbref no afecta understat).
+  - **Policy block** dispara pausa 24h instantáneamente (sin necesidad de 5 fallos).
+  - HALF_OPEN admite un único probe por gap, otro fallo re-abre.
+  - `reset(host)` selectivo + `reset()` global.
+  - Opt-IN flag (`BRIGHTDATA_ENABLED=true|false|0|off|no` etc.).
+- ✅ **`tests/test_watchlist_odds_backtest_smoke.py`** — 16 tests:
+  - Math (`implied_probability`, `edge_pct`).
+  - `best_positive_snapshot` selecciona el max-edge correcto.
+  - `hours_to_first_positive_edge` detecta el primer cruce y devuelve `None` cuando no cruza.
+  - Settlement classifier (corners over/under, goals over/under, push, missing data).
+  - Empty input → empty report con nota `no_picks_in_window`.
+  - **Synthetic demo end-to-end**: 5 picks → hit-rate 66.67%, ROI +18.33%, median 10h, breakdown correcto.
+  - Unsettled picks no rompen el scorer.
+  - Solo-pushes → `hit_rate=None` (no penaliza por matches que cayeron en la línea).
+  - Fail-soft con basura (`{}`, `"not a dict"`, etc.) — no raise.
+- ✅ **Suite total: 1949/1949 passing** (+37 nuevos vs baseline 1912, **0 regresiones**).
+
+### Verificación end-to-end (producción real)
+- **scores24.live**: confirmado bloqueo policy → breaker abrió por 86400s tras 1er fetch real. 2da llamada se cortó instantáneamente con `reason=breaker_open` → **0 requests adicionales gastados**.
+- **`/api/backtest/watchlist-odds-needed?demo=true`** en preview URL:
+  - `engine_version=watchlist_backtest.v1` ✓
+  - 5 picks → 4 settled → 2 won / 1 lost / 1 push.
+  - `hit_rate=66.67%`, `roi=+18.33%`, `median_hours_to_positive_edge=10.0`.
+  - Per-family: GOALS `100%/+70%`, CORNERS `50%/-7.5%`.
+  - Per-tier: Tier 1 (La Liga + Bundesliga) `50%/-7.5%`.
+- **`/api/admin/brightdata/circuit-breaker`**: expone thresholds + lista de hosts (vacía hasta que llegue tráfico).
+
+### Variables de entorno (todas opcionales, defaults razonables)
+| Variable | Default | Propósito |
+|---|---|---|
+| `BRIGHTDATA_ENABLED` | `true` cuando hay credenciales | Apagado global de emergencia |
+| `BRIGHTDATA_BREAKER_FAIL_THRESHOLD` | `5` | Failures consecutivos para abrir |
+| `BRIGHTDATA_BREAKER_PAUSE_SEC` | `1800` (30 min) | Pausa estándar |
+| `BRIGHTDATA_BREAKER_POLICY_PAUSE_SEC` | `86400` (24h) | Pausa cuando hay policy block (gambling/adult/copyright) |
+| `BRIGHTDATA_BREAKER_HALF_OPEN_GAP_SEC` | `60` | Gap entre probes en HALF_OPEN |
+
+### Próximos pasos sugeridos
+- (P3) UI **Backtest Lab** consumiendo `/api/backtest/watchlist-odds-needed` (cards de hit-rate / ROI / median-hours + breakdown por familia + tabla de picks recientes).
+- (P3) Dashboard admin badge **"Bright Data breaker"** consumiendo `/api/admin/brightdata/circuit-breaker` (chip rojo cuando algún host está OPEN).
+- (P3) Expandir `team_name_translations.py` Champions/Europa League (sigue pendiente desde F64).
+- (P4) Considerar proveedores alternativos para gambling sites cuando se requiera (ScrapingBee, Zyte) — *fuera de scope hoy*.
+

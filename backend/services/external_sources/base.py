@@ -33,10 +33,19 @@ DEFAULT_USER_AGENT       = (
 
 
 def brightdata_available() -> bool:
-    return bool(
+    """Phase F65 — also honours the global opt-IN gate
+    ``BRIGHTDATA_ENABLED``. Set it to ``false`` to pause Bright Data
+    globally without removing credentials (incident response)."""
+    if not (
         os.environ.get("BRIGHTDATA_API_KEY", "").strip()
         and os.environ.get("BRIGHTDATA_ZONE", "").strip()
-    )
+    ):
+        return False
+    try:
+        from services.external_sources.circuit_breaker import is_brightdata_enabled
+        return is_brightdata_enabled()
+    except Exception:  # noqa: BLE001
+        return True
 
 
 async def direct_fetch(
@@ -77,15 +86,36 @@ async def brightdata_fetch(
     url: str, *, country: Optional[str] = None,
     timeout_sec: float = BRIGHTDATA_TIMEOUT_SEC,
 ) -> Optional[str]:
-    """Route fetch through Bright Data Web Unlocker. Returns body or None."""
+    """Route fetch through Bright Data Web Unlocker. Returns body or None.
+
+    Phase F65 — wrapped in a per-host circuit breaker. When a domain
+    accumulates ``FAIL_THRESHOLD`` consecutive failures (default 5), the
+    breaker opens for ``PAUSE_SEC`` (default 30 min) and subsequent
+    calls return ``None`` without hitting Bright Data, saving budget.
+    Policy refusals (gambling/adult/copyright) open the breaker for 24h.
+    """
     if not brightdata_available():
         return None
+    # Phase F65 — circuit breaker short-circuit.
+    try:
+        from services.external_sources.circuit_breaker import (
+            is_open, record_success, record_failure,
+        )
+        if is_open(url):
+            log.debug("[BD_BREAKER_OPEN] short-circuit %s", url)
+            return None
+    except Exception:  # noqa: BLE001
+        is_open = None  # type: ignore[assignment]
+        record_success = None  # type: ignore[assignment]
+        record_failure = None  # type: ignore[assignment]
     # Import inside the function so this module can be imported even when
     # Bright Data deps are missing.
     try:
         from services.editorial_context.brightdata_fetcher import _BrightDataClient  # type: ignore
     except Exception as exc:
         log.warning("brightdata client import failed: %s", exc)
+        if record_failure:
+            record_failure(url, error_code="import_error", error_msg=str(exc))
         return None
     try:
         async with _BrightDataClient() as client:
@@ -93,9 +123,17 @@ async def brightdata_fetch(
                 client.fetch(url, country=country),
                 timeout=timeout_sec,
             )
-        return html
+        if html:
+            if record_success:
+                record_success(url)
+            return html
+        if record_failure:
+            record_failure(url, error_code="empty_body", error_msg="upstream returned no body")
+        return None
     except (asyncio.TimeoutError, Exception) as exc:
         log.debug("[EXT_SRC_BD_FAIL] %s: %s", url, exc)
+        if record_failure:
+            record_failure(url, error_code=type(exc).__name__, error_msg=str(exc))
         return None
 
 

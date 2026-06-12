@@ -1,34 +1,38 @@
 [
   {
-    "content": "Fix 1: Cambiar SCORES24_SEARCH_FALLBACK a opt-OUT (default activado), documentar en plan.md",
+    "content": "Crear circuit breaker para Bright Data (5 fallos consecutivos → pausa 30 min)",
     "status": "completed"
   },
   {
-    "content": "Fix 2: TTL index Mongo en scores24_discarded_review_cache.expires_at (purga automatica)",
+    "content": "Añadir opt-IN flag BRIGHTDATA_ENABLED y gateway en external_sources/base.py + scores24_scraper.py",
     "status": "completed"
   },
   {
-    "content": "Fix 3.A: Crear football_structural_value_review.py (orchestrator que llama a 4-5 modulos estructurales existentes)",
+    "content": "Subir timeout FBref de 10s a 60s + country=us",
     "status": "completed"
   },
   {
-    "content": "Fix 3.B: Anadir post-processor en market_guardrail: SOFT_DISCARD + structural_support>=75 -> WATCHLIST_ODDS_NEEDED (no terminal)",
+    "content": "Tests unitarios del circuit breaker",
     "status": "completed"
   },
   {
-    "content": "Fix 3.C: Anadir reason codes nuevos (10 codes del spec)",
+    "content": "Backtest: crear colección watchlist_odds_snapshots + cron snapshot job",
     "status": "completed"
   },
   {
-    "content": "Fix 3.D: Frontend - extender Scores24ReviewBadge / DiscardedRow para mostrar structural_analysis + WATCHLIST_ODDS_NEEDED state",
-    "status": "in_progress"
+    "content": "Backtest: endpoint /api/backtest/watchlist-odds-needed (métricas hit-rate, ROI, edge promedio)",
+    "status": "completed"
   },
   {
-    "content": "Tests (8 escenarios del spec)",
-    "status": "pending"
+    "content": "Backtest: dataset sintético inicial + tests del scorer",
+    "status": "completed"
   },
   {
-    "content": "Pytest completo + actualizar plan.md (Phase F64)",
-    "status": "pending"
+    "content": "Documentar bloqueo de scores24.live (gambling policy) + ruta DuckDuckGo F63 fallback como permanente",
+    "status": "completed"
+  },
+  {
+    "content": "Pytest completo + plan.md update",
+    "status": "completed"
   }
 ]

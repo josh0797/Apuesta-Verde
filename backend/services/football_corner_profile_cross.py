@@ -101,6 +101,46 @@ def _delta(a: Optional[float], b: Optional[float]) -> Optional[float]:
     return round(a - b, 3)
 
 
+def extract_corner_side_from_match(
+    match: dict | None,
+    prefix: str,
+) -> dict:
+    """Extract a per-side corner stats block from FLAT keys on the match root.
+
+    Phase F64 — supports the canonical user-provided shape::
+
+        match = {
+          "home_corners_for_l5":      4.2,
+          "home_corners_for_l15":     4.8,
+          "home_corners_against_l5":  3.8,
+          "home_corners_against_l15": 4.1,
+          "away_corners_for_l5":      5.1,
+          "away_corners_for_l15":     4.7,
+          "away_corners_against_l5":  4.9,
+          "away_corners_against_l15": 5.0,
+          ...
+        }
+
+    ``prefix`` must be ``"home"`` or ``"away"``. Returns a side-dict in the
+    shape that :func:`compute_football_corner_profile_cross` accepts
+    directly via the flat-keys branch (``corners_for_l5`` etc).
+
+    Fail-soft: missing match → ``{}``; missing keys → ``None`` per field.
+    """
+    if not isinstance(match, dict) or prefix not in ("home", "away"):
+        return {}
+    cf5  = _safe(match.get(f"{prefix}_corners_for_l5"))
+    cf15 = _safe(match.get(f"{prefix}_corners_for_l15"))
+    ca5  = _safe(match.get(f"{prefix}_corners_against_l5"))
+    ca15 = _safe(match.get(f"{prefix}_corners_against_l15"))
+    return {
+        "corners_for_l5":      cf5,
+        "corners_for_l15":     cf15,
+        "corners_against_l5":  ca5,
+        "corners_against_l15": ca15,
+    }
+
+
 def _derive_team_corner_block(side: dict | None) -> dict:
     """From a team side dict (with ``recent_fixtures``), derive the
     corner aggregates L5/L15 + deltas.
@@ -426,4 +466,5 @@ __all__ = [
     "PROFILE_STRONG_UNDER", "PROFILE_LOW", "PROFILE_STRONG_OVER",
     "PROFILE_HIGH", "PROFILE_ASYMMETRIC", "PROFILE_MIXED",
     "compute_football_corner_profile_cross",
+    "extract_corner_side_from_match",
 ]

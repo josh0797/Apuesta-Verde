@@ -256,6 +256,85 @@ async def _job_warm_statbunker_comp_ids(db):
         log.warning("warm_statbunker_comp_ids failed: %s", exc)
 
 
+# ── Phase F65 — hourly snapshot of odds for picks in watchlist_odds_needed ─
+async def _job_snapshot_watchlist_odds(db):
+    """Capture an hourly snapshot of the latest odds for every pick
+    currently in the ``watchlist_odds_needed`` bucket.
+
+    The pick lives in the most recent analyst_runs document of every
+    user, so we walk runs younger than 48h. For each pick we read the
+    latest odds from ``odds_snapshots`` (the existing odds-refresh
+    pipeline writes them every 30 min) and persist:
+
+        watchlist_odds_snapshots = {
+          match_id, market_family, captured_at,
+          odds, estimated_prob, edge_pct, ...
+        }
+
+    Fail-soft: any error logs + continues, never raises.
+    """
+    started = datetime.now(timezone.utc)
+    written = 0
+    try:
+        cutoff = started - timedelta(hours=48)
+        cursor = db.analyst_runs.find(
+            {"created_at": {"$gte": cutoff}},
+            {"summary.watchlist_odds_needed": 1, "created_at": 1},
+        )
+        seen_ids: set[str] = set()
+        async for run in cursor:
+            bucket = (run.get("summary") or {}).get("watchlist_odds_needed") or []
+            for entry in bucket:
+                if not isinstance(entry, dict):
+                    continue
+                mid = entry.get("match_id")
+                if not mid or mid in seen_ids:
+                    continue
+                seen_ids.add(mid)
+                # Latest odds snapshot for this match.
+                odds_doc = await db.odds_snapshots.find_one(
+                    {"match_id": mid},
+                    sort=[("snapshot_at", -1)],
+                )
+                odds = None
+                if odds_doc:
+                    odds = (
+                        odds_doc.get("odds")
+                        or (odds_doc.get("markets") or {}).get("main_odds")
+                        or entry.get("odds")
+                    )
+                est = entry.get("estimated_prob")
+                # Compute edge from current odds + model probability.
+                edge = None
+                try:
+                    if odds and est is not None and float(odds) > 1.0:
+                        edge = round((float(est) - 1.0 / float(odds)) * 100.0, 2)
+                except (TypeError, ValueError):
+                    pass
+                await db.watchlist_odds_snapshots.insert_one({
+                    "match_id":        mid,
+                    "match_label":     entry.get("match_label"),
+                    "league":          entry.get("league"),
+                    "captured_at":     started,
+                    "odds":            odds,
+                    "estimated_prob":  est,
+                    "edge_pct":        edge,
+                    "rescued_market":  entry.get("rescued_market"),
+                    "source":          "scheduler.hourly",
+                })
+                written += 1
+        _status["last_run"]["snapshot_watchlist_odds"] = {
+            "ts":         started.isoformat(),
+            "duration_s": (datetime.now(timezone.utc) - started).total_seconds(),
+            "written":    written,
+            "matches":    len(seen_ids),
+        }
+        log.info("snapshot_watchlist_odds: %d snapshots written (%d matches)",
+                 written, len(seen_ids))
+    except Exception as exc:
+        log.warning("snapshot_watchlist_odds failed: %s", exc)
+
+
 def start_scheduler(db) -> None:
     """Start the background scheduler if SCHEDULER_ENABLED=true."""
     global _scheduler
@@ -355,6 +434,18 @@ def start_scheduler(db) -> None:
         _job_discover_statbunker_comp_ids, args=[db],
         trigger=CronTrigger(day=1, hour=3, minute=0, timezone="UTC"),
         id="discover_statbunker_comp_ids",
+        max_instances=1,
+        coalesce=True,
+    )
+    # Phase F65 — hourly snapshot of watchlist_odds_needed prices.
+    # Starts +10 min after boot so the first analyst_run has a chance
+    # to populate the bucket. Aligned with the 30-min odds refresh so
+    # the latest snapshot is at most 30 min stale.
+    sch.add_job(
+        _job_snapshot_watchlist_odds, args=[db],
+        trigger=IntervalTrigger(hours=1),
+        id="snapshot_watchlist_odds",
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=10),
         max_instances=1,
         coalesce=True,
     )

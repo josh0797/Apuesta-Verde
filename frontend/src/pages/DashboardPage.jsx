@@ -25,6 +25,7 @@ import { SourcesConsultedPanel } from '@/components/SourcesConsultedPanel';
 import { ManualOddsReviewPanel } from '@/components/ManualOddsReviewPanel';
 import { FootballMarketAuditPanel } from '@/components/FootballMarketAuditPanel';
 import { CornerPregamePanel } from '@/components/CornerPregamePanel';
+import { StructuralReviewPanel } from '@/components/StructuralReviewPanel';
 
 function GroupSection({ title, count, tier, children, defaultOpen = true, testId, sectionRef, icon: Icon }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -117,7 +118,8 @@ function DiscardedRow({ item, testId, type, sport }) {
     || editorialSignals.length > 0
     || externalEvidence.some((e) => e.status === 'ok')
     || possibleAlts.length > 0
-    || hasFootballAudit;
+    || hasFootballAudit
+    || (item.structural_review && item.structural_review.available);
   const trapCount = structuredTraps.length;
   const sigCount = editorialSignals.length;
   const humanReason = useMemo(() => {
@@ -162,6 +164,27 @@ function DiscardedRow({ item, testId, type, sport }) {
               testIdPrefix={`${testId}-scores24-review`}
             />
           )}
+          {/* Phase F64 — Compact structural support chip when the soft
+              discard has an attached structural review with measurable
+              support. Surfaces the max_structural_support inline so the
+              user knows BEFORE expanding the row that there is a structural
+              rationale to look at. */}
+          {item.structural_review && item.structural_review.available && (
+            <span
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 ${
+                (item.structural_review.max_structural_support || 0) >= 75
+                  ? 'bg-amber-500/15 text-amber-200 border-amber-500/30'
+                  : (item.structural_review.max_structural_support || 0) >= 60
+                    ? 'bg-cyan-500/15 text-cyan-200 border-cyan-500/30'
+                    : 'bg-slate-500/15 text-slate-300 border-slate-500/30'
+              }`}
+              title={item.structural_review.narrative_es || ''}
+              data-testid={`${testId}-structural-chip`}
+            >
+              <Activity className="h-3 w-3" />
+              {item.structural_review.max_structural_support || 0}/100
+            </span>
+          )}
           {/* On mobile the reason wraps freely (no max-w cap); on desktop
               we keep the 420px cap with truncate for visual balance. */}
           <span
@@ -192,6 +215,17 @@ function DiscardedRow({ item, testId, type, sport }) {
             <FootballMarketAuditPanel
               item={item}
               testIdPrefix={`${testId}-${item.match_id || 'na'}`}
+            />
+          )}
+          {/* Phase F64 — Structural value review (only attached for football
+              soft-discards). Renders the goal/corner profile cross + under
+              /over support scores + market candidates BEFORE the editorial
+              signals so the user sees the structural rescue rationale first. */}
+          {item.structural_review && item.structural_review.available && (
+            <StructuralReviewPanel
+              review={item.structural_review}
+              lang={lang}
+              testIdPrefix={`${testId}-structural-review`}
             />
           )}
           {possibleAlts.length > 0 && (
@@ -911,8 +945,8 @@ export default function DashboardPage() {
       : fieldFiltered;
   }, [allPicks, filters]);
 
-  const { high, medium, discMot, discMkt, incomplete, skippedLowRel, rescued, watchlist, protectedAcceptable, carryover, structuralLean, watchlistManualOdds } = useMemo(() => {
-    if (!data) return { high: [], medium: [], discMot: [], discMkt: [], incomplete: [], skippedLowRel: [], rescued: [], watchlist: [], protectedAcceptable: [], carryover: [], structuralLean: [], watchlistManualOdds: [] };
+  const { high, medium, discMot, discMkt, incomplete, skippedLowRel, rescued, watchlist, protectedAcceptable, carryover, structuralLean, watchlistManualOdds, watchlistOddsNeeded } = useMemo(() => {
+    if (!data) return { high: [], medium: [], discMot: [], discMkt: [], incomplete: [], skippedLowRel: [], rescued: [], watchlist: [], protectedAcceptable: [], carryover: [], structuralLean: [], watchlistManualOdds: [], watchlistOddsNeeded: [] };
     return {
       high: filteredPicks.filter((p) => (p.recommendation?.confidence_score || 0) >= 70).sort((a, b) => (b.recommendation?.confidence_score || 0) - (a.recommendation?.confidence_score || 0)),
       medium: filteredPicks.filter((p) => { const c = p.recommendation?.confidence_score || 0; return c >= 60 && c < 70; }).sort((a, b) => (b.recommendation?.confidence_score || 0) - (a.recommendation?.confidence_score || 0)),
@@ -927,6 +961,11 @@ export default function DashboardPage() {
       // MLB-V5 new buckets — baseball-only manual review bucket.
       structuralLean:      data.summary?.structural_lean_requires_odds || [],
       watchlistManualOdds: data.summary?.watchlist_manual_odds || [],
+      // Phase F64 — football soft-discards rescued by structural review
+      // (negative edge but structural_support >= 75). Rendered as a
+      // dedicated "Watchlist por cuota" section so users don't lose them
+      // amongst the regular market discards.
+      watchlistOddsNeeded: data.summary?.watchlist_odds_needed || [],
     };
   }, [data, filteredPicks]);
 
@@ -958,7 +997,7 @@ export default function DashboardPage() {
     }
   };
 
-  const hasAnyDiscarded = (discMot.length + discMkt.length + incomplete.length + skippedLowRel.length) > 0;
+  const hasAnyDiscarded = (discMot.length + discMkt.length + incomplete.length + skippedLowRel.length + watchlistOddsNeeded.length) > 0;
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 md:py-8 space-y-6 overflow-x-hidden">
@@ -1320,6 +1359,47 @@ export default function DashboardPage() {
           <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground pt-2 border-t border-border">
             {t.dashboard.detailsTitle}
           </div>
+
+          {/* Phase F64 — Watchlist por cuota (soft discards with strong
+              structural support). Surfaces these BEFORE the regular
+              market discards because they are *not* terminal — they're
+              picks waiting for a better price. Amber palette to differentiate
+              from Scores24 "rescued" picks (emerald) and regular discards. */}
+          {watchlistOddsNeeded.length > 0 && (
+            <>
+              <div
+                className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs uppercase tracking-wide font-semibold text-amber-200"
+                data-testid="watchlist-odds-needed-banner"
+              >
+                {lang === 'en'
+                  ? `Watchlist — odds needed (${watchlistOddsNeeded.length})`
+                  : `Watchlist por cuota — soporte estructural alto (${watchlistOddsNeeded.length})`}
+              </div>
+              <GroupSection
+                title={lang === 'en'
+                  ? 'Awaiting better price'
+                  : 'Esperando mejor cuota'}
+                count={watchlistOddsNeeded.length}
+                tier="Watch"
+                defaultOpen={true}
+                testId="group-watchlist-odds-needed"
+                sectionRef={refs.discMkt}
+                icon={Eye}
+              >
+                <div className="grid gap-2">
+                  {watchlistOddsNeeded.map((d, i) => (
+                    <DiscardedRow
+                      key={`wln-${i}`}
+                      item={d}
+                      testId={`watchlist-odds-needed-row-${i}`}
+                      type="market"
+                      sport={sport}
+                    />
+                  ))}
+                </div>
+              </GroupSection>
+            </>
+          )}
 
           {/* Phase 8.1 — Priority-league discards FIRST (Tier 1/2/3 matches
               that did reach the LLM and were rejected by motivation /

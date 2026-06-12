@@ -101,6 +101,19 @@ async def on_startup() -> None:
         log.info("[SCORES24_DISCARDED_REVIEW] cache/quota indexes ensured")
     except Exception as exc:
         log.warning("[SCORES24_DISCARDED_REVIEW] index ensure failed: %s", exc)
+    # Phase F65 — watchlist_odds_snapshots indexes (used by the hourly
+    # cron job and the /api/backtest/watchlist-odds-needed endpoint).
+    # TTL 60 days — keep a quarter of season for backtest aggregation.
+    try:
+        await db.watchlist_odds_snapshots.create_index(
+            [("match_id", 1), ("captured_at", -1)],
+        )
+        await db.watchlist_odds_snapshots.create_index(
+            "captured_at", expireAfterSeconds=60 * 24 * 3600,
+        )
+        log.info("[WATCHLIST_ODDS_SNAPSHOTS] indexes ensured (TTL 60d)")
+    except Exception as exc:
+        log.warning("[WATCHLIST_ODDS_SNAPSHOTS] index ensure failed: %s", exc)
     await auth_module.seed_demo_user(db)
     # Knowledge Base — seed the user-validated learning cases (idempotent).
     try:
@@ -153,6 +166,150 @@ async def on_shutdown() -> None:
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 SUPPORTED_SPORTS = {"football", "basketball", "baseball"}
+
+
+# ── Phase F65 — Watchlist Odds-Needed Backtest endpoint ──────────────
+@app.get("/api/backtest/watchlist-odds-needed")
+async def watchlist_odds_backtest_endpoint(demo: bool = False) -> dict:
+    """Phase F65 — return the backtest report for the
+    ``watchlist_odds_needed`` bucket.
+
+    When ``demo=true`` the endpoint runs the synthetic 5-pick dataset
+    shipped with ``services.watchlist_odds_backtest`` — useful for
+    front-end UI development while real data accumulates.
+
+    Otherwise it pulls:
+      - the latest analyst-run picks from ``analyst_runs`` whose
+        ``bucket == "watchlist_odds_needed"`` for the last 30 days,
+      - the matching settlements from ``finished_matches``,
+      - and any snapshots collected by the hourly cron job in
+        ``watchlist_odds_snapshots``.
+
+    The pure scorer in ``services.watchlist_odds_backtest`` is then
+    applied — no Mongo logic lives in the scorer itself.
+    """
+    try:
+        from services.watchlist_odds_backtest import (
+            run_watchlist_backtest, _synthetic_demo_dataset, empty_report,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[BACKTEST_IMPORT] %s", exc)
+        return {"available": False, "_error": str(exc)}
+
+    if demo:
+        picks, settlements, snapshots = _synthetic_demo_dataset()
+        report = run_watchlist_backtest(picks, settlements, snapshots)
+        report["mode"] = "demo"
+        return report
+
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        # 1) Picks — read from the most recent analyst_runs and explode
+        #    summary.watchlist_odds_needed across the window.
+        runs = await db.analyst_runs.find(
+            {"created_at": {"$gte": cutoff}},
+            {"summary.watchlist_odds_needed": 1, "match_label": 1, "league": 1,
+             "created_at": 1},
+        ).to_list(length=500)
+
+        picks: list[dict] = []
+        match_ids: set[str] = set()
+        for run in runs or []:
+            bucket = (run.get("summary") or {}).get("watchlist_odds_needed") or []
+            for entry in bucket:
+                if not isinstance(entry, dict):
+                    continue
+                mid = entry.get("match_id")
+                if mid:
+                    match_ids.add(str(mid))
+                picks.append({
+                    "match_id":       entry.get("match_id"),
+                    "match_label":    entry.get("match_label") or run.get("match_label"),
+                    "league":         entry.get("league") or run.get("league"),
+                    "edge_pct":       entry.get("edge_pct"),
+                    "estimated_prob": entry.get("estimated_prob"),
+                    "odds":           entry.get("odds"),
+                    "rescued_market": entry.get("rescued_market"),
+                    "created_at":     run.get("created_at").isoformat()
+                                       if run.get("created_at") else None,
+                })
+
+        # 2) Settlements.
+        settlements: dict[str, dict] = {}
+        if match_ids:
+            settle_docs = await db.finished_matches.find(
+                {"match_id": {"$in": list(match_ids)}},
+                {"match_id": 1, "final_corners_total": 1, "final_goals_total": 1,
+                 "home_corners": 1, "away_corners": 1, "home_score": 1,
+                 "away_score": 1},
+            ).to_list(length=len(match_ids))
+            for d in settle_docs:
+                settlements[str(d["match_id"])] = d
+
+        # 3) Snapshots.
+        snapshots_by_match: dict[str, list[dict]] = {}
+        if match_ids:
+            snap_docs = await db.watchlist_odds_snapshots.find(
+                {"match_id": {"$in": list(match_ids)}},
+            ).to_list(length=10_000)
+            for s in snap_docs:
+                mid = str(s.get("match_id"))
+                snapshots_by_match.setdefault(mid, []).append({
+                    "captured_at":     s.get("captured_at").isoformat()
+                                        if hasattr(s.get("captured_at"), "isoformat")
+                                        else s.get("captured_at"),
+                    "odds":            s.get("odds"),
+                    "estimated_prob":  s.get("estimated_prob"),
+                    "edge_pct":        s.get("edge_pct"),
+                })
+
+        report = run_watchlist_backtest(picks, settlements, snapshots_by_match)
+        report["mode"] = "live"
+        report["window_days"] = 30
+        return report
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[BACKTEST_LIVE] %s", exc)
+        rep = empty_report()
+        rep["mode"] = "error"
+        rep["_error"] = str(exc)
+        return rep
+
+
+# ── Phase F65 — Bright Data circuit breaker admin endpoint ────────────
+@app.get("/api/admin/brightdata/circuit-breaker")
+async def brightdata_breaker_status() -> dict:
+    """Return the current state of every per-host Bright Data circuit.
+
+    Used by the operator UI to see at a glance which domains Bright
+    Data has paused (policy block on scores24.live, repeated timeouts
+    on FBref, etc.).
+    """
+    try:
+        from services.external_sources.circuit_breaker import (
+            snapshot_all, FAIL_THRESHOLD, PAUSE_SEC, POLICY_BLOCK_PAUSE_SEC,
+            is_brightdata_enabled,
+        )
+        return {
+            "available":              True,
+            "brightdata_enabled":     is_brightdata_enabled(),
+            "fail_threshold":         FAIL_THRESHOLD,
+            "pause_sec":              PAUSE_SEC,
+            "policy_block_pause_sec": POLICY_BLOCK_PAUSE_SEC,
+            "hosts":                  snapshot_all(),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "_error": str(exc)}
+
+
+@app.post("/api/admin/brightdata/circuit-breaker/reset")
+async def brightdata_breaker_reset(host: Optional[str] = None) -> dict:
+    """Clear a single host's circuit breaker state (or all when host=None)."""
+    try:
+        from services.external_sources.circuit_breaker import reset
+        reset(host)
+        return {"ok": True, "host": host or "ALL"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "_error": str(exc)}
 
 
 # ── Phase F58 — Scores24 enrichment preview endpoint ─────────────────────────

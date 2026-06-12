@@ -645,9 +645,9 @@ async def _fetch_fbref_player(player_name: str) -> Optional[dict]:
     """
     if not player_name:
         return None
-    # Step 1 — search.
+    # Step 1 — search. Bright Data + FBref needs ~30-45s typically.
     search_url = f"https://fbref.com/en/search/search.fcgi?search={player_name.replace(' ', '+')}"
-    search_html = await _fetch_fbref_html(search_url, timeout_sec=10.0)
+    search_html = await _fetch_fbref_html(search_url, timeout_sec=55.0)
     if not search_html:
         return None
     href = _parse_fbref_player_link(search_html)
@@ -655,7 +655,7 @@ async def _fetch_fbref_player(player_name: str) -> Optional[dict]:
         return None
     # Step 2 — player page.
     player_url = f"https://fbref.com{href}"
-    player_html = await _fetch_fbref_html(player_url, timeout_sec=12.0)
+    player_html = await _fetch_fbref_html(player_url, timeout_sec=55.0)
     if not player_html:
         return None
     totals = _parse_fbref_standard_stats(player_html)

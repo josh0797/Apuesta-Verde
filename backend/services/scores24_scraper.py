@@ -383,6 +383,23 @@ async def _fetch_scores24_html(url: str) -> Optional[str]:
         log.info("[SCORES24] BrightData not configured (BRIGHTDATA_API_KEY / BRIGHTDATA_ZONE)")
         return None
 
+    # Phase F65 — global opt-IN + per-host circuit breaker.
+    try:
+        from services.external_sources.circuit_breaker import (
+            is_brightdata_enabled, is_open, record_success, record_failure,
+        )
+        if not is_brightdata_enabled():
+            _set_last_diagnostic({"reason": "brightdata_disabled_by_flag"})
+            log.info("[SCORES24] BRIGHTDATA_ENABLED=false — fetch skipped")
+            return None
+        if is_open(url):
+            _set_last_diagnostic({"reason": "breaker_open"})
+            log.info("[SCORES24] circuit breaker OPEN for %s — fetch skipped", url)
+            return None
+    except Exception:  # noqa: BLE001
+        record_success = None  # type: ignore[assignment]
+        record_failure = None  # type: ignore[assignment]
+
     payload = {
         "zone":    zone,
         "url":     url,
@@ -401,6 +418,8 @@ async def _fetch_scores24_html(url: str) -> Optional[str]:
     except (httpx.HTTPError, Exception) as exc:  # noqa: BLE001
         _set_last_diagnostic({"reason": "transport_error", "detail": str(exc)})
         log.warning("[SCORES24_FETCH_FAILED] %s: transport error: %s", url, exc)
+        if record_failure:
+            record_failure(url, error_code="transport_error", error_msg=str(exc))
         return None
 
     # Surface Bright Data diagnostic headers for the operator (wrong zone
@@ -424,6 +443,9 @@ async def _fetch_scores24_html(url: str) -> Optional[str]:
         _set_last_diagnostic(diagnostic)
         log.warning("[SCORES24_FETCH_FAILED] %s: BD API HTTP %s (%s)",
                     url, r.status_code, (r.text or "")[:200])
+        if record_failure:
+            record_failure(url, error_code=f"http_{r.status_code}",
+                           error_msg=(r.text or "")[:200])
         return None
 
     # 200 from BD but upstream may have failed — header tells us.
@@ -433,6 +455,11 @@ async def _fetch_scores24_html(url: str) -> Optional[str]:
         _set_last_diagnostic(diagnostic)
         log.warning("[SCORES24_FETCH_BLOCKED] %s: brd_err_code=%s brd_status=%s msg=%s",
                     url, brd_err_code, brd_status, (brd_err_msg or "")[:200])
+        if record_failure:
+            # `brd_err_msg` may include "Access denied … classified as Gambling …"
+            # which the breaker promotes to a 24h pause automatically.
+            record_failure(url, error_code=brd_err_code or "bd_upstream_error",
+                           error_msg=brd_err_msg or (r.text or "")[:200])
         return None
 
     body = r.text or ""
@@ -441,10 +468,15 @@ async def _fetch_scores24_html(url: str) -> Optional[str]:
         diagnostic["body_preview"] = body[:200]
         _set_last_diagnostic(diagnostic)
         log.info("[SCORES24_FETCH_EMPTY] %s: tiny body (%d bytes)", url, len(body))
+        if record_failure:
+            record_failure(url, error_code="tiny_body",
+                           error_msg=f"only {len(body)} bytes")
         return None
 
     diagnostic["reason"] = "ok"
     _set_last_diagnostic(diagnostic)
+    if record_success:
+        record_success(url)
     return body
 
 
