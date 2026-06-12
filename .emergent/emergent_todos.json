@@ -1,18 +1,30 @@
 [
   {
-    "content": "Crear FootballProfileCrossPropsPanel.jsx (panel nuevo independiente) + integrar en MatchCard",
+    "content": "Crear football_btts_live_guard.py con guard_btts_live_recommendation + infer_team_strength_from_odds",
     "status": "completed"
   },
   {
-    "content": "Crear script standalone backend/scripts/test_phaseF58_real_player.py (3 jugadores EPL) y ejecutarlo",
+    "content": "Integrar BTTS guard en human_live_interpreter.py (despues del current BTTS-ya-ocurrio check)",
     "status": "completed"
   },
   {
-    "content": "Implementar FBref scraper completo en football_player_stats_ingestor.py como 3ra fuente",
+    "content": "Crear scores24_scraper.py reutilizando _BrightDataClient (corners/apuesta fiable/redaccion)",
     "status": "completed"
   },
   {
-    "content": "Tests del FBref scraper + correr pytest completo",
+    "content": "Integrar scores24 enrichment en football pipeline (enrichment opcional, no decide picks)",
+    "status": "completed"
+  },
+  {
+    "content": "Tests obligatorios BTTS guard (5 fixtures) + tests scores24 parser",
+    "status": "completed"
+  },
+  {
+    "content": "UI: explicar BTTS bloqueado + alternativa en MatchCard live",
+    "status": "completed"
+  },
+  {
+    "content": "Pytest completo + zero regressions",
     "status": "completed"
   }
 ]

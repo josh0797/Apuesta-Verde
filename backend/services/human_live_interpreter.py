@@ -40,7 +40,10 @@ Output is shaped to drop straight into the UI's `LiveCopilotCard`:
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
+
+log = logging.getLogger("human_live_interpreter")
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
@@ -991,6 +994,64 @@ def interpret_live(
                 why.insert(0, reason_btts)
             suggested_market = None
 
+        # ── Fix 2 (F58+) — Football BTTS Live Guard ──────────────────
+        # Block BTTS when threat is unilateral, when a red card has
+        # neutralised the punished team's attack, or when bilateral
+        # threat thresholds aren't met. Emit a safer replacement market
+        # (Over 1.5 if 1-0/0-1 and minute ≤ 75) or WATCHLIST.
+        btts_guard_result = None
+        if is_btts_market and suggested_market:
+            try:
+                from .football_btts_live_guard import guard_btts_live_recommendation  # type: ignore
+                # Pull live evidence from the reeval payload if present.
+                ev = (reeval or {}).get("live_evidence") if isinstance(reeval, dict) else None
+                if not isinstance(ev, dict):
+                    ev = {}
+                # Resolve current minute fail-soft.
+                _minute = ev.get("minute")
+                if _minute is None and isinstance(reeval, dict):
+                    _minute = reeval.get("minute")
+                try:
+                    _minute_int = int(_minute) if _minute is not None else 0
+                except (TypeError, ValueError):
+                    _minute_int = 0
+                guard_res = guard_btts_live_recommendation(
+                    current_market=suggested_market,
+                    minute=_minute_int,
+                    score_home=cur_h, score_away=cur_a,
+                    home_team=str(home_name or "Local"),
+                    away_team=str(away_name or "Visitante"),
+                    home_red_cards=int(ev.get("home_red_cards") or 0),
+                    away_red_cards=int(ev.get("away_red_cards") or 0),
+                    home_xg=ev.get("home_xg"),
+                    away_xg=ev.get("away_xg"),
+                    home_shots=ev.get("home_shots"),
+                    away_shots=ev.get("away_shots"),
+                    home_sot=ev.get("home_sot"),
+                    away_sot=ev.get("away_sot"),
+                    home_box_shots=ev.get("home_box_shots"),
+                    away_box_shots=ev.get("away_box_shots"),
+                    home_corners=ev.get("home_corners"),
+                    away_corners=ev.get("away_corners"),
+                )
+                if not guard_res.get("btts_allowed", True):
+                    btts_guard_result = guard_res
+                    repl_market = guard_res.get("replacement_market")
+                    repl_label  = guard_res.get("replacement_label")
+                    narrative_es = guard_res.get("narrative_es") or ""
+                    if narrative_es and narrative_es not in why:
+                        why.insert(0, narrative_es)
+                    for rc in guard_res.get("reason_codes") or []:
+                        if rc not in why:
+                            why.append(rc)
+                    if repl_market == "OVER_1_5":
+                        suggested_market = repl_label or "Más de 1.5 goles"
+                    else:  # WATCHLIST or unknown → kill the recommendation
+                        suggested_market = None
+            except Exception:
+                # Fail-soft: never break the live interpreter
+                pass
+
         # 2) Strict OVER gates against openness flags. Even if openness
         #    says supports_over_35=False or supports_over_25=False, the
         #    interpreter must NOT surface those markets — UNLESS the
@@ -1137,6 +1198,12 @@ def interpret_live(
     except Exception as _exc_fdnb:
         log.debug("friendly_dnb_rule failed: %s", _exc_fdnb)
 
+    # Initialise btts_guard_result for outer scope (set inside the guard block above).
+    try:
+        _btts_guard_export = btts_guard_result  # type: ignore[name-defined]
+    except NameError:
+        _btts_guard_export = None
+
     return {
         "title":            title,
         "subtitle":         subtitle,
@@ -1157,6 +1224,8 @@ def interpret_live(
         "unilateral_dominance": unilateral_dominance,
         # ── Phase 39 / Fix 2 — Friendly DNB decision (UI badge) ──
         "friendly_dnb":     friendly_dnb_decision,
+        # ── Fix 2 (F58+) — BTTS Live Guard audit for UI render ──
+        "btts_live_guard":  _btts_guard_export,
         # ── P1 fix: structured scoreboard context for the UI badges ──
         # This lets the LiveCopilotCard render badges like "Ventaja clara"
         # / "Control por marcador" without re-deriving the state.

@@ -33,6 +33,7 @@ import { MLBScriptV3Panel, MLBDiversityBadge, MLBBullpenSwapBadge, MLBOverSwapBa
 import { MLBAdvancedStatsPanel } from './MLBAdvancedStatsPanel';
 import { FootballIntelligencePanel, FootballPatternMemoryPanel, FootballLiveVsPregamePanel } from './FootballMoneyballPanels';
 import { FootballProfileCrossPropsPanel } from './FootballProfileCrossPropsPanel';
+import { BTTSBlockedAlert } from './BTTSBlockedAlert';
 import { FootballTotalsModelPanel, FootballOverSupportPanel } from './FootballDcNbPanels';
 import { LiveRecommendationTimeline } from './LiveRecommendationTimeline';
 import { InlineManualOddsInput } from './InlineManualOddsInput';
@@ -564,6 +565,12 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           <FootballProfileCrossPropsPanel
             pick={m}
             testId={`football-f58-${m.match_id}`}
+          />
+          {/* Fix 2 (F58+) — BTTS Live Guard explanation.
+              Self-hides when guard didn't fire. */}
+          <BTTSBlockedAlert
+            copilot={m.live_copilot || m.copilot}
+            testId={`btts-blocked-${m.match_id}`}
           />
           <FootballLiveVsPregamePanel
             diff={m.football_live_vs_pregame || m._live_reeval?.football_live_vs_pregame}

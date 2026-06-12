@@ -143,6 +143,41 @@ async def on_shutdown() -> None:
 SUPPORTED_SPORTS = {"football", "basketball", "baseball"}
 
 
+# ── Phase F58 — Scores24 enrichment preview endpoint ─────────────────────────
+@app.get("/api/scores24/preview")
+async def scores24_preview(url: str, use_cache: bool = True) -> dict:
+    """Preview scraping of a Scores24 match URL via Bright Data web_unlocker1.
+
+    Enrichment-only — does NOT persist anything or modify pick logic.
+    The operator / UI invokes this to inspect the editorial sections
+    (corners prediction, apuesta fiable, predicción de la redacción)
+    for a specific match URL.
+
+    Returns the full scraper payload (sections, consensus, reason codes).
+    """
+    try:
+        from services.scores24_scraper import scrape_scores24_match, get_last_brightdata_diagnostic
+        payload = await scrape_scores24_match(url=url, use_cache=use_cache)
+        # Attach BD diagnostic so operator can see *why* a fetch failed
+        # (e.g. wrong_api / SERP-vs-WebUnlocker zone-type mismatch).
+        try:
+            payload["_brightdata_diagnostic"] = get_last_brightdata_diagnostic()
+        except Exception:
+            pass
+        return payload
+    except Exception as exc:
+        log.warning("[SCORES24_PREVIEW] %s -> %s", url, exc)
+        return {
+            "available":      False,
+            "url":             url,
+            "source":          "unavailable",
+            "sections":        [],
+            "consensus":       {},
+            "reason_codes":    ["SCORES24_PREVIEW_ERROR"],
+            "_error":          str(exc),
+        }
+
+
 def _norm_sport(sport: Optional[str]) -> str:
     """Normalize/validate sport query param. Defaults to football."""
     s = (sport or "football").lower()
