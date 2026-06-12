@@ -178,6 +178,73 @@ async def scores24_preview(url: str, use_cache: bool = True) -> dict:
         }
 
 
+# ── Phase F62 — Discarded Match Scores24 External Review endpoint ──────────
+@app.post("/api/football/discarded/{match_id}/review")
+async def football_discarded_review(match_id: str, force: bool = False) -> dict:
+    """Trigger an external Scores24 review for a discarded football match.
+
+    Looks up the match by ``match_id`` from the most recent analyst run
+    snapshot, then dispatches the review (cache + daily quota aware).
+    Returns the full review payload (decision + rescued_market when
+    applicable). Never mutates the underlying analyst result — pure
+    enrichment.
+
+    Query params:
+      * ``force=true``: bypass the per-match cache (still honours the
+        daily quota).
+    """
+    try:
+        from services.football_discarded_scores24_review import (
+            review_discarded_match_with_scores24,
+        )
+        # Find the match in the most recent analyst snapshot. We probe
+        # both the live cache key and the persisted snapshots collection.
+        match_doc: Optional[dict] = None
+        try:
+            snapshots = await db.analyst_snapshots.find(
+                {"sport": "football"}, sort=[("created_at", -1)], limit=1,
+            ).to_list(length=1) if hasattr(db, "analyst_snapshots") else []
+            for snap in snapshots:
+                summary = snap.get("summary") or {}
+                for bucket in ("discarded_motivation", "discarded_market",
+                               "incomplete_data", "watchlist"):
+                    for row in (summary.get(bucket) or []):
+                        if str(row.get("match_id")) == str(match_id):
+                            match_doc = row
+                            match_doc["_discard_bucket"] = bucket
+                            break
+                    if match_doc:
+                        break
+                if match_doc:
+                    break
+        except Exception as exc:
+            log.debug("[F62] snapshot lookup failed: %s", exc)
+
+        if match_doc is None:
+            # Fallback: caller may have only the match_id; build a minimal
+            # synthetic match so the slug builder can at least try.
+            match_doc = {"match_id": match_id}
+
+        discard_reason = match_doc.get("_discard_bucket") or match_doc.get("reason") or "edge_insufficient"
+        review = await review_discarded_match_with_scores24(
+            match_doc, db=db, force=bool(force),
+            discard_reason=str(discard_reason),
+        )
+        return review
+    except Exception as exc:
+        log.warning("[F62] discarded review failed match_id=%s: %s", match_id, exc)
+        return {
+            "available":             False,
+            "engine_version":        "football_discarded_scores24_review.v1",
+            "source":                "scores24",
+            "review_type":           "DISCARDED_MATCH_EXTERNAL_REVIEW",
+            "external_context_found": False,
+            "decision":              "CONFIRM_DISCARD",
+            "reason_codes":          ["DISCARDED_REVIEW_ENDPOINT_ERROR"],
+            "_error":                str(exc),
+        }
+
+
 def _norm_sport(sport: Optional[str]) -> str:
     """Normalize/validate sport query param. Defaults to football."""
     s = (sport or "football").lower()

@@ -1,26 +1,18 @@
 [
   {
-    "content": "Crear football_under_support.py espejo del over_support (en football_moneyball/)",
+    "content": "Crear football_discarded_scores24_review.py con review_discarded_match_with_scores24, build_scores24_slug_candidates, decision logic y cache Mongo",
     "status": "completed"
   },
   {
-    "content": "Cablearlo al analyst_engine.py despues del over_support en el mismo loop de buckets",
+    "content": "Anadir endpoint REST POST /api/football/discarded/{match_id}/review",
     "status": "completed"
   },
   {
-    "content": "Anadir cross_signal_check estructurado a compute_under_profile_score en under_market_scan.py",
+    "content": "Cableado automatico en analyst_engine: revisar descartados respetando MAX_PER_RUN=10 (solo audit)",
     "status": "completed"
   },
   {
-    "content": "Documentar requisito de simetria como TODO en football_over_support.py (para futuro compute_over_profile_score)",
-    "status": "completed"
-  },
-  {
-    "content": "Crear smoke tests para football_under_support (8 escenarios del spec)",
-    "status": "completed"
-  },
-  {
-    "content": "Crear smoke tests para cross_signal_check en under_market_scan",
+    "content": "Crear smoke tests: slug builder, decision logic (CONFIRM/WATCHLIST/RESCUE), quota gating, cache",
     "status": "completed"
   },
   {
@@ -28,7 +20,7 @@
     "status": "completed"
   },
   {
-    "content": "Actualizar plan.md con phase F61",
+    "content": "Actualizar plan.md con phase F62",
     "status": "completed"
   }
 ]

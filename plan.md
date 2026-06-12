@@ -237,3 +237,56 @@ Antes de promover esta señal de telemetry a scoring, validar el significado exa
 
 ### Simetría obligatoria (TODO documentado)
 Si en el futuro se crea un `compute_over_profile_score` análogo al `compute_under_profile_score`, DEBE aplicar las reglas espejo contra `football_under_support` y `football_over_support` exactamente como se documentó en el header de `football_over_support.py`. Crear el módulo Over sin cross-check no es opcional — recrearía la asimetría que Phase F61 acaba de remover.
+
+---
+
+## Phase F62 — Discarded Match Scores24 External Review (COMPLETED)
+
+### Objetivos
+- ✅ Todo partido de fútbol descartado dispara una revisión externa contra Scores24 (corners + editorial únicamente, ignora ads/telegram/comments/player props).
+- ✅ La revisión NO muta el bucket — solo adjunta un `scores24_review` con la decisión (`CONFIRM_DISCARD` | `MOVE_TO_WATCHLIST` | `RESCUE_ALTERNATIVE_MARKET`).
+- ✅ Cost-control con cache Mongo (TTL pregame=12h, live=15min, postgame=24h) + quota diaria 40 + cap por run 10.
+
+### Implementación
+- ✅ **`backend/services/football_discarded_scores24_review.py`** (NUEVO, ~430 LOC, async, fail-soft):
+  - `build_scores24_slug_candidates(match)` — generador determinístico (`m-DD-MM-YYYY-home-away-prediction` + swap). Respeta `scores24_url` explícita si está. Strip de acentos y normalización de fechas (ISO/DD-MM-YYYY/Unix timestamp).
+  - `make_run_counter(limit)` + `_RunCounter` — cap por run para `SCORES24_DISCARDED_MAX_PER_RUN=10`.
+  - `review_discarded_match_with_scores24(match, db, force, run_counter, discard_reason, scrape_fn)` — entry async principal.
+  - Cache Mongo en `scores24_discarded_review_cache` con `expires_at` por status del partido.
+  - Quota diaria atómica vía `find_one_and_update` en `scores24_discarded_quota` (rollback si excede).
+  - Decision logic: corners → RESCUE, editorial → WATCHLIST, vacío → CONFIRM_DISCARD.
+  - Env: `SCORES24_DISCARDED_REVIEW_ENABLED`, `SCORES24_DISCARDED_MAX_PER_RUN`, `SCORES24_DISCARDED_MAX_PER_DAY`, `SCORES24_PREMIUM_ENABLED`, `SCORES24_USE_BROWSER_API`.
+- ✅ **`backend/server.py`** — nuevo endpoint REST `POST /api/football/discarded/{match_id}/review?force=false`:
+  - Resuelve el match contra el snapshot más reciente.
+  - Si no encuentra el match, igual intenta con un payload sintético (slug builder devuelve `URL_NOT_RESOLVED` y se honra fail-soft).
+  - Verificado en vivo: `curl POST` devuelve el shape contractual sin romper.
+- ✅ **`backend/services/analyst_engine.py`** — Cableado automático (solo football) después de Phase 13.6 market_trace:
+  - Itera `discarded_motivation`, `discarded_market`, `incomplete_data`.
+  - Respeta `MAX_PER_RUN=10` con `make_run_counter()` global por run.
+  - Attacha `scores24_review` a cada entry sin mutar buckets.
+  - Audit: `parsed._pipeline.discarded_scores24_review` con `attempted/reviewed/decisions/cap_per_run`.
+
+### Tests
+- ✅ `backend/tests/test_football_discarded_scores24_review_smoke.py` — **17 tests**:
+  - Slug builder: happy path, acentos/espacios, URL explícita, missing fields, Unix timestamp.
+  - Decision logic: RESCUE (corners), WATCHLIST (editorial), CONFIRM_DISCARD (vacío/scraper falla).
+  - Env kill-switch (`SCORES24_DISCARDED_REVIEW_ENABLED=false`).
+  - URL no resolvible → `SCORES24_URL_NOT_RESOLVED`.
+  - Per-run quota → `SCORES24_QUOTA_RUN_EXCEEDED` después del 2do.
+  - Cache hit (skip scraper) + force=True bypass.
+  - Daily quota Mongo (con `_FakeDB`) → blocked al 3ro con MAX_PER_DAY=2.
+  - Shape contract + engine_version.
+- ✅ Pytest suite completa: **1864/1864 passing** (+17 nuevos, 0 regresiones).
+- ✅ Backend service reiniciado + endpoint live verificado: `POST /api/football/discarded/test-fixture/review` devuelve el JSON contractual.
+
+### Decisiones clave (confirmadas con usuario)
+- **(1.c) Ambos** — cableado automático en analyst_engine + endpoint manual REST.
+- **(2.a) Solo audit** — los buckets no se mutan; la UI lee `entry.scores24_review` para decidir cómo mostrar el partido (chip RESCATE/WATCHLIST/CONFIRMADO).
+- **(3.a) Mongo** para rate limit diario y cache (sobrevive restarts).
+- **(4) Solo slug determinístico** — sin SERP API (no se añade nueva integración paga).
+- **(5.a) Cache propio Mongo** con TTL diferenciado por status del partido.
+
+### Próximos pasos sugeridos
+- (P2) **UI surface** del bloque `scores24_review` en las cards de descartados: chip RESCATE (verde) / WATCHLIST (amarillo) / CONFIRMADO (gris) + tooltip con `rescued_market`.
+- (P3) Backtest del valor de los `RESCUE_ALTERNATIVE_MARKET` para validar que las recomendaciones de corners de Scores24 tienen ROI positivo.
+- (P3) TTL index nativo en Mongo para `scores24_discarded_review_cache.expires_at` (purga automática).
