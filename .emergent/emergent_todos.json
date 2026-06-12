@@ -1,26 +1,26 @@
 [
   {
-    "content": "Crear external_context_gate.py con should_fetch_scores24_context (5 allow rules + 7 deny rules)",
-    "status": "in_progress"
+    "content": "Fase A: Crear smoke tests para external_context_gate.py (5 allow + 7 deny + edge cases)",
+    "status": "completed"
   },
   {
-    "content": "Cablear football_corner_profile_cross al football_pattern_matcher cuando no haya value en 1X2/BTTS/goles",
-    "status": "pending"
+    "content": "Fase B1: Crear football_corner_cross_integration.py (helper que llama al gate, al scraper y al cross)",
+    "status": "completed"
   },
   {
-    "content": "Inyectar scores24_payload al corner cross (con gating activo) cuando exista scores24_url del match",
-    "status": "pending"
+    "content": "Fase B2: Cablear el helper desde football_pattern_matcher.attach_football_intelligence_to_payload (paso 6)",
+    "status": "completed"
   },
   {
-    "content": "Smoke tests del gate (allow + deny scenarios)",
-    "status": "pending"
+    "content": "Fase C1: Crear smoke tests para la integracion corner cross (gate allow/deny, scraper falla, confirma/conflicto)",
+    "status": "completed"
   },
   {
-    "content": "Smoke tests integracion corner-cross-in-pipeline",
-    "status": "pending"
+    "content": "Fase C2: Correr pytest completo y validar 0 regresiones (1794+/1794+ verdes)",
+    "status": "completed"
   },
   {
-    "content": "Pytest completo + 0 regressions",
-    "status": "pending"
+    "content": "Actualizar plan.md con phase F60 completada",
+    "status": "completed"
   }
 ]

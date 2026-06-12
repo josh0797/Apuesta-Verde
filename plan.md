@@ -141,7 +141,7 @@
 - ✅ Pytest suite completa: **1744/1744 passing** (0 regresiones).
 
 ## 3) Next Actions (orden de ejecución)
-**Estado actual: DONE para backend + UI panel. Próximos pasos recomendados (P2/P3):**
+**Estado actual: DONE para backend + UI panel + Phase F60 (cost-control gate + corner cross wiring). Próximos pasos recomendados (P2/P3):**
 1. (P2) **RTL tests** del nuevo `FootballProfileCrossPropsPanel.jsx`.
 2. (P2) **Wiring del payload de props en football pipeline**:
    - Actualmente el panel espera `pick.player_props_discovery`.
@@ -150,6 +150,42 @@
    - Requiere `BRIGHTDATA_API_KEY` + `BRIGHTDATA_CUSTOMER_ID` (según `services/external_sources/base.py`).
 4. (P3) **Ampliar StatMuse slugs** para cubrir pases/tackles si StatMuse soporta endpoints equivalentes (reduce dependencia en FBref).
 5. (P3) **Backtest del override gating** (tasa de override, hit-rate/ROI) antes de aplicar auto-flip en producción.
+6. (P2) **UI surface** del `football_corner_cross_applied` audit + scores24 confirmation chip en MatchCard (visualizar gate verdict + external_confirmation/conflict).
+
+---
+
+## Phase F60 — External Context Gate + Corner Cross Wiring (COMPLETED)
+
+### Objetivos
+- ✅ Controlar el costo de las llamadas a Bright Data Premium (Scores24) con un gate determinístico.
+- ✅ Cablear `football_corner_profile_cross` al pipeline principal (`football_pattern_matcher`).
+- ✅ Inyectar el `scores24_payload` al cruce de córners cuando el gate lo permita y haya URL del match.
+
+### Implementación
+- ✅ **`services/external_context_gate.py`** (399 LOC, pre-existente):
+  - **5 reglas allow**: corner candidate, no main value, high priority, layer conflict, edge needs external confirmation.
+  - **7 reglas deny**: no candidate, low priority, cache fresh, main value clean, no corner line, mixed profile, late live.
+  - Hard-deny rules (cache fresh, late live) cortan antes que cualquier allow.
+  - Bug fix: normalización de market strings ("Over 2.5" → "over_2_5") para que el matcher de mercados principales funcione.
+- ✅ **`services/football_corner_cross_integration.py`** (NUEVO, fail-soft, async):
+  - Step 1: computa el corner cross internal-only (siempre).
+  - Step 2: consulta el gate con un payload proyectado.
+  - Step 3: si el gate abre + hay URL → llama a `scrape_scores24_match` (con fetcher inyectable para tests).
+  - Step 4: re-corre el cross con `scores24_payload` → emite `external_confirmation`/`external_conflict`.
+  - Audit completo en `pick_payload["football_corner_cross_applied"]`.
+- ✅ **`services/football_moneyball/football_pattern_matcher.py`**:
+  - Nuevo step 6 (entre F58 profile cross y persistencia) que llama al integrador.
+  - Fail-soft: cualquier error solo se loggea en debug.
+
+### Tests
+- ✅ `backend/tests/test_external_context_gate_smoke.py` — 25 tests (5 allow × variantes + 7 deny + edge cases + composites).
+- ✅ `backend/tests/test_football_corner_cross_integration_smoke.py` — 8 tests (gate deny, gate allow + scraper OK, no URL, scraper raises, fail-soft inputs, external conflict, premium disabled).
+- ✅ Pytest suite: **1827/1827 passing** (+33 nuevos tests, 0 regresiones desde Phase F58).
+
+### Decisiones de diseño (confirmadas con usuario)
+- **Siempre correr el corner-cross internal-only**; el gate solo decide el costo de Scores24 (porque el cross interno es gratis).
+- Cross results se adjuntan a `pick_payload["combined_football_corner_profile_cross"]` (snake_case) y `pick_payload["footballHistoricalProfile"]["combinedFootballCornerProfileCross"]` (camelCase para UI).
+- El payload crudo de Scores24 se stashea en `pick_payload["scores24_corner_payload"]` solo cuando el scraper tuvo éxito.
 
 ## 4) Criterios de éxito
 - ✅ Ingestor devuelve siempre un dict normalizado; en fallo devuelve `available=False` y no rompe.

@@ -136,6 +136,14 @@ def _is_main_market_clean_value(payload: dict) -> bool:
     market = _lower(rec.get("market"))
     if not market or "corner" in market:
         return False
+    # Normalise punctuation so families like "over_2_5" match real-world
+    # market strings such as "Over 2.5" or "over-2.5".
+    norm_market = (
+        market
+        .replace(".", "_")
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
     main_families = (
         "moneyline", "match_winner", "1x2", "home_away",
         "double_chance", "draw_no_bet", "dnb",
@@ -144,7 +152,7 @@ def _is_main_market_clean_value(payload: dict) -> bool:
         "btts", "ambos_marcan", "both_teams_to_score",
         "team_total", "asian_handicap",
     )
-    if not any(fam in market for fam in main_families):
+    if not any(fam in norm_market for fam in main_families):
         return False
     conf = _safe(rec.get("confidence_score"))
     if conf is None:

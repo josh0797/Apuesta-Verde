@@ -148,7 +148,35 @@ async def attach_football_intelligence_to_payload(
     except Exception as exc:
         log.debug("football_phaseF58 integration failed: %s", exc)
 
-    # 6. Persist the snapshot (best-effort).
+    # 6. Phase F60 — Football Corner Profile Cross (L5 vs L15) + optional
+    # Scores24 external confirmation, gated by the cost-control layer
+    # ``external_context_gate``. Runs ALWAYS internal-only; the premium
+    # Scores24 fetch is opt-in and decided by the gate (cheap if denied).
+    # Attaches:
+    #   * pick_payload["combined_football_corner_profile_cross"]
+    #   * pick_payload["football_corner_cross_applied"]  (audit)
+    #   * pick_payload["scores24_corner_payload"]  (only when gate opens)
+    try:
+        from services.football_corner_cross_integration import (
+            attach_football_corner_cross_to_payload,
+        )
+        cc_audit = await attach_football_corner_cross_to_payload(
+            pick_payload, match,
+        )
+        audit["football_corner_cross"] = {
+            "available":          bool(cc_audit.get("available")),
+            "cross_profile":      cc_audit.get("cross_profile"),
+            "cross_supports":     cc_audit.get("cross_supports"),
+            "gate_should_fetch":  cc_audit.get("gate_should_fetch"),
+            "gate_priority":      cc_audit.get("gate_priority"),
+            "scores24_ok":        cc_audit.get("scores24_ok"),
+            "external_confirmation": cc_audit.get("external_confirmation"),
+            "external_conflict":     cc_audit.get("external_conflict"),
+        }
+    except Exception as exc:
+        log.debug("football_corner_cross_integration failed: %s", exc)
+
+    # 7. Persist the snapshot (best-effort).
     if persist:
         try:
             full_snap = build_full_intelligence_snapshot(
