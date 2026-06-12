@@ -1,26 +1,34 @@
 [
   {
-    "content": "Fase A: Crear smoke tests para external_context_gate.py (5 allow + 7 deny + edge cases)",
+    "content": "Crear football_under_support.py espejo del over_support (en football_moneyball/)",
     "status": "completed"
   },
   {
-    "content": "Fase B1: Crear football_corner_cross_integration.py (helper que llama al gate, al scraper y al cross)",
+    "content": "Cablearlo al analyst_engine.py despues del over_support en el mismo loop de buckets",
     "status": "completed"
   },
   {
-    "content": "Fase B2: Cablear el helper desde football_pattern_matcher.attach_football_intelligence_to_payload (paso 6)",
+    "content": "Anadir cross_signal_check estructurado a compute_under_profile_score en under_market_scan.py",
     "status": "completed"
   },
   {
-    "content": "Fase C1: Crear smoke tests para la integracion corner cross (gate allow/deny, scraper falla, confirma/conflicto)",
+    "content": "Documentar requisito de simetria como TODO en football_over_support.py (para futuro compute_over_profile_score)",
     "status": "completed"
   },
   {
-    "content": "Fase C2: Correr pytest completo y validar 0 regresiones (1794+/1794+ verdes)",
+    "content": "Crear smoke tests para football_under_support (8 escenarios del spec)",
     "status": "completed"
   },
   {
-    "content": "Actualizar plan.md con phase F60 completada",
+    "content": "Crear smoke tests para cross_signal_check en under_market_scan",
+    "status": "completed"
+  },
+  {
+    "content": "Correr pytest completo y validar 0 regresiones",
+    "status": "completed"
+  },
+  {
+    "content": "Actualizar plan.md con phase F61",
     "status": "completed"
   }
 ]

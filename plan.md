@@ -152,8 +152,6 @@
 5. (P3) **Backtest del override gating** (tasa de override, hit-rate/ROI) antes de aplicar auto-flip en producción.
 6. (P2) **UI surface** del `football_corner_cross_applied` audit + scores24 confirmation chip en MatchCard (visualizar gate verdict + external_confirmation/conflict).
 
----
-
 ## Phase F60 — External Context Gate + Corner Cross Wiring (COMPLETED)
 
 ### Objetivos
@@ -194,3 +192,48 @@
 - ✅ Player props: Tier 1/2 generables con stats; Tier 3 solo si `edge_score≥90` y `fragility≤35`.
 - ✅ UI panel se renderiza sin romper cards (self-hide) y respeta design system.
 - ✅ `pytest` completo pasa (sin regresiones) y los smoke tests cubren parsing/merge FBref.
+---
+
+## Phase F61 — Football Under Support + Cross-Signal Check (COMPLETED)
+
+### Objetivos
+- ✅ Crear `football_under_support.py` espejo estructural de `football_over_support.py` (no fuerza picks; aporta una segunda señal estructural al pipeline).
+- ✅ Cablearlo al `analyst_engine` para que cada match football quede con AMBOS supports adjuntos simétricamente.
+- ✅ Implementar cross-check estructurado en `compute_under_profile_score`: una señal Over fuerte debe penalizar el Under profile; una Under support fuerte debe confirmarlo. Todo expuesto en `cross_signal_check` para auditoría.
+- ✅ Documentar el requisito de simetría obligatoria para cuando se cree un `compute_over_profile_score` análogo (TODO explícito en `football_over_support.py`).
+
+### Implementación
+- ✅ **`services/football_moneyball/football_under_support.py`** (NUEVO, pure, fail-soft):
+  - 6 reason codes positivos + `SIGNAL_MISSING` + `DC_NB_DELTA_TELEMETRY_ONLY`.
+  - `MIN_SIGNALS_FLOOR = 3`: si menos señales contribuyen, devuelve `available=False` con `_skipped="insufficient_signals"` (NO devuelve 50 misleading).
+  - **`LOW_MOTIVATION_CONTEXT_MILD` conservador**: cap +3 (no +8) y solo aplica si HAY corroboración (cold offenses, low xG, clean sheets, defensa sólida). Sin corroboración → 0 puntos + RC `LOW_MOTIVATION_CONTEXT_MILD_NOT_CORROBORATED`.
+  - **`dc_nb_telemetry`**: el delta DC/NB se expone pero NO suma puntos hasta validar el signo. Punto de promoción documentado in-code.
+- ✅ **`services/analyst_engine.py`**: nueva sección espejo después del cálculo de over_support, dentro del mismo loop de buckets (picks + descartes + watchlist + protected). Audit en `pipeline_meta.football_totals_model.under_support_attached`.
+- ✅ **`services/under_market_scan.py`**: cross-check estructurado en `compute_under_profile_score`:
+  - `over_support >= 75` → score −15 + RC `OVER_SUPPORT_CONTRADICTS_UNDER_PROFILE` + `OVER_SUPPORT_STRONG_PENALTY_APPLIED`.
+  - `over_support >= 60` → score −8  + RC `OVER_SUPPORT_CONTRADICTS_UNDER_PROFILE`.
+  - `under_support >= 70` → score +5 + RC `UNDER_SUPPORT_CONFIRMS_UNDER_PROFILE`.
+  - El bloque `cross_signal_check` queda SIEMPRE en el output (incluso cuando no hay supports) con `penalty=0`, `bonus=0`, `reason_codes=[]`.
+- ✅ **`services/football_moneyball/football_over_support.py`**: header actualizado con sección "SYMMETRY TODO (Phase F61)" que documenta el contrato espejo que un futuro `compute_over_profile_score` DEBE implementar de fábrica.
+
+### Tests
+- ✅ `backend/tests/test_football_under_support_smoke.py` — **20 tests** que cubren los 8 escenarios del spec + variantes:
+  1. Empty/None input → `available=False`.
+  2. Thin payload → `insufficient_signals`.
+  3. Full signals (low-scoring) → `score >= 60`.
+  4. Full signals (high-scoring) → `score <= 50`.
+  5. Motivación sin corroboración → 0 pts + `NOT_CORROBORATED`.
+  6. Motivación con corroboración → +3 pts.
+  7. `dc_nb_delta` es telemetry-only (score idéntico con/sin delta).
+  8. Cross-check Over-support penalty (75+/-15, 60+/-8, <60/0, unavailable/0).
+  9. Cross-check Under-support bonus (70+/+5, <70/0).
+  10. Cross-check combinado (Over=80 + Under=72 → net −10).
+  11. `cross_signal_check` siempre presente.
+  12. Cold weather / attacking injuries bonuses.
+- ✅ Pytest suite: **1847/1847 passing** (+20 nuevos, 0 regresiones).
+
+### Política sobre `dc_nb_delta`
+Antes de promover esta señal de telemetry a scoring, validar el significado exacto del signo consultando `football_totals_calibration` o `statsbomb_features` directamente. El comentario en `_dc_nb_telemetry` marca el punto de promoción. Hasta entonces, el campo se expone en `dc_nb_telemetry` pero NO suma puntos al score.
+
+### Simetría obligatoria (TODO documentado)
+Si en el futuro se crea un `compute_over_profile_score` análogo al `compute_under_profile_score`, DEBE aplicar las reglas espejo contra `football_under_support` y `football_over_support` exactamente como se documentó en el header de `football_over_support.py`. Crear el módulo Over sin cross-check no es opcional — recrearía la asimetría que Phase F61 acaba de remover.

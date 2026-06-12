@@ -326,6 +326,65 @@ def compute_under_profile_score(match: dict, line: float = 3.5, *, tactical_scor
         )
 
     score = int(round(max(0.0, min(100.0, score + hgp_boost))))
+
+    # ── Cross-signal check con telemetría estructurada ───────────────
+    # Espejo de la regla simétrica del MLB: una señal estructural fuerte
+    # en contra (Over support alto) debe bajar la confianza, no ser
+    # ignorada. Una señal estructural que confirma (Under support alto)
+    # sube la confianza ligeramente. Todo se loguea en
+    # ``cross_signal_check`` para auditoría.
+    cross_signal_check = {
+        "over_support_score":         None,
+        "under_support_score":        None,
+        "score_before_cross_check":   score,
+        "score_after_cross_check":    score,
+        "penalty":                    0,
+        "bonus":                      0,
+        "reason_codes":               [],
+    }
+
+    over_support = (match.get("football_over_support") or {})
+    os_score = over_support.get("score") if over_support.get("available") else None
+    if os_score is not None:
+        cross_signal_check["over_support_score"] = os_score
+        if os_score >= 75:
+            score = max(0, score - 15)
+            cross_signal_check["penalty"] = -15
+            cross_signal_check["reason_codes"].extend([
+                "OVER_SUPPORT_CONTRADICTS_UNDER_PROFILE",
+                "OVER_SUPPORT_STRONG_PENALTY_APPLIED",
+            ])
+            reasons.append(
+                f"Over support {os_score}/100 contradice fuertemente — "
+                f"penalización -15 al Under profile."
+            )
+        elif os_score >= 60:
+            score = max(0, score - 8)
+            cross_signal_check["penalty"] = -8
+            cross_signal_check["reason_codes"].append(
+                "OVER_SUPPORT_CONTRADICTS_UNDER_PROFILE"
+            )
+            reasons.append(
+                f"Over support {os_score}/100 sugiere contexto ofensivo — "
+                f"penalización -8 al Under profile."
+            )
+
+    under_support = (match.get("football_under_support") or {})
+    us_score = under_support.get("score") if under_support.get("available") else None
+    if us_score is not None:
+        cross_signal_check["under_support_score"] = us_score
+        if us_score >= 70:
+            score = min(100, score + 5)
+            cross_signal_check["bonus"] = 5
+            cross_signal_check["reason_codes"].append(
+                "UNDER_SUPPORT_CONFIRMS_UNDER_PROFILE"
+            )
+            reasons.append(
+                f"Under support {us_score}/100 confirma contexto pro-Under (+5)."
+            )
+
+    cross_signal_check["score_after_cross_check"] = score
+
     if score >= TH_RECOMMEND and fragility_score <= TH_FRAGILITY_MAX:
         state = "UNDER_VALUE_FOUND"
     elif score >= TH_WATCHLIST and fragility_score <= TH_FRAGILITY_MAX + 15:
@@ -343,6 +402,7 @@ def compute_under_profile_score(match: dict, line: float = 3.5, *, tactical_scor
         "h2h_under_rate": round(h2h_under_rate, 3),
         "h2h_avg_goals": round(h2h_avg, 2) if h2h_avg is not None else None,
         "samples_h2h": len(totals),
+        "cross_signal_check": cross_signal_check,
         "_sub": {
             "h2h_rate": round(sub_h2h_rate, 1),
             "h2h_avg":  round(sub_h2h_avg, 1),

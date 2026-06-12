@@ -2450,7 +2450,7 @@ async def analyze_matches(
             )
             by_id_fm2 = {m.get("match_id"): m for m in matches_payload}
             calibration_summary = (pipeline_meta or {}).get("football_totals_calibration") or {}
-            audit_tm = {"totals_model_attached": 0, "over_support_attached": 0}
+            audit_tm = {"totals_model_attached": 0, "over_support_attached": 0, "under_support_attached": 0}
             buckets_tm = [
                 parsed.get("picks") or [],
                 (parsed.get("summary") or {}).get("discarded_market")    or [],
@@ -2520,14 +2520,36 @@ async def analyze_matches(
                     except Exception as _exc:
                         log.debug("over_support build failed for %s: %s", mid, _exc)
 
+                    # ── Football Under Support — espejo estructural del
+                    # Over Support. Symmetric: both scores are injected
+                    # into the pipeline so market selection can reason
+                    # with two comparable signals (and the protected-
+                    # alternative scanner can cross-check via
+                    # cross_signal_check). Fail-soft and non-fatal.
+                    try:
+                        from .football_moneyball.football_under_support import (
+                            calculate_football_under_support as _calc_under_support,
+                        )
+                        under = _calc_under_support(merged_for_over)
+                        if isinstance(under, dict) and under.get("football_under_support"):
+                            entry["football_under_support"] = under["football_under_support"]
+                            if under["football_under_support"].get("available"):
+                                audit_tm["under_support_attached"] = (
+                                    audit_tm.get("under_support_attached", 0) + 1
+                                )
+                    except Exception as _exc:
+                        log.debug("under_support build failed for %s: %s", mid, _exc)
+
             parsed.setdefault("_pipeline", {})
             parsed["_pipeline"]["football_totals_model"] = {
                 **audit_tm,
                 "engine_version": "football_totals_model.normalizer.1",
             }
             log.info(
-                "Analyst[football]: totals_model=%d over_support=%d entries attached",
-                audit_tm["totals_model_attached"], audit_tm["over_support_attached"],
+                "Analyst[football]: totals_model=%d over_support=%d under_support=%d entries attached",
+                audit_tm["totals_model_attached"],
+                audit_tm["over_support_attached"],
+                audit_tm.get("under_support_attached", 0),
             )
         except Exception as exc:
             log.warning("football_totals_model Phase 12a-FM cont failed: %s", exc)

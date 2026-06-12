@@ -16,6 +16,32 @@ Design principles (NON-NEGOTIABLE):
     suggested market.
   * Reason codes are CANONICAL strings the UI / tests can rely on.
 
+SYMMETRY TODO (Phase F61 — Under Support cross-check):
+-------------------------------------------------------
+There is NOT currently a ``compute_over_profile_score`` analogue to
+``under_market_scan.compute_under_profile_score``. The Under scanner
+DOES apply a cross-check vs ``football_over_support`` and
+``football_under_support``: when ``football_over_support.score >= 75``
+it penalises the Under profile by -15 (with reason codes
+``OVER_SUPPORT_CONTRADICTS_UNDER_PROFILE`` +
+``OVER_SUPPORT_STRONG_PENALTY_APPLIED``).
+
+When (if ever) a symmetric ``compute_over_profile_score`` /
+``over_market_scan`` module is introduced, it MUST apply the mirror
+rule against ``football_under_support``:
+
+    under_support_score >= 75  → score -= 15, RC:
+        UNDER_SUPPORT_CONTRADICTS_OVER_PROFILE +
+        UNDER_SUPPORT_STRONG_PENALTY_APPLIED
+    under_support_score >= 60  → score -= 8,  RC:
+        UNDER_SUPPORT_CONTRADICTS_OVER_PROFILE
+    over_support_score  >= 70  → score += 5,  RC:
+        OVER_SUPPORT_CONFIRMS_OVER_PROFILE
+
+Building the Over selector WITHOUT this cross-check is not optional —
+it re-introduces the very asymmetry Phase F61 was designed to remove.
+This comment exists so the next implementer cannot miss the contract.
+
 Dependencies:
   * ``derived_early_goal`` (per-team early_goal_30 metrics in context)
   * ``statsbomb_features.derive_offense_bucket`` (offense tier)
