@@ -626,3 +626,108 @@ Header verde-esmeralda, banner `best_protected_market`, 5 sub-secciones con chip
 - (P3) Expandir `team_name_translations.py` Champions/Europa League (desde F64).
 - (P4) Mapping `match_id` API-Sports ↔ TheStatsAPI `mt_*`.
 
+
+---
+
+## Phase F67 — Editorial Engine Guardrails + Telemetry + Bidirectional Mapping + H2H + Heatmaps (COMPLETED)
+
+### Objetivos (P3 + P4 del sprint anterior)
+- **P4.4** — Tests de disambiguación de mercados (team_corners ≠ match_corners, etc.).
+- **P4.5** — Lenguaje editorial cauteloso con datos parciales.
+- **P4.6** — Dixon-Coles flag explícito de contextual-only.
+- **P4 (telemetry)** — discard_rescue_audit + endpoints diario/7d/30d + detección de noise.
+- **P3.1** — Mapping match_id API-Sports ↔ TheStatsAPI bidireccional.
+- **P3.3** — Colección H2H + cron diario de ingesta.
+- **P3.2** — UI heatmaps lazy (Dialog + endpoint REST).
+
+### Implementación
+
+#### A) P4.6 — Dixon-Coles guardado como CONTEXTUAL ONLY
+- `probable_score` ahora incluye `is_contextual_only: true` + `context_disclaimer: "Marcador informativo — NO es el mercado recomendado. Para apostar, usa la sección de mercados protegidos arriba."`.
+- Reason code `PROBABLE_SCORE_IS_CONTEXTUAL_ONLY` siempre presente.
+- UI `EditorialPredictionPanel.ProbableScoreSection` renderiza disclaimer en color amber-italic debajo del marcador, garantizando que el usuario nunca confunda "1-0" con el pick recomendado.
+- `best_protected_market` sigue calculándose ÚNICAMENTE desde corners + goals confidence — el scoreline no puede sobrepasar fragility/edge/protected market discovery.
+
+#### B) P4.5 — Lenguaje editorial cauteloso con datos parciales
+- Nueva función `_data_completeness(match)` audita 5 fuentes (corners L5/L15, goles history, xG, BTTS rate, clean sheets) y deriva `completeness ∈ {FULL, PARTIAL, THIN}` + lista `available_sources`.
+- Helper `_cautious_prefix()` inyecta:
+  - `"Con los datos disponibles (corners L5/L15, BTTS rate L15), "` en modo PARTIAL.
+  - `"Con la información parcial disponible, "` cuando hay datos pero sin enumerar específicos.
+  - `"Con los datos limitados disponibles, "` en modo THIN.
+- Verbos absolutos como "El historial confirma..." se sustituyen por "...sugiere..." y "...conviene contrastar con más fuentes antes de decidir..." cuando `completeness != FULL`.
+- Audit completo expuesto en `output.data_completeness` para inspección.
+- **UI**: chip de completeness (verde FULL / amber PARTIAL / gris THIN) en el header del panel editorial, con tooltip "Fuentes: corners L5/L15, BTTS rate L15".
+
+#### C) P4.4 — Tests disambiguación de mercados (`tests/test_thestatsapi_market_disambiguation.py`)
+8 tests que pinen el contrato del normalizador:
+- `match_corners` NO se mezcla con `team_corners` (regression test del riesgo "Under 3.5 goles de Brasil" ≠ "Under 3.5 goles del partido").
+- `total_goals` NO se mezcla con `team_total_goals`.
+- `asian_corners` (líneas 9.0/9.25/9.5/9.75) NO leak en `match_corners`.
+- `asian_handicap` NO leak en `match_odds` (1X2).
+- Bookmaker isolation: cuando hay múltiples bookmakers, se elige UNO (el primero por convención) y nunca se mezclan odds.
+- `both_teams_to_score` (clave alternativa) NO se acepta — solo `btts` canonical.
+- Regression test del editorial engine: con un payload "roto" que tenga team_corners a 4.5 con odds asociados, el `corners_prediction.line` MUST ser 9.5 (match line) y `corners_prediction.odds` MUST ser el match-odds.
+
+#### D) P4 — Discard Rescue Audit telemetry (`services/discard_rescue_audit.py`, NUEVO ~270 LOC)
+- **`build_audit_entry(pick, original_bucket, ...)`**: turn one pick + editorial/structural verdicts into the spec'd row con `editorial_decision ∈ {CONFIRM_DISCARD, WATCHLIST, RESCUE_ALTERNATIVE_MARKET, VALUE_CANDIDATE}`.
+- **`persist_bulk_for_summary(db, summary, sport)`**: recorre los 4 buckets (`discarded_market`, `discarded_motivation`, `incomplete_data`, `watchlist_odds_needed`) y persiste 1 row por entry. Cableado en `analyst_engine.analyze_matches` justo después de `attach_alternatives_to_summary`.
+- **`compute_daily_summary(rows)`** — agregación pura:
+  - `by_decision`, `rescued_total`, `rescue_rate_pct`, `by_bucket`, `by_market_family` (CORNERS / GOALS / BTTS / OTHER — incluye normalización ES "córners"/"gol").
+  - **`noise_flag=True`** cuando `rescue_rate_pct > 60%` → alerta de over-rescue.
+  - Notes: `OVER_RESCUE_NOISE_SUSPECTED`, `zero_rescues_in_window`, `no_audit_entries_in_window`.
+- **TTL 90 días** en `discard_rescue_audit` collection (auto-purga).
+- **Endpoints REST**:
+  - `GET /api/admin/rescue-audit/summary?window_hours=24` (configurable).
+  - `GET /api/admin/rescue-audit/multi-window` → devuelve 24h / 7d / 30d en una sola llamada.
+- **Tests**: 10 tests que cubren el ejemplo verbatim del usuario (30/18/8/4), detección de noise > 60%, ventana vacía, zero rescues, JSON serialisable.
+
+#### E) P3.1 — match_id mapping bidireccional (`services/match_id_mapping.py`, NUEVO ~165 LOC)
+- `is_thestatsapi_id(x)` — detecta prefix `mt_` instantáneo.
+- `_normalise_team_name()` — strip de sufijos (`FC`, `CF`, `AFC`, `SC`, `SD`, `CD`, `AC`, `AS`, `UD`) + lowercase + collapse whitespace. "Real Madrid CF" → "real madrid".
+- `resolve_to_thestatsapi_id(incoming_id, db, match_hint)`:
+  1. Si ya es `mt_*` → echo.
+  2. Cache hit en `match_id_mappings` → retorna.
+  3. On-demand: TheStatsAPI `/api/football/matches?date_from=…&date_to=…&limit=100` con ventana ±1 día, match por nombre normalizado de ambos equipos.
+  4. Persiste el mapping con `source=name_date_lookup`.
+- **TTL 90 días** en `match_id_mappings`.
+- **Cableado** en el endpoint editorial: cualquier `match_id` que NO sea `mt_*` se resuelve transparentemente antes de llamar a TheStatsAPI. El campo `thestatsapi_id` del response refleja qué id terminó usándose.
+
+#### F) P3.3 — H2H ingestion + cron (`services/head_to_head_ingestor.py`, NUEVO ~200 LOC)
+- Colección `head_to_head_matches` con `pair_key` simétrico (`Brazil-Morocco` y `Morocco-Brazil` → misma row).
+- **`fetch_h2h_for_match(db, home, away, limit=5)`**: cableado en el endpoint editorial REST. Pasa rows al `generate_football_editorial_prediction(h2h_matches=...)` para activar la 5ª sección con datos reales.
+- **Cron diario** `_job_refresh_h2h` (02:30 UTC):
+  - Walks unique (home, away) pairs from últimos 7d de `analyst_runs` (limita a 200 pares/run).
+  - Llama API-Sports `/fixtures?h2h=…&last=5` (opt-IN — degrada gracefully cuando el cliente no está presente).
+  - Upserta con `pair_key`, `utc_date`, `score`, `competition`.
+- **TTL 365 días** en `head_to_head_matches`.
+
+#### G) P3.2 — UI heatmaps lazy (`components/PlayerHeatmapDialog.jsx`, NUEVO ~145 LOC)
+- Endpoint REST `GET /api/football/player-heatmap/{player_id}?competition_id=&season_id=` (cache 24h en Mongo, ya existía en F66 — se expone como endpoint público).
+- Componente lazy: botón "Heatmap" con icono MapPin → abre Shadcn `Dialog` → fetch on-click → render SVG con campo 100x65 + puntos `(x, y, intensity)` proporcionales al heatmap data.
+- Fallback: si el shape de TheStatsAPI cambia, muestra JSON crudo en `<pre>` para inspección manual.
+- Loading state con `Loader2` animation, error state amber.
+
+### Tests
+- ✅ **`tests/test_thestatsapi_market_disambiguation.py`** — 8 tests.
+- ✅ **`tests/test_discard_rescue_audit_smoke.py`** — 10 tests (incluyendo el 30/18/8/4 verbatim).
+- ✅ **`tests/test_match_id_mapping_smoke.py`** — 11 tests (normalización, simetría, edge cases).
+- ✅ **`tests/test_head_to_head_ingestor_smoke.py`** — 3 tests (pair_key simétrico, normalización, distinción).
+- ✅ **Suite total: 2012/2012 passing** (+32 nuevos vs baseline 1980, **0 regresiones**).
+
+### Verificación end-to-end (producción real)
+- `GET /api/admin/rescue-audit/multi-window` → 200 OK, devuelve 24h/7d/30d con `notes: ["no_audit_entries_in_window"]` (correcto — colección vacía justo después del deploy, se irá llenando con cada analyst run).
+- `GET /api/admin/rescue-audit/summary?window_hours=24` → 200 OK.
+- Frontend compila limpio con esbuild.
+
+### Variables env (sin cambios — opt-IN reusadas)
+- `STATSAPI_API_KEY` — habilita el resolver de mapping y heatmaps.
+- `API_SPORTS_KEY` (o equivalente) — habilita el cron H2H.
+- Sin nuevas variables.
+
+### Próximos pasos sugeridos
+- (P3) UI Backtest Lab consumiendo `/api/backtest/watchlist-odds-needed` (pendiente desde F65).
+- (P3) Cablear `PlayerHeatmapDialog` dentro de la card de cada jugador con player_id mapeado.
+- (P3) Expandir `team_name_translations.py` Champions/Europa League (pendiente desde F64).
+- (P4) UI "Rescue Audit" en dashboard admin (consumir `multi-window` endpoint con cards 24h/7d/30d + chart de rescue_rate_pct vs tiempo).
+- (P4) Alertas automáticas cuando `noise_flag=true` por 3 ventanas consecutivas (Slack / email).
+

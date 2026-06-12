@@ -1,38 +1,34 @@
 [
   {
-    "content": "Crear thestatsapi_client.py (async httpx + cache TTL Mongo) con auth Bearer",
+    "content": "P4.6 — Dixon-Coles flag contextual_only + UI label \"informativo, no es pick\"",
     "status": "completed"
   },
   {
-    "content": "Crear football_dixon_coles.py (scoreline grid Poisson + tau DC)",
+    "content": "P4.5 — Lenguaje editorial cauteloso con datos parciales (prefijo \"Con los datos disponibles...\")",
     "status": "completed"
   },
   {
-    "content": "Crear football_editorial_prediction.py (4 secciones: corners/goals/key_trends/probable_score)",
+    "content": "P4.4 — Tests del normalizador (team_corners vs match_corners, team_total_goals vs total_goals, asian corners)",
     "status": "completed"
   },
   {
-    "content": "Tests pytest: editorial engine + dixon_coles + thestatsapi cache",
+    "content": "P4 — Telemetry discard_rescue_audit (colección + helpers + endpoint diario/7d/30d)",
     "status": "completed"
   },
   {
-    "content": "Integrar editorial engine en compute_structural_value_review (TODOS los descartes)",
+    "content": "P3.1 — Mapping match_id API-Sports ↔ TheStatsAPI mt_* (col + lógica de lookup)",
     "status": "completed"
   },
   {
-    "content": "Endpoint REST /api/football/editorial-prediction/{match_id}",
+    "content": "P3.3 — Colección head_to_head_matches + cron desde API-Sports /fixtures?h2h=",
     "status": "completed"
   },
   {
-    "content": "TTL indexes thestatsapi_prematch_cache, thestatsapi_live_cache, thestatsapi_heatmap_cache",
+    "content": "P3.2 — UI heatmaps lazy (Dialog + endpoint REST)",
     "status": "completed"
   },
   {
-    "content": "Crear EditorialPredictionPanel.jsx + cablear en DashboardPage.jsx (arriba del Structural)",
-    "status": "completed"
-  },
-  {
-    "content": "Pytest suite completa + esbuild + plan.md F66 COMPLETED",
+    "content": "Pytest completo + esbuild + plan.md F67 COMPLETED",
     "status": "completed"
   }
 ]

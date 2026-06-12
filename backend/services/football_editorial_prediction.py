@@ -63,6 +63,95 @@ def _safe(v: Any) -> Optional[float]:
         return None
 
 
+def _data_completeness(match: dict) -> dict:
+    """Phase F67 — audit which data sources are available for the
+    editorial engine. Used to inject cautious phrasing when the report
+    is built on a thin payload.
+
+    Returns a dict with booleans per source and a derived
+    ``completeness`` string ("FULL", "PARTIAL", "THIN").
+    """
+    if not isinstance(match, dict):
+        return {
+            "has_corners_l5":     False,
+            "has_goals_history":  False,
+            "has_xg":             False,
+            "has_btts_rate":      False,
+            "has_clean_sheets":   False,
+            "has_h2h":            False,
+            "completeness":       "THIN",
+            "available_sources":  [],
+        }
+
+    home_t = match.get("home_team") if isinstance(match.get("home_team"), dict) else {}
+    away_t = match.get("away_team") if isinstance(match.get("away_team"), dict) else {}
+
+    has_corners_l5 = bool(
+        _safe(match.get("home_corners_for_l5")) is not None
+        and _safe(match.get("away_corners_for_l5")) is not None
+    )
+    has_goals_history = bool(
+        _safe(home_t.get("goals_scored_l5")) is not None
+        or _safe(home_t.get("goals_scored_l15")) is not None
+        or _safe(match.get("home_goals_scored_l5")) is not None
+    )
+    has_xg = bool(
+        _safe(match.get("home_xg")) is not None
+        and _safe(match.get("away_xg")) is not None
+    )
+    has_btts = bool(
+        _safe(home_t.get("btts_rate_l15")) is not None
+        or _safe(away_t.get("btts_rate_l15")) is not None
+    )
+    has_clean_sheets = bool(
+        _safe(home_t.get("clean_sheet_rate_l15")) is not None
+        or _safe(away_t.get("clean_sheet_rate_l15")) is not None
+    )
+
+    sources = []
+    if has_corners_l5:    sources.append("corners L5/L15")
+    if has_goals_history: sources.append("historial de goles L5/L15")
+    if has_xg:            sources.append("xG / xGA")
+    if has_btts:          sources.append("BTTS rate L15")
+    if has_clean_sheets:  sources.append("porterías a cero L15")
+
+    n_sources = sum([has_corners_l5, has_goals_history, has_xg, has_btts, has_clean_sheets])
+    if n_sources >= 4:
+        completeness = "FULL"
+    elif n_sources >= 2:
+        completeness = "PARTIAL"
+    else:
+        completeness = "THIN"
+
+    return {
+        "has_corners_l5":     has_corners_l5,
+        "has_goals_history":  has_goals_history,
+        "has_xg":             has_xg,
+        "has_btts_rate":      has_btts,
+        "has_clean_sheets":   has_clean_sheets,
+        "has_h2h":            False,        # injected externally by caller
+        "completeness":       completeness,
+        "available_sources":  sources,
+    }
+
+
+def _cautious_prefix(completeness: str, sources: list) -> str:
+    """Return a cautious prefix when data is partial / thin.
+
+    Phase F67 — when ``completeness != FULL`` the editorial narrative MUST
+    avoid absolute claims like "El historial confirma..." and instead
+    open with "Con los datos disponibles (X, Y)..." or
+    "Con la información parcial disponible...".
+    """
+    if completeness == "FULL":
+        return ""
+    if completeness == "PARTIAL" and sources:
+        return f"Con los datos disponibles ({', '.join(sources[:3])}), "
+    if completeness == "PARTIAL":
+        return "Con la información parcial disponible, "
+    return "Con los datos limitados disponibles, "
+
+
 def _team_name(match: dict, side: str) -> str:
     if not isinstance(match, dict):
         return side.title()
@@ -85,7 +174,9 @@ def _avg(*vals: Optional[float]) -> Optional[float]:
 # ─────────────────────────────────────────────────────────────────────
 # 1. CORNERS PREDICTION
 # ─────────────────────────────────────────────────────────────────────
-def _build_corners_prediction(match: dict, odds: Optional[dict]) -> dict:
+def _build_corners_prediction(match: dict, odds: Optional[dict],
+                                completeness: str = "FULL",
+                                available_sources: Optional[list] = None) -> dict:
     home_name = _team_name(match, "home")
     away_name = _team_name(match, "away")
 
@@ -155,6 +246,7 @@ def _build_corners_prediction(match: dict, odds: Optional[dict]) -> dict:
     text = _corner_narrative(
         home_name, away_name, profile, supports, side,
         home_cf5, away_cf5, home_ca5, away_ca5, market, mkt_odds,
+        completeness=completeness, available_sources=available_sources,
     )
 
     return {
@@ -221,29 +313,50 @@ def _pick_corner_line(
 
 
 def _corner_narrative(home, away, profile, supports, side,
-                       h_cf5, a_cf5, h_ca5, a_ca5, market, odds) -> str:
+                       h_cf5, a_cf5, h_ca5, a_ca5, market, odds,
+                       completeness="FULL", available_sources=None) -> str:
     parts: list[str] = []
+    prefix = _cautious_prefix(completeness, available_sources or [])
     if side == "UNDER":
+        # Phase F67 — only state precise volume claims when we have L5.
         if h_cf5 is not None and a_cf5 is not None:
             parts.append(
-                f"{home} promedia {h_cf5:.1f} córners por partido en sus "
-                f"últimos 5 encuentros y {away} apenas {a_cf5:.1f}."
+                f"{prefix}{home} promedia {h_cf5:.1f} córners por partido "
+                f"en sus últimos 5 encuentros y {away} apenas {a_cf5:.1f}."
             )
-        parts.append(
-            f"El cruce de perfiles confirma un partido de bajo volumen "
-            "ofensivo por las bandas, con poca presencia en el área rival "
-            "de ambos equipos."
-        )
-        parts.append(f"Por tanto, tiene sentido apostar por {market}"
+        else:
+            parts.append(
+                f"{prefix}{home} y {away} muestran perfiles de bajo "
+                "volumen de córners."
+            )
+        # Avoid absolute "confirma" claims when data is partial.
+        if completeness == "FULL":
+            parts.append(
+                "El cruce de perfiles confirma un partido de bajo volumen "
+                "ofensivo por las bandas, con poca presencia en el área "
+                "rival de ambos equipos."
+            )
+        else:
+            parts.append(
+                "El cruce de perfiles sugiere un partido de bajo volumen "
+                "ofensivo por las bandas; conviene contrastar con más "
+                "fuentes antes de decidir."
+            )
+        parts.append(f"Mercado sugerido: {market}"
                      + (f" a cuota {odds:.2f}*." if odds else "*."))
     elif side == "OVER":
         if h_cf5 is not None and a_cf5 is not None:
             parts.append(
-                f"{home} genera {h_cf5:.1f} córners por partido (L5) y "
-                f"{away} otros {a_cf5:.1f}, con perfiles cruzados que "
-                "se exponen mutuamente."
+                f"{prefix}{home} genera {h_cf5:.1f} córners por partido "
+                f"(L5) y {away} otros {a_cf5:.1f}, con perfiles cruzados "
+                "que se exponen mutuamente."
             )
-        if h_ca5 is not None and a_ca5 is not None:
+        else:
+            parts.append(
+                f"{prefix}{home} y {away} dejan un perfil ofensivo por "
+                "bandas elevado."
+            )
+        if h_ca5 is not None and a_ca5 is not None and completeness == "FULL":
             parts.append(
                 f"Además ambos defienden con poca compactación "
                 f"({home} concede {h_ca5:.1f} y {away} concede "
@@ -253,9 +366,9 @@ def _corner_narrative(home, away, profile, supports, side,
                      + (f" a cuota {odds:.2f}*." if odds else "*."))
     elif side == "TEAM_OVER":
         parts.append(
-            f"Hay asimetría clara: uno de los dos equipos genera mucho "
-            "volumen por bandas mientras el rival concede en cantidad. "
-            f"Mercado sugerido: {market}."
+            f"{prefix}hay asimetría clara: uno de los dos equipos genera "
+            "mucho volumen por bandas mientras el rival concede en "
+            f"cantidad. Mercado sugerido: {market}."
         )
     return " ".join(parts)
 
@@ -263,7 +376,9 @@ def _corner_narrative(home, away, profile, supports, side,
 # ─────────────────────────────────────────────────────────────────────
 # 2. GOALS PREDICTION
 # ─────────────────────────────────────────────────────────────────────
-def _build_goals_prediction(match: dict, odds: Optional[dict]) -> dict:
+def _build_goals_prediction(match: dict, odds: Optional[dict],
+                              completeness: str = "FULL",
+                              available_sources: Optional[list] = None) -> dict:
     home_name = _team_name(match, "home")
     away_name = _team_name(match, "away")
 
@@ -328,7 +443,9 @@ def _build_goals_prediction(match: dict, odds: Optional[dict]) -> dict:
         }
 
     text = _goals_narrative(home_name, away_name, side, profile,
-                             u_score, o_score, market, mkt_odds, home_xg, away_xg)
+                             u_score, o_score, market, mkt_odds, home_xg, away_xg,
+                             completeness=completeness,
+                             available_sources=available_sources)
 
     return {
         "available":            True,
@@ -400,30 +517,39 @@ def _btts_odds(odds, side):
 
 
 def _goals_narrative(home, away, side, profile, u_score, o_score,
-                      market, odds, home_xg, away_xg) -> str:
+                      market, odds, home_xg, away_xg,
+                      completeness="FULL", available_sources=None) -> str:
     parts: list[str] = []
+    prefix = _cautious_prefix(completeness, available_sources or [])
     if side == "UNDER":
         parts.append(
-            f"{away} sabe jugar replegado y puede limitar el potencial "
-            f"ofensivo de {home}."
+            f"{prefix}{away} sabe jugar replegado y puede limitar el "
+            f"potencial ofensivo de {home}."
         )
         if home_xg is not None:
             parts.append(f"{home} promedia {home_xg:.2f} xG por partido.")
-        if u_score >= 60:
+        if u_score >= 60 and completeness == "FULL":
             parts.append(f"El score de soporte Under ({u_score}/100) confirma el perfil.")
+        elif u_score >= 60:
+            parts.append(f"El score de soporte Under ({u_score}/100) apunta a esa lectura.")
         parts.append(f"De ahí que resulte atractivo el mercado {market}"
                      + (f" con una cuota cercana a {odds:.2f}*." if odds else "*."))
     elif side == "OVER":
         if home_xg is not None and away_xg is not None:
-            parts.append(f"Ambos equipos llegan con buen perfil ofensivo "
-                         f"({home}: {home_xg:.2f} xG, {away}: {away_xg:.2f} xG).")
-        parts.append(f"El score de soporte Over ({o_score}/100) apoya un partido "
-                     f"con goles. Mercado sugerido: {market}"
+            parts.append(f"{prefix}ambos equipos llegan con buen perfil "
+                         f"ofensivo ({home}: {home_xg:.2f} xG, "
+                         f"{away}: {away_xg:.2f} xG).")
+        else:
+            parts.append(f"{prefix}el cruce sugiere un partido de "
+                         "perfil ofensivo elevado.")
+        verb = "apoya" if completeness == "FULL" else "sugiere"
+        parts.append(f"El score de soporte Over ({o_score}/100) {verb} un "
+                     f"partido con goles. Mercado sugerido: {market}"
                      + (f" a cuota {odds:.2f}*." if odds else "*."))
     elif side == "BTTS_YES":
         parts.append(
-            f"Amenaza bilateral real: {home} y {away} tienen recursos "
-            f"para marcar y conceder. Mercado sugerido: BTTS Yes"
+            f"{prefix}amenaza bilateral real: {home} y {away} tienen "
+            f"recursos para marcar y conceder. Mercado sugerido: BTTS Yes"
             + (f" a cuota {odds:.2f}*." if odds else "*.")
         )
     return " ".join(parts)
@@ -617,7 +743,21 @@ def _build_probable_score(match: dict,
         "confidence":     grid.get("confidence", 0),
         "top_scorelines": grid.get("top_scorelines") or [],
         "text":           text,
-        "reason_codes":   [f"PROBABLE_SCORE_{grid.get('method')}_USED"],
+        # Phase F67 — explicit guardrail: the probable_score is a CONTEXTUAL
+        # hint about the most likely scoreline. It MUST NOT be used as the
+        # recommended pick. The pick lives on best_protected_market + the
+        # corners/goals sub-sections, which respect fragility, edge,
+        # protected-market discovery and layer-conflict rules. The frontend
+        # uses this flag to render an explicit "informativo, no es pick"
+        # label next to the scoreline.
+        "is_contextual_only": True,
+        "context_disclaimer": ("Marcador informativo — NO es el mercado "
+                               "recomendado. Para apostar, usa la sección "
+                               "de mercados protegidos arriba."),
+        "reason_codes":   [
+            f"PROBABLE_SCORE_{grid.get('method')}_USED",
+            "PROBABLE_SCORE_IS_CONTEXTUAL_ONLY",
+        ],
     }
 
 
@@ -684,8 +824,23 @@ def generate_football_editorial_prediction(
     if not isinstance(match_payload, dict):
         return _empty_response(reason="MATCH_PAYLOAD_INVALID")
 
-    corners = _build_corners_prediction(match_payload, odds)
-    goals   = _build_goals_prediction(match_payload, odds)
+    # Phase F67 — pre-compute data completeness so every sub-builder can
+    # adopt cautious language when the report rests on a thin payload.
+    completeness_audit = _data_completeness(match_payload)
+    if h2h_matches:
+        completeness_audit["has_h2h"] = True
+    elif h2h_matches is None:
+        # Phase F67 — h2h_matches was NOT explicitly passed; the caller
+        # (e.g. compute_structural_value_review) wants the engine to
+        # remain synchronous. Sub-section will report INSUFFICIENT_SAMPLE.
+        pass
+
+    corners = _build_corners_prediction(match_payload, odds,
+                                         completeness=completeness_audit["completeness"],
+                                         available_sources=completeness_audit["available_sources"])
+    goals   = _build_goals_prediction(match_payload, odds,
+                                       completeness=completeness_audit["completeness"],
+                                       available_sources=completeness_audit["available_sources"])
     trends  = _build_key_trends(match_payload,
                                  recommended_side_corners=corners.get("side"),
                                  recommended_side_goals=goals.get("side"))
@@ -711,6 +866,10 @@ def generate_football_editorial_prediction(
         "engine_version":        ENGINE_VERSION,
         "source":                SOURCE_TAG,
         "scores24_replacement":  True,
+        # Phase F67 — audit of which data sources fed the report. Surfaced
+        # to the UI so the user can see at a glance how thin / thick the
+        # underlying payload was.
+        "data_completeness":     completeness_audit,
         "editorial_sections": {
             "corners_prediction": corners,
             "goals_prediction":   goals,

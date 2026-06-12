@@ -2856,6 +2856,20 @@ async def analyze_matches(
     except Exception as exc:
         log.warning("possible_alternative_markets Phase 13.5 failed: %s", exc)
 
+    # ── Phase F67 — Discard Rescue Audit (telemetry) ────────────────────
+    # Persist one row per discarded entry capturing the editorial / structural
+    # verdict. Used by /api/admin/rescue-audit/summary to detect over-rescue
+    # noise. Fail-soft; never blocks the analyst run.
+    if sport == "football":
+        try:
+            from .discard_rescue_audit import persist_bulk_for_summary
+            written = await persist_bulk_for_summary(db, summary, sport)
+            parsed.setdefault("_pipeline", {})["discard_rescue_audit"] = {
+                "rows_written": written,
+            }
+        except Exception as exc:
+            log.warning("discard_rescue_audit Phase F67 failed: %s", exc)
+
     # ── Phase 13.6 — Football Market Trace (V4: explicit per-market audit) ─
     # For each discarded football entry, expose an explicit `market_trace`
     # (market, selection, team_side, odds, estimated_probability,

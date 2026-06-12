@@ -114,6 +114,36 @@ async def on_startup() -> None:
         log.info("[WATCHLIST_ODDS_SNAPSHOTS] indexes ensured (TTL 60d)")
     except Exception as exc:
         log.warning("[WATCHLIST_ODDS_SNAPSHOTS] index ensure failed: %s", exc)
+    # Phase F67 — head_to_head_matches indexes + TTL (365d).
+    try:
+        await db.head_to_head_matches.create_index(
+            [("pair_key", 1), ("utc_date", -1)],
+        )
+        await db.head_to_head_matches.create_index(
+            "ingested_at", expireAfterSeconds=365 * 24 * 3600,
+        )
+        log.info("[HEAD_TO_HEAD] indexes ensured (TTL 365d)")
+    except Exception as exc:
+        log.warning("[HEAD_TO_HEAD] index ensure failed: %s", exc)
+    # Phase F67 — match_id_mappings TTL (90d).
+    try:
+        await db.match_id_mappings.create_index(
+            "resolved_at", expireAfterSeconds=90 * 24 * 3600,
+        )
+        log.info("[MATCH_ID_MAPPINGS] TTL index ensured (90d)")
+    except Exception as exc:
+        log.warning("[MATCH_ID_MAPPINGS] index ensure failed: %s", exc)
+    # Phase F67 — Discard Rescue Audit TTL (90d).
+    try:
+        await db.discard_rescue_audit.create_index(
+            [("captured_at", -1), ("editorial_decision", 1)],
+        )
+        await db.discard_rescue_audit.create_index(
+            "captured_at", expireAfterSeconds=90 * 24 * 3600,
+        )
+        log.info("[RESCUE_AUDIT] indexes ensured (TTL 90d)")
+    except Exception as exc:
+        log.warning("[RESCUE_AUDIT] index ensure failed: %s", exc)
     # Phase F66 — TheStatsAPI cache TTL indexes (auto-purge).
     try:
         await db.thestatsapi_prematch_cache.create_index(
@@ -182,6 +212,79 @@ async def on_shutdown() -> None:
 SUPPORTED_SPORTS = {"football", "basketball", "baseball"}
 
 
+# ── Phase F67 — Discard Rescue Audit summary endpoint ────────────────
+@app.get("/api/admin/rescue-audit/summary")
+async def rescue_audit_summary_endpoint(window_hours: int = 24) -> dict:
+    """Return the aggregated rescue-audit summary for a rolling window.
+
+    Default window = 24h (daily summary). Useful values:
+      * 24   → daily
+      * 168  → weekly
+      * 720  → monthly (30d, matches the TTL retention)
+    """
+    try:
+        from services.discard_rescue_audit import (
+            compute_daily_summary, fetch_audit_rows,
+        )
+        rows = await fetch_audit_rows(db, hours=window_hours)
+        summary = compute_daily_summary(rows)
+        summary["window_hours"] = window_hours
+        return summary
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "_error": str(exc),
+                "window_hours": window_hours}
+
+
+@app.get("/api/admin/rescue-audit/multi-window")
+async def rescue_audit_multi_window_endpoint() -> dict:
+    """Return rescue-audit summaries for 24h / 7d / 30d windows in one
+    request (used by the operator dashboard)."""
+    try:
+        from services.discard_rescue_audit import (
+            compute_daily_summary, fetch_audit_rows,
+        )
+        windows = {"24h": 24, "7d": 168, "30d": 720}
+        out: dict = {"available": True, "windows": {}}
+        for label, h in windows.items():
+            rows = await fetch_audit_rows(db, hours=h)
+            out["windows"][label] = compute_daily_summary(rows)
+        return out
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "_error": str(exc)}
+
+
+# ── Phase F67 — TheStatsAPI player heatmap (lazy / on-demand) ────────
+@app.get("/api/football/player-heatmap/{player_id}")
+async def football_player_heatmap_endpoint(
+    player_id: str,
+    competition_id: str,
+    season_id: str,
+) -> dict:
+    """Lazy-load a player heatmap from TheStatsAPI. Cached 24h in Mongo.
+
+    Returns ``{available: false}`` when the integration is disabled or
+    the upstream returns no data.
+    """
+    try:
+        from services.thestatsapi_client import (
+            get_player_heatmap, is_enabled,
+        )
+        if not is_enabled():
+            return {"available": False, "reason": "STATSAPI_DISABLED"}
+        data = await get_player_heatmap(player_id, competition_id, season_id, db=db)
+        if not data:
+            return {"available": False, "reason": "NO_DATA_FROM_UPSTREAM"}
+        return {
+            "available":      True,
+            "player_id":      player_id,
+            "competition_id": competition_id,
+            "season_id":      season_id,
+            "data":           data,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "_error": str(exc)}
+
+
 # ── Phase F66 — Internal Editorial Prediction endpoint ────────────────
 @app.get("/api/football/editorial-prediction/{match_id}")
 async def football_editorial_prediction_endpoint(
@@ -230,6 +333,24 @@ async def football_editorial_prediction_endpoint(
         if not match_doc:
             match_doc = {"match_id": match_id}
 
+        # Phase F67 — resolve to a TheStatsAPI mt_* id when an internal
+        # / API-Sports id was passed. The resolver caches the result so
+        # subsequent calls are free.
+        try:
+            from services.match_id_mapping import (
+                resolve_to_thestatsapi_id, is_thestatsapi_id,
+            )
+            statsapi_id = match_id
+            if not is_thestatsapi_id(match_id):
+                resolved = await resolve_to_thestatsapi_id(
+                    match_id, db=db, match_hint=match_doc,
+                )
+                if resolved:
+                    statsapi_id = resolved
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[F67_MAPPING_FAIL] %s: %s", match_id, exc)
+            statsapi_id = match_id
+
         # Try to enrich with TheStatsAPI odds (only when match_id has a
         # `mt_` prefix or the operator confirmed the mapping elsewhere).
         odds_normalised = None
@@ -238,7 +359,7 @@ async def football_editorial_prediction_endpoint(
                 from services.thestatsapi_client import (
                     get_prematch_odds, extract_normalised_markets,
                 )
-                raw_odds = await get_prematch_odds(match_id, db=db)
+                raw_odds = await get_prematch_odds(statsapi_id, db=db)
                 if raw_odds:
                     odds_normalised = extract_normalised_markets(raw_odds)
             except Exception as exc:  # noqa: BLE001
@@ -247,11 +368,25 @@ async def football_editorial_prediction_endpoint(
         from services.football_editorial_prediction import (
             generate_football_editorial_prediction,
         )
+        # Phase F67 — pull H2H rows from the cached collection (filled by
+        # the daily cron). Fail-soft.
+        h2h_rows = []
+        try:
+            from services.head_to_head_ingestor import fetch_h2h_for_match
+            h_name = match_doc.get("home_team")
+            a_name = match_doc.get("away_team")
+            if isinstance(h_name, dict): h_name = h_name.get("name")
+            if isinstance(a_name, dict): a_name = a_name.get("name")
+            h2h_rows = await fetch_h2h_for_match(db, h_name, a_name, limit=5)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[F67_H2H_FETCH_FAIL] %s: %s", match_id, exc)
         out = generate_football_editorial_prediction(
-            match_doc, odds=odds_normalised,
+            match_doc, odds=odds_normalised, h2h_matches=h2h_rows or None,
         )
         out["match_id"] = match_id
         out["odds_attached"] = bool(odds_normalised)
+        out["h2h_rows_used"] = len(h2h_rows or [])
+        out["thestatsapi_id"] = statsapi_id if statsapi_id != match_id else None
         return out
     except Exception as exc:  # noqa: BLE001
         log.warning("[F66_EDITORIAL_ENDPOINT_FAIL] %s: %s", match_id, exc)

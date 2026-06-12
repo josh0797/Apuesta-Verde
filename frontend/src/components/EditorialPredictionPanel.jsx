@@ -49,6 +49,22 @@ export function EditorialPredictionPanel({ editorial, testIdPrefix = 'editorial'
         <div className="text-xs font-semibold uppercase tracking-wider text-emerald-200">
           {t.header}
         </div>
+        {/* Phase F67 — data completeness pill */}
+        {editorial.data_completeness?.completeness && (
+          <span
+            className={`ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+              editorial.data_completeness.completeness === 'FULL'
+                ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30'
+                : editorial.data_completeness.completeness === 'PARTIAL'
+                  ? 'bg-amber-500/15 text-amber-200 border-amber-500/30'
+                  : 'bg-slate-500/15 text-slate-300 border-slate-500/30'
+            }`}
+            title={`Fuentes: ${(editorial.data_completeness.available_sources || []).join(', ') || 'ninguna'}`}
+            data-testid={`${testIdPrefix}-completeness-pill`}
+          >
+            {editorial.data_completeness.completeness}
+          </span>
+        )}
       </div>
       <div className="text-[11px] text-emerald-300/70 -mt-2">{t.sub}</div>
 
@@ -182,6 +198,17 @@ function ProbableScoreSection({ section, testId }) {
       <p className={`text-xs leading-relaxed ${ok ? 'text-slate-200' : 'text-slate-400'} pl-5`}>
         {section.text}
       </p>
+      {/* Phase F67 — explicit contextual-only disclaimer for Dixon-Coles
+          scorelines, so the user never confuses the most-likely score
+          with the recommended pick. */}
+      {ok && section.is_contextual_only && (
+        <p
+          className="text-[10px] text-amber-300/90 italic pl-5"
+          data-testid={`${testId}-contextual-disclaimer`}
+        >
+          {section.context_disclaimer || 'Marcador informativo — no es pick recomendado.'}
+        </p>
+      )}
       {ok && Array.isArray(section.top_scorelines) && section.top_scorelines.length > 1 && (
         <div className="pl-5 flex flex-wrap gap-1" data-testid={`${testId}-alt-scorelines`}>
           {section.top_scorelines.slice(1, 4).map((s, i) => (

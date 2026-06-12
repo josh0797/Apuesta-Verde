@@ -335,6 +335,24 @@ async def _job_snapshot_watchlist_odds(db):
         log.warning("snapshot_watchlist_odds failed: %s", exc)
 
 
+# ── Phase F67 — daily H2H refresh from upcoming fixtures ─────────────
+async def _job_refresh_h2h(db):
+    """Once-per-day refresh of the head_to_head_matches collection.
+
+    Walks the unique (home, away) pairs from the last 7 days of analyst
+    runs and asks API-Sports for the last-5 H2H rows. Fail-soft."""
+    try:
+        from .head_to_head_ingestor import refresh_h2h_for_upcoming_fixtures
+        res = await refresh_h2h_for_upcoming_fixtures(db)
+        _status["last_run"]["refresh_h2h"] = res
+        log.info("refresh_h2h: pairs=%d rows=%d in %.1fs",
+                 res.get("pairs_checked", 0),
+                 res.get("rows_written", 0),
+                 res.get("duration_s", 0))
+    except Exception as exc:
+        log.warning("refresh_h2h failed: %s", exc)
+
+
 def start_scheduler(db) -> None:
     """Start the background scheduler if SCHEDULER_ENABLED=true."""
     global _scheduler
@@ -446,6 +464,14 @@ def start_scheduler(db) -> None:
         trigger=IntervalTrigger(hours=1),
         id="snapshot_watchlist_odds",
         next_run_time=datetime.now(timezone.utc) + timedelta(minutes=10),
+        max_instances=1,
+        coalesce=True,
+    )
+    # Phase F67 — daily H2H refresh from upcoming fixtures @ 02:30 UTC.
+    sch.add_job(
+        _job_refresh_h2h, args=[db],
+        trigger=CronTrigger(hour=2, minute=30, timezone="UTC"),
+        id="refresh_h2h",
         max_instances=1,
         coalesce=True,
     )
