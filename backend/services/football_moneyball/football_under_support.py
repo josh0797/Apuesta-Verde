@@ -12,14 +12,23 @@ Design principles (identical to over_support):
     can consume both as equivalent inputs.
   * Context only — does NOT generate tickets. The selector decides.
 
-Phase-1 policy on dc_nb_delta
------------------------------
-The DC/NB calibration delta is recorded as TELEMETRY only. The sign
-convention is not yet validated for football (a positive delta might
-mean "model raises P(Under)" or the opposite). Until the schema is
-confirmed in production, the delta is surfaced in ``dc_nb_telemetry``
-but contributes 0 points to the score. Promotion path is documented
-inside :func:`_dc_nb_telemetry`.
+Phase-1.1 policy on dc_nb_delta (PROMOTED — signo validado)
+-----------------------------------------------------------
+The DC/NB calibration delta is now scored. Sign convention validated
+against ``statsbomb_features.py:447-453``::
+
+    dc_nb_delta_2_5_pts = (p_under_25_dc_nb - p_under_25_poisson) * 100
+    # POSITIVE → DC/NB model assigns MORE Under probability than pure Poisson.
+
+This mirrors the same sign used by ``football_over_support._dc_nb_preference``
+which subtracts -8 from Over when ``delta >= 3.0``. Symmetry:
+
+    delta_2_5_pts >= 5.0  →  +12 points  (RC: DC_NB_DELTA_STRONGLY_FAVORS_UNDER)
+    delta_2_5_pts >= 3.0  →   +8 points  (RC: DC_NB_DELTA_FAVORS_UNDER)
+    delta_2_5_pts <  3.0  →    0 points  (still surfaced as telemetry)
+
+The ``dc_nb_telemetry`` block remains in the output for audit so the
+operator can inspect raw deltas + which tier (if any) triggered.
 """
 from __future__ import annotations
 
@@ -38,8 +47,21 @@ RC_HIGH_CLEAN_SHEET_RATE        = "HIGH_CLEAN_SHEET_RATE"
 RC_LOW_MOTIVATION_CONTEXT       = "LOW_MOTIVATION_CONTEXT_MILD"
 RC_ATTACKING_INJURIES_BONUS     = "ATTACKING_INJURIES_BONUS"
 RC_COLD_WEATHER_BONUS           = "COLD_WEATHER_BONUS"
-RC_DC_NB_DELTA_TELEMETRY        = "DC_NB_DELTA_TELEMETRY_ONLY"
+# dc_nb_delta — Phase F61.1: PROMOTED from telemetry to scoring.
+RC_DC_NB_DELTA_FAVORS_UNDER             = "DC_NB_DELTA_FAVORS_UNDER"
+RC_DC_NB_DELTA_STRONGLY_FAVORS_UNDER    = "DC_NB_DELTA_STRONGLY_FAVORS_UNDER"
+# Kept for backward compatibility (existing pipelines / tests may still
+# reference the old "telemetry only" code; it is now emitted only when
+# the delta is present but below the +3.0 promotion threshold).
+RC_DC_NB_DELTA_TELEMETRY_ONLY           = "DC_NB_DELTA_TELEMETRY_ONLY"
 RC_SIGNAL_MISSING               = "SIGNAL_MISSING"
+
+# DC/NB scoring tiers — see header docstring for the sign-validation
+# trail (statsbomb_features.py:447-453).
+DC_NB_DELTA_TIER_MILD_PTS    = 3.0   # >= 3.0 → +8 points
+DC_NB_DELTA_TIER_STRONG_PTS  = 5.0   # >= 5.0 → +12 points
+DC_NB_BONUS_MILD             = 8
+DC_NB_BONUS_STRONG           = 12
 
 # Minimum signals required to produce a meaningful score. Below this we
 # return available=False rather than a misleadingly neutral 50.
@@ -179,25 +201,65 @@ def _low_motivation_conservative(
     return 3, [RC_LOW_MOTIVATION_CONTEXT], 1
 
 
-def _dc_nb_telemetry(totals_model: dict | None) -> tuple[int, list[str], dict]:
-    """Phase-1 policy: dc_nb_delta is recorded as TELEMETRY only.
+def _dc_nb_preference(totals_model: dict | None) -> tuple[int, list[str], dict]:
+    """DC/NB delta preference (Phase F61.1 — PROMOTED from telemetry).
 
-    The sign convention is not yet validated in the football engine —
-    a positive delta might mean "new model raises P(Under)" or the
-    opposite depending on how statsbomb_features stores it. Until the
-    schema is confirmed in production, do NOT use this signal to score.
+    Sign validated against ``statsbomb_features.py:447-453``::
 
-    Once validated, this function can be promoted to add +8 when the
-    delta strongly favours Under. The placeholder return surface keeps
-    the integration point ready for that promotion.
+        dc_nb_delta_2_5_pts = (p_under_25_dc_nb - p_under_25_poisson) * 100
+
+    POSITIVE → DC/NB raises P(Under) over Poisson → favours UNDER.
+    Symmetric with ``football_over_support._dc_nb_preference`` (which
+    subtracts -8 from Over when ``delta >= 3.0``).
+
+    Returns
+    -------
+    (score, reason_codes, telemetry_block)
+        * score: 0, +8 or +12 depending on the tier the delta hits.
+        * telemetry_block: always surfaced for audit (raw deltas +
+          tier triggered + sign-validation policy).
     """
     if not totals_model:
-        return 0, [], {"dc_nb_delta_2_5_pts": None, "dc_nb_delta_3_5_pts": None}
-    return 0, [RC_DC_NB_DELTA_TELEMETRY], {
-        "dc_nb_delta_2_5_pts": totals_model.get("dc_nb_delta_2_5_pts"),
-        "dc_nb_delta_3_5_pts": totals_model.get("dc_nb_delta_3_5_pts"),
-        "_policy": "telemetry_only_until_sign_validated",
+        return 0, [], {
+            "dc_nb_delta_2_5_pts": None,
+            "dc_nb_delta_3_5_pts": None,
+            "tier":     "none",
+            "_policy":  "validated_and_promoted_phase_F61_signoff",
+        }
+
+    raw_25 = _f(totals_model.get("dc_nb_delta_2_5_pts"))
+    raw_35 = _f(totals_model.get("dc_nb_delta_3_5_pts"))
+    telemetry = {
+        "dc_nb_delta_2_5_pts": raw_25,
+        "dc_nb_delta_3_5_pts": raw_35,
+        "tier":     "none",
+        "_policy":  "validated_and_promoted_phase_F61_signoff",
     }
+
+    # Use the Under 2.5 delta as the primary signal (matches the line
+    # most-traded for football under markets). The 3.5 delta is exposed
+    # in telemetry but does NOT score in this phase to avoid double-
+    # counting between adjacent lines.
+    delta = raw_25
+    if delta is None:
+        # Nothing actionable, but we still emit the legacy telemetry RC
+        # so older dashboards keep working.
+        return 0, [RC_DC_NB_DELTA_TELEMETRY_ONLY], telemetry
+
+    if delta >= DC_NB_DELTA_TIER_STRONG_PTS:
+        telemetry["tier"] = "strong"
+        return DC_NB_BONUS_STRONG, [
+            RC_DC_NB_DELTA_STRONGLY_FAVORS_UNDER,
+            RC_DC_NB_DELTA_FAVORS_UNDER,
+        ], telemetry
+    if delta >= DC_NB_DELTA_TIER_MILD_PTS:
+        telemetry["tier"] = "mild"
+        return DC_NB_BONUS_MILD, [RC_DC_NB_DELTA_FAVORS_UNDER], telemetry
+
+    # Delta present but below the promotion threshold — keep the legacy
+    # telemetry code so historical reason-code consumers do not break.
+    telemetry["tier"] = "below_threshold"
+    return 0, [RC_DC_NB_DELTA_TELEMETRY_ONLY], telemetry
 
 
 def calculate_football_under_support(match: dict | None) -> dict:
@@ -244,8 +306,9 @@ def calculate_football_under_support(match: dict | None) -> dict:
         cs_b,   cs_r,   cs_n    = _high_clean_sheet_rate(home_signals, away_signals)
         inj_b,  inj_r,  inj_n   = _attacking_injuries(match)
         wx_b,   wx_r,   wx_n    = _cold_weather(match)
-        # dc_nb is telemetry-only — contributes 0 score but valid signal.
-        dc_b,   dc_r,   dc_tele = _dc_nb_telemetry(totals_model)
+        # dc_nb_delta — Phase F61.1: PROMOTED from telemetry to scoring.
+        # Sign validated; symmetric to football_over_support._dc_nb_preference.
+        dc_b,   dc_r,   dc_tele = _dc_nb_preference(totals_model)
 
         signals_available += cold_n + xg_n + cs_n + inj_n + wx_n
 
@@ -294,6 +357,10 @@ def calculate_football_under_support(match: dict | None) -> dict:
             fragments.append("clima frío/adverso")
         if def_score >= 35:
             fragments.append("defensas sólidas")
+        if dc_b >= DC_NB_BONUS_STRONG:
+            fragments.append("modelo DC/NB favorece fuertemente Under")
+        elif dc_b >= DC_NB_BONUS_MILD:
+            fragments.append("modelo DC/NB favorece Under")
         if fragments:
             joined = ", ".join(fragments[:-1])
             joined = f"{joined} y {fragments[-1]}" if len(fragments) > 1 else fragments[0]
@@ -314,6 +381,7 @@ def calculate_football_under_support(match: dict | None) -> dict:
                     "attacking_injuries":   inj_b,
                     "cold_weather":         wx_b,
                     "low_motivation":       mot_b,
+                    "dc_nb_delta":          dc_b,
                 },
                 "dc_nb_telemetry":       dc_tele,
                 "reason_codes":          reason_codes,
@@ -334,4 +402,15 @@ def calculate_football_under_support(match: dict | None) -> dict:
         }
 
 
-__all__ = ["calculate_football_under_support", "ENGINE_VERSION", "MIN_SIGNALS_FLOOR"]
+__all__ = [
+    "calculate_football_under_support",
+    "ENGINE_VERSION",
+    "MIN_SIGNALS_FLOOR",
+    "DC_NB_DELTA_TIER_MILD_PTS",
+    "DC_NB_DELTA_TIER_STRONG_PTS",
+    "DC_NB_BONUS_MILD",
+    "DC_NB_BONUS_STRONG",
+    "RC_DC_NB_DELTA_FAVORS_UNDER",
+    "RC_DC_NB_DELTA_STRONGLY_FAVORS_UNDER",
+    "RC_DC_NB_DELTA_TELEMETRY_ONLY",
+]

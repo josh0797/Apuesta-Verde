@@ -1,26 +1,22 @@
 [
   {
-    "content": "Crear football_discarded_scores24_review.py con review_discarded_match_with_scores24, build_scores24_slug_candidates, decision logic y cache Mongo",
+    "content": "Promover _dc_nb_telemetry a scoring en football_under_support.py (>= 3.0 -> +8, >= 5.0 -> +12)",
     "status": "completed"
   },
   {
-    "content": "Anadir endpoint REST POST /api/football/discarded/{match_id}/review",
+    "content": "Actualizar header doc (politica) y reason codes (DC_NB_DELTA_FAVORS_UNDER / STRONGLY_FAVORS_UNDER)",
     "status": "completed"
   },
   {
-    "content": "Cableado automatico en analyst_engine: revisar descartados respetando MAX_PER_RUN=10 (solo audit)",
-    "status": "completed"
-  },
-  {
-    "content": "Crear smoke tests: slug builder, decision logic (CONFIRM/WATCHLIST/RESCUE), quota gating, cache",
+    "content": "Actualizar test existente test_dc_nb_delta_is_telemetry_only + anadir tests del threshold y tier extra-fuerte",
     "status": "completed"
   },
   {
     "content": "Correr pytest completo y validar 0 regresiones",
-    "status": "completed"
+    "status": "in_progress"
   },
   {
-    "content": "Actualizar plan.md con phase F62",
-    "status": "completed"
+    "content": "Actualizar plan.md con Phase F61.1 promotion",
+    "status": "pending"
   }
 ]

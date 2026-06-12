@@ -187,31 +187,125 @@ def test_low_stakes_flag_also_triggers_motivation():
 
 
 # ─────────────────────────────────────────────────────────────────────
-# 6. dc_nb_delta is telemetry-only (does NOT inflate score)
+# 6. dc_nb_delta — PROMOTED to scoring in Phase F61.1.
+#    Sign validated against statsbomb_features.py:447-453.
+#    Thresholds: >=3.0 → +8, >=5.0 → +12.
 # ─────────────────────────────────────────────────────────────────────
-def test_dc_nb_delta_is_telemetry_only():
+def test_dc_nb_delta_below_threshold_does_not_score():
+    """Delta present but below +3.0 → 0 points, but telemetry remains
+    and the legacy DC_NB_DELTA_TELEMETRY_ONLY RC is emitted for backward
+    compat."""
     base_match = _full_low_scoring_signals()
+    score_no_dc = calculate_football_under_support(base_match)["football_under_support"]["score"]
 
-    r_no_dc = calculate_football_under_support(base_match)
-    score_no_dc = r_no_dc["football_under_support"]["score"]
-
-    match_with_dc = dict(base_match)
-    match_with_dc["statsbomb_features"] = {
-        "dc_nb_delta_2_5_pts": 5.5,
-        "dc_nb_delta_3_5_pts": 3.2,
+    match_low_delta = dict(base_match)
+    match_low_delta["statsbomb_features"] = {
+        "dc_nb_delta_2_5_pts": 1.2,   # below +3.0
+        "dc_nb_delta_3_5_pts": 0.8,
     }
-    r_with_dc = calculate_football_under_support(match_with_dc)
-    us = r_with_dc["football_under_support"]
-    score_with_dc = us["score"]
-
-    # Score must be identical — telemetry adds 0 points.
-    assert score_with_dc == score_no_dc
-    # Telemetry is exposed though.
-    assert "dc_nb_telemetry" in us
-    assert us["dc_nb_telemetry"]["dc_nb_delta_2_5_pts"] == 5.5
-    assert us["dc_nb_telemetry"]["dc_nb_delta_3_5_pts"] == 3.2
-    assert us["dc_nb_telemetry"]["_policy"].startswith("telemetry_only")
+    r = calculate_football_under_support(match_low_delta)
+    us = r["football_under_support"]
+    # Score must be identical to the no-delta case (threshold not hit).
+    assert us["score"] == score_no_dc
+    assert us["bonuses"]["dc_nb_delta"] == 0
+    assert us["dc_nb_telemetry"]["dc_nb_delta_2_5_pts"] == 1.2
+    assert us["dc_nb_telemetry"]["tier"] == "below_threshold"
+    assert us["dc_nb_telemetry"]["_policy"] == "validated_and_promoted_phase_F61_signoff"
     assert "DC_NB_DELTA_TELEMETRY_ONLY" in us["reason_codes"]
+    # The promotion codes must NOT appear.
+    assert "DC_NB_DELTA_FAVORS_UNDER" not in us["reason_codes"]
+    assert "DC_NB_DELTA_STRONGLY_FAVORS_UNDER" not in us["reason_codes"]
+
+
+def test_dc_nb_delta_mild_tier_adds_eight():
+    """Delta >= +3.0 (but < 5.0) → +8 points + DC_NB_DELTA_FAVORS_UNDER."""
+    base_match = _full_low_scoring_signals()
+    score_no_dc = calculate_football_under_support(base_match)["football_under_support"]["score"]
+
+    match_mild = dict(base_match)
+    match_mild["statsbomb_features"] = {
+        "dc_nb_delta_2_5_pts": 3.5,   # mild tier
+        "dc_nb_delta_3_5_pts": 2.1,
+    }
+    r = calculate_football_under_support(match_mild)
+    us = r["football_under_support"]
+    # +8 points added (capped at 100).
+    assert us["score"] == min(100, score_no_dc + 8)
+    assert us["bonuses"]["dc_nb_delta"] == 8
+    assert us["dc_nb_telemetry"]["tier"] == "mild"
+    assert "DC_NB_DELTA_FAVORS_UNDER" in us["reason_codes"]
+    assert "DC_NB_DELTA_STRONGLY_FAVORS_UNDER" not in us["reason_codes"]
+    # Narrative should mention DC/NB.
+    assert "DC/NB favorece Under" in us["narrative_es"]
+
+
+def test_dc_nb_delta_strong_tier_adds_twelve():
+    """Delta >= +5.0 → +12 points + STRONGLY_FAVORS_UNDER (+ mild RC too)."""
+    base_match = _full_low_scoring_signals()
+    score_no_dc = calculate_football_under_support(base_match)["football_under_support"]["score"]
+
+    match_strong = dict(base_match)
+    match_strong["statsbomb_features"] = {
+        "dc_nb_delta_2_5_pts": 6.8,   # strong tier
+        "dc_nb_delta_3_5_pts": 4.5,
+    }
+    r = calculate_football_under_support(match_strong)
+    us = r["football_under_support"]
+    assert us["score"] == min(100, score_no_dc + 12)
+    assert us["bonuses"]["dc_nb_delta"] == 12
+    assert us["dc_nb_telemetry"]["tier"] == "strong"
+    assert "DC_NB_DELTA_STRONGLY_FAVORS_UNDER" in us["reason_codes"]
+    # Both RCs appear so consumers filtering on the mild code keep working.
+    assert "DC_NB_DELTA_FAVORS_UNDER" in us["reason_codes"]
+    assert "DC/NB favorece fuertemente Under" in us["narrative_es"]
+
+
+def test_dc_nb_delta_negative_does_not_score():
+    """Negative delta means DC/NB favours OVER → 0 points to Under."""
+    base_match = _full_low_scoring_signals()
+    score_no_dc = calculate_football_under_support(base_match)["football_under_support"]["score"]
+
+    match_neg = dict(base_match)
+    match_neg["statsbomb_features"] = {
+        "dc_nb_delta_2_5_pts": -4.0,
+        "dc_nb_delta_3_5_pts": -3.0,
+    }
+    r = calculate_football_under_support(match_neg)
+    us = r["football_under_support"]
+    assert us["score"] == score_no_dc
+    assert us["bonuses"]["dc_nb_delta"] == 0
+    assert "DC_NB_DELTA_FAVORS_UNDER" not in us["reason_codes"]
+    # Negative delta is still surfaced in telemetry for audit.
+    assert us["dc_nb_telemetry"]["dc_nb_delta_2_5_pts"] == -4.0
+
+
+def test_dc_nb_delta_at_threshold_boundary_mild():
+    """Exactly 3.0 must trigger the mild tier."""
+    base_match = _full_low_scoring_signals()
+    match = dict(base_match)
+    match["statsbomb_features"] = {"dc_nb_delta_2_5_pts": 3.0}
+    us = calculate_football_under_support(match)["football_under_support"]
+    assert us["bonuses"]["dc_nb_delta"] == 8
+
+
+def test_dc_nb_delta_at_threshold_boundary_strong():
+    """Exactly 5.0 must trigger the strong tier."""
+    base_match = _full_low_scoring_signals()
+    match = dict(base_match)
+    match["statsbomb_features"] = {"dc_nb_delta_2_5_pts": 5.0}
+    us = calculate_football_under_support(match)["football_under_support"]
+    assert us["bonuses"]["dc_nb_delta"] == 12
+
+
+def test_dc_nb_delta_missing_2_5_value_only_telemetry():
+    """If only the 3.5 delta is present (no 2.5), no score is added."""
+    base_match = _full_low_scoring_signals()
+    match = dict(base_match)
+    match["statsbomb_features"] = {"dc_nb_delta_3_5_pts": 7.0}
+    us = calculate_football_under_support(match)["football_under_support"]
+    assert us["bonuses"]["dc_nb_delta"] == 0
+    assert us["dc_nb_telemetry"]["dc_nb_delta_3_5_pts"] == 7.0
+    assert us["dc_nb_telemetry"]["dc_nb_delta_2_5_pts"] is None
 
 
 # ─────────────────────────────────────────────────────────────────────
