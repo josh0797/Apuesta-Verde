@@ -19,6 +19,7 @@ import { PicksFilterBar } from '@/components/PicksFilterBar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDateTime, tierClass } from '@/lib/format';
 import { EditorialSignalsPanel, EditorialSignalsSummary } from '@/components/EditorialSignalsPanel';
+import { Scores24ReviewBadge } from '@/components/Scores24ReviewBadge';
 import { ExternalSourceEvidencePanel, PossibleAlternativeMarkets } from '@/components/ExternalSourceEvidencePanel';
 import { SourcesConsultedPanel } from '@/components/SourcesConsultedPanel';
 import { ManualOddsReviewPanel } from '@/components/ManualOddsReviewPanel';
@@ -144,6 +145,23 @@ function DiscardedRow({ item, testId, type, sport }) {
           {frag.score != null && <FragilityChip score={frag.score} label={frag.label} />}
         </div>
         <div className="flex items-center gap-2 md:shrink-0 min-w-0">
+          {/* Phase F63 — Scores24 external review badge. Renders for every
+              discarded match so the user can see whether the external
+              context layer rescued / confirmed / is still pending. */}
+          {item.scores24_review && (
+            <Scores24ReviewBadge
+              review={item.scores24_review}
+              lang={lang}
+              testIdPrefix={`${testId}-scores24-review`}
+            />
+          )}
+          {!item.scores24_review && item.discard_strength === 'SOFT_DISCARD_REVIEW' && (
+            <Scores24ReviewBadge
+              review={null}
+              lang={lang}
+              testIdPrefix={`${testId}-scores24-review`}
+            />
+          )}
           {/* On mobile the reason wraps freely (no max-w cap); on desktop
               we keep the 420px cap with truncate for visual balance. */}
           <span
@@ -618,6 +636,61 @@ export default function DashboardPage() {
   }, [loadLast, t.dashboard.title]);
 
   // ── Football: refresh match pool WITHOUT firing LLM ──────────────────
+  // Phase F63 — Live events patch state. Keyed by match_id, each entry
+  // is the latest delta surfaced by /api/football/live-events-patch.
+  // Cards consume this via the existing MatchCard `liveDelta` prop.
+  const [liveEventsByMatchId, setLiveEventsByMatchId] = useState({});
+
+  /**
+   * Fetch fresh score / minute / events for every match currently
+   * rendered (picks + discarded + watchlist). Mutates a local map
+   * keyed by match_id. Fail-soft: any error is logged and swallowed.
+   */
+  const applyLiveEventsPatch = useCallback(async () => {
+    if (sport !== 'football') return;
+    const snap = run?.payload;
+    if (!snap) return;
+    const ids = new Set();
+    const collect = (rows) => {
+      (rows || []).forEach((p) => {
+        const mid = p?.match_id ?? p?.id;
+        if (mid !== undefined && mid !== null) ids.add(String(mid));
+      });
+    };
+    collect(snap.picks);
+    collect(snap.summary?.discarded_motivation);
+    collect(snap.summary?.discarded_market);
+    collect(snap.summary?.incomplete_data);
+    collect(snap.summary?.watchlist);
+    collect(snap.summary?.rescued_picks);
+    if (ids.size === 0) return;
+    try {
+      const r = await api.get('/football/live-events-patch', {
+        params: { match_ids: Array.from(ids).slice(0, 60).join(',') },
+      });
+      const patches = (r.data?.patches || []);
+      if (patches.length === 0) return;
+      const map = {};
+      for (const p of patches) {
+        if (p?.match_id !== undefined && p?.match_id !== null) {
+          map[String(p.match_id)] = p;
+        }
+      }
+      setLiveEventsByMatchId(map);
+      // Show a discreet toast only if there's something interesting
+      // (any patched match flagged is_live OR with a non-zero score).
+      const interesting = patches.some(p => p.is_live || (p.score_home ?? 0) + (p.score_away ?? 0) > 0);
+      if (interesting) {
+        toast.info(lang === 'es'
+          ? `Actualizado: ${patches.length} partido(s) con eventos recientes.`
+          : `Updated: ${patches.length} match(es) with recent events.`);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[F63_LIVE_PATCH]', err?.message || err);
+    }
+  }, [sport, run, lang]);
+
   // Hits POST /api/football/refresh-matches → re-ingests fixtures + odds
   // and tells us the delta. The backend AUTO-PROMOTES the full pool
   // refresh to background to avoid the 60s ingress timeout, so the
@@ -685,6 +758,12 @@ export default function DashboardPage() {
             ? 'Refresco aún en curso en background. Volveré a cargar el snapshot.'
             : 'Refresh still running in background. Reloading snapshot.');
         }
+        // Phase F63 — Surface live deltas (goals, red cards, score) on top
+        // of the existing analyst snapshot WITHOUT re-running the LLM.
+        // Fail-soft: any error here is logged & swallowed.
+        try {
+          await applyLiveEventsPatch();
+        } catch (e) { /* swallow */ }
         loadLast();
         return;
       }
@@ -706,6 +785,10 @@ export default function DashboardPage() {
             .replace('{total}', String(after))
         );
       }
+      // Phase F63 — Sync branch also benefits from the live deltas patch.
+      try {
+        await applyLiveEventsPatch();
+      } catch (e) { /* swallow */ }
       loadLast();
     } catch (err) {
       const detail = err?.response?.data?.detail || err?.message || '';

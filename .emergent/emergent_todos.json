@@ -1,22 +1,42 @@
 [
   {
-    "content": "Promover _dc_nb_telemetry a scoring en football_under_support.py (>= 3.0 -> +8, >= 5.0 -> +12)",
+    "content": "F63.A: Crear team_name_translations.py con dict EN<->ES + helper normalize_team_name_for_scores24 y variantes",
     "status": "completed"
   },
   {
-    "content": "Actualizar header doc (politica) y reason codes (DC_NB_DELTA_FAVORS_UNDER / STRONGLY_FAVORS_UNDER)",
+    "content": "F63.A: Actualizar build_scores24_slug_candidates para emitir variantes EN+ES+sin-acentos+mixed",
     "status": "completed"
   },
   {
-    "content": "Actualizar test existente test_dc_nb_delta_is_telemetry_only + anadir tests del threshold y tier extra-fuerte",
+    "content": "F63.B: Anadir duckduckgo_search_scores24_url opt-in (SCORES24_SEARCH_FALLBACK=duckduckgo)",
     "status": "completed"
   },
   {
-    "content": "Correr pytest completo y validar 0 regresiones",
-    "status": "in_progress"
+    "content": "F63.B: Iterar candidatos en orden hasta encontrar URL valida; agregar reason codes (DIRECT_FAILED, SEARCH_USED, TRANSLATION_USED)",
+    "status": "completed"
   },
   {
-    "content": "Actualizar plan.md con Phase F61.1 promotion",
-    "status": "pending"
+    "content": "F63.C: Localizar descarte por edge negativo y aplicar regla soft/hard (-25.0 threshold) con marker discard_strength",
+    "status": "completed"
+  },
+  {
+    "content": "F63.D: Cablear discarted_unknown + soft_discard al sweep automatico en analyst_engine",
+    "status": "completed"
+  },
+  {
+    "content": "F63.E: Endpoint live deltas patch (goals, red_cards, minute) + frontend merge sin re-correr analisis",
+    "status": "completed"
+  },
+  {
+    "content": "F63.F: UI badge Scores24ReviewBadge.jsx en cards descartadas (pendiente/buscando/revisado/alternativa/confirmado/no-encontrado)",
+    "status": "completed"
+  },
+  {
+    "content": "Tests para los 9 escenarios obligatorios del spec (extender suite)",
+    "status": "completed"
+  },
+  {
+    "content": "Pytest completo + actualizar plan.md (Phase F61.1 + F63)",
+    "status": "completed"
   }
 ]

@@ -245,6 +245,121 @@ async def football_discarded_review(match_id: str, force: bool = False) -> dict:
         }
 
 
+# ── Phase F63 — Football Live Events Patch (snapshot delta surface) ───────
+@app.get("/api/football/live-events-patch")
+async def football_live_events_patch(
+    match_ids: str,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Light-weight delta surface for the football dashboard.
+
+    Returns ONLY the fields that may have changed since the last
+    analyst snapshot — score, minute, status, events (goals / cards)
+    and the live_stats block. The frontend merges this into the
+    existing card payloads WITHOUT re-running the LLM analysis, so the
+    "Refrescando…" button surfaces new goals / red cards instantly.
+
+    Query params:
+      * ``match_ids``: comma-separated list of match_id values
+        (strings; ints are also accepted via implicit cast).
+
+    Response shape::
+
+        {
+          "fetched_at": "2026-06-12T01:50:00Z",
+          "patches": [
+            {
+              "match_id":         "...",
+              "is_live":          true,
+              "status_short":     "2H",
+              "minute":           67,
+              "score_home":       1,
+              "score_away":       0,
+              "events": [
+                {"minute": 23, "type": "Goal",  "team_side": "home", "player": "..."},
+                {"minute": 45, "type": "Card", "detail": "Red Card", "team_side": "away", "player": "..."}
+              ],
+              "live_stats":       {...},   // optional
+              "updated_at":       "..."
+            },
+            ...
+          ]
+        }
+    """
+    if not match_ids:
+        return {"fetched_at": datetime.now(timezone.utc).isoformat(), "patches": []}
+
+    raw_ids = [s.strip() for s in match_ids.split(",") if s.strip()]
+    if not raw_ids:
+        return {"fetched_at": datetime.now(timezone.utc).isoformat(), "patches": []}
+
+    # Mongo match_id may be stored as either str or int depending on the
+    # source. Try both for each id.
+    or_clauses: list[dict] = []
+    for raw in raw_ids[:60]:  # cap to 60 to keep the query small.
+        or_clauses.append({"match_id": raw})
+        try:
+            or_clauses.append({"match_id": int(raw)})
+        except (ValueError, TypeError):
+            pass
+
+    projection = {
+        "match_id": 1, "is_live": 1, "status_short": 1, "league": 1,
+        "live_stats": 1, "events": 1, "home_team.name": 1, "away_team.name": 1,
+        "updated_at": 1, "kickoff_iso": 1,
+    }
+    try:
+        docs = await db.matches.find(
+            {"$or": or_clauses, "sport": "football"},
+            projection=projection,
+        ).to_list(length=len(or_clauses))
+    except Exception as exc:
+        log.warning("[F63] live-events-patch query failed: %s", exc)
+        docs = []
+
+    patches: list[dict] = []
+    for d in docs:
+        live = d.get("live_stats") or {}
+        # Best-effort extraction of score + minute from the various
+        # live_stats shapes the ingestors leave behind.
+        score_home = live.get("score_home") or live.get("home_score")
+        score_away = live.get("score_away") or live.get("away_score")
+        minute = live.get("minute") or live.get("elapsed")
+        # Events list — may live under live_stats.events or at the top level.
+        evts = live.get("events") or d.get("events") or []
+        # Project events to a stable lightweight shape the UI can render.
+        events_out: list[dict] = []
+        for e in evts[:30]:
+            if not isinstance(e, dict):
+                continue
+            events_out.append({
+                "minute":     e.get("minute") or (e.get("time") or {}).get("elapsed"),
+                "type":       e.get("type")   or e.get("event"),
+                "detail":     e.get("detail") or e.get("description"),
+                "team_side":  e.get("team_side") or e.get("side"),
+                "player":     (e.get("player") or {}).get("name")
+                              if isinstance(e.get("player"), dict)
+                              else e.get("player"),
+            })
+        patches.append({
+            "match_id":     d.get("match_id"),
+            "is_live":      bool(d.get("is_live")),
+            "status_short": d.get("status_short"),
+            "minute":       minute,
+            "score_home":   score_home,
+            "score_away":   score_away,
+            "events":       events_out,
+            "updated_at":   d.get("updated_at"),
+            "kickoff_iso":  d.get("kickoff_iso"),
+        })
+
+    return {
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "count":      len(patches),
+        "patches":    patches,
+    }
+
+
 def _norm_sport(sport: Optional[str]) -> str:
     """Normalize/validate sport query param. Defaults to football."""
     s = (sport or "football").lower()

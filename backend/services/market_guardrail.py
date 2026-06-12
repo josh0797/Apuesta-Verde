@@ -39,6 +39,15 @@ EDGE_THRESHOLDS = {
     "parlay": 0.07,
 }
 
+# Phase F63 — Soft vs Hard discard threshold for negative edge picks.
+# Empirically chosen by the user: a moderately-negative edge ([-25%, 0%))
+# is NOT a terminal discard — the pipeline routes the match to
+# Scores24 external review (and possibly Watchlist). Only edges at or
+# below -25% are hard-discarded outright.
+EDGE_HARD_DISCARD_THRESHOLD = float(
+    os.environ.get("SCORES24_EDGE_HARD_DISCARD_THRESHOLD", "-25.0")
+)
+
 # Per-sport calibration factor applied to the LLM confidence before treating
 # it as a probability. Empirically derived from observed ROI on the existing
 # tracked picks; will be refined as more outcomes accumulate. Override via
@@ -204,11 +213,34 @@ def apply_market_guardrail(parsed: dict, sport: str = "football") -> dict:
             if edge_info.get("edge") is not None:
                 edges.append(edge_info["edge"])
         elif edge_info["verdict"] == "NO_BET_VALUE":
+            # Phase F63: classify NO_BET_VALUE picks into HARD vs SOFT
+            # discard. A SOFT discard still appears in `discarded_market`
+            # (the UI bucket stays unchanged) but carries the marker
+            # ``discard_strength="SOFT_DISCARD_REVIEW"`` so the Scores24
+            # external review can run and the UI can show a "review
+            # pending" badge instead of a terminal "descartado" label.
+            edge_pct = (edge_info.get("edge") or 0) * 100.0
+            if edge_pct <= EDGE_HARD_DISCARD_THRESHOLD:
+                discard_strength = "HARD_DISCARD"
+                f63_reasons = ["edge_too_negative", "EDGE_HARD_DISCARD"]
+                scores24_review_required = False
+            else:
+                discard_strength = "SOFT_DISCARD_REVIEW"
+                f63_reasons = [
+                    "edge_negative_needs_external_review",
+                    "NEGATIVE_EDGE_SOFT_DISCARD_REVIEW",
+                    "SCORES24_REVIEW_REQUIRED_FOR_SOFT_DISCARD",
+                ]
+                scores24_review_required = True
             disc_mkt.append({
-                "match_id": p.get("match_id"),
+                "match_id":   p.get("match_id"),
                 "match_label": p.get("match_label"),
-                "reason": edge_info["reason"],
-                "_market_guardrail": edge_info,
+                "reason":     edge_info["reason"],
+                "edge_pct":   round(edge_pct, 2),
+                "discard_strength":          discard_strength,
+                "scores24_review_required":  scores24_review_required,
+                "f63_reason_codes":          f63_reasons,
+                "_market_guardrail":         edge_info,
                 "_market_guardrail_reroute": True,
             })
             rerouted += 1
@@ -231,6 +263,7 @@ def apply_market_guardrail(parsed: dict, sport: str = "football") -> dict:
         "insufficient_data": insufficient,
         "average_edge":  avg_edge,
         "thresholds":    EDGE_THRESHOLDS,
+        "edge_hard_discard_threshold_pct": EDGE_HARD_DISCARD_THRESHOLD,
     }
     if rerouted or insufficient:
         log.info(

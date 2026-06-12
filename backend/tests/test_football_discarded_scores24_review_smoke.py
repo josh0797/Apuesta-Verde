@@ -171,10 +171,26 @@ async def _scrape_unavailable():
 # ─────────────────────────────────────────────────────────────────────
 def test_slug_builder_happy_path():
     urls = build_scores24_slug_candidates(_base_match())
-    assert len(urls) == 2
+    # Phase F63 expands EN/ES variants + swap → expect multiple
+    # candidates, with the EN-ASCII pair always first.
+    assert len(urls) >= 2
     assert urls[0] == "https://scores24.live/es/soccer/m-11-06-2026-mexico-south-africa-prediction"
-    # 2nd is the swap.
-    assert "south-africa-mexico" in urls[1]
+    joined = " ".join(urls)
+    # ES variant present (sudafrica).
+    assert "sudafrica" in joined
+    # Swap variant present.
+    assert "south-africa-mexico" in joined
+
+
+def test_slug_builder_es_translation_emitted_for_mexico_south_africa():
+    """Spec: Mexico vs South Africa must yield Mexico/South Africa AND
+    México/Sudáfrica variants."""
+    urls = build_scores24_slug_candidates(_base_match())
+    joined = " ".join(urls)
+    assert any("mexico-south-africa" in u for u in urls)
+    assert any("mexico-sudafrica"     in u for u in urls)
+    # Accented variant (méxico-sudáfrica) — also expected.
+    assert "méxico" in joined or "sudáfrica" in joined
 
 
 def test_slug_builder_handles_accents_and_spaces():

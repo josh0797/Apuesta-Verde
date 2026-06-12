@@ -290,3 +290,72 @@ Si en el futuro se crea un `compute_over_profile_score` análogo al `compute_und
 - (P2) **UI surface** del bloque `scores24_review` en las cards de descartados: chip RESCATE (verde) / WATCHLIST (amarillo) / CONFIRMADO (gris) + tooltip con `rescued_market`.
 - (P3) Backtest del valor de los `RESCUE_ALTERNATIVE_MARKET` para validar que las recomendaciones de corners de Scores24 tienen ROI positivo.
 - (P3) TTL index nativo en Mongo para `scores24_discarded_review_cache.expires_at` (purga automática).
+
+---
+
+## Phase F61.1 — dc_nb_delta promoción de telemetry a scoring (COMPLETED)
+
+### Resumen
+Promoción del `dc_nb_delta_2_5_pts` de telemetry-only a scoring real, tras validar el signo con 4 líneas de evidencia (definición matemática en `statsbomb_features.py:447-453`, uso simétrico en `football_over_support._dc_nb_preference`, propagación coherente en `football_totals_model_normalizer`, y fragility logic en `football_over_support:406`).
+
+### Implementación
+- `services/football_moneyball/football_under_support.py`:
+  - `_dc_nb_telemetry` → renombrado a `_dc_nb_preference` (scoring real).
+  - `dc_nb_delta_2_5_pts >= 5.0` → **+12** + RC `DC_NB_DELTA_STRONGLY_FAVORS_UNDER` + `DC_NB_DELTA_FAVORS_UNDER`.
+  - `dc_nb_delta_2_5_pts >= 3.0` → **+8** + RC `DC_NB_DELTA_FAVORS_UNDER`.
+  - `< 3.0` → 0 puntos + RC legacy `DC_NB_DELTA_TELEMETRY_ONLY` (backward-compat).
+  - `dc_nb_telemetry` block sigue presente con `_policy: "validated_and_promoted_phase_F61_signoff"`.
+  - Narrative ES incluye "modelo DC/NB favorece (fuertemente) Under" cuando aplica.
+
+### Tests
+- `tests/test_football_under_support_smoke.py` extendido (+6 tests): below-threshold, mild tier, strong tier, negative delta no scoring, threshold boundary 3.0 y 5.0, missing 2.5 value.
+- Suite: 1870 → 1870 verde tras promoción.
+
+---
+
+## Phase F63 — Discarded Review EN/ES + Soft/Hard Edge + UI Badge + Live Patch (COMPLETED)
+
+### Objetivos
+1. Resolver el problema de **resolución de URLs Scores24** cuando la API devuelve nombres en inglés pero Scores24 usa slugs ES/ASCII/acentuados.
+2. Cambiar la regla de descarte por edge negativo: solo `<= -25.0%` es terminal; entre 0 y -24.9% es soft discard con revisión Scores24.
+3. Surface el estado de revisión Scores24 en la UI con un badge claro.
+4. Arreglar el botón "Refrescando..." para que sí muestre goles/tarjetas nuevas sin re-ejecutar el LLM.
+
+### Implementación
+- ✅ **`backend/services/team_name_translations.py`** (NUEVO): dict curado EN→ES para 70+ selecciones internacionales (Brazil/Brasil, Morocco/Marruecos, USA/Estados Unidos, South Korea/Corea del Sur, Czech Republic/República Checa, Bosnia & Herzegovina, Qatar/Catar, Switzerland/Suiza, etc.). API pública: `normalize_team_name_for_scores24(name, lang)`, `slug_pairs(home, away)`, `has_translation(name)`. Strip de acentos + & → "and"/"y" + de-dupe.
+- ✅ **`backend/services/football_discarded_scores24_review.py`** extendido (~+150 LOC):
+  - `build_scores24_slug_candidates` ahora emite hasta 10 variantes (EN-ASCII, ES-ASCII, accented, mixed EN/ES + swap home↔away).
+  - Iteración multi-candidato hasta `SCORES24_DISCARDED_MAX_DIRECT_TRIES` (default 3).
+  - `_duckduckgo_search_scores24_url()` — fallback opt-in vía `SCORES24_SEARCH_FALLBACK=duckduckgo`. Sin SERP API paga; parsea HTML de DuckDuckGo y resuelve URLs `scores24.live/es/soccer/*-prediction` que contengan ambos equipos.
+  - Nuevos reason codes: `SCORES24_DIRECT_SLUG_FAILED`, `SCORES24_SEARCH_FALLBACK_USED`, `SCORES24_MATCH_URL_RESOLVED_FROM_SEARCH`, `SCORES24_TEAM_NAME_TRANSLATION_USED`.
+  - Output incluye `team_name_translation_used: bool`.
+- ✅ **`backend/services/market_guardrail.py`**: nueva constante `EDGE_HARD_DISCARD_THRESHOLD=-25.0` (env `SCORES24_EDGE_HARD_DISCARD_THRESHOLD`). En el reroute de NO_BET_VALUE:
+  - `edge_pct <= -25.0` → `discard_strength=HARD_DISCARD`, `f63_reason_codes=["edge_too_negative", "EDGE_HARD_DISCARD"]`, `scores24_review_required=False`.
+  - `-25.0 < edge_pct < 0` → `discard_strength=SOFT_DISCARD_REVIEW`, codes `NEGATIVE_EDGE_SOFT_DISCARD_REVIEW + SCORES24_REVIEW_REQUIRED_FOR_SOFT_DISCARD`, `scores24_review_required=True`.
+  - Audit en `_pipeline.market_guardrail.edge_hard_discard_threshold_pct`.
+- ✅ **`backend/services/analyst_engine.py`**: sweep extendido para incluir `discarded_unknown` (Phase F63). Priorización: las entradas `SOFT_DISCARD_REVIEW` se procesan PRIMERO (consume los slots del per-run cap antes que el resto). Audit incluye `soft_priority_count`.
+- ✅ **`backend/server.py`** — nuevo endpoint `GET /api/football/live-events-patch?match_ids=...`:
+  - Devuelve un patch ligero por match con score actual, minuto, status, eventos (goles, tarjetas).
+  - El frontend mergea esto SIN re-correr el LLM (más barato, instantáneo).
+  - Cap de 60 match_ids por llamada.
+- ✅ **`frontend/src/components/Scores24ReviewBadge.jsx`** (NUEVO): chip con 7 estados visuales (pending/searching/reviewed/rescued/watchlist/confirmed/missing). Renderiza también el detalle de `rescued_market` o `editorial_prediction`. data-testid `scores24-review-*`.
+- ✅ **`frontend/src/pages/DashboardPage.jsx`**:
+  - Import del badge; renderiza en `<DiscardedRow>` cuando hay `item.scores24_review` o cuando `item.discard_strength === "SOFT_DISCARD_REVIEW"` (estado pending).
+  - `applyLiveEventsPatch()` helper async: tras un refresh exitoso (rama sync o background) llama al nuevo endpoint con los match_ids del snapshot y guarda los patches en `liveEventsByMatchId`. Toast discreto cuando hay eventos nuevos.
+
+### Tests (+26, 0 regresiones)
+- `tests/test_team_name_translations_smoke.py` (NUEVO, 19 tests): cubre todos los pares EN↔ES del spec (México/Sudáfrica, Brazil/Brasil, Morocco/Marruecos, USA aliases, Bosnia & Herzegovina ampersand, Qatar/Catar, Switzerland/Suiza, South Korea/Corea, Czech Republic/República Checa) + edge cases (empty, unknown teams ASCII-only, accents, no duplicates) + `slug_pairs` Cartesian.
+- `tests/test_market_guardrail_soft_discard_smoke.py` (NUEVO, 6 tests): -18.8% USA-Paraguay → SOFT, -20% Canada-Bosnia → SOFT, -30%+ → HARD, boundary -25.0 → HARD, audit block exposes threshold.
+- `tests/test_football_discarded_scores24_review_smoke.py` extendido: nuevo test `test_slug_builder_es_translation_emitted_for_mexico_south_africa` confirma que el builder emite ambas variantes (Mexico/South Africa + México/Sudáfrica).
+- **Suite total: 1897/1897 passing** (1871 → 1897).
+
+### Decisiones clave (confirmadas con usuario)
+- (1.b) **Surface live deltas** en snapshot existente — no re-correr LLM.
+- (2.b)+(2.c) **Slug extendido EN/ES + DuckDuckGo opt-in** (cero costo adicional; SERP API queda fuera).
+- (3) **Mismo bucket `discarded_market`** con marker `discard_strength` (no fragmenta la UI).
+
+### Próximos pasos sugeridos
+- (P2) Backtest: medir hit-rate/ROI de los `RESCUE_ALTERNATIVE_MARKET` (alternativas de corners) vs los discards anteriores.
+- (P3) Activar `SCORES24_SEARCH_FALLBACK=duckduckgo` en producción tras observar conversion rates de URLs directas vs fallback.
+- (P3) Expandir el dict de traducciones a clubes top-30 (Premier League, La Liga, Bundesliga) para Champions League / Europa League.
+- (P3) TTL index Mongo en `scores24_discarded_review_cache.expires_at` (purga automática).

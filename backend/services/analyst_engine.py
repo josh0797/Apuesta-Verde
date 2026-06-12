@@ -2872,14 +2872,23 @@ async def analyze_matches(
     except Exception as exc:
         log.warning("football_market_trace Phase 13.6 failed: %s", exc)
 
-    # ── Phase F62 — Discarded Match Scores24 External Review ────────────
-    # Pure enrichment: each football match in a `discarded_*` bucket
-    # gets a `scores24_review` block attached with the gate decision
+    # ── Phase F62 / F63 — Discarded Match Scores24 External Review ──────
+    # Pure enrichment: each football match in any discarded bucket gets a
+    # ``scores24_review`` block attached with the decision
     # (CONFIRM_DISCARD / MOVE_TO_WATCHLIST / RESCUE_ALTERNATIVE_MARKET).
     # The pipeline does NOT mutate the bucket itself — the UI/operator
     # decides whether to surface the rescued market. Respects
-    # `SCORES24_DISCARDED_MAX_PER_RUN` (default 10) and a Mongo-backed
+    # ``SCORES24_DISCARDED_MAX_PER_RUN`` (default 10) and a Mongo-backed
     # daily quota. Fail-soft / non-fatal.
+    #
+    # Phase F63 extension:
+    #   * ``discard_strength="HARD_DISCARD"`` entries are STILL reviewed
+    #     (they're descartes terminales pero la auditoría externa sigue
+    #     siendo útil para confirmar / explicar).
+    #   * ``discard_strength="SOFT_DISCARD_REVIEW"`` entries are reviewed
+    #     with HIGHER priority — they're the ones the UI will show as
+    #     "revisión pendiente".
+    #   * ``discarded_unknown`` (added to the sweep).
     if sport == "football":
         try:
             from .football_discarded_scores24_review import (
@@ -2891,55 +2900,75 @@ async def analyze_matches(
                 "CONFIRM_DISCARD": 0, "MOVE_TO_WATCHLIST": 0,
                 "RESCUE_ALTERNATIVE_MARKET": 0,
             }
-            for bucket_name in ("discarded_motivation", "discarded_market",
-                                "incomplete_data"):
+            # Phase F63: sweep ALL discard buckets. ``discarded_market``
+            # carries the SOFT/HARD discard strength markers; the
+            # auto-sweep prioritises SOFT entries first.
+            sweep_buckets = (
+                "discarded_market",       # SOFT/HARD by edge.
+                "discarded_motivation",   # motivational dead-rubbers etc.
+                "discarded_unknown",      # unclassified — still worth reviewing.
+                "incomplete_data",        # missing form / position.
+            )
+            # Build a flat queue ordered by priority: SOFT_DISCARD_REVIEW
+            # first, then everything else in bucket order.
+            queue: list[tuple[str, dict]] = []
+            soft_first: list[tuple[str, dict]] = []
+            other:      list[tuple[str, dict]] = []
+            for bucket_name in sweep_buckets:
                 bucket = summary.get(bucket_name) or []
                 for entry in bucket:
-                    if counter.count >= counter.limit:
-                        break
                     if not isinstance(entry, dict):
                         continue
-                    # Merge source match fields needed by the slug builder
-                    # without mutating the bucket entry layout.
-                    src = next((m for m in matches_payload
-                                if m.get("match_id") == entry.get("match_id")), {})
-                    merged = {
-                        **{k: src.get(k) for k in (
-                            "match_id", "match_date", "date", "kickoff",
-                            "home_team", "away_team", "home_team_name",
-                            "away_team_name", "scores24_url", "external_urls",
-                            "status", "match_status",
-                        ) if src.get(k) is not None},
-                        **{k: entry.get(k) for k in (
-                            "match_id", "match_label", "reason",
-                        ) if entry.get(k) is not None},
-                    }
-                    discard_reason = entry.get("reason") or bucket_name
-                    try:
-                        review = await review_discarded_match_with_scores24(
-                            merged, db=db, run_counter=counter,
-                            discard_reason=str(discard_reason),
-                        )
-                    except Exception as _exc_r:
-                        log.debug("[F62] review failed for %s: %s",
-                                  entry.get("match_id"), _exc_r)
-                        continue
-                    entry["scores24_review"] = review
-                    if review.get("available"):
-                        reviewed += 1
-                        dec = review.get("decision") or ""
-                        if dec in decisions:
-                            decisions[dec] += 1
+                    if entry.get("discard_strength") == "SOFT_DISCARD_REVIEW":
+                        soft_first.append((bucket_name, entry))
+                    else:
+                        other.append((bucket_name, entry))
+            queue = soft_first + other
+
+            for bucket_name, entry in queue:
                 if counter.count >= counter.limit:
                     break
+                # Merge source match fields needed by the slug builder
+                # without mutating the bucket entry layout.
+                src = next((m for m in matches_payload
+                            if m.get("match_id") == entry.get("match_id")), {})
+                merged = {
+                    **{k: src.get(k) for k in (
+                        "match_id", "match_date", "date", "kickoff",
+                        "home_team", "away_team", "home_team_name",
+                        "away_team_name", "scores24_url", "external_urls",
+                        "status", "match_status",
+                    ) if src.get(k) is not None},
+                    **{k: entry.get(k) for k in (
+                        "match_id", "match_label", "reason",
+                    ) if entry.get(k) is not None},
+                }
+                discard_reason = entry.get("reason") or bucket_name
+                try:
+                    review = await review_discarded_match_with_scores24(
+                        merged, db=db, run_counter=counter,
+                        discard_reason=str(discard_reason),
+                    )
+                except Exception as _exc_r:
+                    log.debug("[F62/F63] review failed for %s: %s",
+                              entry.get("match_id"), _exc_r)
+                    continue
+                entry["scores24_review"] = review
+                if review.get("available"):
+                    reviewed += 1
+                    dec = review.get("decision") or ""
+                    if dec in decisions:
+                        decisions[dec] += 1
+
             parsed.setdefault("_pipeline", {})["discarded_scores24_review"] = {
-                "attempted":  counter.count,
-                "reviewed":   reviewed,
-                "decisions":  decisions,
+                "attempted":   counter.count,
+                "reviewed":    reviewed,
+                "decisions":   decisions,
                 "cap_per_run": counter.limit,
+                "soft_priority_count": len(soft_first),
             }
         except Exception as exc:
-            log.warning("Phase F62 discarded scores24 review failed: %s", exc)
+            log.warning("Phase F62/F63 discarded scores24 review failed: %s", exc)
 
     parsed["_generated_at"] = datetime.now(timezone.utc).isoformat()
     parsed["_session_id"] = session_id

@@ -64,11 +64,98 @@ RC_RESCUED_CORNERS             = "DISCARDED_MATCH_RESCUED_AS_CORNERS_WATCHLIST"
 RC_CORNERS_CTX_FOUND           = "SCORES24_CORNERS_CONTEXT_FOUND"
 RC_EDITORIAL_CTX_FOUND         = "SCORES24_EDITORIAL_CONTEXT_FOUND"
 RC_URL_NOT_RESOLVED            = "SCORES24_URL_NOT_RESOLVED"
+RC_DIRECT_SLUG_FAILED          = "SCORES24_DIRECT_SLUG_FAILED"
+RC_SEARCH_FALLBACK_USED        = "SCORES24_SEARCH_FALLBACK_USED"
+RC_URL_RESOLVED_FROM_SEARCH    = "SCORES24_MATCH_URL_RESOLVED_FROM_SEARCH"
+RC_TEAM_NAME_TRANSLATION_USED  = "SCORES24_TEAM_NAME_TRANSLATION_USED"
 RC_DISABLED_BY_ENV             = "SCORES24_REVIEW_DISABLED_BY_ENV"
 RC_QUOTA_DAILY_EXCEEDED        = "SCORES24_QUOTA_DAILY_EXCEEDED"
 RC_QUOTA_RUN_EXCEEDED          = "SCORES24_QUOTA_RUN_EXCEEDED"
 RC_FROM_CACHE                  = "SCORES24_REVIEW_FROM_CACHE"
 RC_FETCH_FAILED                = "SCORES24_REVIEW_FETCH_FAILED"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# DuckDuckGo HTML search fallback (opt-in via SCORES24_SEARCH_FALLBACK)
+# ─────────────────────────────────────────────────────────────────────
+async def _duckduckgo_search_scores24_url(
+    home: Optional[str], away: Optional[str], date_str: Optional[str],
+) -> Optional[str]:
+    """Cheap search fallback that does NOT require any paid SERP API.
+
+    Hits DuckDuckGo's HTML interface and parses ``scores24.live/es/soccer/``
+    URLs from the result list. Returns the first candidate whose URL
+    contains both team slugs (in either order) and the ``-prediction``
+    suffix. Returns ``None`` on any failure.
+
+    This is opt-in: only fires when ``SCORES24_SEARCH_FALLBACK=duckduckgo``.
+    DuckDuckGo rate-limits ~1 request per few seconds — fine for the
+    ≤10 reviews per analyst run we cap at.
+    """
+    if not (home and away):
+        return None
+    try:
+        import httpx
+    except Exception:  # noqa: BLE001
+        return None
+
+    # Build a Spanish-flavoured query the way the user wrote it in spec.
+    qhome = home.strip()
+    qaway = away.strip()
+    date_part = f" {date_str}" if date_str else ""
+    q = f"site:scores24.live/es/soccer {qhome} {qaway} prediction{date_part}"
+    url = "https://duckduckgo.com/html/"
+    try:
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            r = await client.get(url, params={"q": q}, headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+                ),
+                "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+            })
+            html = r.text or ""
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[F63] DuckDuckGo fetch failed: %s", exc)
+        return None
+
+    if not html:
+        return None
+
+    # Slug fragments we expect to find in any valid Scores24 URL.
+    home_slug = _slugify(home)
+    away_slug = _slugify(away)
+
+    # DuckDuckGo HTML wraps results in /l/?uddg=<encoded_url> redirects,
+    # but for site:-scoped queries the plaintext URL often appears in
+    # the snippet too. Match both patterns.
+    candidates: list[str] = []
+    for m in re.finditer(
+        r"https?://scores24\.live/es/soccer/[a-z0-9\-]+-prediction",
+        html,
+    ):
+        candidates.append(m.group(0))
+    # Also pull from uddg-encoded redirects.
+    for m in re.finditer(r"uddg=([^&\"]+)", html):
+        from urllib.parse import unquote
+        decoded = unquote(m.group(1))
+        if "scores24.live/es/soccer/" in decoded and "-prediction" in decoded:
+            # Strip query / fragment.
+            decoded = decoded.split("?")[0].split("#")[0]
+            candidates.append(decoded)
+
+    # De-dupe preserving order.
+    seen: set[str] = set()
+    candidates = [u for u in candidates if not (u in seen or seen.add(u))]
+
+    for u in candidates:
+        ul = u.lower()
+        # Prefer URLs containing both slugs (in any order).
+        if home_slug and away_slug and home_slug in ul and away_slug in ul:
+            return u
+    # Fallback: return the first plausible candidate even if only one
+    # slug matched — better than nothing.
+    return candidates[0] if candidates else None
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -160,10 +247,18 @@ def build_scores24_slug_candidates(match_payload: dict) -> list[str]:
 
         https://scores24.live/es/soccer/m-DD-MM-YYYY-home-away-prediction
 
-    We emit a small ordered list (home-vs-away first, then away-vs-home
-    swap, then with/without short-form team names). The caller iterates
-    until one returns a non-empty scrape — but for cost reasons we
-    typically attempt only the first candidate.
+    Phase F63 extension: emits MULTIPLE variants combining the EN/ES
+    translation dictionary (see ``team_name_translations``), with and
+    without accents, plus a home↔away swap because Scores24 sometimes
+    stores fixtures away-first.
+
+    Order:
+        1. Explicit ``scores24_url`` (always wins).
+        2. Diagonal EN-ASCII pair (e.g. "mexico-south-africa").
+        3. Diagonal ES-ASCII pair (e.g. "mexico-sudafrica").
+        4. Mixed EN/ES (e.g. "brazil-marruecos").
+        5. Accented variants (sudáfrica, méxico).
+        6. Swap variants for the same priorities.
     """
     if not isinstance(match_payload, dict):
         return []
@@ -177,21 +272,31 @@ def build_scores24_slug_candidates(match_payload: dict) -> list[str]:
 
     home_raw = _team_name(match_payload.get("home_team")) or match_payload.get("home_team_name") or match_payload.get("home")
     away_raw = _team_name(match_payload.get("away_team")) or match_payload.get("away_team_name") or match_payload.get("away")
-    home = _slugify(home_raw)
-    away = _slugify(away_raw)
-    if not home or not away:
-        return []
 
     dates = _date_candidates(match_payload)
-    if not dates:
+    if not dates or not home_raw or not away_raw:
+        return []
+
+    try:
+        from services.team_name_translations import slug_pairs
+        pairs = slug_pairs(home_raw, away_raw, lang="es", max_pairs=6)
+    except Exception:  # noqa: BLE001
+        # Fail-soft: fall back to a single ASCII-folded pair.
+        h, a = _slugify(home_raw), _slugify(away_raw)
+        pairs = [(h, a)] if h and a else []
+
+    if not pairs:
         return []
 
     base = "https://scores24.live/es/soccer"
     out: list[str] = []
     for d in dates:
-        out.append(f"{base}/m-{d}-{home}-{away}-prediction")
-        # Swap is sometimes how Scores24 stores fixtures (away first).
-        out.append(f"{base}/m-{d}-{away}-{home}-prediction")
+        for (h, a) in pairs:
+            out.append(f"{base}/m-{d}-{h}-{a}-prediction")
+        # Swap variants for the same date — Scores24 occasionally stores
+        # fixtures away-first.
+        for (h, a) in pairs:
+            out.append(f"{base}/m-{d}-{a}-{h}-prediction")
     # De-dupe preserving order.
     seen: set[str] = set()
     return [u for u in out if not (u in seen or seen.add(u))]
@@ -502,29 +607,83 @@ async def review_discarded_match_with_scores24(
 
     # Resolve URL candidates.
     candidates = build_scores24_slug_candidates(match_payload)
+    translation_used = False
+    try:
+        from services.team_name_translations import has_translation
+        translation_used = (
+            has_translation(_team_name(match_payload.get("home_team"))
+                            or match_payload.get("home_team_name"))
+            or has_translation(_team_name(match_payload.get("away_team"))
+                               or match_payload.get("away_team_name"))
+        )
+    except Exception:  # noqa: BLE001
+        translation_used = False
+
     if not candidates:
         out = _empty_review(RC_URL_NOT_RESOLVED)
+        if translation_used:
+            out["reason_codes"].append(RC_TEAM_NAME_TRANSLATION_USED)
         await _cache_set(db, key, out, _ttl_seconds_for_match(match_payload))
         return out
 
-    # Scrape (only the first candidate to keep costs predictable).
+    # Pull the scraper.
     if scrape_fn is None:
         try:
             from services.scores24_scraper import scrape_scores24_match as scrape_fn  # type: ignore[assignment]
         except Exception as exc:  # noqa: BLE001
             log.debug("scrape_scores24_match unavailable: %s", exc)
             scrape_fn = None  # type: ignore[assignment]
-    target_url = candidates[0]
+
+    # Iterate the direct slug candidates. Cap at the first MAX_DIRECT
+    # to keep costs predictable — each call is a Bright Data fetch.
+    MAX_DIRECT_TRIES = _env_int("SCORES24_DISCARDED_MAX_DIRECT_TRIES", 3)
     scrape: dict = {"available": False}
+    target_url: Optional[str] = candidates[0]
+    extra_codes: list[str] = []
+    if translation_used:
+        extra_codes.append(RC_TEAM_NAME_TRANSLATION_USED)
+
     if scrape_fn is not None:
-        try:
-            scrape = await scrape_fn(url=target_url)  # type: ignore[misc]
-        except Exception as exc:  # noqa: BLE001
-            log.debug("scores24 scrape raised: %s", exc)
-            scrape = {"available": False, "reason_codes": [RC_FETCH_FAILED]}
+        for i, candidate_url in enumerate(candidates[:MAX_DIRECT_TRIES]):
+            try:
+                s = await scrape_fn(url=candidate_url)  # type: ignore[misc]
+            except Exception as exc:  # noqa: BLE001
+                log.debug("[F63] scrape candidate %s failed: %s", candidate_url, exc)
+                s = {"available": False}
+            if isinstance(s, dict) and s.get("available"):
+                scrape = s
+                target_url = candidate_url
+                break
+        else:
+            # All direct attempts failed.
+            extra_codes.append(RC_DIRECT_SLUG_FAILED)
+
+    # Search fallback (opt-in via env).
+    if not scrape.get("available"):
+        fallback_mode = (os.environ.get("SCORES24_SEARCH_FALLBACK") or "").strip().lower()
+        if fallback_mode == "duckduckgo" and scrape_fn is not None:
+            home_raw = _team_name(match_payload.get("home_team")) or match_payload.get("home_team_name")
+            away_raw = _team_name(match_payload.get("away_team")) or match_payload.get("away_team_name")
+            date_str = (_date_candidates(match_payload) or [None])[0]
+            try:
+                ddg_url = await _duckduckgo_search_scores24_url(home_raw, away_raw, date_str)
+            except Exception as exc:  # noqa: BLE001
+                log.debug("[F63] DuckDuckGo helper raised: %s", exc)
+                ddg_url = None
+            if ddg_url:
+                extra_codes.append(RC_SEARCH_FALLBACK_USED)
+                try:
+                    s = await scrape_fn(url=ddg_url)  # type: ignore[misc]
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("[F63] search-resolved scrape failed: %s", exc)
+                    s = {"available": False}
+                if isinstance(s, dict) and s.get("available"):
+                    scrape = s
+                    target_url = ddg_url
+                    extra_codes.append(RC_URL_RESOLVED_FROM_SEARCH)
 
     if not isinstance(scrape, dict) or not scrape.get("available"):
-        out = _empty_review(RC_FETCH_FAILED)
+        out = _empty_review(RC_FETCH_FAILED, extra_codes=extra_codes)
         out["url_tried"] = target_url
         await _cache_set(db, key, out, _ttl_seconds_for_match(match_payload))
         return out
@@ -532,6 +691,10 @@ async def review_discarded_match_with_scores24(
     corners_pred   = _build_corners_prediction(scrape)
     editorial_pred = _build_editorial_prediction(scrape)
     decision, rescued, rcodes = _decide(scrape, corners_pred, editorial_pred, discard_reason)
+
+    # Prepend extra_codes (translation / fallback markers) so the audit
+    # surfaces them prominently.
+    rcodes = [c for c in extra_codes if c not in rcodes] + rcodes
 
     out = {
         "available":               True,
@@ -545,6 +708,7 @@ async def review_discarded_match_with_scores24(
         "editorial_prediction":    editorial_pred,
         "corners_prediction":      corners_pred,
         "url_used":                target_url,
+        "team_name_translation_used": translation_used,
         "reason_codes":            rcodes,
     }
     await _cache_set(db, key, out, _ttl_seconds_for_match(match_payload))
