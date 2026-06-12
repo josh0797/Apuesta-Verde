@@ -53,6 +53,8 @@ const REJECTION_CODE_TONE = {
   MARKET_TRAP:              'rose',
   TRAP_SIGNALS:             'rose',
   PUBLIC_OVERREACTION:      'rose',
+  // Phase F73 — Market identity missing → neutral sky/cyan tone.
+  MARKET_IDENTITY_MISSING:  'cyan',
   WATCHLIST_ONLY:           'sky',
   UNKNOWN:                  'slate',
 };
@@ -115,6 +117,51 @@ export function FootballMarketTraceHeader({ trace, cardHeader, testIdPrefix }) {
  */
 export function FootballMarketTraceDetail({ trace, testIdPrefix }) {
   if (!trace || typeof trace !== 'object') return null;
+
+  // Phase F73 — when market identity is missing, render an honest
+  // "Requiere identificación de mercado" card with no edge/prob shown.
+  if (trace.rejection_code === 'MARKET_IDENTITY_MISSING'
+      || trace.state === 'REQUIRES_MARKET_IDENTIFICATION') {
+    return (
+      <div
+        className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3 space-y-2"
+        data-testid={`${testIdPrefix}-requires-market-id`}
+      >
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-cyan-300 shrink-0" />
+          <span className="text-sm font-semibold text-cyan-100">
+            Requiere identificación de mercado
+          </span>
+          <span
+            className="ml-auto text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-200 border border-cyan-500/30"
+            data-testid={`${testIdPrefix}-requires-market-id-chip`}
+          >
+            REQUIRES_MARKET_IDENTIFICATION
+          </span>
+        </div>
+        <div className="text-xs text-cyan-100/90 leading-relaxed pl-6">
+          Cuota detectada: <span className="font-mono">{fmtOdds(trace.odds_visible || trace.original_odds)}</span>{' '}
+          — no se puede calcular edge hasta saber si pertenece a Doble Oportunidad,
+          DNB, 1X2, Over/Under, BTTS, córners o hándicap.
+        </div>
+        {trace.rejection_reason && (
+          <p className="text-[11px] text-cyan-200/70 italic pl-6 leading-relaxed">
+            {trace.rejection_reason}
+          </p>
+        )}
+        {trace.original_rejection_code && (
+          <p
+            className="text-[10px] text-slate-500 italic pl-6"
+            data-testid={`${testIdPrefix}-original-classification-suppressed`}
+          >
+            Clasificación original suprimida: {trace.original_classification || trace.original_rejection_code} —
+            no aplicable sin identidad de mercado.
+          </p>
+        )}
+      </div>
+    );
+  }
+
   const edgePct = trace.edge_pct;
   const edgeIsNegative = edgePct != null && Number(edgePct) < 0;
   const edgeTone = edgeIsNegative

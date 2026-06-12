@@ -332,6 +332,55 @@ def build_market_trace(pick_or_entry: dict,
         "classification":         classification or None,
         "sport":                  sport,
     }
+    # ── Phase F73 — Market Identity Guard ─────────────────────────────
+    # If we don't actually know the market (family is None or key starts
+    # with UNKNOWN:), we MUST NOT classify the pick as MARKET_TRAP,
+    # PROTECTED_BELOW_FLOOR, etc. Override classification and surface
+    # the F73 state so the UI can route the entry to the new bucket.
+    try:
+        from services.market_identity_guards import (
+            FORBIDDEN_WHEN_IDENTITY_MISSING,
+            has_valid_market_identity,
+        )
+        if not has_valid_market_identity(market_identity):
+            orig_code = rejection_code
+            forbid = (rejection_code in FORBIDDEN_WHEN_IDENTITY_MISSING
+                       or (classification or "").upper()
+                          in FORBIDDEN_WHEN_IDENTITY_MISSING)
+            if forbid:
+                trace["original_rejection_code"]   = orig_code
+                trace["original_classification"]    = classification or None
+                # Preserve the visible odds so the UI can show "Cuota
+                # detectada: 1.25" while the financial numbers are blanked.
+                trace["odds_visible"]               = trace.get("odds")
+                trace["original_odds"]              = trace.get("odds")
+                trace["rejection_code"]             = "MARKET_IDENTITY_MISSING"
+                trace["classification"]             = "MARKET_IDENTITY_MISSING"
+                trace["state"]                       = "REQUIRES_MARKET_IDENTIFICATION"
+                trace["rejection_reason"]           = (
+                    f"Cuota detectada ({trace['odds']}) pero no se "
+                    "identificó a qué mercado pertenece. No se puede "
+                    "calcular edge ni declarar trampa de mercado hasta "
+                    "mapear la cuota a un mercado específico (Doble "
+                    "Oportunidad, DNB, 1X2, Over/Under, BTTS, córners, "
+                    "hándicap, etc.)."
+                )
+                # Blank out edge-related fields to prevent UI from
+                # displaying misleading negatives.
+                trace["edge"]                  = None
+                trace["edge_pct"]              = None
+                trace["estimated_probability"] = None
+                trace["implied_probability"]   = None
+                trace["f73_reason_codes"] = [
+                    "MARKET_IDENTITY_MISSING",
+                    "EDGE_CALCULATION_BLOCKED_UNKNOWN_MARKET",
+                ]
+                if orig_code == "LOW_ODDS_NO_CUSHION":
+                    trace["f73_reason_codes"].append(
+                        "LOW_ODDS_TRAP_SUPPRESSED_BY_F73_NO_MARKET_ID"
+                    )
+    except Exception:  # noqa: BLE001
+        pass
     return trace
 
 
