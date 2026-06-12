@@ -1,26 +1,26 @@
 [
   {
-    "content": "Refactorizar football_player_props_discovery.py: player_prop_score (0-100, 5 componentes) + player_prop_fragility (0-100) + Moneyball filter",
-    "status": "completed"
+    "content": "Crear external_context_gate.py con should_fetch_scores24_context (5 allow rules + 7 deny rules)",
+    "status": "in_progress"
   },
   {
-    "content": "Actualizar tests existentes para los nuevos campos y agregar tests del scoring",
-    "status": "completed"
+    "content": "Cablear football_corner_profile_cross al football_pattern_matcher cuando no haya value en 1X2/BTTS/goles",
+    "status": "pending"
   },
   {
-    "content": "Crear football_corner_profile_cross.py con 6 perfiles + integracion Scores24 (external_confirmation/conflict)",
-    "status": "completed"
+    "content": "Inyectar scores24_payload al corner cross (con gating activo) cuando exista scores24_url del match",
+    "status": "pending"
   },
   {
-    "content": "Smoke tests del corner profile cross",
-    "status": "completed"
+    "content": "Smoke tests del gate (allow + deny scenarios)",
+    "status": "pending"
   },
   {
-    "content": "Actualizar UI FootballProfileCrossPropsPanel para mostrar player_prop_score + player_prop_fragility",
-    "status": "completed"
+    "content": "Smoke tests integracion corner-cross-in-pipeline",
+    "status": "pending"
   },
   {
-    "content": "Pytest full suite + 0 regressions",
-    "status": "completed"
+    "content": "Pytest completo + 0 regressions",
+    "status": "pending"
   }
 ]
