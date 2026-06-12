@@ -282,10 +282,41 @@ def build_market_trace(pick_or_entry: dict,
     rejection_human = _humanize_rejection_reason(
         rejection_code, edge_pct, fragility_score, confidence, odds)
 
+    # Phase F71 — canonical market identity. Lets the UI display a
+    # meaningful "Mercado evaluado" line even when the upstream pick
+    # only carried odds/edge/probability without explicit market+selection
+    # strings. Also drives like-vs-like comparisons (OddsPortal, etc).
+    try:
+        from services.market_identity import normalize_market_identity
+        # Parse home/away from match_label for side resolution.
+        home_n, away_n = None, None
+        if match_label:
+            import re as _re
+            parts = _re.split(r"\s+(?:vs\.?|v|-|–|—)\s+",
+                              match_label, maxsplit=1,
+                              flags=_re.IGNORECASE)
+            if len(parts) == 2:
+                home_n, away_n = parts[0].strip(), parts[1].strip()
+        market_identity = normalize_market_identity(
+            {"market":    market_label or rec.get("market_type") or p.get("market_type"),
+             "side":      selection_lab,
+             "line":      rec.get("line") or p.get("line") or me.get("line"),
+             "selection": selection_lab},
+            home_name=home_n, away_name=away_n,
+        )
+    except Exception:  # noqa: BLE001
+        market_identity = {"identity_key": "UNKNOWN:RAW:empty",
+                            "display":      market_label or "—",
+                            "family":       None}
+
     trace = {
         "market":                 market_label or None,
         "selection":              selection_lab or None,
         "market_code":            _detect_market_code(market_label),
+        # Phase F71 — canonical market identity (used by UI + validators)
+        "market_identity":        market_identity,
+        "market_identity_key":    market_identity.get("identity_key"),
+        "market_display":         market_identity.get("display"),
         "team_side":              _detect_team_side(selection_lab, match_label),
         "odds":                   round(odds, 3) if odds else None,
         "estimated_probability":  round(est_prob, 4) if est_prob is not None else None,

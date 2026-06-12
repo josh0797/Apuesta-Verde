@@ -231,6 +231,18 @@ function DiscardedRow({ item, testId, type, sport }) {
               lang={lang}
               testIdPrefix={`${testId}-editorial`}
               matchId={item.match_id}
+              homeTeamName={
+                (item.home_team && (item.home_team.name || item.home_team)) ||
+                item.home_team_name ||
+                (item.match_label && item.match_label.split(/\s+(?:vs\.?|v|-|–|—)\s+/i)[0]) ||
+                null
+              }
+              awayTeamName={
+                (item.away_team && (item.away_team.name || item.away_team)) ||
+                item.away_team_name ||
+                (item.match_label && item.match_label.split(/\s+(?:vs\.?|v|-|–|—)\s+/i)[1]) ||
+                null
+              }
               topPlayers={(() => {
                 // Phase F68 — derive top players from the pick's
                 // player_props_discovery payload. Up to 6 unique names.

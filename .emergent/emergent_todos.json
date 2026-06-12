@@ -1,18 +1,26 @@
 [
   {
-    "content": "C1–C8 + Tests F69 (8/8 passing) + esbuild OK",
+    "content": "F71a-1: services/market_identity.py — normalize_market_identity()",
     "status": "completed"
   },
   {
-    "content": "F70 — Sportytrader/Forebet scraping: cliente HTTP + parser + integración",
-    "status": "in_progress"
+    "content": "F71a-2: services/football_external_fallback_orchestrator.py — build_context + reconcile",
+    "status": "completed"
   },
   {
-    "content": "F70 — Endpoints REST + cron de caché + UI badge",
-    "status": "pending"
+    "content": "F71a-3: Wire reconciliación al endpoint /api/football/external-editorial/{match_id} + market_evaluated en trace",
+    "status": "completed"
   },
   {
-    "content": "F70 — Tests + verificación end-to-end + reinicio backend",
-    "status": "pending"
+    "content": "F71c-1: UI — frontend reconciliation (suprimir 1-1 contradictorio cuando Forebet difiere)",
+    "status": "completed"
+  },
+  {
+    "content": "F71c-2: UI — mostrar market identity trace (no \"Mercado evaluado —\")",
+    "status": "completed"
+  },
+  {
+    "content": "Tests F71 (12/12 passing) + suite global 2053/2053 verde",
+    "status": "completed"
   }
 ]

@@ -1,33 +1,64 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { MapPin, Activity, Target, TrendingUp, ListChecks, History, Trophy, AlertTriangle, Info } from 'lucide-react';
 import { PlayerHeatmapDialog } from '@/components/PlayerHeatmapDialog';
+import { ExternalEditorialPanel } from '@/components/ExternalEditorialPanel';
+
 
 /**
- * Phase F66 — Editorial Prediction Panel.
- * Phase F69 — Match-specific guards:
- *  - Honour ``internal_editorial_analysis.is_generic_fallback`` → render
- *    an honest empty-state message (never the fabricated "1-1 heuristic").
- *  - Render ``data_quality`` pill (THIN / LIMITED / USABLE / STRONG)
- *    alongside the legacy ``completeness`` pill (FULL / PARTIAL / THIN).
- *  - Render a dedicated ``discard_reason_narrative`` section above the
- *    sub-sections when the entry carries market-trap / edge / fragility
- *    signals.
- *  - Header now reads "Análisis editorial interno · fallback Sportytrader"
- *    in place of the legacy Scores24 wording.
+ * Phase F71 — Compute frontend reconciliation between the internal
+ * editorial probable_score and Forebet's algorithmic score.
  *
- * Props
- * -----
- *  - editorial: dict from ``generate_football_editorial_prediction``.
- *  - testIdPrefix: optional string for data-testid prefixes.
- *  - lang: 'es' | 'en'.
+ * Returns either:
+ *   - null when no contradiction OR no external data.
+ *   - { suppressInternal: true, externalScore, externalXG } when the
+ *     UI should hide the internal chip and surface the external one.
  */
+function reconcileScorelinesFrontend(internalScore, forebet) {
+  if (!forebet || forebet.predicted_score == null) return null;
+  if (!internalScore) {
+    return {
+      suppressInternal: false,
+      externalScore: forebet.predicted_score,
+      externalXG: forebet.goals_avg || forebet.expected_goals || null,
+    };
+  }
+  const winner = (s) => {
+    if (typeof s !== 'string') return null;
+    const m = s.replace(/[\u2013\u2014]/g, '-').split('-');
+    if (m.length !== 2) return null;
+    const h = parseInt(m[0], 10), a = parseInt(m[1], 10);
+    if (Number.isNaN(h) || Number.isNaN(a)) return null;
+    if (h > a) return 'HOME';
+    if (h < a) return 'AWAY';
+    return 'DRAW';
+  };
+  const winInternal = winner(internalScore);
+  const winExternal = winner(forebet.predicted_score);
+  if (winInternal && winExternal && winInternal !== winExternal) {
+    return {
+      suppressInternal: true,
+      externalScore: forebet.predicted_score,
+      externalXG: forebet.goals_avg || forebet.expected_goals || null,
+    };
+  }
+  return null;
+}
+
+
 export function EditorialPredictionPanel({
   editorial,
   testIdPrefix = 'editorial',
   lang = 'es',
   topPlayers = null,
   matchId = null,
+  homeTeamName = null,
+  awayTeamName = null,
 }) {
+  // Phase F71 — capture external Forebet/Sportytrader payload as it
+  // arrives from the lazy-loaded child panel so we can reconcile the
+  // internal probable_score (suppress contradictory "1-1 heuristic"
+  // chips when Forebet predicts a different winner).
+  const [externalPayload, setExternalPayload] = useState(null);
   if (!editorial || editorial.available === false) {
     return null;
   }
@@ -147,6 +178,11 @@ export function EditorialPredictionPanel({
       <ProbableScoreSection
         section={secs.probable_score}
         testId={`${testIdPrefix}-score`}
+        reconciliation={reconcileScorelinesFrontend(
+          secs.probable_score?.score,
+          externalPayload?.forebet
+        )}
+        lang={lang}
       />
       <KeyPlayersSection
         players={topPlayers}
@@ -154,6 +190,16 @@ export function EditorialPredictionPanel({
         testIdPrefix={`${testIdPrefix}-key-players`}
         lang={lang}
       />
+      {/* Phase F70 — External editorial enrichment (Forebet + Sportytrader). */}
+      {homeTeamName && awayTeamName && (
+        <ExternalEditorialPanel
+          homeTeam={homeTeamName}
+          awayTeam={awayTeamName}
+          lang={lang}
+          testIdPrefix={`${testIdPrefix}-external`}
+          onExternalLoaded={setExternalPayload}
+        />
+      )}
     </div>
   );
 }
@@ -306,8 +352,52 @@ function KeyTrendsSection({ section, testId }) {
 }
 
 
-function ProbableScoreSection({ section, testId }) {
+function ProbableScoreSection({ section, testId, reconciliation = null, lang = 'es' }) {
   if (!section) return null;
+  // Phase F71 — if Forebet contradicts the internal score, suppress the
+  // internal chip and surface the external one with a clear "Forebet"
+  // tag so the UI never shows two contradictory predictions.
+  if (reconciliation && reconciliation.suppressInternal && reconciliation.externalScore) {
+    const t = lang === 'en'
+      ? { title: 'Probable score', method: 'Forebet algorithm', disclaimer: 'External algorithmic prediction — not a recommended pick.' }
+      : { title: 'Resultado probable', method: 'algoritmo Forebet', disclaimer: 'Predicción algorítmica externa — no es pick recomendado.' };
+    return (
+      <div className="space-y-1" data-testid={testId}>
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-3.5 w-3.5 text-cyan-300" />
+          <div className="text-xs font-semibold text-slate-100">{t.title}</div>
+          <span
+            className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-cyan-500/15 text-cyan-100 border border-cyan-500/30"
+            data-testid={`${testId}-score-chip`}
+          >
+            {reconciliation.externalScore}
+            <span className="opacity-60">· {t.method}</span>
+          </span>
+        </div>
+        <p className="text-xs leading-relaxed text-slate-200 pl-5">
+          {lang === 'en'
+            ? `Forebet's algorithm predicts ${reconciliation.externalScore}` +
+              (reconciliation.externalXG ? ` (xG ${Number(reconciliation.externalXG).toFixed(2)}).` : '.')
+            : `El algoritmo de Forebet predice ${reconciliation.externalScore}` +
+              (reconciliation.externalXG ? ` (goles esperados ${Number(reconciliation.externalXG).toFixed(2)}).` : '.')}
+        </p>
+        <p
+          className="text-[10px] text-amber-300/90 italic pl-5"
+          data-testid={`${testId}-contextual-disclaimer`}
+        >
+          {t.disclaimer}
+        </p>
+        <p
+          className="text-[10px] text-slate-500 italic pl-5"
+          data-testid={`${testId}-internal-suppressed`}
+        >
+          {lang === 'en'
+            ? `Internal heuristic suppressed (${section.score || '—'}) — contradicts external source.`
+            : `Heurística interna suprimida (${section.score || '—'}) — contradice fuente externa.`}
+        </p>
+      </div>
+    );
+  }
   const ok = section.available;
   return (
     <div className="space-y-1" data-testid={testId}>

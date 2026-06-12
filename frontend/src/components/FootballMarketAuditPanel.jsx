@@ -139,9 +139,36 @@ export function FootballMarketTraceDetail({ trace, testIdPrefix }) {
                 {trace.market_code}
               </span>
             ) : null}
+            {trace.market_identity_key &&
+             !String(trace.market_identity_key).startsWith('UNKNOWN:') ? (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30 text-cyan-200 font-mono"
+                data-testid={`${testIdPrefix || ''}-market-identity-key`}
+                title={`Market identity: ${trace.market_identity_key}`}
+              >
+                {trace.market_identity_key}
+              </span>
+            ) : null}
           </span>
         )
-        : (trace.market || '—'),
+        : (trace.market_display && trace.market_display !== '—'
+            ? (
+              <span className="flex items-center gap-2 flex-wrap justify-end">
+                <span className="font-medium text-foreground/95 text-right">
+                  {trace.market_display}
+                </span>
+                {trace.market_identity_key &&
+                 !String(trace.market_identity_key).startsWith('UNKNOWN:') ? (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30 text-cyan-200 font-mono"
+                    title={`Market identity: ${trace.market_identity_key}`}
+                  >
+                    {trace.market_identity_key}
+                  </span>
+                ) : null}
+              </span>
+            )
+            : (trace.market || '—')),
     },
     {
       key:   'odds',

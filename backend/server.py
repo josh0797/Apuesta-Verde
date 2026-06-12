@@ -207,6 +207,13 @@ async def on_startup() -> None:
             )
     except Exception as exc:
         log.warning("[LIVE_RECO_HISTORY] ensure indexes failed: %s", exc)
+    # Phase F70 — external editorial cache (Sportytrader + Forebet).
+    try:
+        from services.external_editorial_provider import ensure_indexes as _f70_ensure
+        await _f70_ensure()
+        log.info("[F70_EXTERNAL_EDITORIAL] indexes ensured")
+    except Exception as exc:
+        log.warning("[F70_EXTERNAL_EDITORIAL] ensure indexes failed: %s", exc)
     log.info("Startup complete")
 
 
@@ -384,6 +391,108 @@ async def football_player_heatmap_endpoint(
         }
     except Exception as exc:  # noqa: BLE001
         return {"available": False, "_error": str(exc)}
+
+
+# ── Phase F70 — External editorial (Sportytrader + Forebet) ───────────
+# IMPORTANT: specific route ``/by-teams`` MUST be registered BEFORE the
+# parameterised ``/{match_id}`` route or FastAPI will capture "by-teams"
+# as a match_id value.
+@app.get("/api/football/external-editorial/by-teams")
+async def football_external_editorial_by_teams(
+    home: str, away: str,
+) -> dict:
+    """Phase F70 — Convenience endpoint when the caller doesn't have
+    the canonical match_id but knows the team names (e.g. the discard
+    card on the UI builds the request from labels).
+    """
+    try:
+        from services.external_editorial_provider import (
+            fetch_external_editorial_for_match,
+        )
+        result = await fetch_external_editorial_for_match({
+            "home_team": home, "away_team": away,
+        })
+        result["home_team_query"] = home
+        result["away_team_query"] = away
+        return result
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False,
+                "reason_codes": ["EXTERNAL_EDITORIAL_BY_TEAMS_ERROR"],
+                "_error": str(exc)}
+
+
+@app.get("/api/football/external-editorial/{match_id}")
+async def football_external_editorial_endpoint(match_id: str) -> dict:
+    """Phase F70 — Fetch external editorial context (Sportytrader +
+    Forebet) for a given match. Cached 24h in Mongo.
+
+    Always fail-soft. When neither source is available, returns
+    ``{available: false}`` with reason codes so the UI can degrade
+    gracefully.
+
+    Phase F71 — when the latest run carries an ``editorial_prediction``
+    for this match, also runs the internal vs external reconciliation
+    so the UI can decide what to show (e.g. suppress a "1-1 heuristic"
+    that contradicts Forebet's "3-1").
+    """
+    try:
+        match_doc = None
+        internal_editorial = None
+        try:
+            doc = await db.analyst_runs.find_one(
+                {"sport": "football"},
+                sort=[("created_at", -1)],
+                projection={"matches": 1, "summary": 1},
+            )
+            if doc:
+                for m in (doc.get("matches") or []):
+                    if str(m.get("match_id")) == str(match_id):
+                        match_doc = m
+                        break
+                # Phase F71 — locate the entry in the summary buckets so
+                # we can reconcile against its internal editorial output.
+                if doc.get("summary"):
+                    for bucket_key in ("discarded_market", "discarded_motivation",
+                                        "incomplete_data", "watchlist_odds_needed",
+                                        "best_pick", "good_picks", "discarded_unknown"):
+                        for e in (doc["summary"].get(bucket_key) or []):
+                            if str(e.get("match_id")) == str(match_id):
+                                if isinstance(e.get("editorial_prediction"), dict):
+                                    internal_editorial = e["editorial_prediction"]
+                                if match_doc is None:
+                                    match_doc = e
+                                break
+                        if internal_editorial is not None:
+                            break
+        except Exception:  # noqa: BLE001
+            match_doc = None
+        if match_doc is None:
+            return {"available": False,
+                    "reason_codes": ["MATCH_NOT_FOUND_IN_LATEST_RUN"],
+                    "match_id": match_id}
+        from services.football_external_fallback_orchestrator import (
+            build_external_fallback_context,
+            reconcile_internal_vs_external_analysis,
+        )
+        result = await build_external_fallback_context(match_doc, db=db)
+        if isinstance(internal_editorial, dict) and result.get("available"):
+            reconcile_internal_vs_external_analysis(internal_editorial, result)
+            result["internal_reconciled"] = internal_editorial.get(
+                "external_reconciliation"
+            )
+        result["match_id"] = match_id
+        return result
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "match_id": match_id,
+                "reason_codes": ["EXTERNAL_EDITORIAL_ENDPOINT_ERROR"],
+                "_error": str(exc)}
+
+
+@app.get("/api/football/external-editorial/{match_id}/_LEGACY_PLACEHOLDER_F70")
+async def _f70_legacy_placeholder() -> dict:
+    # Reserved to prevent accidental future shadowing of /by-teams.
+    return {"ok": True}
+
 
 
 # ── Phase F66 — Internal Editorial Prediction endpoint ────────────────
