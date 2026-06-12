@@ -383,7 +383,14 @@ async def _fetch_scores24_html(url: str) -> Optional[str]:
         log.info("[SCORES24] BrightData not configured (BRIGHTDATA_API_KEY / BRIGHTDATA_ZONE)")
         return None
 
-    payload = {"zone": zone, "url": url, "format": "raw"}
+    payload = {
+        "zone":    zone,
+        "url":     url,
+        "format":  "raw",
+        # Country routing — scores24.live serves different anti-bot logic
+        # per geo. ES gives best results for /es/soccer paths.
+        "country": "es",
+    }
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type":  "application/json",

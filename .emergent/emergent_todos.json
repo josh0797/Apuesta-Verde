@@ -1,30 +1,26 @@
 [
   {
-    "content": "Crear football_btts_live_guard.py con guard_btts_live_recommendation + infer_team_strength_from_odds",
+    "content": "Refactorizar football_player_props_discovery.py: player_prop_score (0-100, 5 componentes) + player_prop_fragility (0-100) + Moneyball filter",
     "status": "completed"
   },
   {
-    "content": "Integrar BTTS guard en human_live_interpreter.py (despues del current BTTS-ya-ocurrio check)",
+    "content": "Actualizar tests existentes para los nuevos campos y agregar tests del scoring",
     "status": "completed"
   },
   {
-    "content": "Crear scores24_scraper.py reutilizando _BrightDataClient (corners/apuesta fiable/redaccion)",
+    "content": "Crear football_corner_profile_cross.py con 6 perfiles + integracion Scores24 (external_confirmation/conflict)",
     "status": "completed"
   },
   {
-    "content": "Integrar scores24 enrichment en football pipeline (enrichment opcional, no decide picks)",
+    "content": "Smoke tests del corner profile cross",
     "status": "completed"
   },
   {
-    "content": "Tests obligatorios BTTS guard (5 fixtures) + tests scores24 parser",
+    "content": "Actualizar UI FootballProfileCrossPropsPanel para mostrar player_prop_score + player_prop_fragility",
     "status": "completed"
   },
   {
-    "content": "UI: explicar BTTS bloqueado + alternativa en MatchCard live",
-    "status": "completed"
-  },
-  {
-    "content": "Pytest completo + zero regressions",
+    "content": "Pytest full suite + 0 regressions",
     "status": "completed"
   }
 ]

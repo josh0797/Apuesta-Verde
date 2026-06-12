@@ -101,10 +101,18 @@ def test_tier3_player_to_score_allowed_only_with_elite_edge():
     ))
     score_props = [p for p in res["props"] if p["market"] == disc.MARKET_TO_SCORE]
     if score_props:
-        # Si aparece, debe haber pasado todos los gates Moneyball Tier3.
         p = score_props[0]
-        assert p["edge_score"] >= disc.TIER3_MIN_EDGE_SCORE
-        assert p["fragility"] <= disc.TIER3_MAX_FRAGILITY
+        # In v2 the prop is always emitted, but Tier 3 props that do NOT
+        # pass the Moneyball gate get confidence_tier=AVOID and
+        # passes_moneyball_filter=False. Only premium-edge props graduate
+        # to top_player_props.
+        if p.get("passes_moneyball_filter"):
+            assert p["player_prop_score"] >= disc.TIER3_SCORE_GATE
+            assert p["player_prop_fragility"] <= disc.TIER3_FRAGILITY_GATE
+            assert p in res["top_player_props"]
+        else:
+            assert p["confidence_tier"] == "AVOID"
+            assert p not in res["top_player_props"]
 
 
 def test_skip_when_stats_unavailable():

@@ -238,6 +238,8 @@ const CONF_TIER_TONE = {
 
 function PropRow({ prop, testId }) {
   const tier = prop.tier || 2;
+  const score = prop.player_prop_score ?? prop.edge_score;
+  const fragility = prop.player_prop_fragility ?? prop.fragility;
   return (
     <div
       className="flex items-start justify-between gap-3 rounded-md border border-slate-700/40 bg-slate-900/30 p-2.5"
@@ -252,7 +254,7 @@ function PropRow({ prop, testId }) {
             Tier {tier}
           </span>
           <span className="text-[11.5px] font-semibold text-slate-100 truncate" data-testid={`${testId}-player`}>
-            {prop.player_name}
+            {prop.player_name || prop.player}
           </span>
           <span className="text-[10px] text-slate-500 font-mono">
             {prop.market} {fmt(prop.line, 1)} (OVER)
@@ -277,10 +279,10 @@ function PropRow({ prop, testId }) {
           {prop.confidence_tier || 'WATCH'}
         </span>
         <div className="text-[10px] text-slate-400 font-mono">
-          Edge <span className="text-slate-100 tabular-nums">{prop.edge_score ?? '—'}</span>
+          Score <span className="text-slate-100 tabular-nums" data-testid={`${testId}-score`}>{score ?? '—'}</span>
         </div>
         <div className="text-[10px] text-slate-500 font-mono">
-          Frag <span className="text-amber-300 tabular-nums">{prop.fragility ?? '—'}</span>
+          Frag <span className="text-amber-300 tabular-nums" data-testid={`${testId}-fragility`}>{fragility ?? '—'}</span>
         </div>
       </div>
     </div>
@@ -289,7 +291,10 @@ function PropRow({ prop, testId }) {
 
 function PlayerPropsSection({ discovery, testId }) {
   if (!discovery || !discovery.available) return null;
-  const props = Array.isArray(discovery.props) ? discovery.props : [];
+  // v2 prefers `top_player_props`; falls back to `props` for backward compat.
+  const props = Array.isArray(discovery.top_player_props) && discovery.top_player_props.length
+    ? discovery.top_player_props
+    : (Array.isArray(discovery.props) ? discovery.props : []);
   if (!props.length) return null;
   const summary = discovery.summary || {};
 
@@ -302,12 +307,15 @@ function PlayerPropsSection({ discovery, testId }) {
         </div>
         <div className="text-[10px] font-mono text-slate-500 tabular-nums">
           T1 {summary.tier_1 ?? 0} · T2 {summary.tier_2 ?? 0} · T3 {summary.tier_3 ?? 0}
+          {typeof summary.top_count === 'number' && (
+            <> · <span className="text-emerald-300">Top {summary.top_count}</span></>
+          )}
         </div>
       </div>
       <div className="space-y-1.5">
         {props.slice(0, 6).map((p, idx) => (
           <PropRow
-            key={`${p.player_name}-${p.market}-${idx}`}
+            key={`${p.player_name || p.player}-${p.market}-${idx}`}
             prop={p}
             testId={`${testId}-prop-${idx}`}
           />
@@ -337,7 +345,11 @@ export function FootballProfileCrossPropsPanel({ pick, testId = 'football-f58-pa
   // No data of any of the three → render nothing.
   const hasCross = !!(cross && cross.available && cross.profile);
   const hasOverride = !!(applied && applied.override && applied.override.enabled);
-  const hasProps = !!(discovery && discovery.available && Array.isArray(discovery.props) && discovery.props.length);
+  const hasProps = !!(
+    discovery && discovery.available &&
+    ((Array.isArray(discovery.top_player_props) && discovery.top_player_props.length) ||
+     (Array.isArray(discovery.props) && discovery.props.length))
+  );
   if (!hasCross && !hasOverride && !hasProps) return null;
 
   return (
