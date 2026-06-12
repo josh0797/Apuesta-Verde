@@ -1,26 +1,30 @@
 [
   {
-    "content": "F72-1: football_external_prediction_audit.py — opponent tier classifier + split official/friendly",
+    "content": "F74-1: Mover Over 1.5 a PROTECTED en market_tolerance.py",
     "status": "completed"
   },
   {
-    "content": "F72-2: audit_opponent_strength_context() — comparación rival actual vs últimos 5",
+    "content": "F74-2: Crear get_protected_floor(market_identity)",
     "status": "completed"
   },
   {
-    "content": "F72-3: audit_forebet_prediction_against_match_splits() — direction vs scoreline separado",
+    "content": "F74-3: Crear resolve_edge_floors(category, market_identity, selection)",
     "status": "completed"
   },
   {
-    "content": "F72-4: Wire al orchestrator + reconcile (degradar marcador, bloquear Overs, suprimir tilt en CONFLICTED)",
+    "content": "F74-4: Integrar floors granulares + UNKNOWN guard en moneyball_layer.py",
     "status": "completed"
   },
   {
-    "content": "F72-5: UI — ForebetAuditSection con direction/scoreline/opponent + matchId routing",
+    "content": "F74-5: Crear football_data_enrichment.py (schema canónico)",
     "status": "completed"
   },
   {
-    "content": "F72-6: Tests F72 (12/12 passing) + suite global 2065/2065 verde",
+    "content": "F74-6: Crear thestatsapi_football_enrichment.py con DC/Poisson",
+    "status": "completed"
+  },
+  {
+    "content": "F74-7: Tests pytest verdes (F74 + global)",
     "status": "completed"
   }
 ]

@@ -589,6 +589,9 @@ def classify_pick(
     line_movement_favourable: bool,
     market_category: str = mt.CATEGORY_UNKNOWN,
     structured_traps: Optional[list[dict]] = None,
+    market: Optional[str] = None,
+    selection: Optional[str] = None,
+    market_identity: Optional[dict] = None,
 ) -> dict:
     """Decisión contextual por categoría de mercado.
 
@@ -597,8 +600,51 @@ def classify_pick(
         con baja fragilidad, alta confianza y ≤1 trap signal.
       - WATCHLIST: edge marginal/negativo pero la lectura del partido es
         coherente; no se apuesta, se monitorea.
+      - MARKET_IDENTITY_MISSING (Phase F73/F74): cuando ``market_identity``
+        es UNKNOWN/inválida, **bloqueamos** todo cálculo derivado
+        (MARKET_TRAP, PROTECTED_BELOW_FLOOR, EDGE_INSUFFICIENT, etc.) y
+        ruteamos a ``REQUIRES_MARKET_IDENTIFICATION``.
+
+    Phase F74 — Floors granulares
+    ------------------------------
+    Cuando el mercado es PROTECTED, los floors de edge negativo y
+    watchlist se resuelven granularmente vía
+    ``market_tolerance.resolve_edge_floors``:
+      - DOUBLE_CHANCE → -4%
+      - DNB           → -3%
+      - Under 3.5/4.5 → -3%
+      - Over 1.5      → -2%
+      - Resto         → -1.5% (default)
     """
     structured_traps = structured_traps or []
+
+    # ── Phase F73/F74 — Market identity guard ───────────────────────────
+    # Si el caller pasa una market_identity explícita y es UNKNOWN,
+    # NO podemos calcular edge ni etiquetar trampas. Ruteamos a
+    # REQUIRES_MARKET_IDENTIFICATION.
+    if market_identity is not None:
+        try:
+            from . import market_identity_guards as _mig
+            if not _mig.has_valid_market_identity(market_identity):
+                return {
+                    "classification": "MARKET_IDENTITY_MISSING",
+                    "reason": (
+                        "Identidad de mercado desconocida: no se puede "
+                        "calcular edge ni clasificar trampa. Se requiere "
+                        "identificación manual del mercado."
+                    ),
+                    "tolerance_used": market_category,
+                    "state":          "REQUIRES_MARKET_IDENTIFICATION",
+                    "reason_codes":   [
+                        "MARKET_IDENTITY_MISSING",
+                        "EDGE_CALCULATION_BLOCKED_UNKNOWN_MARKET",
+                    ],
+                }
+        except Exception:  # noqa: BLE001
+            # Fail-soft: si el guard no puede cargarse, seguimos el flujo
+            # normal sin bloquear (mantiene compatibilidad).
+            pass
+
     if edge is None:
         return {"classification": "NO_BET_VALUE",
                 "reason": "Datos insuficientes para validar valor.",
@@ -606,6 +652,13 @@ def classify_pick(
 
     # Parámetros de tolerancia para esta categoría de mercado
     params = mt.tolerance_params(market_category)
+    # Phase F74 — resolución granular de floors (solo activa si protected
+    # y hay info de market/selection/market_identity).
+    floors = mt.resolve_edge_floors(
+        market_category,
+        market=market, selection=selection,
+        market_identity=market_identity,
+    )
     n_traps_total = len(trap_signals)
     n_traps_high  = _high_severity_count(structured_traps)
 
@@ -616,7 +669,7 @@ def classify_pick(
         # sobrevivir 2 traps si edge no es demasiado negativo.
         if (mt.is_protected(market_category)
                 and fragility < 30
-                and (edge or 0) >= params["negative_edge_floor"]
+                and (edge or 0) >= floors["negative_edge_floor"]
                 and n_traps_high <= 1):
             pass  # caer al flujo de protegido
         else:
@@ -648,8 +701,10 @@ def classify_pick(
 
     elif mt.is_protected(market_category):
         # PROTECTED: el flujo más flexible (este es el core de la spec)
-        floor    = params["negative_edge_floor"]    # típicamente -1.5%
-        wl_floor = params["watchlist_floor"]        # típicamente -2.5%
+        # Phase F74 — floors granulares por familia/línea de mercado.
+        floor    = floors["negative_edge_floor"]    # DC -4%, DNB -3%, U3.5 -3%, O1.5 -2%, default -1.5%
+        wl_floor = floors["watchlist_floor"]        # un escalón por debajo del floor
+        sub_label = floors.get("protected_subfamily")
         ok_frag  = fragility <= params["max_fragility_acceptable"]
         ok_conf  = confidence >= params["min_confidence"]
         ok_traps = n_traps_total <= params["max_trap_signals"]
@@ -659,10 +714,12 @@ def classify_pick(
             # validación de fragility/traps se hace abajo en el flujo común)
             pass
         elif edge >= floor and ok_frag and ok_conf and ok_traps:
+            reason_extra = f" ({sub_label})" if sub_label else ""
             return {"classification": "PROTECTED_ACCEPTABLE",
                     "reason": (
-                        f"Mercado protegido con edge {edge*100:+.1f}% (dentro de tolerancia "
-                        f"{floor*100:+.1f}%). Confianza {confidence}, fragilidad {fragility}, "
+                        f"Mercado protegido{reason_extra} con edge {edge*100:+.1f}% "
+                        f"(dentro de tolerancia {floor*100:+.1f}%). "
+                        f"Confianza {confidence}, fragilidad {fragility}, "
                         f"{n_traps_total} señales trampa: lectura coherente del partido."
                     ),
                     "tolerance_used": market_category}
@@ -886,6 +943,10 @@ def analyze_pick(pick: dict, sport: str, stake: float = 10.0) -> dict:
         line_movement_favourable=line_favourable,
         market_category=market_category,
         structured_traps=structured_traps,
+        market=rec.get("market"),
+        selection=rec.get("selection"),
+        market_identity=(pick.get("market_identity")
+                         or rec.get("market_identity")),
     )
 
     # Compose "why this can fail" — frag factors + traps + risks
