@@ -114,6 +114,14 @@ async def on_startup() -> None:
         log.info("[WATCHLIST_ODDS_SNAPSHOTS] indexes ensured (TTL 60d)")
     except Exception as exc:
         log.warning("[WATCHLIST_ODDS_SNAPSHOTS] index ensure failed: %s", exc)
+    # Phase F68 — player_id_mappings TTL (90d).
+    try:
+        await db.player_id_mappings.create_index(
+            "resolved_at", expireAfterSeconds=90 * 24 * 3600,
+        )
+        log.info("[PLAYER_ID_MAPPINGS] TTL index ensured (90d)")
+    except Exception as exc:
+        log.warning("[PLAYER_ID_MAPPINGS] index ensure failed: %s", exc)
     # Phase F67 — head_to_head_matches indexes + TTL (365d).
     try:
         await db.head_to_head_matches.create_index(
@@ -251,6 +259,99 @@ async def rescue_audit_multi_window_endpoint() -> dict:
         return out
     except Exception as exc:  # noqa: BLE001
         return {"available": False, "_error": str(exc)}
+
+
+# ── Phase F68 — Player heatmap by NAME (lazy resolver) ───────────────
+@app.get("/api/football/player-heatmap/by-name")
+async def football_player_heatmap_by_name_endpoint(
+    player_name: str,
+    competition_id: Optional[str] = None,
+    season_id: Optional[str] = None,
+    team_hint: Optional[str] = None,
+    match_id: Optional[str] = None,
+) -> dict:
+    """Lazy heatmap lookup by player NAME.
+
+    The frontend only knows the player's display name (e.g. ``"Kylian
+    Mbappé"``) plus a match context. This endpoint:
+
+      1. Resolves ``player_name`` (+ optional ``team_hint``) to a
+         ``pl_*`` id via :mod:`services.player_id_mapping` (caches 90d).
+      2. If ``competition_id`` / ``season_id`` are missing, derives them
+         from the cached match (looks up the ``mt_*`` match doc in the
+         TheStatsAPI cache).
+      3. Calls ``GET /api/football/players/{pl}/competitions/{cid}/
+         seasons/{sid}/heatmap`` (cached 24h).
+
+    Returns the canonical heatmap payload shape that
+    ``PlayerHeatmapDialog`` understands.
+    """
+    try:
+        from services.player_id_mapping import resolve_player_id_by_name
+        from services.thestatsapi_client import (
+            get_player_heatmap, get_prematch_odds, is_enabled,
+        )
+        if not is_enabled():
+            return {"available": False, "reason": "STATSAPI_DISABLED"}
+
+        pl_id = await resolve_player_id_by_name(
+            player_name, db=db, team_hint=team_hint,
+        )
+        if not pl_id:
+            return {"available": False, "reason": "PLAYER_NAME_NOT_RESOLVED",
+                    "player_name": player_name}
+
+        # Derive competition_id / season_id from the cached match doc.
+        if (not competition_id or not season_id) and match_id:
+            try:
+                # First try: resolve match_id → mt_ if needed.
+                from services.match_id_mapping import (
+                    resolve_to_thestatsapi_id, is_thestatsapi_id,
+                )
+                stats_match_id = match_id if is_thestatsapi_id(match_id) else \
+                    await resolve_to_thestatsapi_id(
+                        match_id, db=db, match_hint={"match_id": match_id},
+                    )
+                # Match doc may already be in prematch_cache (from F66).
+                if stats_match_id:
+                    cached_match = await db.thestatsapi_prematch_cache.find_one(
+                        {"_id": stats_match_id},
+                    )
+                    # The prematch_cache stores ONLY odds, not the match
+                    # meta — so we still need to query the match list when
+                    # we don't have comp/season. Cheap on-demand fetch.
+                    if not competition_id or not season_id:
+                        from services.thestatsapi_client import _http_get
+                        m = await _http_get(
+                            f"/api/football/matches/{stats_match_id}",
+                        )
+                        if isinstance(m, dict):
+                            competition_id = competition_id or m.get("competition_id")
+                            season_id      = season_id or m.get("season_id")
+            except Exception as exc:  # noqa: BLE001
+                log.debug("[F68_CONTEXT_RESOLVE_FAIL] %s: %s", match_id, exc)
+
+        if not (competition_id and season_id):
+            return {"available": False, "reason": "MISSING_COMPETITION_OR_SEASON",
+                    "player_id": pl_id}
+
+        data = await get_player_heatmap(pl_id, competition_id, season_id, db=db)
+        if not data:
+            return {"available": False, "reason": "NO_DATA_FROM_UPSTREAM",
+                    "player_id": pl_id,
+                    "competition_id": competition_id,
+                    "season_id": season_id}
+        return {
+            "available":      True,
+            "player_name":    player_name,
+            "player_id":      pl_id,
+            "competition_id": competition_id,
+            "season_id":      season_id,
+            "data":           data,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "_error": str(exc),
+                "player_name": player_name}
 
 
 # ── Phase F67 — TheStatsAPI player heatmap (lazy / on-demand) ────────

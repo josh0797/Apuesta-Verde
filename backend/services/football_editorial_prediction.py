@@ -64,12 +64,19 @@ def _safe(v: Any) -> Optional[float]:
 
 
 def _data_completeness(match: dict) -> dict:
-    """Phase F67 — audit which data sources are available for the
-    editorial engine. Used to inject cautious phrasing when the report
-    is built on a thin payload.
+    """Phase F67 (extended by F69) — audit data sources and compute
+    ``data_quality`` (THIN / LIMITED / USABLE / STRONG).
 
-    Returns a dict with booleans per source and a derived
-    ``completeness`` string ("FULL", "PARTIAL", "THIN").
+    The 4-tier classification replaces F67's 3-tier ``completeness``
+    while preserving backwards-compat (``completeness`` still emitted,
+    mapped to FULL/PARTIAL/THIN).
+
+    Quality rules (F69):
+      - **STRONG**: L5/L15 + xG + (BTTS or clean sheets) + (H2H or odds).
+      - **USABLE**: L5/L15 + at least one of {xG, BTTS, clean_sheets}
+        AND a market_evaluated/odds present (caller can override).
+      - **LIMITED**: only one or two partial sources.
+      - **THIN**: no L5/L15 stats, no xG, no BTTS, no clean sheets.
     """
     if not isinstance(match, dict):
         return {
@@ -79,7 +86,9 @@ def _data_completeness(match: dict) -> dict:
             "has_btts_rate":      False,
             "has_clean_sheets":   False,
             "has_h2h":            False,
+            "has_market_context": False,
             "completeness":       "THIN",
+            "data_quality":       "THIN",
             "available_sources":  [],
         }
 
@@ -107,21 +116,49 @@ def _data_completeness(match: dict) -> dict:
         _safe(home_t.get("clean_sheet_rate_l15")) is not None
         or _safe(away_t.get("clean_sheet_rate_l15")) is not None
     )
+    # Phase F69 — market context is the bundle of (odds, edge, prob_estim,
+    # prob_implied, market_evaluated) coming from the discard entry. We
+    # surface it as its own source so editorials can lean on it when
+    # narrative-grade stats are missing.
+    has_market_context = bool(
+        _safe(match.get("odds")) is not None
+        or _safe(match.get("estimated_probability")) is not None
+        or _safe(match.get("implied_probability")) is not None
+        or (isinstance(match.get("market_evaluated"), str)
+            and match.get("market_evaluated").strip())
+    )
 
     sources = []
-    if has_corners_l5:    sources.append("corners L5/L15")
-    if has_goals_history: sources.append("historial de goles L5/L15")
-    if has_xg:            sources.append("xG / xGA")
-    if has_btts:          sources.append("BTTS rate L15")
-    if has_clean_sheets:  sources.append("porterías a cero L15")
+    if has_corners_l5:     sources.append("corners L5/L15")
+    if has_goals_history:  sources.append("historial de goles L5/L15")
+    if has_xg:             sources.append("xG / xGA")
+    if has_btts:           sources.append("BTTS rate L15")
+    if has_clean_sheets:   sources.append("porterías a cero L15")
+    if has_market_context: sources.append("contexto de mercado (cuota/edge)")
 
-    n_sources = sum([has_corners_l5, has_goals_history, has_xg, has_btts, has_clean_sheets])
-    if n_sources >= 4:
+    stats_sources = sum([has_corners_l5, has_goals_history, has_xg,
+                          has_btts, has_clean_sheets])
+    # 3-tier (legacy F67) — kept for backwards compatibility.
+    if stats_sources >= 4:
         completeness = "FULL"
-    elif n_sources >= 2:
+    elif stats_sources >= 2:
         completeness = "PARTIAL"
     else:
         completeness = "THIN"
+
+    # 4-tier (F69) — data_quality drives gating decisions in the engine.
+    # NOTE: market_context (odds/edge/implied) does NOT count toward
+    # data_quality because that signal is surfaced separately via
+    # ``discard_reason_narrative``. data_quality strictly reflects the
+    # coverage of stats sources that feed corners/goals/score narratives.
+    if stats_sources >= 4 and (has_xg or has_btts):
+        data_quality = "STRONG"
+    elif stats_sources >= 2 and has_goals_history:
+        data_quality = "USABLE"
+    elif stats_sources >= 1:
+        data_quality = "LIMITED"
+    else:
+        data_quality = "THIN"
 
     return {
         "has_corners_l5":     has_corners_l5,
@@ -130,7 +167,9 @@ def _data_completeness(match: dict) -> dict:
         "has_btts_rate":      has_btts,
         "has_clean_sheets":   has_clean_sheets,
         "has_h2h":            False,        # injected externally by caller
+        "has_market_context": has_market_context,
         "completeness":       completeness,
+        "data_quality":       data_quality,
         "available_sources":  sources,
     }
 
@@ -153,15 +192,64 @@ def _cautious_prefix(completeness: str, sources: list) -> str:
 
 
 def _team_name(match: dict, side: str) -> str:
+    """Phase F69 — Resolve the public name of a team for narrative text.
+
+    Resolution order:
+      1. ``match.home_team.name`` / ``match.away_team.name`` (canonical hydrated form).
+      2. Plain ``match.home_team`` / ``match.away_team`` strings.
+      3. ``match.home_team_name`` / ``match.away_team_name`` flat fields.
+      4. Parse ``match.match_label`` (e.g. ``"Qatar vs Switzerland"``).
+      5. Spanish fallback ``"equipo local"`` / ``"equipo visitante"``.
+
+    The previous behaviour returned the English placeholders ``"Home"`` /
+    ``"Away"`` which leaked into user-facing narratives. F69 forbids that.
+    """
     if not isinstance(match, dict):
-        return side.title()
+        return "equipo local" if side == "home" else "equipo visitante"
+
     key = "home_team" if side == "home" else "away_team"
     val = match.get(key) or match.get(side)
     if isinstance(val, dict):
-        return val.get("name") or val.get("label") or side.title()
-    if isinstance(val, str):
-        return val
-    return side.title()
+        name = val.get("name") or val.get("label")
+        if name:
+            return str(name)
+    elif isinstance(val, str) and val.strip():
+        return val.strip()
+
+    flat_key = "home_team_name" if side == "home" else "away_team_name"
+    flat = match.get(flat_key)
+    if isinstance(flat, str) and flat.strip():
+        return flat.strip()
+
+    # Parse match_label like "Qatar vs Switzerland" or "Qatar - Switzerland".
+    label = match.get("match_label")
+    if isinstance(label, str) and label.strip():
+        parsed = _parse_match_label(label)
+        if parsed:
+            home_n, away_n = parsed
+            return home_n if side == "home" else away_n
+
+    return "equipo local" if side == "home" else "equipo visitante"
+
+
+def _parse_match_label(label: str) -> Optional[tuple]:
+    """Parse strings like ``"Qatar vs Switzerland"`` → ``("Qatar", "Switzerland")``.
+
+    Recognised separators: ``" vs "``, ``" - "``, ``" – "``, ``" — "``,
+    ``" v "`` and the plain ``"vs."`` token. Case-insensitive.
+    """
+    if not isinstance(label, str):
+        return None
+    txt = label.strip()
+    if not txt:
+        return None
+    import re as _re
+    for sep in (r"\s+vs\.?\s+", r"\s+v\s+", r"\s+-\s+", r"\s+\u2013\s+",
+                r"\s+\u2014\s+"):
+        m = _re.split(sep, txt, maxsplit=1, flags=_re.IGNORECASE)
+        if len(m) == 2 and m[0].strip() and m[1].strip():
+            return (m[0].strip(), m[1].strip())
+    return None
 
 
 def _avg(*vals: Optional[float]) -> Optional[float]:
@@ -176,9 +264,25 @@ def _avg(*vals: Optional[float]) -> Optional[float]:
 # ─────────────────────────────────────────────────────────────────────
 def _build_corners_prediction(match: dict, odds: Optional[dict],
                                 completeness: str = "FULL",
-                                available_sources: Optional[list] = None) -> dict:
+                                available_sources: Optional[list] = None,
+                                data_quality: str = "FULL") -> dict:
     home_name = _team_name(match, "home")
     away_name = _team_name(match, "away")
+
+    # Phase F69 — gate: when data_quality is THIN, do not even attempt to
+    # produce a corners narrative; honestly report missing data.
+    if data_quality == "THIN":
+        return {
+            "available":     False,
+            "status":        "MISSING",
+            "title":         "Predicción sobre córners",
+            "text":          ("No hay suficientes datos de córners L5/L15 "
+                              "para emitir una lectura confiable."),
+            "reason_codes":  [
+                "CORNERS_PREDICTION_INSUFFICIENT_DATA",
+                "CORNERS_PREDICTION_BLOCKED_BY_DATA_QUALITY_THIN",
+            ],
+        }
 
     try:
         from services.football_corner_profile_cross import (
@@ -378,7 +482,8 @@ def _corner_narrative(home, away, profile, supports, side,
 # ─────────────────────────────────────────────────────────────────────
 def _build_goals_prediction(match: dict, odds: Optional[dict],
                               completeness: str = "FULL",
-                              available_sources: Optional[list] = None) -> dict:
+                              available_sources: Optional[list] = None,
+                              data_quality: str = "FULL") -> dict:
     home_name = _team_name(match, "home")
     away_name = _team_name(match, "away")
 
@@ -418,6 +523,22 @@ def _build_goals_prediction(match: dict, odds: Optional[dict],
     away_xg = _safe((match.get("away_xg")
                      if isinstance(match, dict) else None)
                     or (match.get("away_team") if isinstance(match.get("away_team"), dict) else {}).get("xg_avg"))
+
+    # Phase F69 — when data_quality is THIN we MUST NOT emit the WATCHLIST
+    # narrative ("el cruce de perfiles…") because it was the duplicated
+    # template across every match. Return an honest unavailable block.
+    if data_quality == "THIN":
+        return {
+            "available":     False,
+            "status":        "MISSING",
+            "title":         "Predicción de goles Over/Under",
+            "text":          ("No hay suficientes señales ofensivas / "
+                              "defensivas para recomendar Over o Under."),
+            "reason_codes":  [
+                "GOALS_PREDICTION_INSUFFICIENT_DATA",
+                "GOALS_PREDICTION_BLOCKED_BY_DATA_QUALITY_THIN",
+            ],
+        }
 
     side, market, line, mkt_odds, confidence, reason_codes = _resolve_goals_market(
         profile, supports, u_score, o_score, home_xg, away_xg, odds,
@@ -698,11 +819,38 @@ def _build_head_to_head(match: dict, h2h_matches: Optional[list[dict]]) -> dict:
 # ─────────────────────────────────────────────────────────────────────
 def _build_probable_score(match: dict,
                            goals_side: Optional[str],
-                           corners_side: Optional[str]) -> dict:
+                           corners_side: Optional[str],
+                           data_quality: str = "FULL") -> dict:
     home_t = match.get("home_team") if isinstance(match.get("home_team"), dict) else {}
     away_t = match.get("away_team") if isinstance(match.get("away_team"), dict) else {}
     home_xg = _safe(match.get("home_xg") or home_t.get("xg_avg") or home_t.get("xg"))
     away_xg = _safe(match.get("away_xg") or away_t.get("xg_avg") or away_t.get("xg"))
+
+    # Phase F69 — Hard gate: when there is no xG AND data_quality is
+    # THIN/LIMITED, we MUST NOT fabricate a scoreline via the heuristic
+    # NEUTRAL ladder ("1-1") because that template is what users were
+    # seeing duplicated across every match. Return an honest unavailable
+    # block instead. Heuristic is only allowed when goals_side carries a
+    # confident UNDER/OVER signal (data_quality >= USABLE).
+    has_xg = (home_xg is not None and away_xg is not None)
+    if not has_xg and data_quality in ("THIN", "LIMITED"):
+        return {
+            "available":     False,
+            "status":        "MISSING",
+            "title":         "Resultado probable",
+            "method":        "UNAVAILABLE",
+            "score":         None,
+            "home_goals":    None,
+            "away_goals":    None,
+            "confidence":    0,
+            "text":          "No disponible con suficiente confianza.",
+            "is_contextual_only": True,
+            "reason_codes":  [
+                "PROBABLE_SCORE_INSUFFICIENT_DATA",
+                f"PROBABLE_SCORE_BLOCKED_BY_DATA_QUALITY_{data_quality}",
+            ],
+        }
+
     profile_hint = _profile_hint_for_score(goals_side, match)
 
     try:
@@ -722,8 +870,8 @@ def _build_probable_score(match: dict,
             "home_goals":    None,
             "away_goals":    None,
             "confidence":    0,
-            "text":          ("No hay xG suficientes para estimar el "
-                              "marcador más probable."),
+            "text":          "No disponible con suficiente confianza.",
+            "is_contextual_only": True,
             "reason_codes":  ["PROBABLE_SCORE_INSUFFICIENT_DATA"],
         }
 
@@ -826,6 +974,8 @@ def generate_football_editorial_prediction(
 
     # Phase F67 — pre-compute data completeness so every sub-builder can
     # adopt cautious language when the report rests on a thin payload.
+    # Phase F69 — also exposes ``data_quality`` (4-tier) used by the gating
+    # logic that prevents fabricating 1-1 scorelines for THIN matches.
     completeness_audit = _data_completeness(match_payload)
     if h2h_matches:
         completeness_audit["has_h2h"] = True
@@ -834,32 +984,58 @@ def generate_football_editorial_prediction(
         # (e.g. compute_structural_value_review) wants the engine to
         # remain synchronous. Sub-section will report INSUFFICIENT_SAMPLE.
         pass
+    data_quality = completeness_audit.get("data_quality", "THIN")
 
     corners = _build_corners_prediction(match_payload, odds,
                                          completeness=completeness_audit["completeness"],
-                                         available_sources=completeness_audit["available_sources"])
+                                         available_sources=completeness_audit["available_sources"],
+                                         data_quality=data_quality)
     goals   = _build_goals_prediction(match_payload, odds,
                                        completeness=completeness_audit["completeness"],
-                                       available_sources=completeness_audit["available_sources"])
+                                       available_sources=completeness_audit["available_sources"],
+                                       data_quality=data_quality)
     trends  = _build_key_trends(match_payload,
                                  recommended_side_corners=corners.get("side"),
                                  recommended_side_goals=goals.get("side"))
     h2h     = _build_head_to_head(match_payload, h2h_matches)
     score   = _build_probable_score(match_payload,
                                      goals_side=goals.get("side"),
-                                     corners_side=corners.get("side"))
+                                     corners_side=corners.get("side"),
+                                     data_quality=data_quality)
 
     # Best protected market = the higher-confidence between corners & goals
     # when both are OK.
     best = _pick_best_protected_market(corners, goals)
 
+    # Phase F69 — discard_reason_narrative: cite the actual odds / implied
+    # / estimated / edge / fragility from the discard entry so each match
+    # carries a distinct, audit-grade explanation.
+    discard_narrative = _build_discard_reason_narrative(match_payload)
+
     overall = _build_overall_narrative(match_payload, corners, goals, score, best)
 
-    reasons: list[str] = ["INTERNAL_EDITORIAL_ANALYSIS_USED"]
+    reasons: list[str] = ["INTERNAL_EDITORIAL_ANALYSIS_USED",
+                          f"DATA_QUALITY_{data_quality}"]
     for sect in (corners, goals, trends, h2h, score):
         for code in sect.get("reason_codes", []) or []:
             if code not in reasons:
                 reasons.append(code)
+    if discard_narrative and discard_narrative.get("reason_codes"):
+        for code in discard_narrative["reason_codes"]:
+            if code not in reasons:
+                reasons.append(code)
+
+    # Phase F69 — top-level audit block consumed by the UI to decide
+    # whether to render or suppress this editorial. ``is_generic_fallback``
+    # is filled later by ``detect_duplicate_internal_editorials`` after
+    # the agregator scans every entry in the summary.
+    internal_audit = {
+        "available":           data_quality != "THIN",
+        "data_quality":        data_quality,
+        "is_generic_fallback": False,
+        "match_specific":      True,
+        "reason_codes":        [],
+    }
 
     return {
         "available":             True,
@@ -870,17 +1046,272 @@ def generate_football_editorial_prediction(
         # to the UI so the user can see at a glance how thin / thick the
         # underlying payload was.
         "data_completeness":     completeness_audit,
+        "data_quality":          data_quality,
+        "internal_editorial_analysis": internal_audit,
         "editorial_sections": {
-            "corners_prediction": corners,
-            "goals_prediction":   goals,
-            "key_trends":         trends,
-            "head_to_head":       h2h,
-            "probable_score":     score,
+            "corners_prediction":      corners,
+            "goals_prediction":        goals,
+            "key_trends":              trends,
+            "head_to_head":            h2h,
+            "probable_score":          score,
+            "discard_reason_narrative": discard_narrative,
         },
         "best_protected_market": best,
         "overall_narrative_es":  overall,
         "reason_codes":          reasons,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase F69 — Discard reason narrative + anti-duplicate scan
+# ─────────────────────────────────────────────────────────────────────
+def _build_discard_reason_narrative(match: dict) -> Optional[dict]:
+    """Compose a per-match narrative that cites the actual market trap
+    signals (cuota / probabilidad implícita / probabilidad estimada /
+    edge / fragilidad).
+
+    Returns ``None`` when none of the market context fields are present.
+    Otherwise emits a dict with ``title``, ``text``, ``reason_codes`` and
+    the raw numbers so the UI can render a structured block.
+    """
+    if not isinstance(match, dict):
+        return None
+    odds        = _safe(match.get("odds"))
+    prob_est    = _safe(match.get("estimated_probability"))
+    prob_imp    = _safe(match.get("implied_probability"))
+    edge        = _safe(match.get("edge"))
+    fragility   = _safe(match.get("fragility_score"))
+    reason      = match.get("reason") or match.get("discard_reason") or ""
+    market_eval = match.get("market_evaluated") or ""
+
+    if not any(v is not None for v in (odds, prob_est, prob_imp, edge, fragility)) \
+            and not reason:
+        return None
+
+    reason_lc   = str(reason).lower()
+    market_trap = ("trap" in reason_lc or "trampa" in reason_lc
+                   or "engañ" in reason_lc)
+    edge_insuf  = ("edge" in reason_lc and "insuf" in reason_lc) \
+                  or (edge is not None and edge < 0)
+    fragile     = "fragil" in reason_lc or "frágil" in reason_lc
+
+    # Build the human-readable explanation.
+    parts: list[str] = []
+    home_name = _team_name(match, "home")
+    away_name = _team_name(match, "away")
+    label = f"{home_name} vs {away_name}"
+
+    if market_trap:
+        if odds is not None and prob_imp is not None and prob_est is not None:
+            parts.append(
+                f"En {label}, el mercado fue descartado por señales de "
+                f"trampa: la cuota {odds:.2f} exige una probabilidad "
+                f"implícita de {prob_imp*100:.1f}% (o {prob_imp:.1f}% si "
+                f"el valor ya viene en porcentaje), pero el modelo solo "
+                f"estima {prob_est*100:.1f}%."
+            ) if prob_imp <= 1.0 else parts.append(
+                f"En {label}, el mercado fue descartado por señales de "
+                f"trampa: la cuota {odds:.2f} exige una probabilidad "
+                f"implícita de {prob_imp:.1f}%, pero el modelo solo "
+                f"estima {prob_est if prob_est > 1 else prob_est*100:.1f}%."
+            )
+        elif odds is not None:
+            parts.append(
+                f"En {label}, la cuota actual ({odds:.2f}) no ofrece "
+                "margen suficiente respecto a la probabilidad real del "
+                "evento."
+            )
+        else:
+            parts.append(
+                f"En {label}, el motor detectó señales de trampa en el "
+                "mercado (engañoso para el apostador)."
+            )
+        if edge is not None:
+            edge_pct = edge if abs(edge) > 1 else edge * 100
+            parts.append(
+                f"Edge {edge_pct:+.1f}% — aunque el partido pueda tener "
+                "lectura favorable, el precio no ofrece margen suficiente."
+            )
+    elif edge_insuf:
+        if odds is not None and edge is not None:
+            edge_pct = edge if abs(edge) > 1 else edge * 100
+            parts.append(
+                f"En {label}, el descarte es por edge insuficiente: la "
+                f"cuota {odds:.2f} y el edge estimado ({edge_pct:+.1f}%) "
+                "no superan el umbral de valor del motor."
+            )
+    elif fragile:
+        if fragility is not None:
+            parts.append(
+                f"En {label}, el mercado fue clasificado como frágil "
+                f"(score {int(fragility)}/100): el motor prefiere no "
+                "exponer capital en estas condiciones."
+            )
+    elif reason:
+        parts.append(
+            f"En {label}, el motor descartó el mercado por: "
+            f"{str(reason).strip().rstrip('.')}."
+        )
+
+    if market_eval and market_eval not in ("—", "-", ""):
+        parts.append(f"Mercado evaluado: {market_eval}.")
+
+    if not parts:
+        return None
+
+    reason_codes = ["DISCARD_REASON_NARRATIVE_GENERATED"]
+    if market_trap:
+        reason_codes.append("MARKET_TRAP_NARRATIVE_INJECTED")
+    if edge_insuf:
+        reason_codes.append("EDGE_INSUFFICIENT_NARRATIVE_INJECTED")
+    if fragile:
+        reason_codes.append("FRAGILE_MARKET_NARRATIVE_INJECTED")
+
+    return {
+        "available":     True,
+        "status":        "OK",
+        "title":         "Motivo del descarte",
+        "text":          " ".join(parts),
+        "odds":          odds,
+        "estimated_probability": prob_est,
+        "implied_probability":   prob_imp,
+        "edge":          edge,
+        "fragility":     fragility,
+        "reason":        reason,
+        "market_evaluated": market_eval or None,
+        "reason_codes":  reason_codes,
+    }
+
+
+def _normalise_text(s: str) -> str:
+    """Lower + strip + collapse whitespace + remove punctuation/digits
+    so two narratives that only differ in team names / numbers collapse
+    to the same string. Used by the anti-duplicate scan."""
+    if not isinstance(s, str):
+        return ""
+    import re as _re
+    out = s.lower()
+    # Remove digits (so "1-0 11%" doesn't differ between entries)
+    out = _re.sub(r"\d+([.,]\d+)?", "#", out)
+    # Strip punctuation
+    out = _re.sub(r"[^\w\s#]", " ", out, flags=_re.UNICODE)
+    out = _re.sub(r"\s+", " ", out).strip()
+    return out
+
+
+def _editorial_fingerprint(editorial: dict, *, strip_teams: bool = True) -> str:
+    """Build a fingerprint from the editorial's narrative parts.
+
+    When ``strip_teams`` is True (default), the home/away team names are
+    masked out so two THIN matches differing ONLY in team names are still
+    detected as duplicates.
+    """
+    if not isinstance(editorial, dict):
+        return ""
+    secs = editorial.get("editorial_sections") or {}
+    pieces: list[str] = []
+    for key in ("corners_prediction", "goals_prediction", "head_to_head",
+                "probable_score"):
+        sec = secs.get(key) or {}
+        if isinstance(sec, dict) and sec.get("text"):
+            pieces.append(sec["text"])
+    trends = secs.get("key_trends") or {}
+    if isinstance(trends.get("items"), list):
+        pieces.extend(trends["items"])
+    overall = editorial.get("overall_narrative_es")
+    if isinstance(overall, str):
+        pieces.append(overall)
+    text = " || ".join(p for p in pieces if isinstance(p, str))
+    if strip_teams:
+        # Mask team-name tokens injected by the editorial.
+        # We don't know the exact names here; rely on _normalise_text to
+        # collapse them via word-boundary stripping. A second pass replaces
+        # any consecutive Capitalised tokens.
+        import re as _re
+        text = _re.sub(r"\b[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)*",
+                       "TEAM", text)
+    return _normalise_text(text)
+
+
+def _similarity(a: str, b: str) -> float:
+    """Token-set Jaccard similarity. 1.0 == identical, 0.0 == disjoint."""
+    if not a or not b:
+        return 0.0
+    sa = set(a.split())
+    sb = set(b.split())
+    if not sa or not sb:
+        return 0.0
+    inter = len(sa & sb)
+    union = len(sa | sb)
+    return inter / union if union else 0.0
+
+
+def detect_duplicate_internal_editorials(summary: dict,
+                                          *, threshold: float = 0.85) -> int:
+    """Phase F69 — scan every entry in the summary buckets and flag any
+    editorial that is >threshold similar to another match's editorial.
+
+    Marks ``editorial_prediction.internal_editorial_analysis.is_generic_fallback``
+    to True and appends the ``INTERNAL_EDITORIAL_DUPLICATE_TEMPLATE_DETECTED``
+    reason code on every offending entry.
+
+    Returns the number of entries flagged.
+    """
+    if not isinstance(summary, dict):
+        return 0
+    entries: list[dict] = []
+    for bucket_key in ("discarded_market", "discarded_motivation",
+                        "incomplete_data", "watchlist_odds_needed",
+                        "discarded_unknown"):
+        bucket = summary.get(bucket_key) or []
+        if not isinstance(bucket, list):
+            continue
+        for e in bucket:
+            if isinstance(e, dict) and isinstance(e.get("editorial_prediction"), dict):
+                entries.append(e)
+
+    if len(entries) < 2:
+        return 0
+
+    # Compute fingerprints once per entry.
+    fps: list[tuple[dict, str]] = []
+    for e in entries:
+        ed = e["editorial_prediction"]
+        fps.append((e, _editorial_fingerprint(ed, strip_teams=True)))
+
+    flagged_idx: set[int] = set()
+    for i in range(len(fps)):
+        if not fps[i][1]:
+            continue
+        for j in range(i + 1, len(fps)):
+            if not fps[j][1]:
+                continue
+            sim = _similarity(fps[i][1], fps[j][1])
+            if sim >= threshold:
+                flagged_idx.add(i)
+                flagged_idx.add(j)
+
+    count = 0
+    for idx in flagged_idx:
+        entry = fps[idx][0]
+        ed = entry.get("editorial_prediction") or {}
+        audit = ed.get("internal_editorial_analysis") or {}
+        audit["is_generic_fallback"] = True
+        audit["match_specific"] = False
+        codes = audit.get("reason_codes") or []
+        if "INTERNAL_EDITORIAL_DUPLICATE_TEMPLATE_DETECTED" not in codes:
+            codes.append("INTERNAL_EDITORIAL_DUPLICATE_TEMPLATE_DETECTED")
+        audit["reason_codes"] = codes
+        audit["warning"] = ("Editorial interno genérico detectado; se ocultó "
+                            "para evitar lectura falsa.")
+        ed["internal_editorial_analysis"] = audit
+        # Bubble up to the engine reason_codes so the badge/log sees it.
+        top_codes = ed.get("reason_codes") or []
+        if "INTERNAL_EDITORIAL_DUPLICATE_TEMPLATE_DETECTED" not in top_codes:
+            top_codes.append("INTERNAL_EDITORIAL_DUPLICATE_TEMPLATE_DETECTED")
+            ed["reason_codes"] = top_codes
+        count += 1
+    return count
 
 
 def _pick_best_protected_market(corners: dict, goals: dict) -> Optional[dict]:

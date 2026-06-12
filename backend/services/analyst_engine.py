@@ -2847,11 +2847,35 @@ async def analyze_matches(
     # ── Phase 13.5 — possible_alternative_markets ───────────────────────
     # Sport-aware suggestions for every discarded entry so the user can
     # review manually. Fail-soft; never raises.
+    #
+    # Phase F69 — Build a ``match_lookup`` mapping ``match_id -> match_doc``
+    # from the fully hydrated matches_payload so the internal editorial
+    # engine receives the real L5/L15 / xG / corners stats instead of the
+    # bare LLM discard ``entry`` (which only carries match_label + reason +
+    # market price). Without this, the editorial engine was returning the
+    # generic "Home vs Away → 1-1 heuristic" template across every match.
     try:
         from .possible_alternative_markets import attach_alternatives_to_summary
-        annotated = attach_alternatives_to_summary(summary, sport)
+        match_lookup: dict = {}
+        try:
+            for _m in (matches_payload or []):
+                if not isinstance(_m, dict):
+                    continue
+                _mid = _m.get("match_id")
+                if _mid is None:
+                    continue
+                match_lookup[_mid] = _m
+                # Also index by string form so str/int identifiers match.
+                match_lookup[str(_mid)] = _m
+        except Exception as _lookup_exc:  # noqa: BLE001
+            log.debug("F69 match_lookup build failed: %s", _lookup_exc)
+            match_lookup = {}
+        annotated = attach_alternatives_to_summary(
+            summary, sport, match_lookup=match_lookup,
+        )
         parsed.setdefault("_pipeline", {})["possible_alternative_markets"] = {
-            "entries_annotated": annotated,
+            "entries_annotated":   annotated,
+            "match_lookup_size":   len(match_lookup),
         }
     except Exception as exc:
         log.warning("possible_alternative_markets Phase 13.5 failed: %s", exc)

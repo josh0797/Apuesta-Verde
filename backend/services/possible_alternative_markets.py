@@ -181,7 +181,30 @@ def attach_alternatives_to_summary(summary: dict, sport: str,
                 entry["user_review_note"] = _build_review_note(entry, alts)
                 # Phase F66 — internal editorial prediction.
                 if editorial_fn and not entry.get("editorial_prediction"):
-                    match_doc = match_lookup.get(entry.get("match_id")) or entry
+                    # Phase F69 — pick the HYDRATED match doc first (with
+                    # home_team / away_team / xG / L5-L15 stats) so the
+                    # engine can produce a match-specific report. We then
+                    # *merge in* the discard fields (reason, odds, edge,
+                    # implied prob, fragility) so the engine can also
+                    # render a "discard_reason_narrative" tied to this
+                    # entry's actual market trap.
+                    hydrated = match_lookup.get(entry.get("match_id"))
+                    if hydrated is None and entry.get("match_id") is not None:
+                        hydrated = match_lookup.get(str(entry.get("match_id")))
+                    match_doc = dict(hydrated) if isinstance(hydrated, dict) else {}
+                    # Merge discard-side context — explicit field names so we
+                    # never clobber hydrated team/stats data.
+                    for _k in (
+                        "match_id", "match_label", "reason",
+                        "odds", "estimated_probability", "implied_probability",
+                        "edge", "fragility_score", "market_evaluated",
+                        "discard_strength", "discard_reason", "confidence",
+                    ):
+                        if entry.get(_k) is not None and match_doc.get(_k) is None:
+                            match_doc[_k] = entry.get(_k)
+                    # Always pass match_id from the entry as canonical id.
+                    if entry.get("match_id") is not None:
+                        match_doc["match_id"] = entry["match_id"]
                     try:
                         entry["editorial_prediction"] = editorial_fn(match_doc)
                     except Exception:  # noqa: BLE001
@@ -191,6 +214,19 @@ def attach_alternatives_to_summary(summary: dict, sport: str,
                 count += 1
             except Exception:
                 continue
+
+    # Phase F69 — Intra-run anti-duplicate scan over the editorial blocks.
+    # When two entries share >85% of their normalised editorial text, we
+    # flag both as generic fallbacks so the UI can suppress them.
+    try:
+        from services.football_editorial_prediction import (
+            detect_duplicate_internal_editorials,
+        )
+        detect_duplicate_internal_editorials(summary)
+    except Exception:  # noqa: BLE001
+        # Anti-duplicate is purely advisory; never break the summary.
+        pass
+
     return count
 
 

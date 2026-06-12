@@ -29,23 +29,23 @@ const TONE = {
 };
 
 const LABELS_ES = {
-  pending:   'Scores24: pendiente',
-  searching: 'Scores24: buscando URL',
-  reviewed:  'Scores24: revisado',
-  rescued:   'Scores24: alternativa detectada',
-  watchlist: 'Scores24: revisión Watchlist',
-  confirmed: 'Scores24: descarte confirmado',
-  missing:   'Scores24: no encontrado',
+  pending:   'Sportytrader: pendiente',
+  searching: 'Sportytrader: buscando URL',
+  reviewed:  'Sportytrader: revisado',
+  rescued:   'Sportytrader: alternativa detectada',
+  watchlist: 'Sportytrader: revisión Watchlist',
+  confirmed: 'Sportytrader: descarte confirmado',
+  missing:   'Sportytrader no encontrado',
 };
 
 const LABELS_EN = {
-  pending:   'Scores24: pending',
-  searching: 'Scores24: searching URL',
-  reviewed:  'Scores24: reviewed',
-  rescued:   'Scores24: alternative detected',
-  watchlist: 'Scores24: watchlist review',
-  confirmed: 'Scores24: discard confirmed',
-  missing:   'Scores24: not found',
+  pending:   'Sportytrader: pending',
+  searching: 'Sportytrader: searching URL',
+  reviewed:  'Sportytrader: reviewed',
+  rescued:   'Sportytrader: alternative detected',
+  watchlist: 'Sportytrader: watchlist review',
+  confirmed: 'Sportytrader: discard confirmed',
+  missing:   'Sportytrader not found',
 };
 
 /**

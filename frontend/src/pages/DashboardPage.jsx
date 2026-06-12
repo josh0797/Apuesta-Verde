@@ -230,6 +230,27 @@ function DiscardedRow({ item, testId, type, sport }) {
               editorial={item.editorial_prediction || item.structural_review?.editorial_prediction}
               lang={lang}
               testIdPrefix={`${testId}-editorial`}
+              matchId={item.match_id}
+              topPlayers={(() => {
+                // Phase F68 — derive top players from the pick's
+                // player_props_discovery payload. Up to 6 unique names.
+                const props = item.player_props_discovery?.top_player_props
+                            || item.player_props_discovery?.props
+                            || [];
+                const seen = new Set();
+                const out = [];
+                for (const p of props) {
+                  const name = p?.player_name || p?.player;
+                  if (!name || seen.has(name)) continue;
+                  seen.add(name);
+                  out.push({
+                    name,
+                    team: p?.team || p?.team_name || null,
+                  });
+                  if (out.length >= 6) break;
+                }
+                return out.length ? out : null;
+              })()}
             />
           )}
           {/* Phase F64 — Structural value review (technical / auditable). */}

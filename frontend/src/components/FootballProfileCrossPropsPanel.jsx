@@ -26,6 +26,7 @@ import React from 'react';
 import {
   Activity, AlertTriangle, ArrowRight, Crosshair, Target, TrendingUp,
 } from 'lucide-react';
+import { PlayerHeatmapDialog } from '@/components/PlayerHeatmapDialog';
 
 // ─────────────────────────────────────────────────────────────────────
 // Helpers compartidos (locales — no rompemos otros paneles)
@@ -236,10 +237,11 @@ const CONF_TIER_TONE = {
   WATCH:   'border-slate-400/60   bg-slate-500/15   text-slate-100',
 };
 
-function PropRow({ prop, testId }) {
+function PropRow({ prop, testId, matchId, teamHint }) {
   const tier = prop.tier || 2;
   const score = prop.player_prop_score ?? prop.edge_score;
   const fragility = prop.player_prop_fragility ?? prop.fragility;
+  const playerName = prop.player_name || prop.player;
   return (
     <div
       className="flex items-start justify-between gap-3 rounded-md border border-slate-700/40 bg-slate-900/30 p-2.5"
@@ -254,11 +256,22 @@ function PropRow({ prop, testId }) {
             Tier {tier}
           </span>
           <span className="text-[11.5px] font-semibold text-slate-100 truncate" data-testid={`${testId}-player`}>
-            {prop.player_name || prop.player}
+            {playerName}
           </span>
           <span className="text-[10px] text-slate-500 font-mono">
             {prop.market} {fmt(prop.line, 1)} (OVER)
           </span>
+          {/* Phase F68 — Lazy heatmap viewer. Activates only when we
+              have a player name + match context; degrades gracefully
+              otherwise (the dialog itself reports MISSING_*). */}
+          {playerName && matchId && (
+            <PlayerHeatmapDialog
+              playerName={playerName}
+              matchId={matchId}
+              teamHint={teamHint || prop.team || prop.team_name}
+              testIdPrefix={`${testId}-heatmap`}
+            />
+          )}
         </div>
         {prop.narrative_es && (
           <div className="text-[11px] text-slate-300/90 leading-snug" data-testid={`${testId}-narrative`}>
@@ -289,7 +302,7 @@ function PropRow({ prop, testId }) {
   );
 }
 
-function PlayerPropsSection({ discovery, testId }) {
+function PlayerPropsSection({ discovery, testId, matchId, teamHint }) {
   if (!discovery || !discovery.available) return null;
   // v2 prefers `top_player_props`; falls back to `props` for backward compat.
   const props = Array.isArray(discovery.top_player_props) && discovery.top_player_props.length
@@ -318,6 +331,8 @@ function PlayerPropsSection({ discovery, testId }) {
             key={`${p.player_name || p.player}-${p.market}-${idx}`}
             prop={p}
             testId={`${testId}-prop-${idx}`}
+            matchId={matchId}
+            teamHint={teamHint}
           />
         ))}
         {props.length > 6 && (
@@ -373,7 +388,17 @@ export function FootballProfileCrossPropsPanel({ pick, testId = 'football-f58-pa
 
       {hasCross && <CrossProfileSection cross={cross} testId={testId} />}
       {hasOverride && <OverrideAlert applied={applied} testId={testId} />}
-      {hasProps && <PlayerPropsSection discovery={discovery} testId={testId} />}
+      {hasProps && (
+        <PlayerPropsSection
+          discovery={discovery}
+          testId={testId}
+          matchId={pick.match_id}
+          teamHint={
+            (typeof pick.home_team === 'object' ? pick.home_team?.name : pick.home_team)
+            || (typeof pick.away_team === 'object' ? pick.away_team?.name : pick.away_team)
+          }
+        />
+      )}
     </section>
   );
 }

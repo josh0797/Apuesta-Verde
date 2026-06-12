@@ -6,25 +6,33 @@ import { MapPin, Loader2 } from 'lucide-react';
 /**
  * Phase F67 — Lazy Player Heatmap viewer.
  *
- * Renders a small button that, when clicked, opens a Shadcn Dialog and
- * fetches `/api/football/player-heatmap/:playerId` on demand. The
- * backend caches responses for 24h in Mongo, so repeated opens are free.
+ * Two modes supported:
+ *
+ *  A) BY EXPLICIT IDs (original): pass ``playerId`` + ``competitionId`` +
+ *     ``seasonId``. The dialog fetches ``/api/football/player-heatmap/:id``.
+ *
+ *  B) Phase F68 — BY NAME: pass ``playerName`` + ``matchId`` (and
+ *     optionally ``teamHint``, ``competitionId``, ``seasonId``). The
+ *     dialog fetches ``/api/football/player-heatmap/by-name?...``, which
+ *     resolves the ``pl_*`` id internally and derives competition/season
+ *     from the cached match. This is the path the player props cards use
+ *     because they only know names, not TheStatsAPI ids.
+ *
+ * Both modes return identical payload shapes.
  *
  * Props
  * -----
- *  - playerId, competitionId, seasonId: TheStatsAPI identifiers.
- *  - playerName: optional label shown in the dialog header.
- *  - testIdPrefix
- *
- * Heatmap shape (from TheStatsAPI) is intentionally rendered as a small
- * SVG-friendly grid. When the data layout changes, only this component
- * needs to be touched; the backend just passes the payload through.
+ *  - playerId, competitionId, seasonId  → mode A
+ *  - playerName, matchId, teamHint      → mode B
+ *  - playerName label                   → shown in dialog header (any mode)
  */
 export function PlayerHeatmapDialog({
   playerId,
   competitionId,
   seasonId,
   playerName = 'Jugador',
+  matchId,
+  teamHint,
   testIdPrefix = 'player-heatmap',
 }) {
   const [open, setOpen] = useState(false);
@@ -33,17 +41,28 @@ export function PlayerHeatmapDialog({
   const [err, setErr] = useState(null);
 
   const backendUrl = process.env.REACT_APP_BACKEND_URL;
+  // Mode B activates when no explicit playerId is provided but we have a name.
+  const useByName = !playerId && playerName && playerName !== 'Jugador';
 
   const load = async () => {
     if (data || loading) return;
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(
-        `${backendUrl}/api/football/player-heatmap/${encodeURIComponent(playerId)}`
-          + `?competition_id=${encodeURIComponent(competitionId)}`
-          + `&season_id=${encodeURIComponent(seasonId)}`
-      );
+      let url;
+      if (useByName) {
+        const params = new URLSearchParams({ player_name: playerName });
+        if (matchId)        params.set('match_id',       matchId);
+        if (teamHint)       params.set('team_hint',      teamHint);
+        if (competitionId)  params.set('competition_id', competitionId);
+        if (seasonId)       params.set('season_id',      seasonId);
+        url = `${backendUrl}/api/football/player-heatmap/by-name?${params}`;
+      } else {
+        url = `${backendUrl}/api/football/player-heatmap/${encodeURIComponent(playerId)}`
+          + `?competition_id=${encodeURIComponent(competitionId || '')}`
+          + `&season_id=${encodeURIComponent(seasonId || '')}`;
+      }
+      const r = await fetch(url);
       const j = await r.json();
       if (!j.available) {
         setErr(j.reason || j._error || 'No hay datos disponibles');

@@ -1,34 +1,18 @@
 [
   {
-    "content": "P4.6 — Dixon-Coles flag contextual_only + UI label \"informativo, no es pick\"",
+    "content": "C1–C8 + Tests F69 (8/8 passing) + esbuild OK",
     "status": "completed"
   },
   {
-    "content": "P4.5 — Lenguaje editorial cauteloso con datos parciales (prefijo \"Con los datos disponibles...\")",
-    "status": "completed"
+    "content": "F70 — Sportytrader/Forebet scraping: cliente HTTP + parser + integración",
+    "status": "in_progress"
   },
   {
-    "content": "P4.4 — Tests del normalizador (team_corners vs match_corners, team_total_goals vs total_goals, asian corners)",
-    "status": "completed"
+    "content": "F70 — Endpoints REST + cron de caché + UI badge",
+    "status": "pending"
   },
   {
-    "content": "P4 — Telemetry discard_rescue_audit (colección + helpers + endpoint diario/7d/30d)",
-    "status": "completed"
-  },
-  {
-    "content": "P3.1 — Mapping match_id API-Sports ↔ TheStatsAPI mt_* (col + lógica de lookup)",
-    "status": "completed"
-  },
-  {
-    "content": "P3.3 — Colección head_to_head_matches + cron desde API-Sports /fixtures?h2h=",
-    "status": "completed"
-  },
-  {
-    "content": "P3.2 — UI heatmaps lazy (Dialog + endpoint REST)",
-    "status": "completed"
-  },
-  {
-    "content": "Pytest completo + esbuild + plan.md F67 COMPLETED",
-    "status": "completed"
+    "content": "F70 — Tests + verificación end-to-end + reinicio backend",
+    "status": "pending"
   }
 ]
