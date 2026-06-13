@@ -44,6 +44,11 @@ RC_365_TIMEOUT       = 'SCORE365_FETCH_TIMEOUT'
 RC_365_SKIPPED_INLINE = 'SCORE365_SKIPPED_INLINE_FLAG_DISABLED'
 RC_NO_THESTATSAPI    = 'CORNERS_NO_THESTATSAPI_BLOCK'
 RC_PROVIDER_BREAKER  = 'CORNERS_PROVIDER_BREAKER_OPEN'
+# Phase F82.1-adjust — when fast tier has no data but background
+# enrichment is enabled, mark the snapshot as deferred so the UI can
+# offer the "Actualizar córners con 365Scores" button.
+RC_DEFERRED          = 'CORNERS_EXTERNAL_ENRICHMENT_DEFERRED'
+STATUS_PENDING_BG    = 'PENDING_BACKGROUND_ENRICHMENT'
 
 
 # ── Feature flags (env, fail-safe defaults) ──────────────────────────
@@ -290,13 +295,25 @@ async def enrich_match_corners(client, db, match_doc: dict,
     # 3) 365Scores (SLOW — HTTP via scrape.do). Only if allowed.
     if not allow_external:
         codes.append(RC_365_SKIPPED_INLINE)
-        payload = {
-            'available':    False,
-            'reason_codes': codes + [RC_UNAVAILABLE],
-        }
+        # Phase F82.1-adjust — when background enrichment is enabled and
+        # the fast tier yielded no corners, mark the snapshot as
+        # PENDING_BACKGROUND_ENRICHMENT so the UI can show the manual
+        # refresh button. Otherwise behave like the original F82.1 path
+        # (plain unavailable).
+        if is_background_365scores_enabled():
+            payload = {
+                'available':    False,
+                'status':       STATUS_PENDING_BG,
+                'reason_codes': codes + [RC_DEFERRED],
+            }
+        else:
+            payload = {
+                'available':    False,
+                'reason_codes': codes + [RC_UNAVAILABLE],
+            }
         _persist(match_doc, payload)
         log.info('[corners_provider] fixture=%s unavailable (fast tier) reason=%s',
-                 fid, ','.join(codes) or RC_UNAVAILABLE)
+                 fid, ','.join(payload['reason_codes']) or RC_UNAVAILABLE)
         return payload
 
     s365_payload, s365_codes = await _extract_365scores_corners(client, match_doc)
@@ -360,7 +377,14 @@ def _persist(match_doc: dict, payload: dict) -> None:
 
 __all__ = [
     'enrich_match_corners',
+    'enrich_match_corners_fast',
+    'enrich_match_corners_external',
+    'is_inline_365scores_enabled',
+    'is_background_365scores_enabled',
+    'score365_timeout_seconds',
+    'corners_fast_timeout_seconds',
     'RC_APISPORTS', 'RC_365SCORES', 'RC_THESTATSAPI', 'RC_UNAVAILABLE',
-    'RC_NO_API_SPORTS', 'RC_NO_365_ID', 'RC_365_BLOCKED',
-    'RC_NO_THESTATSAPI', 'RC_PROVIDER_BREAKER',
+    'RC_NO_API_SPORTS', 'RC_NO_365_ID', 'RC_365_BLOCKED', 'RC_365_TIMEOUT',
+    'RC_365_SKIPPED_INLINE', 'RC_NO_THESTATSAPI', 'RC_PROVIDER_BREAKER',
+    'RC_DEFERRED', 'STATUS_PENDING_BG',
 ]

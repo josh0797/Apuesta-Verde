@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.  
 > **Estado histórico:** ✅ F58–F70 completadas (ver secciones abajo).  
-> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA**.  
+> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA**.  
 > **Idioma operativo:** Español.
 
 ---
@@ -326,6 +326,76 @@ Cuando el engine detecta una cuota pero el mercado es UNKNOWN/AMBIGUOUS, la UI p
 ---
 
 ## 3) Pendientes y siguientes pasos (post-F83)
+
+---
+
+# Phase F82.1-adjust — Manual/Background Corners Enrichment Endpoints (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Problema
+La Phase F82.1 desactivó por completo 365Scores de la ingesta inline para evitar gateway timeouts. Eso protegió al generador de picks, pero perdimos acceso a datos valiosos de córners de 365Scores. Necesitábamos restaurar acceso vía endpoints manuales/background sin reintroducir el riesgo de timeout.
+
+## Decisiones confirmadas (con el usuario)
+- **a)** Timeout duro de **8 s** para `run-now`. Si excede → `SCORE365_TIMEOUT`. ✅
+- **b)** Cola **in-memory** (`asyncio.create_task` + dict de estado) — sin Redis/Celery por ahora. ✅
+- **c)** Endpoint `GET /status/{match_id}` para polling. Flujo UI: `/run-now` (sincrónico) → si TIMEOUT → fallback `/background` + polling `/status/{match_id}`. ✅
+- **d)** P1/P2 se abordan después de cerrar F82.1-adjust. 🔄 PENDIENTE
+- **e)** Criterio de éxito: cero regresiones en pytest (2223→2230) + esbuild verde. ✅
+
+## Implementación ejecutada
+### Backend
+- ✅ **MOD** `services/football_corners_provider.py`
+  - Añadidos `RC_DEFERRED = 'CORNERS_EXTERNAL_ENRICHMENT_DEFERRED'` y `STATUS_PENDING_BG = 'PENDING_BACKGROUND_ENRICHMENT'`.
+  - Cuando `allow_external=False` y `is_background_365scores_enabled()=True`, el payload se marca con `status: PENDING_BACKGROUND_ENRICHMENT` + `reason_codes: [..., CORNERS_EXTERNAL_ENRICHMENT_DEFERRED]`.
+
+- ✅ **NEW** endpoints en `server.py`:
+  - `POST /api/football/corners-enrichment/run-now`
+    - Body: `{ match_id }`. Carga match_doc desde `analyst_runs`, llama `enrich_match_corners_external` con `asyncio.wait_for(timeout=8.0)`.
+    - Persiste corners_snapshot en `analyst_runs.picks` o `summary.*` (best-effort).
+    - Retorna `status: SUCCESS | UNAVAILABLE | TIMEOUT | MATCH_NOT_FOUND | ERROR`.
+  - `POST /api/football/corners-enrichment/background`
+    - Body: `{ match_id }`. Registra job en `_CORNERS_BG_JOBS` (in-memory dict), dispara `asyncio.create_task`, retorna `{ status: QUEUED }`.
+    - Idempotente: re-encolar mientras hay job activo → `ALREADY_QUEUED`.
+  - `GET /api/football/corners-enrichment/status/{match_id}`
+    - Lee `_CORNERS_BG_JOBS` y devuelve `{ status, result, started_at, finished_at }` o `NOT_FOUND`.
+
+- ✅ **MOD** `services/football_editorial_payload_adapter.py`, `possible_alternative_markets.py`, `football_structural_value_review.py`
+  - Propagación de `corners_snapshot` desde `match_doc` al editorial output (mismo patrón que `h2h_context`).
+
+### Frontend
+- ✅ **NEW** `frontend/src/components/CornersRefreshPanel.jsx`
+  - Renderiza cuando `corners_snapshot.status == 'PENDING_BACKGROUND_ENRICHMENT'` o `reason_codes` incluye `CORNERS_EXTERNAL_ENRICHMENT_DEFERRED`.
+  - Botón **"Actualizar córners con 365Scores"** → POST `/run-now`.
+  - 7 estados explícitos: `idle | loading | success | timeout | error | bg_queued | bg_polling`.
+  - Fallback automático a `/background` + polling cada 3 s al endpoint `/status/{match_id}`.
+  - Traducción humana de reason codes: `SCORE365_FETCH_TIMEOUT`, `SCORE365_ID_MISSING`, `SCORE365_BLOCKED_OR_EMPTY`, etc.
+  - Todos los elementos interactivos con `data-testid`.
+
+- ✅ **MOD** `frontend/src/components/EditorialPredictionPanel.jsx`
+  - Renderiza `<CornersRefreshPanel matchId={matchId} cornersSnapshot={editorial.corners_snapshot} />` cuando aplique.
+
+## Testing
+- ✅ **NEW** `backend/tests/test_f82_1_adjust.py` — 7 tests (5 obligatorios + 2 extras):
+  1. `test_main_generator_never_calls_365scores_inline` — fast tier no llama a 365Scores ni una vez.
+  2. `test_data_ingestion_uses_fast_wrapper_only` — `data_ingestion._enrich_football` importa solo `enrich_match_corners_fast`.
+  3. `test_corners_snapshot_marks_pending_when_empty` — fast tier vacío + background ON → status `PENDING_BACKGROUND_ENRICHMENT` + reason `CORNERS_EXTERNAL_ENRICHMENT_DEFERRED`.
+  4. `test_run_now_endpoint_returns_score365_data_when_available` — endpoint `/run-now` devuelve SUCCESS con datos de 365Scores mockeados.
+  5. `test_run_now_endpoint_returns_timeout_code_when_slow` — `/run-now` retorna `TIMEOUT` + `SCORE365_FETCH_TIMEOUT` y responde en <2 s aun cuando el proveedor cuelga.
+  6. `test_background_endpoint_queues_and_status_returns_result` — `/background` → QUEUED, polling `/status` → SUCCESS tras completarse el job.
+  7. `test_status_returns_not_found_for_unknown_match` — `/status` devuelve `NOT_FOUND` para match nunca encolado.
+- ✅ **Suite global:** 2230 passed, 2 skipped, 0 regresiones (antes: 2223).
+- ✅ **Lint:** Python (provider + tests) y JS (CornersRefreshPanel + EditorialPredictionPanel) limpios.
+- ✅ **esbuild:** EditorialPredictionPanel.jsx compila sin errores.
+
+## Endpoints verificados con curl en preview
+- `POST /run-now` con match inexistente → `{"status":"MATCH_NOT_FOUND",...}` ✅
+- `POST /background` → `{"status":"QUEUED",...}` inmediato ✅
+- `GET /status/{match_id}` post-completion → resultado correcto con `started_at`/`finished_at` ✅
+
+---
+
+## 4) Pendientes y siguientes pasos (post-F82.1-adjust)
 
 ### Pendientes no bloqueantes (actualizadas)
 - (P1) **Alternative rescue**: implementar `alternative_rescue.infer_original_pick_side()`

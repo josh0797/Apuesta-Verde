@@ -471,6 +471,10 @@ def compute_structural_value_review(
         if (isinstance(editorial_payload, dict)
                 and editorial_payload.get("h2h_context")):
             editorial["h2h_context"] = editorial_payload["h2h_context"]
+        # Phase F82.1-adjust — propagar corners_snapshot también.
+        if (isinstance(editorial_payload, dict)
+                and editorial_payload.get("corners_snapshot")):
+            editorial["corners_snapshot"] = editorial_payload["corners_snapshot"]
 
         out["editorial_prediction"] = editorial
         for code in editorial.get("reason_codes", []) or []:

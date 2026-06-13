@@ -1,38 +1,42 @@
 [
   {
-    "content": "Cambio 1+6: football_editorial_payload_adapter.py (aplanado + data_quality upgrade)",
+    "content": "Actualizar plan.md con fase F82.1-adjust",
     "status": "completed"
   },
   {
-    "content": "Cambio 2: football_data_enrichment_normalizer.py (alias legacy persist)",
+    "content": "Backend: Modificar provider para emitir PENDING_BACKGROUND_ENRICHMENT",
     "status": "completed"
   },
   {
-    "content": "Cambio 3: integración adapter en structural_value_review + possible_alternative_markets",
+    "content": "Backend: Crear endpoints run-now, background, status en server.py",
     "status": "completed"
   },
   {
-    "content": "Cambio 4: football_market_identity_resolver.py (resolución por odds)",
+    "content": "Frontend: Crear panel CornersRefreshPanel + integrar en EditorialPredictionPanel",
     "status": "completed"
   },
   {
-    "content": "Cambio 5: aliases ES/EN + helper get_market_rows_by_alias + _find_line_odds list-form",
+    "content": "Tests: Crear test_f82_1_adjust.py con los 5 tests requeridos",
     "status": "completed"
   },
   {
-    "content": "Cambio 7: UI collapsible + mensajes específicos en EditorialPredictionPanel",
+    "content": "Lint backend + frontend + esbuild",
     "status": "completed"
   },
   {
-    "content": "Cambio 8: resolve_thestatsapi_match_id_by_names + cache",
+    "content": "Ejecutar pytest completo (verificar 0 regresiones)",
     "status": "completed"
   },
   {
-    "content": "Cambio 9: moneyball intenta resolver identity UNKNOWN antes del bucket",
+    "content": "Actualizar plan.md → F82.1-adjust COMPLETED",
     "status": "completed"
   },
   {
-    "content": "Tests + suite global verde",
-    "status": "completed"
+    "content": "P1: Integrar ManualMarketIdentityPanel en bucket REQUIRES_MANUAL_MARKET_SELECTION",
+    "status": "pending"
+  },
+  {
+    "content": "P2: Implementar infer_original_pick_side en alternative_rescue.py",
+    "status": "pending"
   }
 ]

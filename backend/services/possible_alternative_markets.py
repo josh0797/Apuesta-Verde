@@ -237,6 +237,14 @@ def attach_alternatives_to_summary(summary: dict, sport: str,
                                 and editorial_payload.get("h2h_context")
                                 and isinstance(editorial, dict)):
                             editorial["h2h_context"] = editorial_payload["h2h_context"]
+                        # Phase F82.1-adjust — propagar corners_snapshot
+                        # para que la UI detecte el estado PENDING.
+                        if (isinstance(editorial_payload, dict)
+                                and editorial_payload.get("corners_snapshot")
+                                and isinstance(editorial, dict)):
+                            editorial["corners_snapshot"] = editorial_payload[
+                                "corners_snapshot"
+                            ]
                         entry["editorial_prediction"] = editorial
                     except Exception:  # noqa: BLE001
                         # Never let a single bad payload poison the whole

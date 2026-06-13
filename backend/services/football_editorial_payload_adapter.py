@@ -390,6 +390,12 @@ def build_editorial_ready_match_payload(match: dict) -> dict:
     if isinstance(match.get("h2h_context"), dict):
         out["h2h_context"] = match["h2h_context"]
 
+    # Phase F82.1-adjust — propagate the corners_snapshot too, so the UI
+    # can detect the PENDING_BACKGROUND_ENRICHMENT state and offer the
+    # "Actualizar córners con 365Scores" button.
+    if isinstance(match.get("corners_snapshot"), dict):
+        out["corners_snapshot"] = match["corners_snapshot"]
+
     out["internal_analysis_debug"] = {
         "recent_fixtures_found":     recent_found,
         "recent_fixtures_flattened": signals["recent"],

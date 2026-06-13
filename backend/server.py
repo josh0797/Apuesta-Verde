@@ -332,6 +332,231 @@ async def manual_market_reprice_endpoint(
     return result
 
 
+# ── Phase F82.1-adjust — Manual/Background 365Scores Corners Enrichment ──
+#
+# 365Scores is kept OFF the inline ingest path (no gateway timeouts) but
+# exposed via three endpoints:
+#   POST /api/football/corners-enrichment/run-now
+#     Synchronous fetch with hard 8s timeout.
+#   POST /api/football/corners-enrichment/background
+#     Fire-and-forget background fetch, returns QUEUED immediately.
+#   GET  /api/football/corners-enrichment/status/{match_id}
+#     Poll the status/result of a previously queued background job.
+#
+# In-memory queue (good for MVP; ready to migrate to Redis/Celery later).
+_CORNERS_BG_JOBS: dict[str, dict] = {}
+_CORNERS_BG_LOCK = asyncio.Lock()
+_CORNERS_RUN_NOW_TIMEOUT_S = 8.0  # hard cap requested by product
+
+
+class CornersEnrichmentRequest(BaseModel):
+    match_id: str
+
+
+async def _load_match_doc_for_corners(match_id: str) -> Optional[dict]:
+    """Locate the match payload in analyst_runs (most recent first).
+
+    Mirrors the lookup used by the editorial-prediction endpoint so the
+    corners enrichment endpoints can operate on the exact same shape.
+    """
+    try:
+        doc = await db.analyst_runs.find_one(
+            {"$or": [
+                {"summary.discarded_market.match_id":     match_id},
+                {"summary.discarded_motivation.match_id": match_id},
+                {"summary.incomplete_data.match_id":      match_id},
+                {"summary.watchlist_odds_needed.match_id": match_id},
+                {"picks.match_id": match_id},
+            ]},
+            sort=[("created_at", -1)],
+        )
+        if not doc:
+            return None
+        for bucket in ("picks", "discarded_market", "discarded_motivation",
+                        "incomplete_data", "watchlist_odds_needed"):
+            src = doc.get(bucket) if bucket == "picks" else \
+                  (doc.get("summary") or {}).get(bucket) or []
+            for entry in src or []:
+                if isinstance(entry, dict) and entry.get("match_id") == match_id:
+                    return entry
+        return None
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[corners_enrichment] lookup failed for %s: %s", match_id, exc)
+        return None
+
+
+async def _persist_corners_snapshot_to_run(match_id: str, snapshot: dict) -> None:
+    """Write the freshly fetched corners_snapshot back into analyst_runs.
+
+    Best-effort: failures are logged but never raised. We update the
+    nested entry in whatever bucket holds the match (picks first, then
+    summary.<bucket>). Used by both /run-now and the background worker.
+    """
+    if not isinstance(snapshot, dict):
+        return
+    try:
+        # Try the cheap path first: update via positional operator in
+        # ``picks``.
+        updated = await db.analyst_runs.update_many(
+            {"picks.match_id": match_id},
+            {"$set": {
+                "picks.$.corners_snapshot": snapshot,
+                "picks.$.football_data_enrichment.corners": snapshot,
+            }},
+        )
+        if updated.modified_count:
+            return
+        # Otherwise update each known summary bucket.
+        for bucket in ("discarded_market", "discarded_motivation",
+                        "incomplete_data", "watchlist_odds_needed"):
+            res = await db.analyst_runs.update_many(
+                {f"summary.{bucket}.match_id": match_id},
+                {"$set": {
+                    f"summary.{bucket}.$.corners_snapshot": snapshot,
+                    f"summary.{bucket}.$.football_data_enrichment.corners": snapshot,
+                }},
+            )
+            if res.modified_count:
+                return
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[corners_enrichment] persist failed for %s: %s", match_id, exc)
+
+
+async def _do_external_corners_fetch(match_id: str) -> dict:
+    """Shared body for /run-now and the background worker.
+
+    Always returns a dict shaped like the regular corners_snapshot, with
+    an extra top-level ``status`` field (``SUCCESS|TIMEOUT|UNAVAILABLE|
+    MATCH_NOT_FOUND``) so the UI can branch cleanly.
+    """
+    from services.football_corners_provider import (
+        enrich_match_corners_external, RC_365_TIMEOUT, RC_UNAVAILABLE,
+    )
+    match_doc = await _load_match_doc_for_corners(match_id)
+    if not match_doc:
+        return {
+            "available":    False,
+            "status":       "MATCH_NOT_FOUND",
+            "reason_codes": ["MATCH_NOT_FOUND"],
+            "match_id":     match_id,
+        }
+    try:
+        result = await asyncio.wait_for(
+            enrich_match_corners_external(None, db, match_doc),
+            timeout=_CORNERS_RUN_NOW_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        log.info("[corners_enrichment] 365scores timeout match_id=%s after %.1fs",
+                 match_id, _CORNERS_RUN_NOW_TIMEOUT_S)
+        return {
+            "available":    False,
+            "status":       "TIMEOUT",
+            "reason_codes": [RC_365_TIMEOUT],
+            "match_id":     match_id,
+        }
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[corners_enrichment] external fetch crashed for %s: %s", match_id, exc)
+        return {
+            "available":    False,
+            "status":       "ERROR",
+            "reason_codes": [RC_UNAVAILABLE, "EXTERNAL_FETCH_CRASHED"],
+            "_error":       str(exc),
+            "match_id":     match_id,
+        }
+    # Normalise result shape — always include a top-level status.
+    if not isinstance(result, dict):
+        result = {"available": False, "reason_codes": [RC_UNAVAILABLE]}
+    result.setdefault("status",
+                       "SUCCESS" if result.get("available") else "UNAVAILABLE")
+    result["match_id"] = match_id
+    # Persist back into analyst_runs so subsequent reads (editorial,
+    # status polling, UI refresh) see the fresh snapshot.
+    await _persist_corners_snapshot_to_run(match_id, result)
+    return result
+
+
+async def _run_background_corners_job(match_id: str) -> None:
+    """Worker for /background — updates _CORNERS_BG_JOBS as it progresses."""
+    job = _CORNERS_BG_JOBS.get(match_id)
+    if job is None:
+        return
+    job["status"] = "RUNNING"
+    try:
+        result = await _do_external_corners_fetch(match_id)
+        job["result"]      = result
+        job["finished_at"] = datetime.now(timezone.utc).isoformat()
+        job["status"]      = "SUCCESS" if result.get("available") else "FAILED"
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[corners_enrichment] background job crashed for %s: %s",
+                    match_id, exc)
+        job["status"]      = "FAILED"
+        job["finished_at"] = datetime.now(timezone.utc).isoformat()
+        job["result"]      = {
+            "available":    False,
+            "status":       "ERROR",
+            "reason_codes": ["BACKGROUND_JOB_CRASHED"],
+            "_error":       str(exc),
+            "match_id":     match_id,
+        }
+
+
+@app.post("/api/football/corners-enrichment/run-now")
+async def corners_enrichment_run_now(payload: CornersEnrichmentRequest) -> dict:
+    """Synchronous 365Scores fetch — hard 8s timeout.
+
+    Returns a corners_snapshot-shaped dict plus a ``status`` field:
+      * ``SUCCESS``         — available=True, payload contains current_match.
+      * ``UNAVAILABLE``     — 365Scores responded but provided no usable data.
+      * ``TIMEOUT``         — 365Scores exceeded 8s; UI should fallback to /background.
+      * ``MATCH_NOT_FOUND`` — match_id not present in analyst_runs.
+      * ``ERROR``           — unexpected crash (still safe to call /background).
+    """
+    return await _do_external_corners_fetch(payload.match_id)
+
+
+@app.post("/api/football/corners-enrichment/background")
+async def corners_enrichment_background(payload: CornersEnrichmentRequest) -> dict:
+    """Queue a background 365Scores fetch. Returns immediately.
+
+    Idempotent: re-queueing while a job is already RUNNING/QUEUED returns
+    ``ALREADY_QUEUED`` instead of starting a second worker.
+    """
+    match_id = payload.match_id
+    async with _CORNERS_BG_LOCK:
+        existing = _CORNERS_BG_JOBS.get(match_id)
+        if existing and existing.get("status") in ("QUEUED", "RUNNING"):
+            return {
+                "status":     "ALREADY_QUEUED",
+                "match_id":   match_id,
+                "started_at": existing.get("started_at"),
+            }
+        _CORNERS_BG_JOBS[match_id] = {
+            "status":      "QUEUED",
+            "started_at":  datetime.now(timezone.utc).isoformat(),
+            "finished_at": None,
+            "result":      None,
+        }
+    # Fire-and-forget worker.
+    asyncio.create_task(_run_background_corners_job(match_id))
+    return {"status": "QUEUED", "match_id": match_id}
+
+
+@app.get("/api/football/corners-enrichment/status/{match_id}")
+async def corners_enrichment_status(match_id: str) -> dict:
+    """Poll the status of a previously queued background corners job."""
+    job = _CORNERS_BG_JOBS.get(match_id)
+    if not job:
+        return {"status": "NOT_FOUND", "match_id": match_id}
+    return {
+        "status":      job.get("status"),
+        "match_id":    match_id,
+        "started_at":  job.get("started_at"),
+        "finished_at": job.get("finished_at"),
+        "result":      job.get("result"),
+    }
+
+
+
 # ── Phase F68 — Player heatmap by NAME (lazy resolver) ───────────────
 # ── Phase F68 — Player heatmap by NAME (lazy resolver) ───────────────
 @app.get("/api/football/player-heatmap/by-name")

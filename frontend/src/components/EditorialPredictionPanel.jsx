@@ -3,6 +3,7 @@ import { MapPin, Activity, Target, TrendingUp, ListChecks, History, Trophy, Aler
 import { PlayerHeatmapDialog } from '@/components/PlayerHeatmapDialog';
 import { ExternalEditorialPanel } from '@/components/ExternalEditorialPanel';
 import { H2HContextPanel } from '@/components/H2HContextPanel';
+import { CornersRefreshPanel } from '@/components/CornersRefreshPanel';
 
 
 /**
@@ -258,6 +259,16 @@ export function EditorialPredictionPanel({
         <H2HContextPanel
           context={editorial.h2h_context}
           testIdPrefix={`${testIdPrefix}-h2h-context`}
+        />
+      )}
+      {/* Phase F82.1-adjust — When corners_snapshot is in the deferred
+          state (PENDING_BACKGROUND_ENRICHMENT), surface the
+          "Actualizar córners con 365Scores" button. */}
+      {editorial.corners_snapshot && matchId && (
+        <CornersRefreshPanel
+          matchId={matchId}
+          cornersSnapshot={editorial.corners_snapshot}
+          testIdPrefix={`${testIdPrefix}-corners-refresh`}
         />
       )}
       {/* Phase F70 — External editorial enrichment (Forebet + Sportytrader). */}
