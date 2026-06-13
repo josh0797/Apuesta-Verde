@@ -551,6 +551,84 @@ Ver sección **Phase F82.2-frontend** abajo.
 
 ## 5) Pendientes y siguientes pasos (post-F82.2-frontend)
 
+---
+
+# Phase F83.1-fix — Manual Market Identity match_id isolation + Data Availability Sections (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA (Bloque D)
+
+## Problemas reportados (en producción)
+1. **`body.match_id: Input should be a valid string`** — el frontend enviaba `null`/número y el modelo Pydantic strict `str` rechazaba el payload.
+2. **Cuota repetida en todas las cards** — el panel manual mostraba la misma cuota (1.25) para todos los partidos porque el estado del input no se reseteaba entre cards.
+3. **Contradicción "xG disponible vs faltante"** — `internal_analysis_debug.thestatsapi_found=True` se mostraba como "✓ TheStatsAPI / xG disponible" mientras `missing=["xG"]` se renderaba como "Faltantes: xG".
+
+## Implementación
+
+### Frontend
+- ✅ **NEW** `frontend/src/lib/matchResolver.js`:
+  - `resolveMatchId(match, pick, auditRow)` — cascada de 11 fuentes; siempre devuelve string no-blank o `null`. Filtra sentinelas `"undefined"`, `"null"`, `"NaN"`. Loggea diagnóstico cuando devuelve null.
+  - `resolveDetectedOdd(match, pick, auditRow)` — 11 fuentes; valida rango `[1.01, 50]`; nunca permite que dos cards compartan accidentalmente la misma cuota.
+- ✅ **MOD** `FootballMarketAuditPanel.jsx`:
+  - Usa `resolveMatchId(item, item, item)` + `resolveDetectedOdd(item, item, item)` (card-scoped).
+  - Pasa `key={mm-${matchId}-${detectedOdd}}` al `ManualMarketIdentityPanel` para forzar remount cuando cambia el contexto del card → reseta `manualOdd` automáticamente.
+- ✅ **MOD** `ManualMarketIdentityPanel.jsx`:
+  - Guarda contra `matchId === null` antes del submit con mensaje claro.
+  - `safeMatchId = String(matchId).trim()` + filtro `"undefined"/"null"`.
+  - `detected_odd` siempre enviado como número.
+
+### Backend
+- ✅ **MOD** `server.py` — `ManualMarketRepriceRequest`:
+  - `match_id: Union[str, int]` con `@field_validator(mode="before")` que coerce a string, strip, y rechaza `null/blank/undefined/NaN` con `ValueError` claro.
+  - `Union` y `field_validator` importados.
+- ✅ **MOD** `/api/football/manual-market-reprice` endpoint:
+  - Reemplazado `db.matches.find_one({"match_id": payload.match_id})` (colección que no existe) por lookup tolerante en `analyst_runs` con variantes: `match_id`, `fixture_id`, `id`; intenta ambos string e int cuando aplica. Busca en `picks` + 4 buckets de summary.
+- ✅ **NEW** `services/football_data_availability.py`:
+  - `has_xg_available(match)` — solo `True` cuando hay valores numéricos home+away en `football_data_enrichment.xg`, `thestatsapi_snapshot.xg`, `_thestatsapi_enrichment.xg`, o `live_stats.xg_home/xg_away`. **`football_data_enrichment` solo no es suficiente.**
+  - `has_thestatsapi_available(match)` — heurística separada de xG.
+  - `has_h2h_available(match)`, `has_corners_l5_l15_available(match)`, `has_market_identity_available(match)`, `has_recent_form_available(match)`.
+  - `build_data_availability_sections(match) → {sections, available_sections, missing_sections, missing_codes}`:
+    - Cuando TheStatsAPI presente pero xG no normalizado → `sections.xg.status = "MISSING_NORMALIZATION"` (nuevo estado explícito).
+    - `missing_codes` incluye `XG_NOT_NORMALIZED` distinguible de `XG_MISSING`.
+- ✅ **MOD** `services/football_editorial_payload_adapter.py`:
+  - `internal_analysis_debug` ahora incluye `sections`, `available_sections`, `missing_sections`, `missing_codes`.
+  - Top-level `data_availability` para consumidores que prefieren no abrir el debug.
+
+### Frontend (render parcial)
+- ✅ **MOD** `EditorialPredictionPanel.jsx`:
+  - Lee `debugBlock.sections.xg.status` (no más `thestatsapi_found` para xG).
+  - 3 estados de xG con render distinto:
+    - `AVAILABLE` → "✓ TheStatsAPI / xG disponible".
+    - `MISSING_NORMALIZATION` → "✓ TheStatsAPI disponible ⚠ xG no normalizado para este partido" (color ámbar).
+    - `MISSING` → "✗ TheStatsAPI / xG no disponible".
+  - `Faltantes:` lee de `missing_sections` (consistente con `sections`) en lugar del legacy `missing[]`.
+  - Test-ids específicos: `*-row-xg-available`, `*-row-xg-not-normalized`, `*-row-xg-missing`.
+
+## Tests
+- ✅ **NEW** `backend/tests/test_f83_1_data_availability.py` — **16 tests**:
+  - `TestHasXgAvailable` (6 tests): true cases de FDE/TSA/live_stats, false cuando FDE existe pero sin xG, false con missing side.
+  - `TestBuildDataAvailabilitySections` (4 tests): contradicción xG normalization, full availability, market_identity UNKNOWN, h2h_recent list.
+  - `TestEditorialAdapterIntegration` (2 tests): sections map se propaga al debug block; top-level data_availability presente.
+  - `TestManualMarketRepriceMatchIdCoercion` (4 tests): numeric→string coerción + endpoint OK; null/blank/"undefined" raise ValidationError.
+- ✅ **NEW** `frontend/src/lib/__tests__/matchResolver.test.js` — **16 tests**:
+  - 9 tests `resolveMatchId`: prioridad, coerción numérica, fallback fixture/id/game_id/fixture.id/live_stats.game_pk/pick/auditRow, sentinelas, nunca throw.
+  - 7 tests `resolveDetectedOdd`: orden de cascada, manual_market_identity, rejects out-of-range / non-finite, **regression test: no leak entre cards**.
+
+## Suite global
+- ✅ **Backend: 2283 passed**, 2 skipped, 0 regresiones (antes 2267 → **+16 nuevos F83.1**).
+- ✅ **Frontend: 97/100 tests verdes** (16 nuevos F83.1 + 81 anteriores). 3 fallos preexistentes en `LiveReevalPanel.test.jsx` no relacionados.
+- ✅ Lint Python + JS limpios; esbuild verde para `DashboardPage`.
+- ✅ Endpoint validado con `curl`:
+  - `match_id: 12345` (numérico) → 200 OK, coerción correcta.
+  - `match_id: null` → 422 con `"match_id is required"` (UI ahora muestra string legible).
+- ✅ Screenshot en preview: app carga sin errores.
+
+## Bloque E pendiente
+**xG L1/L5/L15 desde TheStatsAPI shotmap** + señales analíticas (`LOW_RECENT_XG_PROFILE`, `DEFENSIVE_XG_SUPPRESSION`, `XG_FORM_SHIFT`, `XG_APOYA_UNDER/OVER`). Arquitectura background-first con cache + timeout. NO inline para no bloquear el generador.
+
+---
+
+## 6) Pendientes y siguientes pasos (post-F83.1-fix)
+
 ### Pendientes no bloqueantes (actualizadas)
 - (P1) **Alternative rescue**: implementar `alternative_rescue.infer_original_pick_side()`
   - Inferencia: `recommendation.selection` → Forebet → favorito por cuota → edge TheStatsAPI.

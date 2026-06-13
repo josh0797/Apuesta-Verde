@@ -12,6 +12,7 @@ import {
   ListChecks,
 } from 'lucide-react';
 import { ManualMarketIdentityPanel } from '@/components/ManualMarketIdentityPanel';
+import { resolveMatchId, resolveDetectedOdd } from '@/lib/matchResolver';
 
 /**
  * FootballMarketAuditPanel — V4 — Explicit market trace for discarded
@@ -116,7 +117,7 @@ export function FootballMarketTraceHeader({ trace, cardHeader, testIdPrefix }) {
  *   Mercado / Cuota / Prob estimada / Prob implícita / Edge / Motivo.
  * Always rendered when the trace is present.
  */
-export function FootballMarketTraceDetail({ trace, testIdPrefix, matchId, candidateMarkets, homeName, awayName }) {
+export function FootballMarketTraceDetail({ trace, testIdPrefix, matchId, candidateMarkets, homeName, awayName, detectedOddCard }) {
   if (!trace || typeof trace !== 'object') return null;
 
   // Phase F73 — when market identity is missing, render an honest
@@ -124,7 +125,12 @@ export function FootballMarketTraceDetail({ trace, testIdPrefix, matchId, candid
   if (trace.rejection_code === 'MARKET_IDENTITY_MISSING'
       || trace.state === 'REQUIRES_MARKET_IDENTIFICATION'
       || trace.state === 'REQUIRES_MANUAL_MARKET_SELECTION') {
-    const detectedOdd = trace.odds_visible || trace.original_odds || trace.odds;
+    // Phase F83.1 — prefer the card-scoped detected odd from
+    // resolveDetectedOdd(). Falls back to the trace fields only when
+    // the resolver returned null (e.g. card lacks an audit row).
+    const detectedOdd = (detectedOddCard != null)
+      ? detectedOddCard
+      : (trace.odds_visible || trace.original_odds || trace.odds);
     return (
       <div className="space-y-2">
         <div
@@ -170,6 +176,7 @@ export function FootballMarketTraceDetail({ trace, testIdPrefix, matchId, candid
             when a matchId is available (i.e. the parent provided it). */}
         {matchId && (
           <ManualMarketIdentityPanel
+            key={`mm-${matchId}-${detectedOdd ?? 'na'}`}
             matchId={matchId}
             detectedOdd={detectedOdd != null ? Number(detectedOdd) : null}
             candidateMarkets={Array.isArray(candidateMarkets) ? candidateMarkets : []}
@@ -473,10 +480,11 @@ export function FootballMarketAuditPanel({ item, testIdPrefix = 'fmt' }) {
   const trace = item?.market_trace || null;
   const markets = Array.isArray(item?.markets_checked) ? item.markets_checked : [];
   const cardHeader = item?.card_header || null;
-  // Phase F83 wiring — pass match_id + candidate_markets down to the
-  // trace detail so it can render the ManualMarketIdentityPanel when
-  // the engine asks for manual intervention.
-  const matchId = item?.match_id || null;
+  // Phase F83.1 — use the canonical resolvers to (a) guarantee match_id
+  // is always a non-blank string before any backend call, and (b)
+  // surface this card's OWN detected odd instead of a shared one.
+  const matchId = resolveMatchId(item, item, item);
+  const detectedOddCard = resolveDetectedOdd(item, item, item);
   const candidateMarkets = Array.isArray(item?.candidate_markets)
     ? item.candidate_markets
     : (Array.isArray(trace?.candidate_markets) ? trace.candidate_markets : []);
@@ -506,6 +514,7 @@ export function FootballMarketAuditPanel({ item, testIdPrefix = 'fmt' }) {
         candidateMarkets={candidateMarkets}
         homeName={typeof homeName === 'string' ? homeName : null}
         awayName={typeof awayName === 'string' ? awayName : null}
+        detectedOddCard={detectedOddCard}
       />
       <FootballMarketsCheckedTable
         marketsChecked={markets}

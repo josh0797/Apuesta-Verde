@@ -44,6 +44,14 @@ export const ManualMarketIdentityPanel = ({
   const [result, setResult]                 = useState(null);
   const [error, setError]                   = useState(null);
 
+  // Phase F83.1 — match-scoped state via initial-value-only.
+  // To prevent the FIRST card's typed odd from leaking into the SECOND
+  // card, ``ManualMarketIdentityPanel`` MUST be mounted with a ``key``
+  // prop tied to the matchId in the parent. That ensures React unmounts
+  // the previous card's instance and re-runs the useState initialisers
+  // below with the new card's detectedOdd. (See FootballMarketAuditPanel
+  // where the key is wired.)
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -116,6 +124,16 @@ export const ManualMarketIdentityPanel = ({
   const handleSubmit = async () => {
     setError(null);
     setResult(null);
+    // Phase F83.1 — guard against a missing/blank match_id BEFORE any
+    // backend call. Sending undefined produced "body.match_id: Input
+    // should be a valid string" 422 errors in production.
+    const safeMatchId = matchId == null ? '' : String(matchId).trim();
+    if (!safeMatchId || safeMatchId === 'undefined' || safeMatchId === 'null') {
+      setError('No se pudo identificar el match_id de este partido. Revisa el payload del match.');
+      // eslint-disable-next-line no-console
+      console.warn('[manual_market_identity] missing match_id at submit time', { matchId });
+      return;
+    }
     if (!marketType || !selection) {
       setError('Seleccioná tipo de mercado y selección.');
       return;
@@ -134,8 +152,8 @@ export const ManualMarketIdentityPanel = ({
       const res = await axios.post(
         `${BACKEND_URL}/api/football/manual-market-reprice`,
         {
-          match_id: matchId,
-          detected_odd: detectedOdd,
+          match_id: safeMatchId,
+          detected_odd: detectedOdd != null ? Number(detectedOdd) : oddNum,
           manual_odd: oddNum,
           market_type: marketType,
           selection,

@@ -70,11 +70,57 @@ export function EditorialPredictionPanel({
   // market_identity availability). Always rendered as collapsible so the
   // operator can diagnose THIN-data cases without cluttering the UI.
   const debugBlock = editorial.internal_analysis_debug;
+  // Phase F83.1 — new authoritative per-section availability map.
+  // Use ``sections`` (not the legacy boolean flags) so the UI never
+  // contradicts itself ("xG disponible" vs "Faltantes: xG").
+  const sections = (debugBlock && typeof debugBlock === 'object'
+                   && typeof debugBlock.sections === 'object')
+    ? debugBlock.sections : null;
+  const missingFromSections = (debugBlock && Array.isArray(debugBlock.missing_sections))
+    ? debugBlock.missing_sections
+    : (debugBlock && Array.isArray(debugBlock.missing)
+        ? debugBlock.missing : []);
+
   const renderDebugCollapsible = () => {
     if (!debugBlock || typeof debugBlock !== 'object') return null;
     const flagLabel = (ok) => (ok
       ? <span className="text-emerald-300">✓</span>
       : <span className="text-rose-300">✗</span>);
+    // Phase F83.1 — derive xG / TheStatsAPI rendering from sections.
+    // Falls back to the legacy boolean when sections is unavailable.
+    const xgSec   = sections?.xg;
+    const tsaSec  = sections?.thestatsapi;
+    const xgState = xgSec?.status || (debugBlock.thestatsapi_found ? 'AVAILABLE' : 'MISSING');
+    const tsaAvail = tsaSec?.available != null
+      ? tsaSec.available
+      : Boolean(debugBlock.thestatsapi_found);
+
+    let xgRow;
+    if (xgState === 'AVAILABLE') {
+      xgRow = (
+        <li data-testid={`${testIdPrefix}-row-xg-available`}>
+          {flagLabel(true)} TheStatsAPI / xG disponible
+        </li>
+      );
+    } else if (xgState === 'MISSING_NORMALIZATION' || (tsaAvail && xgState !== 'AVAILABLE')) {
+      // TheStatsAPI present but xG was not normalised for this match.
+      xgRow = (
+        <li
+          className="text-amber-200/90"
+          data-testid={`${testIdPrefix}-row-xg-not-normalized`}
+        >
+          {flagLabel(true)} TheStatsAPI disponible
+          <span className="ml-1 text-amber-300/80">⚠ xG no normalizado para este partido</span>
+        </li>
+      );
+    } else {
+      xgRow = (
+        <li data-testid={`${testIdPrefix}-row-xg-missing`}>
+          {flagLabel(false)} TheStatsAPI / xG no disponible
+        </li>
+      );
+    }
+
     return (
       <details
         className="mt-2 rounded-md border border-slate-700/50 bg-slate-950/40 px-3 py-2 text-[11px] text-slate-400"
@@ -86,17 +132,17 @@ export function EditorialPredictionPanel({
         <ul className="mt-2 space-y-1 pl-1">
           <li>{flagLabel(debugBlock.recent_fixtures_found)} Forma reciente encontrada</li>
           <li>{flagLabel(debugBlock.recent_fixtures_flattened)} Forma reciente normalizada para el editorial</li>
-          <li>{flagLabel(debugBlock.thestatsapi_found)} TheStatsAPI / xG disponible</li>
+          {xgRow}
           <li>{flagLabel(debugBlock.h2h_found)} H2H reciente cargado</li>
           <li>{flagLabel(debugBlock.market_identity_found)} Mercado identificado</li>
           <li className="pt-1 text-slate-400">
             <span className="font-medium">Calidad de datos:</span>{' '}
             <span className="text-slate-200">{debugBlock.data_quality || 'THIN'}</span>
           </li>
-          {Array.isArray(debugBlock.missing) && debugBlock.missing.length > 0 && (
+          {missingFromSections.length > 0 && (
             <li className="pt-1 text-slate-400">
               <span className="font-medium">Faltantes:</span>{' '}
-              <span className="text-amber-200">{debugBlock.missing.join(', ')}</span>
+              <span className="text-amber-200">{missingFromSections.join(', ')}</span>
             </li>
           )}
         </ul>

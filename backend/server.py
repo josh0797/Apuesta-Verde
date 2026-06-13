@@ -8,12 +8,12 @@ import httpx
 import asyncio
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional, Any, List
+from typing import Optional, Any, List, Union
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 
@@ -270,13 +270,28 @@ async def rescue_audit_multi_window_endpoint() -> dict:
 
 # ── Phase F83 — Manual Market Identity + Manual Odds Injection ───────
 class ManualMarketRepriceRequest(BaseModel):
-    match_id:     str
+    # Phase F83.1 — accept str OR numeric; coerce to a trimmed string
+    # so the downstream lookup is stable regardless of how the UI sent
+    # the id. The previous ``match_id: str`` raised 422
+    # "Input should be a valid string" when the frontend accidentally
+    # sent ``null`` or a number — the production bug we are fixing.
+    match_id:     Union[str, int]
     detected_odd: Optional[float] = None
     manual_odd:   float
     market_type:  str
     selection:    str
     line:         Optional[float] = None
     source:       Optional[str] = "USER_MANUAL_INPUT"
+
+    @field_validator("match_id", mode="before")
+    @classmethod
+    def _coerce_match_id(cls, v: Any) -> str:
+        if v is None:
+            raise ValueError("match_id is required")
+        s = str(v).strip()
+        if not s or s in ("undefined", "null", "NaN"):
+            raise ValueError("match_id must be a non-blank identifier")
+        return s
 
 
 @app.get("/api/football/manual-market-options")
@@ -305,6 +320,12 @@ async def manual_market_reprice_endpoint(
     Used when the engine returned ``REQUIRES_MARKET_IDENTIFICATION``
     and the operator decides what market the detected price belongs to.
     The original ``detected_odd`` is preserved separately.
+
+    Phase F83.1 — match_id lookup is now tolerant: tries the id as
+    string AND as int (when numeric) against the canonical
+    ``analyst_runs`` collection across all known buckets. Failures here
+    are non-fatal — the endpoint still recomputes the manual market
+    even when no base_pick context is found.
     """
     from services.manual_market_identity import (
         validate_manual_payload, recalculate_with_manual_market,
@@ -314,21 +335,52 @@ async def manual_market_reprice_endpoint(
     if not ok:
         raise HTTPException(status_code=422, detail=err)
 
+    match_id_str = data["match_id"]  # already coerced + stripped by the validator
+    ids: list = [match_id_str]
+    if match_id_str.isdigit():
+        try:
+            ids.append(int(match_id_str))
+        except (TypeError, ValueError):
+            pass
+
     # Try to locate the base pick (for fragility/confidence context).
     base_pick = None
     try:
-        match_doc = await db.matches.find_one({"match_id": payload.match_id})
-        if match_doc and isinstance(match_doc, dict):
-            picks = match_doc.get("picks") or []
-            if picks:
-                base_pick = picks[0]
+        run_doc = await db.analyst_runs.find_one(
+            {"$or": [
+                {"picks.match_id":                          {"$in": ids}},
+                {"summary.discarded_market.match_id":       {"$in": ids}},
+                {"summary.discarded_motivation.match_id":   {"$in": ids}},
+                {"summary.incomplete_data.match_id":        {"$in": ids}},
+                {"summary.watchlist_odds_needed.match_id":  {"$in": ids}},
+                {"picks.fixture_id":                        {"$in": ids}},
+                {"picks.id":                                {"$in": ids}},
+            ]},
+            sort=[("created_at", -1)],
+        )
+        if run_doc:
+            for bucket in ("picks", "discarded_market", "discarded_motivation",
+                            "incomplete_data", "watchlist_odds_needed"):
+                src = run_doc.get(bucket) if bucket == "picks" else \
+                      (run_doc.get("summary") or {}).get(bucket) or []
+                for entry in src or []:
+                    if not isinstance(entry, dict):
+                        continue
+                    if (entry.get("match_id") in ids
+                            or entry.get("fixture_id") in ids
+                            or entry.get("id") in ids):
+                        base_pick = entry
+                        break
+                if base_pick is not None:
+                    break
     except Exception as exc:  # noqa: BLE001
         log.debug("manual_market_reprice: base_pick lookup failed: %s", exc)
 
     result = recalculate_with_manual_market(data, base_pick=base_pick)
-    result["match_id"] = payload.match_id
+    result["match_id"] = match_id_str
     # Preserve the original detected odd alongside the manual one.
-    result["manual_market_identity"]["detected_odd"] = payload.detected_odd
+    if isinstance(result.get("manual_market_identity"), dict):
+        result["manual_market_identity"]["detected_odd"] = payload.detected_odd
     return result
 
 

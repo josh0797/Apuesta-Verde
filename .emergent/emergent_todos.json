@@ -1,22 +1,26 @@
 [
   {
-    "content": "C1: Convertir TSX a JSX + reemplazar labels Scores24 → 365Scores",
+    "content": "D6: Lint + pytest + screenshot verify",
     "status": "completed"
   },
   {
-    "content": "C2: Integrar CornersEnrichmentButton en MatchCard.jsx",
-    "status": "completed"
+    "content": "E1: compute_xg_recent_averages() con TheStatsAPI shotmap (background-first)",
+    "status": "pending"
   },
   {
-    "content": "C3: Integrar CornersEnrichmentButton en MatchIntelligencePanel.jsx",
-    "status": "completed"
+    "content": "E2: Integrar como background opt-in (no inline) + cache + timeout",
+    "status": "pending"
   },
   {
-    "content": "C4: Escribir 5 tests frontend obligatorios",
-    "status": "completed"
+    "content": "E3: UI bloque xG L1/L5/L15 en MatchIntelligencePanel",
+    "status": "pending"
   },
   {
-    "content": "C5: Validar lint + esbuild + screenshot final",
-    "status": "completed"
+    "content": "E4: Señales LOW_RECENT_XG_PROFILE / DEFENSIVE_XG_SUPPRESSION / XG_FORM_SHIFT / XG_APOYA_*",
+    "status": "pending"
+  },
+  {
+    "content": "E5: Tests E (compute + cache + señales)",
+    "status": "pending"
   }
 ]

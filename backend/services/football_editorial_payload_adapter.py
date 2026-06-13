@@ -396,6 +396,27 @@ def build_editorial_ready_match_payload(match: dict) -> dict:
     if isinstance(match.get("corners_snapshot"), dict):
         out["corners_snapshot"] = match["corners_snapshot"]
 
+    # Phase F83.1 — per-section availability map. The UI must consume
+    # ``sections`` (NOT the legacy boolean flags below) to decide what
+    # to render. This is what fixes the long-standing "xG disponible
+    # vs xG faltante" contradiction in the dashboard.
+    try:
+        from services.football_data_availability import (
+            build_data_availability_sections,
+        )
+        availability = build_data_availability_sections(match)
+    except Exception:  # noqa: BLE001
+        availability = {
+            "sections":           {},
+            "available_sections": [],
+            "missing_sections":   list(missing),
+            "missing_codes":      [],
+        }
+
+    out["data_availability"] = availability
+    # Propagate at the top level too so consumers of the editorial
+    # payload (UI, analyst_runs persistence) can read it without
+    # opening internal_analysis_debug.
     out["internal_analysis_debug"] = {
         "recent_fixtures_found":     recent_found,
         "recent_fixtures_flattened": signals["recent"],
@@ -406,6 +427,13 @@ def build_editorial_ready_match_payload(match: dict) -> dict:
         "data_quality":              data_quality,
         "missing":                   missing,
         "reason_codes":              reason_codes,
+        # Phase F83.1 — new authoritative sections map. Old fields are
+        # kept above for backwards-compat with any consumer that has not
+        # migrated yet.
+        "sections":                  availability["sections"],
+        "available_sections":        availability["available_sections"],
+        "missing_sections":          availability["missing_sections"],
+        "missing_codes":             availability["missing_codes"],
     }
     return out
 
