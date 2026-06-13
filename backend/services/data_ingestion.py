@@ -32,8 +32,22 @@ from . import provenance as prov   # Phase P2: per-section source/freshness tagg
 from . import fallback_scraper as fb
 from . import football_competitions as fc
 from . import normalizer as nz
+from .external_sources import (
+    thestatsapi_team_stats_adapter as _ts_team_stats,
+    thestatsapi_h2h_adapter as _ts_h2h,
+)
 
 log = logging.getLogger("ingestion")
+
+# Phase F84.a — Prioridad-inversa: TheStatsAPI primaria, API-Sports
+# fallback. Defaults to ``true`` to preserve the previous behaviour
+# (every TheStatsAPI miss gracefully falls back to api_football). Set
+# ``ENABLE_API_SPORTS_FALLBACK=false`` to enter "TheStatsAPI-only" mode
+# — useful for staging environments that need to surface coverage gaps.
+import os as _os  # used only by the F84.a fallback flag helper below
+def _api_sports_fallback_enabled() -> bool:
+    raw = (_os.environ.get("ENABLE_API_SPORTS_FALLBACK") or "true").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 # Top-league IDs per sport, sourced from api_sports.SPORT_CONFIG
 TOP_LEAGUES = aps.SPORT_CONFIG["football"]["top_leagues"]
@@ -641,14 +655,90 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             stand_resp = []
 
         stats_h, stats_a, h2h, inj_h, inj_a = {}, {}, [], [], []
+        stats_h_source = stats_a_source = "missing"  # F84.a — audit
         recent_h_raw, recent_a_raw = [], []
         if deep:
-            try: stats_h = await af.team_statistics(client, home["id"], lid, db=db)
-            except Exception: pass
-            try: stats_a = await af.team_statistics(client, away["id"], lid, db=db)
-            except Exception: pass
-            try: h2h = await af.head_to_head(client, home["id"], away["id"], limit=5, db=db)
-            except Exception: pass
+            # F84.a — Inversión de prioridad para team_statistics:
+            # 1) TheStatsAPI primaria (shape compatible con API-Sports gracias
+            #    al adapter `thestatsapi_team_stats_adapter`).
+            # 2) API-Sports fallback detrás del flag
+            #    `ENABLE_API_SPORTS_FALLBACK` (default true).
+            # Tanto el éxito como el fallback quedan registrados en
+            # ``stats_*_source`` para el bloque _provenance del match_doc.
+            _ts_home_team_id = (fx_raw.get("teams", {}).get("home") or {}).get("_thestatsapi_id")
+            _ts_away_team_id = (fx_raw.get("teams", {}).get("away") or {}).get("_thestatsapi_id")
+            _ts_competition  = (fx_raw.get("league") or {}).get("_thestatsapi_id")
+            try:
+                stats_h = await _ts_team_stats.fetch_team_season_stats(
+                    client,
+                    team_id_thestatsapi=_ts_home_team_id,
+                    season=season,
+                    competition_id=_ts_competition,
+                    team_id_internal=home.get("id"),
+                )
+                if stats_h:
+                    stats_h_source = "thestatsapi"
+            except Exception as exc:
+                log.debug("[F84.a] thestatsapi team_stats home failed: %s", exc)
+                stats_h = {}
+            if not stats_h and _api_sports_fallback_enabled():
+                try:
+                    stats_h = await af.team_statistics(client, home["id"], lid, db=db)
+                    if stats_h:
+                        stats_h_source = "api_sports_fallback"
+                except Exception:
+                    stats_h = {}
+            try:
+                stats_a = await _ts_team_stats.fetch_team_season_stats(
+                    client,
+                    team_id_thestatsapi=_ts_away_team_id,
+                    season=season,
+                    competition_id=_ts_competition,
+                    team_id_internal=away.get("id"),
+                )
+                if stats_a:
+                    stats_a_source = "thestatsapi"
+            except Exception as exc:
+                log.debug("[F84.a] thestatsapi team_stats away failed: %s", exc)
+                stats_a = {}
+            if not stats_a and _api_sports_fallback_enabled():
+                try:
+                    stats_a = await af.team_statistics(client, away["id"], lid, db=db)
+                    if stats_a:
+                        stats_a_source = "api_sports_fallback"
+                except Exception:
+                    stats_a = {}
+            # F84.b — Inversión de prioridad para head_to_head:
+            # 1) TheStatsAPI primaria (lista de matches del home team filtrada
+            #    localmente por opponent → shape API-Sports v3 compatible).
+            # 2) API-Sports fallback detrás del flag ENABLE_API_SPORTS_FALLBACK.
+            # El resultado se almacena en ``h2h`` y la fuente en ``h2h_source``
+            # para auditoría en ``_provenance_h2h``.
+            h2h_source = "missing"
+            try:
+                h2h = await _ts_h2h.fetch_head_to_head(
+                    client,
+                    home_team_id_thestatsapi=_ts_home_team_id,
+                    away_team_id_thestatsapi=_ts_away_team_id,
+                    limit=5,
+                    db=db,
+                    home_team_id_internal=home.get("id"),
+                    away_team_id_internal=away.get("id"),
+                )
+                if h2h:
+                    h2h_source = "thestatsapi"
+            except Exception as exc:
+                log.debug("[F84.b] thestatsapi h2h failed: %s", exc)
+                h2h = []
+            if not h2h and _api_sports_fallback_enabled():
+                try:
+                    h2h = await af.head_to_head(
+                        client, home["id"], away["id"], limit=5, db=db,
+                    )
+                    if h2h:
+                        h2h_source = "api_sports_fallback"
+                except Exception:
+                    h2h = []
             try: inj_h = await af.injuries(client, home["id"], db=db)
             except Exception: pass
             try: inj_a = await af.injuries(client, away["id"], db=db)
@@ -849,6 +939,15 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
                 log.warning("[ts_enrichment] football fixture %s enrichment failed: %s", fid, exc)
         # Phase P2 — provenance: API-Sports is authoritative for the football
         # path; every section here was fetched from the same provider.
+        # F84.a — Stamp team_stats audit so the editorial layer can show
+        # which source served each side (thestatsapi vs api_sports_fallback
+        # vs missing).
+        match_doc.setdefault("_provenance_team_stats", {
+            "home": stats_h_source,
+            "away": stats_a_source,
+        })
+        # F84.b — Stamp h2h audit (same semantics).
+        match_doc.setdefault("_provenance_h2h", {"source": h2h_source})
         prov.attach_to_match(
             match_doc,
             primary_source=_ext_src,

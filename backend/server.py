@@ -829,6 +829,211 @@ async def xg_recent_status(match_id: str) -> dict:
     }
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Phase F85 — Public xG enrichment (FBref + Forebet)
+# ─────────────────────────────────────────────────────────────────────
+# Separate request model so we can carry the optional ``forebet_url``
+# and the ``sources`` filter without leaking them into the licensed-
+# provider endpoints (XGRecentAveragesRequest above).
+class PublicXGEnrichmentRequest(BaseModel):
+    match_id:    str
+    sources:     Optional[List[str]] = None  # e.g. ["fbref", "forebet"]
+    forebet_url: Optional[str]       = None
+    force:       Optional[bool]      = False
+
+    @field_validator("match_id", mode="before")
+    @classmethod
+    def _coerce_id(cls, v: Any) -> str:
+        if v is None:
+            raise ValueError("match_id is required")
+        s = str(v).strip()
+        if not s or s in ("undefined", "null", "NaN"):
+            raise ValueError("match_id must be a non-blank identifier")
+        return s
+
+
+_PUBLIC_XG_BG_JOBS: dict[str, dict] = {}
+_PUBLIC_XG_BG_LOCK = asyncio.Lock()
+
+
+async def _persist_public_xg_to_run(match_id: str, payload: dict) -> None:
+    """Mirror :func:`_persist_xg_recent_to_run` for the public xG payload."""
+    if not isinstance(payload, dict):
+        return
+    base_set = {
+        "xg_public_enrichment": payload,
+        "football_data_enrichment.xg_public_enrichment": payload,
+    }
+    # If we have a usable xG snapshot AND the canonical
+    # ``xg_recent_averages`` is missing, also copy it across so the
+    # editorial layer picks it up.
+    snap = (payload or {}).get("xg_recent_averages")
+    if isinstance(snap, dict) and snap.get("available"):
+        base_set["xg_recent_averages"] = snap
+        base_set["football_data_enrichment.xg_recent_averages"] = snap
+
+    def _scoped(prefix: str) -> dict:
+        return {f"{prefix}.{k}": v for k, v in base_set.items()}
+
+    try:
+        upd = await db.analyst_runs.update_many(
+            {"picks.match_id": match_id},
+            {"$set": _scoped("picks.$")},
+        )
+        if upd.modified_count:
+            return
+        for bucket in ("discarded_market", "discarded_motivation",
+                        "incomplete_data", "watchlist_odds_needed"):
+            r = await db.analyst_runs.update_many(
+                {f"summary.{bucket}.match_id": match_id},
+                {"$set": _scoped(f"summary.{bucket}.$")},
+            )
+            if r.modified_count:
+                return
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[public_xg] persist failed for %s: %s", match_id, exc)
+
+
+async def _do_public_xg_fetch(
+    match_id: str,
+    *,
+    forebet_url: Optional[str] = None,
+    sources: Optional[List[str]] = None,
+) -> dict:
+    """Shared body for the /run-now and the background worker.
+
+    Fail-soft: returns a payload dict whatever happens. Never raises.
+    Reads timeout from :data:`PUBLIC_XG_SCRAPER_TIMEOUT_SECONDS`.
+    """
+    from services.football_xg_public_ingestor import (
+        enrich_public_xg_context, DEFAULT_RUN_TIMEOUT, RC_BUILD_FAILED,
+    )
+    try:
+        match_doc = await _load_match_doc_for_corners(match_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[public_xg] load match doc failed for %s: %s", match_id, exc)
+        match_doc = None
+    if not isinstance(match_doc, dict):
+        return {
+            "available":   False,
+            "status":      "MATCH_NOT_FOUND",
+            "match_id":    match_id,
+            "reason_codes": ["MATCH_NOT_FOUND"],
+        }
+
+    # Honour the ``sources`` filter: if "forebet" not in sources, drop
+    # the forebet URL so the orchestrator skips that fetch entirely.
+    fb_url = forebet_url
+    if isinstance(sources, list) and sources and "forebet" not in sources:
+        fb_url = None
+
+    timeout_s = float(os.environ.get(
+        "PUBLIC_XG_SCRAPER_TIMEOUT_SECONDS", str(DEFAULT_RUN_TIMEOUT),
+    ))
+    payload = await enrich_public_xg_context(
+        client=None, db=db, match_doc=match_doc,
+        forebet_url=fb_url, timeout_s=timeout_s,
+    )
+    payload["match_id"] = match_id
+    if payload.get("status") == "TIMEOUT":
+        # Surface but persist nothing on timeout.
+        return payload
+    if not payload.get("available"):
+        payload.setdefault("status", "UNAVAILABLE")
+        return payload
+    # Persist & report SUCCESS.
+    try:
+        await _persist_public_xg_to_run(match_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[public_xg] persist crashed for %s: %s", match_id, exc)
+    payload.setdefault("status", "SUCCESS")
+    payload["xg_public_enrichment"] = {
+        k: v for k, v in payload.items()
+        if k not in {"match_id", "status"}
+    }
+    return payload
+
+
+async def _run_background_public_xg_job(
+    match_id: str,
+    *,
+    forebet_url: Optional[str],
+    sources: Optional[List[str]],
+) -> None:
+    job = _PUBLIC_XG_BG_JOBS.get(match_id)
+    if not job:
+        return
+    job["status"] = "RUNNING"
+    try:
+        job["result"] = await _do_public_xg_fetch(
+            match_id, forebet_url=forebet_url, sources=sources,
+        )
+        job["status"] = (job["result"] or {}).get("status") or "DONE"
+    except Exception as exc:  # noqa: BLE001
+        job["status"] = "ERROR"
+        job["result"] = {
+            "available": False, "status": "ERROR",
+            "reason_codes": ["BACKGROUND_JOB_CRASHED"],
+            "_error": str(exc), "match_id": match_id,
+        }
+    finally:
+        job["finished_at"] = datetime.now(timezone.utc).isoformat()
+
+
+@app.post("/api/football/public-xg-enrichment/run-now")
+async def public_xg_run_now(payload: PublicXGEnrichmentRequest) -> dict:
+    """Synchronous FBref + Forebet enrichment with a hard timeout.
+
+    NEVER blocks the picks generator: the orchestrator has its own
+    wait_for and degrades to a ``TIMEOUT`` payload after
+    ``PUBLIC_XG_SCRAPER_TIMEOUT_SECONDS`` seconds.
+    """
+    return await _do_public_xg_fetch(
+        payload.match_id,
+        forebet_url=payload.forebet_url,
+        sources=payload.sources,
+    )
+
+
+@app.post("/api/football/public-xg-enrichment/background")
+async def public_xg_background(payload: PublicXGEnrichmentRequest) -> dict:
+    """Queue a background public-xg fetch. Returns immediately."""
+    match_id = payload.match_id
+    async with _PUBLIC_XG_BG_LOCK:
+        existing = _PUBLIC_XG_BG_JOBS.get(match_id)
+        if existing and existing.get("status") in ("QUEUED", "RUNNING"):
+            return {
+                "status":     "ALREADY_QUEUED",
+                "match_id":   match_id,
+                "started_at": existing.get("started_at"),
+            }
+        _PUBLIC_XG_BG_JOBS[match_id] = {
+            "status":      "QUEUED",
+            "started_at":  datetime.now(timezone.utc).isoformat(),
+            "finished_at": None,
+            "result":      None,
+        }
+    asyncio.create_task(_run_background_public_xg_job(
+        match_id, forebet_url=payload.forebet_url, sources=payload.sources,
+    ))
+    return {"status": "QUEUED", "match_id": match_id}
+
+
+@app.get("/api/football/public-xg-enrichment/status/{match_id}")
+async def public_xg_status(match_id: str) -> dict:
+    """Poll the status of a previously queued public-xg background job."""
+    job = _PUBLIC_XG_BG_JOBS.get(match_id)
+    if not job:
+        return {"status": "NOT_FOUND", "match_id": match_id}
+    return {
+        "status":      job.get("status"),
+        "match_id":    match_id,
+        "started_at":  job.get("started_at"),
+        "finished_at": job.get("finished_at"),
+        "result":      job.get("result"),
+    }
+
+
 
 
 # ── Phase F68 — Player heatmap by NAME (lazy resolver) ───────────────

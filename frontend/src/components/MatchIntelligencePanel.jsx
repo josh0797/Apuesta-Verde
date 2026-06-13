@@ -17,6 +17,7 @@ import { ContradictionWarnings } from './ContradictionWarnings';
 import { EngineNarrativeBlock } from './EngineNarrativeBlock';
 import { ConfidenceBreakdown } from './ConfidenceBreakdown';
 import { CornersEnrichmentButton } from './CornersEnrichmentButton';
+import { PublicXGPanel } from './PublicXGPanel';
 
 const ICON_MAP = { Activity, ShieldCheck, Target, Zap, Brain };
 
@@ -263,6 +264,10 @@ export function MatchIntelligencePanel({ pick, sport = 'football' }) {
         {/* Phase F83.2-E4 — xG L1/L5/L15 from TheStatsAPI shotmap. */}
         {sport === 'football' && (
           <XGRecentAveragesPanel match={pick} lang={lang} />
+        )}
+        {/* Phase F85 — Public xG enrichment (FBref + Forebet). */}
+        {sport === 'football' && (
+          <PublicXGPanel match={pick} lang={lang} />
         )}
       </div>
     </section>

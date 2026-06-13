@@ -1,34 +1,26 @@
 [
   {
-    "content": "Inyectar XGRecentAveragesPanel en MatchIntelligencePanel.jsx",
+    "content": "F85.1 - fbref_client + tests (47/47)",
     "status": "completed"
   },
   {
-    "content": "Ampliar football_xg_signals.py con señales parciales",
+    "content": "F85.2 - forebet_client + tests (14/14)",
     "status": "completed"
   },
   {
-    "content": "Asegurar panel muestra xG parcial (con badge) y no oculta secciones si falta L15",
+    "content": "F85.3 - normalizer + ingestor + signals + tests (34/34)",
     "status": "completed"
   },
   {
-    "content": "Escribir tests backend E5 (30 tests, todos pasan)",
+    "content": "F85.4 - Endpoints public-xg-enrichment + tests (16/16)",
     "status": "completed"
   },
   {
-    "content": "Escribir tests frontend E5 (12 tests, todos pasan)",
+    "content": "F85.5 - PublicXGPanel + Button + wiring MatchIntelligencePanel + tests (13/13)",
     "status": "completed"
   },
   {
-    "content": "Correr pytest completo (2313 passed, 2 skipped) y craco test (12/12 panel xG, 3 preexistentes en LiveReevalPanel)",
-    "status": "completed"
-  },
-  {
-    "content": "Validar screenshot del panel en preview (login limpio, panel requiere auth)",
-    "status": "completed"
-  },
-  {
-    "content": "Actualizar plan.md",
+    "content": "F85.6 - pytest 2477 passed + craco 125 passed + plan.md",
     "status": "completed"
   }
 ]
