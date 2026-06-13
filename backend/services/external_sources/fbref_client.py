@@ -180,6 +180,183 @@ async def _load_mongo_mapping(db, team_norm: str) -> Optional[dict]:
     }
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Phase 2 (F85 Phase 2) — search-page resolver + fuzzy matching
+# ─────────────────────────────────────────────────────────────────────
+# Minimum SequenceMatcher.ratio() required to accept a search-page hit
+# as the canonical match. 0.78 is the sweet spot we hit during empirical
+# testing on national-team names where the FBref slug carries "Men"
+# suffix (e.g. "Paraguay Men").
+SEARCH_FUZZY_THRESHOLD = float(os.environ.get(
+    "FBREF_SEARCH_FUZZY_THRESHOLD", "0.78",
+))
+
+
+def _fuzzy_similarity(a: str, b: str) -> float:
+    """0.0–1.0 similarity score between two team-name strings, computed
+    over their **normalised** forms (no accents, no case, no suffixes)."""
+    from difflib import SequenceMatcher
+    na, nb = _normalise_name(a), _normalise_name(b)
+    if not na or not nb:
+        return 0.0
+    return SequenceMatcher(None, na, nb).ratio()
+
+
+def _parse_fbref_search_results(html: str) -> list[dict]:
+    """Extract club / national-team candidates from FBref's search-page
+    HTML. Returns ``[{name, url, team_type, country}]`` in document
+    order. Always best-effort; returns ``[]`` on any parse error."""
+    if not isinstance(html, str) or not html:
+        return []
+    try:
+        merged = _uncomment_html(html)
+        tree = HTMLParser(merged)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[fbref] search HTMLParser failed: %s", exc)
+        return []
+
+    candidates: list[dict] = []
+    # FBref groups search hits under <div class="search-item">.
+    # Each item carries a heading + <div class="search-item-name"><a>.
+    for item in tree.css(".search-item"):
+        name_node = item.css_first(".search-item-name a, a")
+        if name_node is None:
+            continue
+        href = (name_node.attributes or {}).get("href") or ""
+        if not href.startswith("/en/squads/"):
+            continue
+        full_url = FBREF_BASE + href if href.startswith("/") else href
+        # The container's class also flags the result type
+        # (e.g. ``search-item-club``, ``search-item-national-team``).
+        item_classes = (item.attributes or {}).get("class") or ""
+        if "national-team" in item_classes:
+            team_type = "national_team"
+        elif "club" in item_classes:
+            team_type = "club"
+        else:
+            team_type = None
+        candidates.append({
+            "name":      _normalise_name(name_node.text(strip=True)),
+            "display":   (name_node.text(strip=True) or "").strip(),
+            "url":       full_url,
+            "team_type": team_type,
+        })
+
+    # Fallback layout: when only ONE match exists, FBref redirects to
+    # the team page directly. Callers detect this via the response
+    # status (302 / final URL match) and craft the candidate themselves.
+    return candidates
+
+
+async def _search_fbref_for_team(
+    client: httpx.AsyncClient,
+    query: str,
+    *,
+    timeout: float = DEFAULT_FETCH_TIMEOUT,
+) -> list[dict]:
+    """Issue a search request to FBref and return candidate hits.
+
+    Honours the test-friendly fetch policy from ``_fetch_html`` — when
+    a caller-supplied client is present we use it (so MockTransport
+    works); otherwise we go through scrape.do.
+    """
+    if not query or not isinstance(query, str):
+        return []
+    from urllib.parse import quote_plus
+    url = f"{FBREF_BASE}/en/search/search.fcgi?search={quote_plus(query)}"
+
+    # When the search returns exactly one match, FBref usually redirects
+    # straight to ``/en/squads/<id>/<slug>``. We detect both possibilities
+    # by inspecting the response status AND the candidates the search
+    # page would have rendered.
+    if client is not None:
+        try:
+            r = await client.get(
+                url, timeout=timeout, follow_redirects=False,
+                headers={"User-Agent": FBREF_USER_AGENT},
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[fbref] search fetch failed for %r: %s", query, exc)
+            return []
+        if r.status_code in (301, 302, 303, 307, 308):
+            target = r.headers.get("location", "")
+            if "/en/squads/" in target:
+                # Single-hit redirect → synth one candidate.
+                full = target if target.startswith("http") else FBREF_BASE + target
+                return [{
+                    "name":      _normalise_name(query),
+                    "display":   query,
+                    "url":       full,
+                    "team_type": None,
+                }]
+            return []
+        if r.status_code != 200 or not r.text:
+            return []
+        return _parse_fbref_search_results(r.text)
+
+    # Production path.
+    try:
+        from .. import scrape_do_client as sdc
+    except Exception:  # noqa: BLE001
+        return []
+    html = await sdc.fetch_via_scrapedo(url, timeout=timeout)
+    if not html:
+        return []
+    return _parse_fbref_search_results(html)
+
+
+def _best_fuzzy_hit(
+    candidates: list[dict],
+    query: str,
+    *,
+    threshold: float = SEARCH_FUZZY_THRESHOLD,
+) -> Optional[dict]:
+    """Return the best candidate whose normalised name is ``>= threshold``
+    similar to the query, or ``None``."""
+    if not candidates:
+        return None
+    best: Optional[dict] = None
+    best_score = 0.0
+    for c in candidates:
+        score = _fuzzy_similarity(query, c.get("display") or c.get("name") or "")
+        if score >= threshold and score > best_score:
+            best, best_score = c, score
+    if best:
+        best = dict(best)
+        best["fuzzy_score"] = round(best_score, 3)
+    return best
+
+
+async def _persist_search_hit_to_mongo(
+    db, *, team_name: str, team_norm: str, hit: dict,
+) -> None:
+    """Cache a successful Phase-2 hit into ``external_team_mappings``.
+    Fail-soft."""
+    if db is None or not hit:
+        return
+    doc = {
+        "provider":        "fbref",
+        "team_name":       team_name,
+        "team_name_norm":  team_norm,
+        "aliases_norm":    [team_norm, _normalise_name(hit.get("display") or "")],
+        "fbref_team_url":  hit.get("url"),
+        "team_type":       hit.get("team_type"),
+        "discovered_via":  "search_fuzzy",
+        "fuzzy_score":     hit.get("fuzzy_score"),
+        "updated_at":      datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        await db["external_team_mappings"].update_one(
+            {"provider": "fbref", "team_name_norm": team_norm},
+            {"$set": doc, "$setOnInsert": {
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[fbref] mongo cache write failed for %r: %s", team_norm, exc)
+
+
 async def resolve_fbref_team_url(
     client: Optional[httpx.AsyncClient],
     team_name: str,
@@ -227,7 +404,35 @@ async def resolve_fbref_team_url(
             "team_name_norm": norm,
         }
 
-    # 3) Phase 2 (search-page scrape) — out of scope for F85.1.
+    # 3) Phase 2 (F85 Phase 2) — search-page scrape + fuzzy matching.
+    #    Only attempted when a real httpx client is available (so we
+    #    never accidentally do I/O during unit tests that pass
+    #    ``client=None``).
+    if client is not None:
+        try:
+            candidates = await _search_fbref_for_team(client, team_name)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[fbref] search Phase 2 crashed: %s", exc)
+            candidates = []
+        hit = _best_fuzzy_hit(candidates, team_name)
+        if hit:
+            # Best-effort cache so subsequent lookups skip the network.
+            try:
+                await _persist_search_hit_to_mongo(
+                    db, team_name=team_name, team_norm=norm, hit=hit,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return {
+                "available":      True,
+                "url":            hit["url"],
+                "team_type":      hit.get("team_type"),
+                "source":         "search_fuzzy",
+                "team_name":      team_name,
+                "team_name_norm": norm,
+                "fuzzy_score":    hit.get("fuzzy_score"),
+            }
+
     log.debug("[fbref] team URL not found for %r (norm=%r)", team_name, norm)
     return {
         "available":     False,
@@ -513,6 +718,10 @@ __all__ = [
     # Public API
     "resolve_fbref_team_url", "fetch_fbref_team_match_logs",
     "parse_fbref_team_html",
+    # Phase 2 helpers
+    "_search_fbref_for_team", "_parse_fbref_search_results",
+    "_best_fuzzy_hit", "_fuzzy_similarity", "_persist_search_hit_to_mongo",
+    "SEARCH_FUZZY_THRESHOLD",
     # Internal helpers (exported for tests)
     "_uncomment_html", "_normalise_name",
     # Reason codes

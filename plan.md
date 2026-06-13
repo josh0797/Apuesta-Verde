@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.
 > **Estado histórico:** ✅ F58–F70 completadas (ver secciones abajo).
-> **Estado actual (resumen):** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA** + ✅ **F83.1 (Pantalla-negra fix + match_id robust + odd isolation + data availability sections) COMPLETADA** + ✅ **P2 (infer_original_pick_side 4-source cascade) COMPLETADA** + ✅ **F82.2 backend (Scores24 deprecated, 365Scores cross integrator, provider re-order, persistence) COMPLETADA** + ✅ **F82.2 frontend (CornersEnrichmentButton wiring + Scores24 label removal + FE tests) COMPLETADA** + ✅ **F83.2 / Bloque E (xG L1/L5/L15 desde shotmap TheStatsAPI + UI + tests) COMPLETADA** + ✅ **P4.1 (LiveReevalPanel.test.jsx 3 preexistentes) COMPLETADA** + ✅ **F84.a (team_stats prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.b (H2H prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F85 (Public xG — FBref + Forebet vía scrape.do) COMPLETADA**.
+> **Estado actual (resumen):** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA** + ✅ **F83.1 (Pantalla-negra fix + match_id robust + odd isolation + data availability sections) COMPLETADA** + ✅ **P2 (infer_original_pick_side 4-source cascade) COMPLETADA** + ✅ **F82.2 backend (Scores24 deprecated, 365Scores cross integrator, provider re-order, persistence) COMPLETADA** + ✅ **F82.2 frontend (CornersEnrichmentButton wiring + Scores24 label removal + FE tests) COMPLETADA** + ✅ **F83.2 / Bloque E (xG L1/L5/L15 desde shotmap TheStatsAPI + UI + tests) COMPLETADA** + ✅ **P4.1 (LiveReevalPanel.test.jsx 3 preexistentes) COMPLETADA** + ✅ **F84.a (team_stats prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.b (H2H prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.e (odds prioridad-inversa a TheStatsAPI + line movement) COMPLETADA** + ✅ **F85 (Public xG — FBref + Forebet vía scrape.do) COMPLETADA** + ✅ **F85 Phase 2 (FBref search-page resolver + fuzzy matching) COMPLETADA**.
 >
 > **Idioma operativo:** Español.
 
@@ -68,14 +68,14 @@
 
 ### Objetivos nuevos / extendidos (F84) — Migración estructural API-Sports → TheStatsAPI (prioridad-inversa)
 - Migrar bloques estructurales para fútbol a TheStatsAPI como primaria, manteniendo API-Sports como fallback:
-  - **F84.a**: `team_stats/season_aggregates` (forma, GF/GA season, etc.)
-  - **F84.b**: `h2h` (head-to-head)
-  - **F84.e (pendiente)**: `odds` (promover TheStatsAPI a primaria)
+  - **F84.a**: `team_stats/season_aggregates` (forma, GF/GA season, etc.) ✅
+  - **F84.b**: `h2h` (head-to-head) ✅
+  - **F84.e**: `odds` (promover TheStatsAPI a primaria) ✅
 - Introducir flag:
   - `ENABLE_API_SPORTS_FALLBACK` (default `true`) para modo conservador.
   - `ENABLE_API_SPORTS_FALLBACK=false` activa modo “TheStatsAPI-only” en staging.
 - Auditoría runtime:
-  - Persistir `_provenance_*` en match_doc para saber qué proveedor sirvió cada sección.
+  - Persistir `_provenance_*` en match_doc para saber qué proveedor sirvió cada sección (`_provenance_team_stats`, `_provenance_h2h`, `_provenance_odds`).
 
 ### Objetivos nuevos / extendidos (F85) — Public xG Enrichment (FBref + Forebet vía scrape.do)
 - Construir una capa pública de scraping/ingesta para fútbol, estilo “FootyStats premium”, usando:
@@ -83,6 +83,7 @@
   - **Forebet** como **contexto** (predicción, score proyectado, probs 1X2, hints O/U, texto), **nunca como fuente de xG**.
 - Persistir resultados de forma **fail-soft**, con **timeouts** y arquitectura **run-now/background** para que **no bloquee** el generador principal.
 - Exponer UI para disparar enriquecimiento y renderizar datos parciales sin ocultar otros bloques.
+- **F85 Phase 2:** Resolver URLs FBref vía search-page + fuzzy matching cuando static mapping/Mongo miss ✅.
 
 ---
 
@@ -218,7 +219,7 @@
 
 # Phase F84 — Migración estructural API-Sports → TheStatsAPI (prioridad-inversa)
 
-## Estado: ✅ F84.a COMPLETADA + ✅ F84.b COMPLETADA (F84.e pendiente)
+## Estado: ✅ F84.a COMPLETADA + ✅ F84.b COMPLETADA + ✅ F84.e COMPLETADA
 
 ## Documento de mapeo
 - ✅ `/app/docs/F84_thestatsapi_migration_mapping.md`
@@ -240,6 +241,31 @@
 - ✅ **MOD** `backend/services/data_ingestion.py` (inversión de prioridad + `_provenance_h2h`).
 - ✅ **NEW** `backend/tests/test_f84_b_h2h_adapter.py` — 26 tests.
 - ✅ Validación: **2366 passed, 2 skipped, 0 fallos**.
+
+## F84.e — odds → primaria TheStatsAPI + line movement (COMPLETED ✅)
+
+### Objetivo
+Invertir prioridad de odds: antes API-Sports primario + TheStatsAPI fallback. Ahora:
+- TheStatsAPI **primaria** (preserva `opening` → line movement)
+- API-Sports como fallback bajo `ENABLE_API_SPORTS_FALLBACK` (default true)
+
+### Implementación ejecutada
+- ✅ **NEW** `backend/services/external_sources/thestatsapi_odds_adapter.py`
+  - `fetch_odds_api_sports_shape(...) -> (odds_resp, norm_odds, match_id)`
+  - Usa raw id cuando está disponible; resuelve por names+date+competition si falta.
+  - Normaliza a shape API-Sports mediante `thestatsapi_normalizer.normalize_thestatsapi_odds_to_apisports_shape`.
+  - Preserva `_opening_odds` en `norm_odds`.
+  - Fail-soft (nunca raise): retorna `(None, None, None)` en miss.
+- ✅ **MOD** `backend/services/data_ingestion.py`
+  - Odds branch reescrito: TheStatsAPI → si miss AND flag → API-Sports → si miss → late retry TheStatsAPI.
+  - `odds_source`: `thestatsapi | api_sports_fallback | thestatsapi_late | no_odds`.
+  - `_provenance_odds` añadido al match_doc.
+
+### Tests
+- ✅ `backend/tests/test_f84_e_odds_adapter.py` — **17 tests**.
+
+### Validación
+- ✅ Backend `pytest` combinado (con F85 Phase 2): **2521 passed, 2 skipped, 0 fallos**.
 
 ---
 
@@ -265,9 +291,8 @@ Arquitectura:
 ### Backend (NEW)
 - `services/external_sources/fbref_client.py`
   - `resolve_fbref_team_url(client, team_name, *, db=None)`:
-    - Tabla estática inicial con 10 selecciones (USA, Paraguay, Mexico, Brazil, Argentina, Uruguay, Germany, France, Spain, England) + aliases.
+    - Tabla estática inicial con 10 selecciones + aliases.
     - Fallback a Mongo `external_team_mappings`.
-    - Normalización agresiva (lower, sin acentos, drop suffixes, `&`→`and`).
   - `fetch_fbref_team_match_logs(client, team_url, *, limit=15)`:
     - Fetch dual: scrape.do en prod / httpx client en tests.
     - Extrae tablas dentro de comentarios `<!-- -->`.
@@ -298,16 +323,8 @@ Arquitectura:
 
 ### Backend (NEW)
 - `services/football_xg_public_normalizer.py`
-  - `compute_fbref_xg_recent_averages(...)` (L1/L5/L15, npxG opcional, partial, derived, skip None).
 - `services/football_xg_public_signals.py`
-  - `derive_public_xg_signals(xg, forebet)` (UNDER/OVER, suppression, form shift, forebet conflict/confirm, partial).
-- `services/football_xg_public_ingestor.py`
-  - `enrich_public_xg_context(client, db, match_doc, *, forebet_url, timeout_s=8)`
-    - resolve + fetch en paralelo, wait_for con TIMEOUT payload, data_quality, reason_codes agregados.
-  - Flags:
-    - `ENABLE_INLINE_PUBLIC_XG_SCRAPING` (default false)
-    - `ENABLE_BACKGROUND_PUBLIC_XG_SCRAPING` (default true)
-    - `PUBLIC_XG_SCRAPER_TIMEOUT_SECONDS` (default 8)
+- `services/football_xg_public_ingestor.py` (timeout-safe, fail-soft, data_quality, flags)
 
 ### Tests
 - ✅ `backend/tests/test_f85_3_public_xg.py` — **34 tests**.
@@ -344,23 +361,52 @@ Arquitectura:
 
 ---
 
-## Validación final F85
-- ✅ Backend `pytest`: **2477 passed, 2 skipped, 0 fallos**.
-- ✅ Frontend `craco test`: **125 passed, 0 fallos**.
-- ✅ esbuild: componentes compilan limpio.
+## F85 Phase 2 — FBref search-page resolver + fuzzy matching (COMPLETED ✅)
+
+### Objetivo
+Cuando el resolver no encuentra una URL en el static mapping ni en Mongo cache:
+- scrape de la search-page de FBref (`/en/search/search.fcgi?search=...`)
+- fuzzy matching para aceptar el mejor candidato
+- persistir el hit en `external_team_mappings` para evitar llamadas futuras
+
+### Implementación ejecutada (MOD fbref_client.py)
+- Nuevos helpers:
+  - `_fuzzy_similarity(a, b)` usando `SequenceMatcher` sobre nombres normalizados.
+  - `_parse_fbref_search_results(html)` para extraer `search-item` → `/en/squads/...`.
+  - `_search_fbref_for_team(client, query)` con `follow_redirects=False` y soporte 302 single-hit.
+  - `_best_fuzzy_hit(candidates, query, threshold=0.78)` (no muta inputs).
+  - `_persist_search_hit_to_mongo(db, ...)` upsert fail-soft (`discovered_via='search_fuzzy'`, `fuzzy_score`, `aliases_norm`).
+- Integración en `resolve_fbref_team_url`:
+  - Tier 1: `static_mapping`
+  - Tier 2: `mongo_mapping`
+  - Tier 3: `search_fuzzy` (solo si `client is not None` — evita I/O cuando `client=None`)
+- Config:
+  - `FBREF_SEARCH_FUZZY_THRESHOLD` (default 0.78)
+
+### Tests
+- ✅ `backend/tests/test_f85_phase2_search_resolver.py` — **27 tests**.
+
+---
+
+## Validación final combinada (F84.e + F85 Phase 2)
+- ✅ Backend `pytest`: **2521 passed, 2 skipped, 0 fallos**
+  - Base previa: 2477
+  - +17 (F84.e)
+  - +27 (F85 Phase 2)
+- ✅ Sin regresiones.
 
 ---
 
 ## 3) Pendientes y siguientes pasos (post-F85)
 
 ### Pendientes no bloqueantes
-- (F84.e) **Promover odds a primaria** con TheStatsAPI (mantener fallback API-Sports con `ENABLE_API_SPORTS_FALLBACK`).
+- (F84.c) lineups / injuries — fuera de scope inicial, requiere confirmar cobertura TheStatsAPI.
+- (F84.d) standings — fuera de scope inicial.
 - (P3) Expandir `team_name_translations.py` para clubes UCL/UEL.
-- (F85 Phase 2) Resolver URLs FBref vía search-page + fuzzy matching (ahora MVP es mapping + Mongo).
 
-### Fuera de scope inicial (documentado)
-- (F84.c) lineups / injuries (TheStatsAPI coverage no confirmada todavía).
-- (F84.d) standings.
+### Futuras mejoras recomendadas
+- Para FBref Phase 2: añadir heurísticas por `country`/`team_type` en la selección de candidatos.
+- Para odds: agregar comparación de `bookmakers_count` TSA vs APS como métrica de calidad.
 
 ---
 
@@ -371,10 +417,10 @@ Arquitectura:
   - `ENABLE_API_SPORTS_FALLBACK=false` activa modo “TheStatsAPI-only”.
   - `ENABLE_INLINE_PUBLIC_XG_SCRAPING=false` mantiene scraping fuera del camino crítico.
 - Auditoría runtime:
-  - `match_doc._provenance_team_stats` y `match_doc._provenance_h2h` presentes.
+  - `match_doc._provenance_team_stats`, `match_doc._provenance_h2h`, `match_doc._provenance_odds` presentes.
   - `match_doc.xg_public_enrichment` persistido al ejecutar run-now/background.
 - No regresiones:
-  - Backend `pytest` verde (actual: **2477 passed**).
+  - Backend `pytest` verde (actual: **2521 passed**).
   - Frontend `craco test` verde (actual: **125 passed**).
 - Fail-soft:
   - Si TheStatsAPI falla → se cae a API-Sports o queda vacío.

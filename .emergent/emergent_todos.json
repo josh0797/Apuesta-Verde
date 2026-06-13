@@ -1,26 +1,18 @@
 [
   {
-    "content": "F85.1 - fbref_client + tests (47/47)",
+    "content": "F84.e - Adapter + inversion + tests (17/17)",
     "status": "completed"
   },
   {
-    "content": "F85.2 - forebet_client + tests (14/14)",
+    "content": "F85 Phase 2 - Search-page resolver + fuzzy matching + persist + integración",
     "status": "completed"
   },
   {
-    "content": "F85.3 - normalizer + ingestor + signals + tests (34/34)",
+    "content": "F85 Phase 2 - Tests resolver search + fuzzy (27/27)",
     "status": "completed"
   },
   {
-    "content": "F85.4 - Endpoints public-xg-enrichment + tests (16/16)",
-    "status": "completed"
-  },
-  {
-    "content": "F85.5 - PublicXGPanel + Button + wiring MatchIntelligencePanel + tests (13/13)",
-    "status": "completed"
-  },
-  {
-    "content": "F85.6 - pytest 2477 passed + craco 125 passed + plan.md",
+    "content": "pytest completo 2521 passed + plan.md actualizado",
     "status": "completed"
   }
 ]
