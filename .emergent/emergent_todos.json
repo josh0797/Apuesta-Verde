@@ -1,42 +1,34 @@
 [
   {
-    "content": "Actualizar plan.md con fase F82.1-adjust",
+    "content": "P1: Localizar bucket REQUIRES_MANUAL_MARKET_SELECTION en frontend",
     "status": "completed"
   },
   {
-    "content": "Backend: Modificar provider para emitir PENDING_BACKGROUND_ENRICHMENT",
+    "content": "P1: Integrar ManualMarketIdentityPanel + verificar render",
     "status": "completed"
   },
   {
-    "content": "Backend: Crear endpoints run-now, background, status en server.py",
+    "content": "P1: Lint + esbuild + screenshot validation",
     "status": "completed"
   },
   {
-    "content": "Frontend: Crear panel CornersRefreshPanel + integrar en EditorialPredictionPanel",
-    "status": "completed"
+    "content": "P2: Analizar infer_original_pick_side actual en alternative_rescue.py",
+    "status": "in_progress"
   },
   {
-    "content": "Tests: Crear test_f82_1_adjust.py con los 5 tests requeridos",
-    "status": "completed"
-  },
-  {
-    "content": "Lint backend + frontend + esbuild",
-    "status": "completed"
-  },
-  {
-    "content": "Ejecutar pytest completo (verificar 0 regresiones)",
-    "status": "completed"
-  },
-  {
-    "content": "Actualizar plan.md → F82.1-adjust COMPLETED",
-    "status": "completed"
-  },
-  {
-    "content": "P1: Integrar ManualMarketIdentityPanel en bucket REQUIRES_MANUAL_MARKET_SELECTION",
+    "content": "P2: Implementar inferencia multi-fuente (recommendation → Forebet → odds → edge)",
     "status": "pending"
   },
   {
-    "content": "P2: Implementar infer_original_pick_side en alternative_rescue.py",
+    "content": "P2: Escribir tests para los 4 caminos de inferencia + bloqueo cuando NULL",
+    "status": "pending"
+  },
+  {
+    "content": "P2: Lint + pytest completo (0 regresiones)",
+    "status": "pending"
+  },
+  {
+    "content": "Actualizar plan.md con P1 + P2 completed",
     "status": "pending"
   }
 ]

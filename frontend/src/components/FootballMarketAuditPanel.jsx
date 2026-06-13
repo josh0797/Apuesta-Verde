@@ -11,6 +11,7 @@ import {
   ShieldOff,
   ListChecks,
 } from 'lucide-react';
+import { ManualMarketIdentityPanel } from '@/components/ManualMarketIdentityPanel';
 
 /**
  * FootballMarketAuditPanel — V4 — Explicit market trace for discarded
@@ -115,48 +116,65 @@ export function FootballMarketTraceHeader({ trace, cardHeader, testIdPrefix }) {
  *   Mercado / Cuota / Prob estimada / Prob implícita / Edge / Motivo.
  * Always rendered when the trace is present.
  */
-export function FootballMarketTraceDetail({ trace, testIdPrefix }) {
+export function FootballMarketTraceDetail({ trace, testIdPrefix, matchId, candidateMarkets }) {
   if (!trace || typeof trace !== 'object') return null;
 
   // Phase F73 — when market identity is missing, render an honest
   // "Requiere identificación de mercado" card with no edge/prob shown.
   if (trace.rejection_code === 'MARKET_IDENTITY_MISSING'
-      || trace.state === 'REQUIRES_MARKET_IDENTIFICATION') {
+      || trace.state === 'REQUIRES_MARKET_IDENTIFICATION'
+      || trace.state === 'REQUIRES_MANUAL_MARKET_SELECTION') {
+    const detectedOdd = trace.odds_visible || trace.original_odds || trace.odds;
     return (
-      <div
-        className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3 space-y-2"
-        data-testid={`${testIdPrefix}-requires-market-id`}
-      >
-        <div className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-cyan-300 shrink-0" />
-          <span className="text-sm font-semibold text-cyan-100">
-            Requiere identificación de mercado
-          </span>
-          <span
-            className="ml-auto text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-200 border border-cyan-500/30"
-            data-testid={`${testIdPrefix}-requires-market-id-chip`}
-          >
-            REQUIRES_MARKET_IDENTIFICATION
-          </span>
+      <div className="space-y-2">
+        <div
+          className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3 space-y-2"
+          data-testid={`${testIdPrefix}-requires-market-id`}
+        >
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-cyan-300 shrink-0" />
+            <span className="text-sm font-semibold text-cyan-100">
+              Requiere identificación de mercado
+            </span>
+            <span
+              className="ml-auto text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-200 border border-cyan-500/30"
+              data-testid={`${testIdPrefix}-requires-market-id-chip`}
+            >
+              REQUIRES_MARKET_IDENTIFICATION
+            </span>
+          </div>
+          <div className="text-xs text-cyan-100/90 leading-relaxed pl-6">
+            Cuota detectada: <span className="font-mono">{fmtOdds(detectedOdd)}</span>{' '}
+            — no se puede calcular edge hasta saber si pertenece a Doble Oportunidad,
+            DNB, 1X2, Over/Under, BTTS, córners o hándicap.
+          </div>
+          {trace.rejection_reason && (
+            <p className="text-[11px] text-cyan-200/70 italic pl-6 leading-relaxed">
+              {trace.rejection_reason}
+            </p>
+          )}
+          {trace.original_rejection_code && (
+            <p
+              className="text-[10px] text-slate-500 italic pl-6"
+              data-testid={`${testIdPrefix}-original-classification-suppressed`}
+            >
+              Clasificación original suprimida: {trace.original_classification || trace.original_rejection_code} —
+              no aplicable sin identidad de mercado.
+            </p>
+          )}
         </div>
-        <div className="text-xs text-cyan-100/90 leading-relaxed pl-6">
-          Cuota detectada: <span className="font-mono">{fmtOdds(trace.odds_visible || trace.original_odds)}</span>{' '}
-          — no se puede calcular edge hasta saber si pertenece a Doble Oportunidad,
-          DNB, 1X2, Over/Under, BTTS, córners o hándicap.
-        </div>
-        {trace.rejection_reason && (
-          <p className="text-[11px] text-cyan-200/70 italic pl-6 leading-relaxed">
-            {trace.rejection_reason}
-          </p>
-        )}
-        {trace.original_rejection_code && (
-          <p
-            className="text-[10px] text-slate-500 italic pl-6"
-            data-testid={`${testIdPrefix}-original-classification-suppressed`}
-          >
-            Clasificación original suprimida: {trace.original_classification || trace.original_rejection_code} —
-            no aplicable sin identidad de mercado.
-          </p>
+
+        {/* Phase F83 — Manual market identity intervention panel.
+            Lets the operator assign a market+odd and recompute the pick
+            without poisoning the original detected_odd. Rendered only
+            when a matchId is available (i.e. the parent provided it). */}
+        {matchId && (
+          <ManualMarketIdentityPanel
+            matchId={matchId}
+            detectedOdd={detectedOdd != null ? Number(detectedOdd) : null}
+            candidateMarkets={Array.isArray(candidateMarkets) ? candidateMarkets : []}
+            testIdPrefix={`${testIdPrefix}-manual-market`}
+          />
         )}
       </div>
     );
@@ -453,6 +471,13 @@ export function FootballMarketAuditPanel({ item, testIdPrefix = 'fmt' }) {
   const trace = item?.market_trace || null;
   const markets = Array.isArray(item?.markets_checked) ? item.markets_checked : [];
   const cardHeader = item?.card_header || null;
+  // Phase F83 wiring — pass match_id + candidate_markets down to the
+  // trace detail so it can render the ManualMarketIdentityPanel when
+  // the engine asks for manual intervention.
+  const matchId = item?.match_id || null;
+  const candidateMarkets = Array.isArray(item?.candidate_markets)
+    ? item.candidate_markets
+    : (Array.isArray(trace?.candidate_markets) ? trace.candidate_markets : []);
   if (!trace && markets.length === 0) return null;
   return (
     <div className="space-y-2" data-testid={`${testIdPrefix}-fmt-root`}>
@@ -461,7 +486,12 @@ export function FootballMarketAuditPanel({ item, testIdPrefix = 'fmt' }) {
         cardHeader={cardHeader}
         testIdPrefix={testIdPrefix}
       />
-      <FootballMarketTraceDetail trace={trace} testIdPrefix={testIdPrefix} />
+      <FootballMarketTraceDetail
+        trace={trace}
+        testIdPrefix={testIdPrefix}
+        matchId={matchId}
+        candidateMarkets={candidateMarkets}
+      />
       <FootballMarketsCheckedTable
         marketsChecked={markets}
         testIdPrefix={testIdPrefix}
