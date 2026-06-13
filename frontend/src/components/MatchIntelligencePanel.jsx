@@ -260,6 +260,10 @@ export function MatchIntelligencePanel({ pick, sport = 'football' }) {
         {sport === 'football' && (
           <CornersEnrichmentButton match={pick} lang={lang} />
         )}
+        {/* Phase F83.2-E4 — xG L1/L5/L15 from TheStatsAPI shotmap. */}
+        {sport === 'football' && (
+          <XGRecentAveragesPanel match={pick} lang={lang} />
+        )}
       </div>
     </section>
   );

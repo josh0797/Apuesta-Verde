@@ -1,26 +1,34 @@
 [
   {
-    "content": "D6: Lint + pytest + screenshot verify",
+    "content": "Inyectar XGRecentAveragesPanel en MatchIntelligencePanel.jsx",
     "status": "completed"
   },
   {
-    "content": "E1: compute_xg_recent_averages() con TheStatsAPI shotmap (background-first)",
-    "status": "pending"
+    "content": "Ampliar football_xg_signals.py con señales parciales",
+    "status": "completed"
   },
   {
-    "content": "E2: Integrar como background opt-in (no inline) + cache + timeout",
-    "status": "pending"
+    "content": "Asegurar panel muestra xG parcial (con badge) y no oculta secciones si falta L15",
+    "status": "completed"
   },
   {
-    "content": "E3: UI bloque xG L1/L5/L15 en MatchIntelligencePanel",
-    "status": "pending"
+    "content": "Escribir tests backend E5 (30 tests, todos pasan)",
+    "status": "completed"
   },
   {
-    "content": "E4: Señales LOW_RECENT_XG_PROFILE / DEFENSIVE_XG_SUPPRESSION / XG_FORM_SHIFT / XG_APOYA_*",
-    "status": "pending"
+    "content": "Escribir tests frontend E5 (12 tests, todos pasan)",
+    "status": "completed"
   },
   {
-    "content": "E5: Tests E (compute + cache + señales)",
-    "status": "pending"
+    "content": "Correr pytest completo (2313 passed, 2 skipped) y craco test (12/12 panel xG, 3 preexistentes en LiveReevalPanel)",
+    "status": "completed"
+  },
+  {
+    "content": "Validar screenshot del panel en preview (login limpio, panel requiere auth)",
+    "status": "completed"
+  },
+  {
+    "content": "Actualizar plan.md",
+    "status": "completed"
   }
 ]

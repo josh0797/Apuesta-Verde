@@ -659,6 +659,177 @@ async def corners_enrichment_status(match_id: str) -> dict:
     }
 
 
+# ── Phase F83.2 — xG Recent Averages (L1/L5/L15) Endpoints ──
+#
+# Same architectural pattern as the corners enrichment endpoints, but
+# backed by the TheStatsAPI shotmap aggregator. Background-first so
+# the main pick generator is never blocked by N shotmap fetches.
+_XG_BG_JOBS: dict[str, dict] = {}
+_XG_BG_LOCK = asyncio.Lock()
+_XG_RUN_NOW_TIMEOUT_S = 8.0
+
+
+class XGRecentAveragesRequest(BaseModel):
+    match_id: str
+
+    @field_validator("match_id", mode="before")
+    @classmethod
+    def _coerce(cls, v: Any) -> str:
+        if v is None:
+            raise ValueError("match_id is required")
+        s = str(v).strip()
+        if not s or s in ("undefined", "null", "NaN"):
+            raise ValueError("match_id must be a non-blank identifier")
+        return s
+
+
+async def _persist_xg_recent_to_run(match_id: str, snapshot: dict) -> None:
+    """Persist the xG recent averages back into analyst_runs."""
+    if not isinstance(snapshot, dict):
+        return
+    base_set = {
+        "xg_recent_averages": snapshot,
+        "football_data_enrichment.xg_recent_averages": snapshot,
+    }
+    def _scoped(prefix: str) -> dict:
+        return {f"{prefix}.{k}": v for k, v in base_set.items()}
+    try:
+        upd = await db.analyst_runs.update_many(
+            {"picks.match_id": match_id},
+            {"$set": _scoped("picks.$")},
+        )
+        if upd.modified_count:
+            return
+        for bucket in ("discarded_market", "discarded_motivation",
+                        "incomplete_data", "watchlist_odds_needed"):
+            r = await db.analyst_runs.update_many(
+                {f"summary.{bucket}.match_id": match_id},
+                {"$set": _scoped(f"summary.{bucket}.$")},
+            )
+            if r.modified_count:
+                return
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[xg_recent] persist failed for %s: %s", match_id, exc)
+
+
+async def _do_xg_recent_fetch(match_id: str) -> dict:
+    """Shared body for /run-now and the background worker."""
+    from services.football_xg_recent_averages import (
+        compute_xg_recent_averages, RC_BUILD_FAILED, RC_SHOTMAP_UNAVAILABLE,
+    )
+    from services.football_xg_signals import derive_xg_signals
+
+    match_doc = await _load_match_doc_for_corners(match_id)
+    if not match_doc:
+        return {
+            "available":    False,
+            "status":       "MATCH_NOT_FOUND",
+            "reason_codes": ["MATCH_NOT_FOUND"],
+            "match_id":     match_id,
+        }
+    try:
+        result = await asyncio.wait_for(
+            compute_xg_recent_averages(match_doc),
+            timeout=_XG_RUN_NOW_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        return {
+            "available":    False,
+            "status":       "TIMEOUT",
+            "reason_codes": ["XG_RECENT_FETCH_TIMEOUT"],
+            "match_id":     match_id,
+        }
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[xg_recent] fetch crashed for %s: %s", match_id, exc)
+        return {
+            "available":    False,
+            "status":       "ERROR",
+            "reason_codes": [RC_BUILD_FAILED, "XG_RECENT_CRASHED"],
+            "_error":       str(exc),
+            "match_id":     match_id,
+        }
+    if not isinstance(result, dict):
+        result = {"available": False, "reason_codes": [RC_SHOTMAP_UNAVAILABLE]}
+    result["match_id"] = match_id
+    result.setdefault("status",
+                       "SUCCESS" if result.get("available") else "UNAVAILABLE")
+    # Derive signals on top of the averages.
+    try:
+        signals = derive_xg_signals(result)
+        if isinstance(signals, dict):
+            result["signals"]      = signals.get("signals") or []
+            result["explanations"] = signals.get("explanations") or {}
+            result["metrics"]      = signals.get("metrics") or {}
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[xg_recent] signal derivation failed for %s: %s", match_id, exc)
+
+    await _persist_xg_recent_to_run(match_id, result)
+    return result
+
+
+async def _run_background_xg_job(match_id: str) -> None:
+    job = _XG_BG_JOBS.get(match_id)
+    if job is None:
+        return
+    job["status"] = "RUNNING"
+    try:
+        result = await _do_xg_recent_fetch(match_id)
+        job["result"]      = result
+        job["finished_at"] = datetime.now(timezone.utc).isoformat()
+        job["status"]      = "SUCCESS" if result.get("available") else "FAILED"
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[xg_recent] background job crashed for %s: %s", match_id, exc)
+        job["status"]      = "FAILED"
+        job["finished_at"] = datetime.now(timezone.utc).isoformat()
+        job["result"]      = {"available": False, "status": "ERROR",
+                              "reason_codes": ["BACKGROUND_JOB_CRASHED"],
+                              "_error": str(exc), "match_id": match_id}
+
+
+@app.post("/api/football/xg-recent-averages/run-now")
+async def xg_recent_run_now(payload: XGRecentAveragesRequest) -> dict:
+    """Synchronous shotmap aggregation — hard 8s timeout."""
+    return await _do_xg_recent_fetch(payload.match_id)
+
+
+@app.post("/api/football/xg-recent-averages/background")
+async def xg_recent_background(payload: XGRecentAveragesRequest) -> dict:
+    """Queue a background shotmap aggregation. Returns immediately."""
+    match_id = payload.match_id
+    async with _XG_BG_LOCK:
+        existing = _XG_BG_JOBS.get(match_id)
+        if existing and existing.get("status") in ("QUEUED", "RUNNING"):
+            return {
+                "status":     "ALREADY_QUEUED",
+                "match_id":   match_id,
+                "started_at": existing.get("started_at"),
+            }
+        _XG_BG_JOBS[match_id] = {
+            "status":      "QUEUED",
+            "started_at":  datetime.now(timezone.utc).isoformat(),
+            "finished_at": None,
+            "result":      None,
+        }
+    asyncio.create_task(_run_background_xg_job(match_id))
+    return {"status": "QUEUED", "match_id": match_id}
+
+
+@app.get("/api/football/xg-recent-averages/status/{match_id}")
+async def xg_recent_status(match_id: str) -> dict:
+    """Poll the status of a previously queued xG background job."""
+    job = _XG_BG_JOBS.get(match_id)
+    if not job:
+        return {"status": "NOT_FOUND", "match_id": match_id}
+    return {
+        "status":      job.get("status"),
+        "match_id":    match_id,
+        "started_at":  job.get("started_at"),
+        "finished_at": job.get("finished_at"),
+        "result":      job.get("result"),
+    }
+
+
+
 
 # ── Phase F68 — Player heatmap by NAME (lazy resolver) ───────────────
 # ── Phase F68 — Player heatmap by NAME (lazy resolver) ───────────────
