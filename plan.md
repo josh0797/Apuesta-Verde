@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.  
 > **Estado histórico:** ✅ F58–F70 completadas (ver secciones abajo).  
-> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA** + ✅ **F83.1 (Pantalla-negra fix + Home/Visitante labels) COMPLETADA** + ✅ **P2 (infer_original_pick_side 4-source cascade) COMPLETADA** + ✅ **F82.2-backend (Scores24 deprecated, 365Scores cross integrator, provider re-order, persistence) COMPLETADA**. 🔄 **F82.2-frontend (CornersEnrichmentButton wiring + Scores24 label removal + 5 FE tests) PENDIENTE para C**.  
+> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA** + ✅ **F83.1 (Pantalla-negra fix + Home/Visitante labels) COMPLETADA** + ✅ **P2 (infer_original_pick_side 4-source cascade) COMPLETADA** + ✅ **F82.2 backend (Scores24 deprecated, 365Scores cross integrator, provider re-order, persistence) COMPLETADA** + ✅ **F82.2 frontend (CornersEnrichmentButton wiring + Scores24 label removal + 5 FE tests) COMPLETADA**.  
 > **Idioma operativo:** Español.
 
 ---
@@ -498,17 +498,58 @@ La Phase F82.1 desactivó por completo 365Scores de la ingesta inline para evita
 - ✅ Lint Python (0 blocking) y JS (CornersRefreshPanel, ManualMarketIdentityPanel, FootballMarketAuditPanel) limpios.
 - ✅ esbuild de DashboardPage verde.
 
-## Pendiente para Bloque C (sesión futura)
-- **Frontend wiring** del botón `CornersEnrichmentButton`:
-  - Convertir TSX adjunto a JSX puro (sin TS types).
-  - Integrar `@/lib/api` (axios wrapper) y `sonner` toasts.
-  - Renderizar en `MatchCard.jsx` y `MatchIntelligencePanel.jsx` con guard `sport === 'football'`.
-  - Reemplazar labels "Scores24 confirms / conflicts / gate denied" por "365Scores confirma / contradice / Confirmación externa no disponible".
-  - 5 tests frontend (render gating, click handler, confirmación UI, no labels Scores24, no render para no-football).
+## Pendiente para Bloque C (sesión futura) — RESUELTO ✅
+
+Ver sección **Phase F82.2-frontend** abajo.
 
 ---
 
-## 5) Pendientes y siguientes pasos (post-F82.2-backend)
+# Phase F82.2-frontend — CornersEnrichmentButton wiring + Scores24 label removal (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Implementación
+### Frontend
+- ✅ **NEW** `frontend/src/components/CornersEnrichmentButton.jsx` (convertido del TSX adjunto del usuario a JSX puro, ~470 líneas):
+  - Renderiza CTA "Cargar stats de córners" / "Refrescar" cuando hay snapshot.
+  - Flow: click → POST `/football/corners-enrichment/run-now` → si `TIMEOUT` → POST `/background` + polling `/status/{match_id}` cada 3s (máx ~60s).
+  - Estados: `idle | loading | polling | done | error`.
+  - Render del **`CrossProfileBlock`** L5-vs-L15 con confirmación externa.
+  - **Labels Scores24 → 365Scores** (per spec del usuario):
+    - `extConfirms`: "365Scores confirma" / "365Scores confirms".
+    - `extConflict`: "365Scores contradice" / "365Scores conflicts".
+    - `gateBlocked`: "Confirmación externa no disponible" / "External confirmation unavailable".
+  - Audit field lee `football_corner_365_cross_applied` (Phase F82.2) con fallback a `football_corner_cross_applied` (legacy).
+  - Test-ids: `corners-enrichment-{matchId}`, `corners-enrichment-btn-{matchId}`, `corner-cross-external-confirms/conflicts/unavailable`, `corner-cross-profile`, `corners-summary`.
+  - Defensiva: `try/catch` alrededor de `toast.error` y `toast.message` (sonner puede no estar montado en algunos contextos de test).
+  - **No hooks tras early return** — el guard `sport !== 'football'` se hace DESPUÉS de los hooks para no romper el contrato de React.
+
+- ✅ **MOD** `frontend/src/components/MatchCard.jsx`:
+  - Import + render del botón dentro del bloque `sport === 'football'`, después de `FootballOverSupportPanel` y antes de `LiveRecommendationTimeline`.
+
+- ✅ **MOD** `frontend/src/components/MatchIntelligencePanel.jsx`:
+  - Import + render condicional `sport === 'football'` al final del panel detallado.
+  - **Sin duplicado**: `MatchCard` aparece en el dashboard listado, `MatchIntelligencePanel` solo en `MatchDetailPage`. Páginas distintas → no se renderean simultáneamente.
+
+## Tests (5/5 obligatorios + 7 bonus = 12/12 ✅)
+- ✅ **NEW** `frontend/src/components/__tests__/CornersEnrichmentButton.test.jsx`:
+  - **`renders CornersEnrichmentButton for football match with pending corners`** ✅
+  - **`does not render CornersEnrichmentButton for non-football sports`** ✅
+  - **`calls run-now endpoint when clicking the update button`** ✅
+  - **`shows "365Scores confirma" when cross profile is confirmed`** ✅
+  - **`does not show legacy "Scores24" labels for confirmed match`** ✅
+  - Bonus: render gating sin match_id, fallback TIMEOUT → background, EN labels, 365Scores contradice, confirmación externa no disponible, sin Scores24 en conflicting match, sin "gate denied" wording legacy.
+
+## Verificación
+- ✅ Lint JS: `CornersEnrichmentButton.jsx`, `MatchCard.jsx`, `MatchIntelligencePanel.jsx` — todos limpios.
+- ✅ esbuild: `DashboardPage.jsx` + `MatchDetailPage.jsx` compilan sin errores.
+- ✅ Frontend test suite: **12/12 nuevos tests pasan**. 3 fallos preexistentes en `LiveReevalPanel.test.jsx` no relacionados con F82.2.
+- ✅ Backend suite (sanity): 52/52 tests F82.x + P2 + smoke siguen verdes.
+- ✅ Screenshot en preview: login page carga limpio, sin errores de runtime ni de bundle.
+
+---
+
+## 5) Pendientes y siguientes pasos (post-F82.2-frontend)
 
 ### Pendientes no bloqueantes (actualizadas)
 - (P1) **Alternative rescue**: implementar `alternative_rescue.infer_original_pick_side()`

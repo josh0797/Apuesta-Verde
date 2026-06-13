@@ -16,6 +16,7 @@ import { HistoricalPatternBadge } from './HistoricalPatternBadge';
 import { ContradictionWarnings } from './ContradictionWarnings';
 import { EngineNarrativeBlock } from './EngineNarrativeBlock';
 import { ConfidenceBreakdown } from './ConfidenceBreakdown';
+import { CornersEnrichmentButton } from './CornersEnrichmentButton';
 
 const ICON_MAP = { Activity, ShieldCheck, Target, Zap, Brain };
 
@@ -250,6 +251,15 @@ export function MatchIntelligencePanel({ pick, sport = 'football' }) {
             )}
           </div>
         </div>
+
+        {/* Phase F82.2 — Manual 365Scores corners enrichment button +
+            engine cross profile (L5 vs L15). Gated by sport==='football'
+            internally. Renders the cross block whenever the engine
+            attached one and exposes the button to refresh corners from
+            365Scores on demand. */}
+        {sport === 'football' && (
+          <CornersEnrichmentButton match={pick} lang={lang} />
+        )}
       </div>
     </section>
   );

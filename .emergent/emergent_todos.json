@@ -1,38 +1,22 @@
 [
   {
-    "content": "A1: Investigar bug pantalla negra al usar 'Recalcular con mercado manual'",
+    "content": "C1: Convertir TSX a JSX + reemplazar labels Scores24 → 365Scores",
     "status": "completed"
   },
   {
-    "content": "A2: Añadir mercado Home/Visitante con nombres de equipos al panel manual",
+    "content": "C2: Integrar CornersEnrichmentButton en MatchCard.jsx",
     "status": "completed"
   },
   {
-    "content": "A3: Cerrar P2 — infer_original_pick_side con 4 fuentes + tests",
+    "content": "C3: Integrar CornersEnrichmentButton en MatchIntelligencePanel.jsx",
     "status": "completed"
   },
   {
-    "content": "B1: F82.2 — Deprecar Scores24 (flag OFF default) en corner_cross_integration",
+    "content": "C4: Escribir 5 tests frontend obligatorios",
     "status": "completed"
   },
   {
-    "content": "B2: F82.2 — Crear football_corner_365_cross_integration.py con reglas confirm/conflict",
-    "status": "completed"
-  },
-  {
-    "content": "B3: F82.2 — Invertir orden provider: TheStatsAPI → API-Sports → 365Scores",
-    "status": "completed"
-  },
-  {
-    "content": "B4: F82.2 — Persistencia del cross en analyst_runs (corners-enrichment endpoints)",
-    "status": "completed"
-  },
-  {
-    "content": "B5: F82.2 — 8 tests backend obligatorios",
-    "status": "completed"
-  },
-  {
-    "content": "B6: Lint + pytest completo (target 2240+ verde) + actualizar plan.md",
+    "content": "C5: Validar lint + esbuild + screenshot final",
     "status": "completed"
   }
 ]

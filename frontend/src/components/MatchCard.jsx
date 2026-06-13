@@ -37,6 +37,7 @@ import { BTTSBlockedAlert } from './BTTSBlockedAlert';
 import { FootballTotalsModelPanel, FootballOverSupportPanel } from './FootballDcNbPanels';
 import { LiveRecommendationTimeline } from './LiveRecommendationTimeline';
 import { InlineManualOddsInput } from './InlineManualOddsInput';
+import { CornersEnrichmentButton } from './CornersEnrichmentButton';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -585,6 +586,12 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
             overSupport={m.football_over_support}
             testId={`football-over-support-${m.match_id}`}
           />
+          {/* Phase F82.2 — manual 365Scores corners enrichment + L5/L15
+              cross profile. The button is gated by sport==='football'
+              internally; it also renders the cross block whenever the
+              engine attached one, so it's safe to render unconditionally
+              for football matches. */}
+          <CornersEnrichmentButton match={m} lang={lang} />
           <LiveRecommendationTimeline
             matchId={m.match_id}
             matchLabel={
