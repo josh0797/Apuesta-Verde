@@ -129,8 +129,9 @@ describe('LiveReevalPanel manual odds comma decimal', () => {
     expect(path).toBe('/analysis/live/reevaluate-one');
     expect(body.manual_odds).toBe(1.35);
     expect(typeof body.manual_odds).toBe('number');
-    // Manual path uses the extended 45s timeout.
-    expect(opts.timeout).toBe(45000);
+    // P5.1 — Manual path uses the 15s timeout (reduced from 45s to
+    // avoid the "infinite spinner" feel; backend resolves in <5s).
+    expect(opts.timeout).toBe(15000);
   });
 
   test('rejects invalid odds <= 1.01 with a toast and no API call', async () => {
@@ -171,6 +172,14 @@ describe('LiveReevalPanel engine vs manual source (Fix 3)', () => {
     await waitFor(() => expect(screen.getByTestId('reeval-track-m-77')).toBeInTheDocument());
     expect(screen.getByTestId('reeval-source-engine-m-77')).toBeChecked();
     fireEvent.click(screen.getByTestId('reeval-track-won-m-77'));
+    // Fix 1+2 — Engine-source settle (won/lost/push) opens the
+    // EnginePickConfirmModal FIRST so we can capture user divergence.
+    // Confirm "I bet the engine pick exactly" to proceed with the
+    // /picks/track POST (no actual_* fields → followed_engine=true).
+    await waitFor(() =>
+      expect(screen.getByTestId('engine-pick-confirm-yes')).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId('engine-pick-confirm-yes'));
     await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(2));
     const [path, body] = mockPost.mock.calls[1];
     expect(path).toBe('/picks/track');
@@ -323,9 +332,12 @@ describe('LiveReevalPanel timeout UX', () => {
     await waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(1));
 
     const message = mockToastError.mock.calls[0][0];
-    // Spanish copy must include both: "cuota manual" + "sin perder los datos"
-    expect(message).toMatch(/cuota manual/i);
-    expect(message).toMatch(/sin perder los datos/i);
+    // P5.2 — Spanish copy must convey BOTH "fallo de recálculo" and
+    // "los datos del usuario se conservan", matching the real toast:
+    //   "No se pudo recalcular la cuota. Intenta de nuevo (tus datos
+    //    siguen ingresados)."
+    expect(message).toMatch(/no se pudo recalcular la cuota/i);
+    expect(message).toMatch(/tus datos siguen ingresados/i);
 
     // After the timeout, the user's typed odds remain in the input.
     expect(oddsInput.value).toBe('1,20');
