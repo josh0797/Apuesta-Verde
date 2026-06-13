@@ -1,34 +1,38 @@
 [
   {
-    "content": "P1: Localizar bucket REQUIRES_MANUAL_MARKET_SELECTION en frontend",
+    "content": "A1: Investigar bug pantalla negra al usar 'Recalcular con mercado manual'",
     "status": "completed"
   },
   {
-    "content": "P1: Integrar ManualMarketIdentityPanel + verificar render",
+    "content": "A2: Añadir mercado Home/Visitante con nombres de equipos al panel manual",
     "status": "completed"
   },
   {
-    "content": "P1: Lint + esbuild + screenshot validation",
+    "content": "A3: Cerrar P2 — infer_original_pick_side con 4 fuentes + tests",
     "status": "completed"
   },
   {
-    "content": "P2: Analizar infer_original_pick_side actual en alternative_rescue.py",
-    "status": "in_progress"
+    "content": "B1: F82.2 — Deprecar Scores24 (flag OFF default) en corner_cross_integration",
+    "status": "completed"
   },
   {
-    "content": "P2: Implementar inferencia multi-fuente (recommendation → Forebet → odds → edge)",
-    "status": "pending"
+    "content": "B2: F82.2 — Crear football_corner_365_cross_integration.py con reglas confirm/conflict",
+    "status": "completed"
   },
   {
-    "content": "P2: Escribir tests para los 4 caminos de inferencia + bloqueo cuando NULL",
-    "status": "pending"
+    "content": "B3: F82.2 — Invertir orden provider: TheStatsAPI → API-Sports → 365Scores",
+    "status": "completed"
   },
   {
-    "content": "P2: Lint + pytest completo (0 regresiones)",
-    "status": "pending"
+    "content": "B4: F82.2 — Persistencia del cross en analyst_runs (corners-enrichment endpoints)",
+    "status": "completed"
   },
   {
-    "content": "Actualizar plan.md con P1 + P2 completed",
-    "status": "pending"
+    "content": "B5: F82.2 — 8 tests backend obligatorios",
+    "status": "completed"
+  },
+  {
+    "content": "B6: Lint + pytest completo (target 2240+ verde) + actualizar plan.md",
+    "status": "completed"
   }
 ]

@@ -2244,14 +2244,24 @@ async def analyze_matches(
 
             try:
                 loop = asyncio.get_event_loop()
+                # Phase P2 — infer the original directional side so the
+                # rescue layer can consider Doble Op / AH / Run Line
+                # candidates aligned with the LLM's lean. Falls back to
+                # ``None`` (conservative skip) when no source is confident.
+                try:
+                    inferred_side = _ar.infer_original_pick_side(m, entry)
+                except Exception as _exc:  # noqa: BLE001
+                    log.debug("infer_original_pick_side failed for %s: %s", mid, _exc)
+                    inferred_side = None
                 rescue = await asyncio.wait_for(
                     loop.run_in_executor(
                         None,
-                        lambda m=m: _ar.attempt_alternative_market_rescue(
+                        lambda m=m, side=inferred_side: _ar.attempt_alternative_market_rescue(
                             m,
                             sport=sport,
                             base_confidence=base_conf_int,
                             why_direct_failed=entry.get("reason"),
+                            original_pick_side=side,
                         ),
                     ),
                     timeout=4.0,

@@ -261,23 +261,12 @@ async def enrich_match_corners(client, db, match_doc: dict,
     if allow_external is None:
         allow_external = is_inline_365scores_enabled()
 
-    # 1) API-Sports (FAST — no HTTP)
-    aps = _extract_apisports_corners(match_doc)
-    if aps is not None and (aps['home'] is not None or aps['away'] is not None):
-        payload = {
-            'available':     True,
-            'source':        aps['source'],
-            'current_match': {'home': aps['home'], 'away': aps['away'], 'total': aps['total']},
-            'confidence':    _confidence_from('api_sports', aps['home'], aps['away']),
-            'reason_codes':  [RC_APISPORTS],
-        }
-        _persist(match_doc, payload)
-        log.info('[corners_provider] fixture=%s source=api_sports total=%s home=%s away=%s',
-                 fid, aps['total'], aps['home'], aps['away'])
-        return payload
-    codes.append(RC_NO_API_SPORTS)
-
-    # 2) TheStatsAPI (FAST — already in match_doc, no HTTP)
+    # Phase F82.2 — reorder: TheStatsAPI → API-Sports → 365Scores.
+    # TheStatsAPI is the new baseline because API-Sports does not cover
+    # every league (esp. lower divisions / minor regions), while
+    # TheStatsAPI provides a broader baseline for free.
+    #
+    # 1) TheStatsAPI (FAST — already in match_doc, no HTTP)
     tsa = _extract_thestatsapi_corners(match_doc)
     if tsa is not None:
         payload = {
@@ -288,9 +277,27 @@ async def enrich_match_corners(client, db, match_doc: dict,
             'reason_codes':  [RC_THESTATSAPI],
         }
         _persist(match_doc, payload)
-        log.info('[corners_provider] fixture=%s source=thestatsapi total=%s', fid, tsa['total'])
+        log.info('[corners_fast] fixture=%s source=thestatsapi total=%s home=%s away=%s',
+                 fid, tsa['total'], tsa['home'], tsa['away'])
         return payload
     codes.append(RC_NO_THESTATSAPI)
+
+    # 2) API-Sports (FAST — no HTTP, but only when statistics are
+    # already on the match doc; many fixtures lack them).
+    aps = _extract_apisports_corners(match_doc)
+    if aps is not None and (aps['home'] is not None or aps['away'] is not None):
+        payload = {
+            'available':     True,
+            'source':        aps['source'],
+            'current_match': {'home': aps['home'], 'away': aps['away'], 'total': aps['total']},
+            'confidence':    _confidence_from('api_sports', aps['home'], aps['away']),
+            'reason_codes':  [RC_APISPORTS],
+        }
+        _persist(match_doc, payload)
+        log.info('[corners_fast] fixture=%s source=api_sports total=%s home=%s away=%s',
+                 fid, aps['total'], aps['home'], aps['away'])
+        return payload
+    codes.append(RC_NO_API_SPORTS)
 
     # 3) 365Scores (SLOW — HTTP via scrape.do). Only if allowed.
     if not allow_external:

@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.  
 > **Estado histórico:** ✅ F58–F70 completadas (ver secciones abajo).  
-> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA**.  
+> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA** + ✅ **F83.1 (Pantalla-negra fix + Home/Visitante labels) COMPLETADA** + ✅ **P2 (infer_original_pick_side 4-source cascade) COMPLETADA** + ✅ **F82.2-backend (Scores24 deprecated, 365Scores cross integrator, provider re-order, persistence) COMPLETADA**. 🔄 **F82.2-frontend (CornersEnrichmentButton wiring + Scores24 label removal + 5 FE tests) PENDIENTE para C**.  
 > **Idioma operativo:** Español.
 
 ---
@@ -396,6 +396,119 @@ La Phase F82.1 desactivó por completo 365Scores de la ingesta inline para evita
 ---
 
 ## 4) Pendientes y siguientes pasos (post-F82.1-adjust)
+
+---
+
+# Phase F83.1 — Pantalla-negra fix + Home/Visitante labels (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Problema
+1. El botón "Recalcular con mercado manual" provocaba pantalla en negro cuando la respuesta del backend era un error 422 (FastAPI validation): el frontend hacía `setError(e.response.data.detail)` y `detail` era un ARRAY de objetos. React crasheaba con "Objects are not valid as a React child".
+2. Las opciones del dropdown mostraban tokens opacos ("HOME"/"AWAY"/"1X") en vez de los nombres reales de los equipos.
+
+## Implementación
+- **MOD** `frontend/src/components/ManualMarketIdentityPanel.jsx`:
+  - Añadido helper `normaliseError(raw)` que convierte arrays/objetos de Pydantic a strings legibles antes de guardarlos en state.
+  - Defensiva extra: `<span>{typeof error === 'string' ? error : normaliseError(error)}</span>`.
+  - Nuevas props `homeName` y `awayName` (opcionales).
+  - Helper `renderableSelection(marketType, selection)` muestra labels dinámicas:
+    - `MATCH_WINNER / DNB / HANDICAP / ASIAN_HANDICAP`: "México (Local)" / "Colombia (Visitante)" / "Empate".
+    - `DOUBLE_CHANCE`: "México o Empate" / "Empate o Colombia" / "México o Colombia".
+- **MOD** `frontend/src/components/FootballMarketAuditPanel.jsx`:
+  - Extrae `homeName / awayName` del `item.home_team / item.away_team / cardHeader` y los propaga via `FootballMarketTraceDetail` → `ManualMarketIdentityPanel`.
+
+## Verificación
+- Reproducido el bug con `curl` (payload incompleto → 422 con `detail` array) — antes crashea React, ahora se renderea como string seguro.
+- esbuild + lint frontend verdes.
+
+---
+
+# Phase P2 — `infer_original_pick_side` (4-source cascade) (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Problema
+`attempt_alternative_market_rescue` ya aceptaba `original_pick_side` pero el call-site en `analyst_engine.py` pasaba `None` siempre. Por lo tanto los rescates direccionales (Doble Op 1X / X2, AH, Run Line ±) nunca se aplicaban — pérdida sistemática de rescates legítimos cuando el lado original era inferible.
+
+## Implementación
+- **MOD** `services/alternative_rescue.py` — nueva función pública `infer_original_pick_side(match, entry)` con cascada de 4 fuentes:
+  1. `entry.recommendation.selection` (tokens 1X2 / nombres de equipo / prefix spread).
+  2. Forebet `predicted_winner` (home/away/draw) o `predicted_score` ("2-1" → home).
+  3. Match Winner odds — favorito implícito, gap ≥10% requerido.
+  4. TheStatsAPI directional edge (`_market_edge.side` o `home_edge - away_edge ≥ 2 pts`).
+  - Retorna `None` cuando ninguna fuente da señal confiable → preserva el comportamiento conservador previo.
+- **MOD** `services/analyst_engine.py` — call-site llama `infer_original_pick_side(m, entry)` y pasa el resultado a `attempt_alternative_market_rescue(original_pick_side=...)`.
+
+## Tests
+- ✅ **NEW** `backend/tests/test_p2_infer_pick_side.py` — **29 tests** organizados en 5 clases:
+  - `TestSource1Recommendation` (6 tests).
+  - `TestSource2Forebet` (7 tests).
+  - `TestSource3OddsFavourite` (4 tests).
+  - `TestSource4TheStatsAPI` (5 tests).
+  - `TestCascadeOrdering` (6 tests — prioridad de fuentes + fallback NULL).
+  - `TestRescueWiring` (1 test integración — `original_pick_side=None` preserva legacy skip).
+
+---
+
+# Phase F82.2 — Scores24 → 365Scores cross integrator + provider re-order (Backend COMPLETED ✅ / Frontend PENDING 🔄)
+
+## Estado: ✅ BACKEND COMPLETO · 🔄 FRONTEND POSTPUESTO PARA BLOQUE C
+
+## Cambios backend ejecutados
+### B1 — Deprecar Scores24 (flag OFF default)
+- **MOD** `services/football_corner_cross_integration.py`:
+  - Nueva constante `ENABLE_SCORES24_CORNERS_CONFIRMATION = False` (default).
+  - Lectura runtime vía env var `ENABLE_SCORES24_CORNERS_CONFIRMATION` (solo `true` la activa).
+  - Short-circuit antes del gate: si flag OFF → añade `RC_SCORES24_DISABLED` + `RC_SCRAPER_SKIPPED`, persiste el cross interno y retorna sin tocar Scores24.
+  - Tests legacy (`test_football_corner_cross_integration_smoke.py`) ahora activan el flag con `monkeypatch.setenv` para seguir validando el legacy path.
+
+### B2 — Nuevo módulo `football_corner_365_cross_integration.py`
+- Función pública `attach_365_corner_confirmation(match_doc, pick_payload=None) → dict`.
+- Reglas de confirmación (per spec del usuario):
+  - **UNDER**: confirma si `combined_avg_for ≤ 8.5` o `over_9_5_rate ≤ 0.40`; conflicto si `combined_avg_for ≥ 10.0` o `over_9_5_rate ≥ 0.58`.
+  - **OVER**: confirma si `combined_avg_for ≥ 9.5` o `over_9_5_rate ≥ 0.55`; conflicto si `combined_avg_for ≤ 8.0` o `over_9_5_rate ≤ 0.38`.
+- Reason codes: `365SCORES_CONFIRMS_UNDER/OVER_PROFILE`, `365SCORES_CONFLICTS_UNDER/OVER_PROFILE`, `365SCORES_NEUTRAL_VS_PROFILE`, `NO_CROSS_PROFILE_AVAILABLE`, `NO_365SCORES_CONFIRMATION_AVAILABLE`, `365SCORES_PENDING_BACKGROUND_ENRICHMENT`.
+- Persiste `external_source/_confirmation/_conflict/_reason_codes/_snapshot` dentro del cross block, espeja a `footballHistoricalProfile.combinedFootballCornerProfileCross` (camelCase UI) y emite audit en `football_corner_365_cross_applied`.
+
+### B3 — Provider re-order: TheStatsAPI → API-Sports → 365Scores
+- **MOD** `services/football_corners_provider.py`:
+  - Ahora **TheStatsAPI es el baseline rápido** (cubre más ligas que API-Sports).
+  - API-Sports queda como respaldo cuando ya hay `live_stats` en el doc.
+  - 365Scores se mantiene fuera del pipeline inline (sigue dentro de `/run-now` y `/background`).
+
+### B4 — Persistencia del cross en analyst_runs
+- **MOD** `server.py`:
+  - `_persist_corners_snapshot_to_run` ahora acepta `cross_block` y `cross_audit` (kwargs opcionales) y los escribe junto con el `corners_snapshot` en `picks.$.` o `summary.<bucket>.$.`.
+  - `_do_external_corners_fetch` (endpoint `/run-now` + worker background) ahora ejecuta `attach_365_corner_confirmation` después del fetch exitoso y devuelve `combined_football_corner_profile_cross` + `football_corner_365_cross_applied` en el response.
+
+### B5 — Tests obligatorios (8/8 ✅)
+- **NEW** `backend/tests/test_f82_2_corner_365_cross.py`:
+  1. `test_thestatsapi_is_fast_corner_baseline` — TheStatsAPI gana sobre API-Sports.
+  2. `test_scores24_not_called_for_corner_confirmation_by_default` — scraper NUNCA invocado con flag OFF.
+  3. `test_365scores_confirms_under_corner_cross` — UNDER + métricas bajas → confirms=True.
+  4. `test_365scores_conflicts_with_under_corner_cross` — UNDER + métricas altas → conflict=True.
+  5. `test_365scores_confirms_over_corner_cross` — OVER + métricas altas → confirms=True.
+  6. `test_corner_cross_persists_365_external_confirmation_in_analyst_runs` — persist incluye cross + audit en `$set`.
+  7. `test_corner_enrichment_run_now_returns_cross_confirmation` — endpoint `/run-now` devuelve cross + audit en el response.
+  8. `test_corner_enrichment_background_updates_cross_confirmation` — `/background` + polling `/status` devuelve el cross actualizado.
+
+### Suite global
+- ✅ **2267 passed**, 2 skipped, 0 regresiones (antes: 2230). **+37 nuevos tests** (29 P2 + 8 F82.2).
+- ✅ Lint Python (0 blocking) y JS (CornersRefreshPanel, ManualMarketIdentityPanel, FootballMarketAuditPanel) limpios.
+- ✅ esbuild de DashboardPage verde.
+
+## Pendiente para Bloque C (sesión futura)
+- **Frontend wiring** del botón `CornersEnrichmentButton`:
+  - Convertir TSX adjunto a JSX puro (sin TS types).
+  - Integrar `@/lib/api` (axios wrapper) y `sonner` toasts.
+  - Renderizar en `MatchCard.jsx` y `MatchIntelligencePanel.jsx` con guard `sport === 'football'`.
+  - Reemplazar labels "Scores24 confirms / conflicts / gate denied" por "365Scores confirma / contradice / Confirmación externa no disponible".
+  - 5 tests frontend (render gating, click handler, confirmación UI, no labels Scores24, no render para no-football).
+
+---
+
+## 5) Pendientes y siguientes pasos (post-F82.2-backend)
 
 ### Pendientes no bloqueantes (actualizadas)
 - (P1) **Alternative rescue**: implementar `alternative_rescue.infer_original_pick_side()`

@@ -385,24 +385,42 @@ async def _load_match_doc_for_corners(match_id: str) -> Optional[dict]:
         return None
 
 
-async def _persist_corners_snapshot_to_run(match_id: str, snapshot: dict) -> None:
+async def _persist_corners_snapshot_to_run(
+    match_id: str, snapshot: dict,
+    *, cross_block: Optional[dict] = None,
+    cross_audit:  Optional[dict] = None,
+) -> None:
     """Write the freshly fetched corners_snapshot back into analyst_runs.
 
     Best-effort: failures are logged but never raised. We update the
     nested entry in whatever bucket holds the match (picks first, then
     summary.<bucket>). Used by both /run-now and the background worker.
+
+    Phase F82.2 — also persists the 365Scores cross confirmation block
+    (``combined_football_corner_profile_cross``) and the audit dict
+    (``football_corner_365_cross_applied``) so the UI sees the fresh
+    confirmation on the next read without recomputing.
     """
     if not isinstance(snapshot, dict):
         return
+    base_set: dict[str, Any] = {
+        "corners_snapshot": snapshot,
+        "football_data_enrichment.corners": snapshot,
+    }
+    if isinstance(cross_block, dict):
+        base_set["combined_football_corner_profile_cross"] = cross_block
+    if isinstance(cross_audit, dict):
+        base_set["football_corner_365_cross_applied"] = cross_audit
+
+    def _scoped(prefix: str) -> dict:
+        return {f"{prefix}.{k}": v for k, v in base_set.items()}
+
     try:
         # Try the cheap path first: update via positional operator in
         # ``picks``.
         updated = await db.analyst_runs.update_many(
             {"picks.match_id": match_id},
-            {"$set": {
-                "picks.$.corners_snapshot": snapshot,
-                "picks.$.football_data_enrichment.corners": snapshot,
-            }},
+            {"$set": _scoped("picks.$")},
         )
         if updated.modified_count:
             return
@@ -411,10 +429,7 @@ async def _persist_corners_snapshot_to_run(match_id: str, snapshot: dict) -> Non
                         "incomplete_data", "watchlist_odds_needed"):
             res = await db.analyst_runs.update_many(
                 {f"summary.{bucket}.match_id": match_id},
-                {"$set": {
-                    f"summary.{bucket}.$.corners_snapshot": snapshot,
-                    f"summary.{bucket}.$.football_data_enrichment.corners": snapshot,
-                }},
+                {"$set": _scoped(f"summary.{bucket}.$")},
             )
             if res.modified_count:
                 return
@@ -428,6 +443,11 @@ async def _do_external_corners_fetch(match_id: str) -> dict:
     Always returns a dict shaped like the regular corners_snapshot, with
     an extra top-level ``status`` field (``SUCCESS|TIMEOUT|UNAVAILABLE|
     MATCH_NOT_FOUND``) so the UI can branch cleanly.
+
+    Phase F82.2 — after the 365Scores fetch lands, we also run the new
+    ``attach_365_corner_confirmation`` integrator to confirm / contradict
+    the engine's L5-vs-L15 corner cross profile. Both the corners
+    snapshot AND the updated cross are persisted into analyst_runs.
     """
     from services.football_corners_provider import (
         enrich_match_corners_external, RC_365_TIMEOUT, RC_UNAVAILABLE,
@@ -469,9 +489,40 @@ async def _do_external_corners_fetch(match_id: str) -> dict:
     result.setdefault("status",
                        "SUCCESS" if result.get("available") else "UNAVAILABLE")
     result["match_id"] = match_id
+
+    # Phase F82.2 — refresh the 365Scores cross confirmation block now
+    # that corners_snapshot has been updated. attach_365_corner_…
+    # mutates the match_doc in place; we copy the resulting cross dict
+    # into the response so the UI can render it immediately without a
+    # second round-trip.
+    cross_audit: Optional[dict] = None
+    try:
+        from services.football_corner_365_cross_integration import (
+            attach_365_corner_confirmation,
+        )
+        # Make sure the match_doc has the freshest snapshot before we
+        # ask the integrator to evaluate.
+        if isinstance(result, dict) and result.get("available"):
+            match_doc["corners_snapshot"] = result
+        cross_audit = attach_365_corner_confirmation(match_doc, pick_payload=None)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[corners_enrichment] cross confirmation failed for %s: %s",
+                   match_id, exc)
+        cross_audit = None
+
     # Persist back into analyst_runs so subsequent reads (editorial,
-    # status polling, UI refresh) see the fresh snapshot.
-    await _persist_corners_snapshot_to_run(match_id, result)
+    # status polling, UI refresh) see the fresh snapshot + cross.
+    cross_block = match_doc.get("combined_football_corner_profile_cross")
+    await _persist_corners_snapshot_to_run(
+        match_id, result, cross_block=cross_block, cross_audit=cross_audit,
+    )
+
+    # Echo the cross confirmation back to the caller so the React panel
+    # can render it without another fetch.
+    if isinstance(cross_block, dict):
+        result["combined_football_corner_profile_cross"] = cross_block
+    if isinstance(cross_audit, dict):
+        result["football_corner_365_cross_applied"] = cross_audit
     return result
 
 

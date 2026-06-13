@@ -33,6 +33,15 @@ from services.football_corner_cross_integration import (
 )
 
 
+# Phase F82.2 — Scores24 is disabled by default in production. These
+# legacy smoke tests verify the LEGACY path still works when the flag
+# is explicitly turned on. The new production default behaviour is
+# covered by ``test_f82_2_corner_365_cross.py``.
+@pytest.fixture(autouse=True)
+def _force_scores24_flag_on(monkeypatch):
+    monkeypatch.setenv("ENABLE_SCORES24_CORNERS_CONFIRMATION", "true")
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────

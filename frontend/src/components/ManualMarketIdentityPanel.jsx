@@ -32,7 +32,8 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
  *   - testIdPrefix
  */
 export const ManualMarketIdentityPanel = ({
-  matchId, detectedOdd, candidateMarkets = [], testIdPrefix = 'manual-market',
+  matchId, detectedOdd, candidateMarkets = [], homeName, awayName,
+  testIdPrefix = 'manual-market',
 }) => {
   const [options, setOptions]               = useState(null);
   const [marketType, setMarketType]         = useState('');
@@ -60,6 +61,57 @@ export const ManualMarketIdentityPanel = ({
     if (!options || !marketType) return null;
     return options.options_by_market?.[marketType] || null;
   }, [options, marketType]);
+
+  // Phase F83.1 — Normalise FastAPI/axios error responses to a plain
+  // string before storing it in state. FastAPI validation errors return
+  // ``detail`` as an array of objects, and rendering that array directly
+  // inside JSX crashes React with "Objects are not valid as a React
+  // child" — that's the source of the "black screen" the user reported.
+  const normaliseError = (raw) => {
+    if (raw == null) return 'Error desconocido al recalcular.';
+    if (typeof raw === 'string') return raw;
+    if (Array.isArray(raw)) {
+      // Pydantic validation error shape: [{loc, msg, type, ...}, ...]
+      return raw.map((it) => {
+        if (typeof it === 'string') return it;
+        if (it && typeof it === 'object') {
+          const loc = Array.isArray(it.loc) ? it.loc.join('.') : (it.loc || '');
+          return loc ? `${loc}: ${it.msg || ''}` : (it.msg || JSON.stringify(it));
+        }
+        return String(it);
+      }).join(' · ');
+    }
+    if (typeof raw === 'object') {
+      return raw.msg || raw.message || JSON.stringify(raw);
+    }
+    return String(raw);
+  };
+
+  // Phase F83.1 — Build per-market labels that show the team names
+  // ("México" / "Colombia") instead of opaque tokens ("HOME" / "AWAY").
+  // Falls back to the canonical token when no team name is available.
+  const renderableSelection = (mt, sel) => {
+    if (!sel) return '';
+    if (mt === 'MATCH_WINNER' || mt === 'DNB' || mt === 'HANDICAP'
+        || mt === 'ASIAN_HANDICAP') {
+      if (sel === 'HOME' && homeName) return `${homeName} (Local)`;
+      if (sel === 'AWAY' && awayName) return `${awayName} (Visitante)`;
+      if (sel === 'DRAW') return 'Empate';
+    }
+    if (mt === 'DOUBLE_CHANCE') {
+      if (sel === '1X') {
+        return homeName ? `${homeName} o Empate` : 'Local o Empate';
+      }
+      if (sel === 'X2') {
+        return awayName ? `Empate o ${awayName}` : 'Empate o Visitante';
+      }
+      if (sel === '12') {
+        if (homeName && awayName) return `${homeName} o ${awayName}`;
+        return 'Local o Visitante';
+      }
+    }
+    return sel;
+  };
 
   const handleSubmit = async () => {
     setError(null);
@@ -93,7 +145,9 @@ export const ManualMarketIdentityPanel = ({
       );
       setResult(res.data);
     } catch (e) {
-      setError(e.response?.data?.detail || 'Error al recalcular.');
+      // Sanitise — FastAPI 422 errors come as arrays of objects which
+      // crash React if rendered directly (the "pantalla negra" bug).
+      setError(normaliseError(e?.response?.data?.detail) || 'Error al recalcular.');
     } finally {
       setSubmitting(false);
     }
@@ -160,7 +214,9 @@ export const ManualMarketIdentityPanel = ({
               </SelectTrigger>
               <SelectContent>
                 {opts?.selections?.map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                  <SelectItem key={s} value={s}>
+                    {renderableSelection(marketType, s)}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -213,7 +269,7 @@ export const ManualMarketIdentityPanel = ({
             data-testid={`${testIdPrefix}-error`}
           >
             <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-            <span>{error}</span>
+            <span>{typeof error === 'string' ? error : normaliseError(error)}</span>
           </div>
         )}
 

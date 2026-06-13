@@ -690,6 +690,227 @@ def _why_safer_explanation(
             f"Menor dependencia de un único evento decisivo.")
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Phase P2 — infer_original_pick_side (4 fuentes en cascada)
+# ─────────────────────────────────────────────────────────────────────
+#
+# Antes de F-P2, ``attempt_alternative_market_rescue`` recibía
+# ``original_pick_side=None`` por defecto, así que TODOS los rescates
+# direccionales (Doble Op 1X / X2, AH, Run Line ±) se descartaban por
+# guardrail de seguridad. Esto era correcto pero perdía rescates
+# legítimos cuando el lado original era inferible.
+#
+# La función inferencial intenta 4 fuentes en orden, devolviendo el
+# primer hit confiable. Si ninguna fuente da señal clara, devuelve
+# ``None`` (el comportamiento conservador previo).
+
+
+def _infer_side_from_recommendation(entry: dict, home_name: str,
+                                     away_name: str) -> Optional[str]:
+    """Source 1 — recommendation.selection escrita por el LLM.
+
+    El generador ya escribe `recommendation.selection` con strings
+    expandidos como "Manchester City gana", "Real Madrid o Empate",
+    "Liverpool -1.5". Buscamos tokens directos o nombres de equipo.
+    """
+    if not isinstance(entry, dict):
+        return None
+    rec = entry.get("recommendation") or {}
+    if not isinstance(rec, dict):
+        return None
+    raw_sel = rec.get("selection")
+    if not raw_sel or not isinstance(raw_sel, str):
+        return None
+    sel = raw_sel.strip().lower()
+
+    # 1.a — tokens cortos 1X2.
+    compact = sel.replace(" ", "").upper()
+    if compact in ("1", "1X", "HOME") or compact.startswith("HOME"):
+        return "home"
+    if compact in ("2", "X2", "AWAY") or compact.startswith("AWAY"):
+        return "away"
+
+    # 1.b — nombres de equipo expandidos.
+    if home_name and home_name.lower() in sel:
+        return "home"
+    if away_name and away_name.lower() in sel:
+        return "away"
+
+    # 1.c — spread prefix "home -1.5" / "away +1.5".
+    if sel.startswith(("home ", "local ", "h ")):
+        return "home"
+    if sel.startswith(("away ", "visit", "v ", "visitor")):
+        return "away"
+
+    return None
+
+
+def _infer_side_from_forebet(match: dict) -> Optional[str]:
+    """Source 2 — Forebet predicted score / winner.
+
+    Forebet writes ``predicted_score`` like "2-1" (home-away) and
+    ``predicted_winner`` like "home" / "away" / "draw" depending on
+    the ingestion path. Both shapes are tolerated.
+    """
+    if not isinstance(match, dict):
+        return None
+    # Try the canonical editorial enrichment first.
+    ed = (match.get("football_data_enrichment") or {}).get("editorial") or {}
+    fb = ed.get("forebet") or match.get("forebet") or {}
+    if not isinstance(fb, dict):
+        return None
+
+    winner = fb.get("predicted_winner") or fb.get("winner")
+    if isinstance(winner, str):
+        w = winner.strip().lower()
+        if w in ("home", "1", "local"):
+            return "home"
+        if w in ("away", "2", "visitor", "visitante"):
+            return "away"
+        if w in ("draw", "x", "tie", "empate"):
+            return None  # explicit draw → no directional rescue
+
+    score = fb.get("predicted_score")
+    if isinstance(score, str) and "-" in score:
+        try:
+            h, a = score.split("-", 1)
+            h_i, a_i = int(h.strip()), int(a.strip())
+            if h_i > a_i:
+                return "home"
+            if a_i > h_i:
+                return "away"
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
+def _infer_side_from_odds(match: dict) -> Optional[str]:
+    """Source 3 — Match-winner odds favourite.
+
+    Looks at the latest odds_snapshots for the Match Winner / Moneyline
+    market and picks the side with the lowest price (the implicit
+    favourite). Requires a clear gap (≥10% difference) to avoid noisy
+    50/50 matches.
+    """
+    if not isinstance(match, dict):
+        return None
+    snaps = match.get("odds_snapshots") or []
+    if not snaps:
+        return None
+    markets = (snaps[-1] or {}).get("markets") or {}
+    # API-Sports → "Match Winner" rows; TheStatsAPI mirror → "Moneyline".
+    candidate_rows = []
+    for key in ("Match Winner", "Moneyline", "1X2"):
+        rows = markets.get(key) or []
+        if isinstance(rows, list):
+            candidate_rows.extend(rows)
+
+    home_odd: Optional[float] = None
+    away_odd: Optional[float] = None
+    for r in candidate_rows:
+        val = (r.get("value") or "").strip().lower()
+        odd = r.get("odd")
+        if not isinstance(odd, (int, float)) or odd < 1.01:
+            continue
+        if val in ("home", "1", "local"):
+            home_odd = float(odd) if home_odd is None else min(home_odd, float(odd))
+        elif val in ("away", "2", "visitor", "visitante"):
+            away_odd = float(odd) if away_odd is None else min(away_odd, float(odd))
+
+    if home_odd is None or away_odd is None:
+        return None
+    # Require a clear edge — at least 10% difference between the two
+    # legs to call a favourite. Otherwise the match is roughly even and
+    # a directional rescue would be too risky.
+    gap = abs(home_odd - away_odd) / max(home_odd, away_odd)
+    if gap < 0.10:
+        return None
+    return "home" if home_odd < away_odd else "away"
+
+
+def _infer_side_from_thestatsapi_edge(entry: dict, match: dict) -> Optional[str]:
+    """Source 4 — TheStatsAPI edge.
+
+    The structural enrichment writes ``_market_edge`` on the pick and a
+    ``thestatsapi`` block on the match. If either records a directional
+    edge (home_edge / away_edge or a verdict containing 'home'/'away'),
+    we use it as a last-resort hint.
+    """
+    if isinstance(entry, dict):
+        edge = entry.get("_market_edge") or {}
+        if isinstance(edge, dict):
+            side = edge.get("side") or edge.get("favoured_side")
+            if isinstance(side, str):
+                s = side.strip().lower()
+                if s in ("home", "away"):
+                    return s
+            verdict = edge.get("verdict") or ""
+            if isinstance(verdict, str):
+                vl = verdict.lower()
+                if "home" in vl and "away" not in vl:
+                    return "home"
+                if "away" in vl and "home" not in vl:
+                    return "away"
+
+    if isinstance(match, dict):
+        tsa = (match.get("football_data_enrichment") or {}).get("thestatsapi") or {}
+        if isinstance(tsa, dict):
+            he = tsa.get("home_edge") or tsa.get("home_value")
+            ae = tsa.get("away_edge") or tsa.get("away_value")
+            if isinstance(he, (int, float)) and isinstance(ae, (int, float)):
+                if abs(he - ae) >= 0.02:  # need a meaningful gap (≥2 pts)
+                    return "home" if he > ae else "away"
+    return None
+
+
+def infer_original_pick_side(match: dict,
+                              entry: Optional[dict] = None) -> Optional[str]:
+    """Infer the directional side of the LLM's original pick.
+
+    Strategy — first non-null answer wins:
+      1. ``entry.recommendation.selection``       — explicit LLM choice.
+      2. ``match.football_data_enrichment.editorial.forebet`` — Forebet
+         predicted_winner / predicted_score.
+      3. Match Winner odds favourite                — implicit favourite.
+      4. TheStatsAPI directional edge              — structural lean.
+
+    Returns ``"home"``, ``"away"``, or ``None`` when no source can give
+    a confident answer. ``None`` keeps the legacy conservative behaviour
+    (skip directional rescues).
+    """
+    if not isinstance(match, dict):
+        return None
+    entry = entry if isinstance(entry, dict) else {}
+    home_name = ((match.get("home_team") or {}).get("name")
+                 if isinstance(match.get("home_team"), dict)
+                 else match.get("home_team") or "")
+    away_name = ((match.get("away_team") or {}).get("name")
+                 if isinstance(match.get("away_team"), dict)
+                 else match.get("away_team") or "")
+
+    for fn, label in (
+        (_infer_side_from_recommendation, "recommendation"),
+        (_infer_side_from_forebet,        "forebet"),
+        (_infer_side_from_odds,           "odds_favourite"),
+        (_infer_side_from_thestatsapi_edge, "thestatsapi_edge"),
+    ):
+        try:
+            if fn is _infer_side_from_recommendation:
+                side = fn(entry, home_name, away_name)
+            elif fn is _infer_side_from_thestatsapi_edge:
+                side = fn(entry, match)
+            else:
+                side = fn(match)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("infer_original_pick_side: source=%s crashed: %s", label, exc)
+            side = None
+        if side in ("home", "away"):
+            log.debug("infer_original_pick_side → side=%s via source=%s", side, label)
+            return side
+    return None
+
+
 __all__ = [
     "attempt_alternative_market_rescue",
+    "infer_original_pick_side",
 ]

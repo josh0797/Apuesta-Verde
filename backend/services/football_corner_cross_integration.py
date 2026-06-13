@@ -31,11 +31,28 @@ The integration is enrichment-only: it does NOT mutate
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Optional
 
 log = logging.getLogger("football_corner_cross_integration")
 
 ENGINE_VERSION = "football_corner_cross_integration.v1"
+
+# Phase F82.2 — Scores24 / Bright Data gradually deprecated as the
+# external corner-confirmation source. By default the Scores24 premium
+# fetch is now DISABLED at the integrator level (in addition to any
+# upstream gate). 365Scores takes over via the dedicated
+# ``football_corner_365_cross_integration`` module.
+#
+# To re-enable Scores24 temporarily, set the env var
+# ``ENABLE_SCORES24_CORNERS_CONFIRMATION=true`` — this is intended only
+# for offline debugging and SHOULD remain off in production.
+def _scores24_corners_confirmation_enabled() -> bool:
+    raw = os.environ.get("ENABLE_SCORES24_CORNERS_CONFIRMATION", "false")
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+ENABLE_SCORES24_CORNERS_CONFIRMATION = False  # default; read via env at runtime.
 
 # Reason codes emitted on the audit block.
 RC_GATE_OPENED          = "CORNER_CROSS_GATE_OPENED"
@@ -46,6 +63,8 @@ RC_SCRAPER_FAILED       = "CORNER_CROSS_SCORES24_FAILED"
 RC_SCRAPER_SKIPPED      = "CORNER_CROSS_SCORES24_SKIPPED"
 RC_CROSS_COMPUTED       = "CORNER_CROSS_COMPUTED"
 RC_CROSS_UNAVAILABLE    = "CORNER_CROSS_UNAVAILABLE"
+# Phase F82.2 — emitted when Scores24 is disabled by config.
+RC_SCORES24_DISABLED    = "CORNER_CROSS_SCORES24_DISABLED_BY_CONFIG"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -215,6 +234,25 @@ async def attach_football_corner_cross_to_payload(
         audit["reason_codes"].append(RC_CROSS_UNAVAILABLE)
 
     # ── 2. Ask the cost-control gate. ────────────────────────────────
+    # Phase F82.2 — short-circuit when Scores24 is disabled by config.
+    # The cross profile is already computed (first_pass) above, so we
+    # don't lose any analytical signal — we just skip the external
+    # Scores24 premium fetch. The 365Scores enrichment runs on a
+    # separate manual / background path and is attached by
+    # ``football_corner_365_cross_integration``.
+    if not _scores24_corners_confirmation_enabled():
+        audit["reason_codes"].append(RC_SCORES24_DISABLED)
+        audit["reason_codes"].append(RC_SCRAPER_SKIPPED)
+        audit["available"] = audit["cross_available"]
+        # Mirror into camelCase for UI consumers, even on the short-circuit.
+        fhp = pick_payload.get("footballHistoricalProfile") or {}
+        fhp["combinedFootballCornerProfileCross"] = pick_payload.get(
+            "combined_football_corner_profile_cross"
+        )
+        pick_payload["footballHistoricalProfile"] = fhp
+        pick_payload["football_corner_cross_applied"] = audit
+        return audit
+
     try:
         from services.external_context_gate import should_fetch_scores24_context
     except Exception as exc:  # noqa: BLE001
@@ -302,9 +340,11 @@ async def attach_football_corner_cross_to_payload(
 
 __all__ = [
     "ENGINE_VERSION",
+    "ENABLE_SCORES24_CORNERS_CONFIRMATION",
     "attach_football_corner_cross_to_payload",
     "RC_GATE_OPENED", "RC_GATE_DENIED",
     "RC_NO_MATCH_URL",
     "RC_SCRAPER_OK", "RC_SCRAPER_FAILED", "RC_SCRAPER_SKIPPED",
     "RC_CROSS_COMPUTED", "RC_CROSS_UNAVAILABLE",
+    "RC_SCORES24_DISABLED",
 ]

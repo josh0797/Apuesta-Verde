@@ -116,7 +116,7 @@ export function FootballMarketTraceHeader({ trace, cardHeader, testIdPrefix }) {
  *   Mercado / Cuota / Prob estimada / Prob implícita / Edge / Motivo.
  * Always rendered when the trace is present.
  */
-export function FootballMarketTraceDetail({ trace, testIdPrefix, matchId, candidateMarkets }) {
+export function FootballMarketTraceDetail({ trace, testIdPrefix, matchId, candidateMarkets, homeName, awayName }) {
   if (!trace || typeof trace !== 'object') return null;
 
   // Phase F73 — when market identity is missing, render an honest
@@ -173,6 +173,8 @@ export function FootballMarketTraceDetail({ trace, testIdPrefix, matchId, candid
             matchId={matchId}
             detectedOdd={detectedOdd != null ? Number(detectedOdd) : null}
             candidateMarkets={Array.isArray(candidateMarkets) ? candidateMarkets : []}
+            homeName={homeName}
+            awayName={awayName}
             testIdPrefix={`${testIdPrefix}-manual-market`}
           />
         )}
@@ -478,6 +480,17 @@ export function FootballMarketAuditPanel({ item, testIdPrefix = 'fmt' }) {
   const candidateMarkets = Array.isArray(item?.candidate_markets)
     ? item.candidate_markets
     : (Array.isArray(trace?.candidate_markets) ? trace.candidate_markets : []);
+  // Team names for the dynamic Home/Away labels in the manual panel.
+  const homeName = item?.home_team?.name
+                || item?.home_team
+                || item?.home
+                || cardHeader?.home_team
+                || null;
+  const awayName = item?.away_team?.name
+                || item?.away_team
+                || item?.away
+                || cardHeader?.away_team
+                || null;
   if (!trace && markets.length === 0) return null;
   return (
     <div className="space-y-2" data-testid={`${testIdPrefix}-fmt-root`}>
@@ -491,6 +504,8 @@ export function FootballMarketAuditPanel({ item, testIdPrefix = 'fmt' }) {
         testIdPrefix={testIdPrefix}
         matchId={matchId}
         candidateMarkets={candidateMarkets}
+        homeName={typeof homeName === 'string' ? homeName : null}
+        awayName={typeof awayName === 'string' ? awayName : null}
       />
       <FootballMarketsCheckedTable
         marketsChecked={markets}
