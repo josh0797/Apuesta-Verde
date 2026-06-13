@@ -192,7 +192,7 @@ class TestCornersProvider:
         """If API-Sports has 'Corner Kicks', should NOT fetch 365Scores."""
         called_365 = {"count": 0}
 
-        async def fake_extract_365(client, match_doc, *, allow_name_resolver=True):
+        async def fake_extract_365(client, match_doc, *, allow_name_resolver=True, timeout_s=None):
             called_365["count"] += 1
             return None, []
 
@@ -231,15 +231,34 @@ class TestCornersProvider:
 
     @pytest.mark.asyncio
     async def test_corners_provider_unavailable_on_all_sources_fail(self, monkeypatch):
-        async def fake_extract_365(client, match_doc, *, allow_name_resolver=True):
+        async def fake_extract_365(client, match_doc, *, allow_name_resolver=True, timeout_s=None):
             return None, [cp.RC_NO_365_ID]
         monkeypatch.setattr(cp, "_extract_365scores_corners", fake_extract_365)
 
         match_doc = {"match_id": "mid-3"}
-        result = await cp.enrich_match_corners(None, None, match_doc)
+        # Force allow_external=True so the cascade reaches 365Scores even
+        # when the inline feature flag is off (default).
+        result = await cp.enrich_match_corners(None, None, match_doc, allow_external=True)
         assert result["available"] is False
         assert cp.RC_NO_API_SPORTS in result["reason_codes"]
         assert cp.RC_NO_365_ID in result["reason_codes"]
+
+    @pytest.mark.asyncio
+    async def test_fast_tier_skips_365scores_by_default(self, monkeypatch):
+        """Phase F82.1 — by default, ``enrich_match_corners`` must NOT call
+        365Scores (avoids gateway timeouts on large picks generation)."""
+        called_365 = {"count": 0}
+
+        async def fake_extract_365(client, match_doc, *, allow_name_resolver=True, timeout_s=None):
+            called_365["count"] += 1
+            return None, [cp.RC_NO_365_ID]
+        monkeypatch.setattr(cp, "_extract_365scores_corners", fake_extract_365)
+
+        match_doc = {"match_id": "mid-fast"}
+        result = await cp.enrich_match_corners_fast(None, None, match_doc)
+        assert result["available"] is False
+        assert called_365["count"] == 0
+        assert cp.RC_365_SKIPPED_INLINE in result["reason_codes"]
 
 
 # ─────────────────────────────────────────────────────────────────────

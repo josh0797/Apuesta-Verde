@@ -268,6 +268,71 @@ async def rescue_audit_multi_window_endpoint() -> dict:
         return {"available": False, "_error": str(exc)}
 
 
+# ── Phase F83 — Manual Market Identity + Manual Odds Injection ───────
+class ManualMarketRepriceRequest(BaseModel):
+    match_id:     str
+    detected_odd: Optional[float] = None
+    manual_odd:   float
+    market_type:  str
+    selection:    str
+    line:         Optional[float] = None
+    source:       Optional[str] = "USER_MANUAL_INPUT"
+
+
+@app.get("/api/football/manual-market-options")
+async def manual_market_options_endpoint() -> dict:
+    """Return the catalogue of manual market types + selections + lines.
+
+    The UI uses this to populate the dropdowns of the manual market
+    intervention panel.
+    """
+    from services.manual_market_identity import (
+        MANUAL_MARKET_TYPES, MARKET_OPTIONS,
+    )
+    return {
+        "available":            True,
+        "market_types":         MANUAL_MARKET_TYPES,
+        "options_by_market":    MARKET_OPTIONS,
+    }
+
+
+@app.post("/api/football/manual-market-reprice")
+async def manual_market_reprice_endpoint(
+    payload: ManualMarketRepriceRequest,
+) -> dict:
+    """Recompute a pick using a manually-assigned market identity + odd.
+
+    Used when the engine returned ``REQUIRES_MARKET_IDENTIFICATION``
+    and the operator decides what market the detected price belongs to.
+    The original ``detected_odd`` is preserved separately.
+    """
+    from services.manual_market_identity import (
+        validate_manual_payload, recalculate_with_manual_market,
+    )
+    data = payload.model_dump()
+    ok, err = validate_manual_payload(data)
+    if not ok:
+        raise HTTPException(status_code=422, detail=err)
+
+    # Try to locate the base pick (for fragility/confidence context).
+    base_pick = None
+    try:
+        match_doc = await db.matches.find_one({"match_id": payload.match_id})
+        if match_doc and isinstance(match_doc, dict):
+            picks = match_doc.get("picks") or []
+            if picks:
+                base_pick = picks[0]
+    except Exception as exc:  # noqa: BLE001
+        log.debug("manual_market_reprice: base_pick lookup failed: %s", exc)
+
+    result = recalculate_with_manual_market(data, base_pick=base_pick)
+    result["match_id"] = payload.match_id
+    # Preserve the original detected odd alongside the manual one.
+    result["manual_market_identity"]["detected_odd"] = payload.detected_odd
+    return result
+
+
+# ── Phase F68 — Player heatmap by NAME (lazy resolver) ───────────────
 # ── Phase F68 — Player heatmap by NAME (lazy resolver) ───────────────
 @app.get("/api/football/player-heatmap/by-name")
 async def football_player_heatmap_by_name_endpoint(

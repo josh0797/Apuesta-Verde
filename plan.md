@@ -1,8 +1,8 @@
-# Plan — Phases F58–F82 (bitácora)
+# Plan — Phases F58–F83 (bitácora)
 
 > **Nota:** Este plan se mantiene como bitácora completa.  
 > **Estado histórico:** ✅ F58–F70 completadas (ver secciones abajo).  
-> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA**.  
+> **Estado actual:** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA**.  
 > **Idioma operativo:** Español.
 
 ---
@@ -34,7 +34,22 @@
 ### Objetivos nuevos / extendidos (F82)
 - **H2H rico**: dejar de mostrar “se identifican N enfrentamientos…” y renderizar resultados concretos + señales (Under 3.5, BTTS, promedio de goles).
 - **Córners con fuente secundaria real**: ingestión de stats de córners usando **365Scores** como fallback (a través de scrape.do) y persistencia consistente en `football_data_enrichment.corners`.
-- **Recomendación conservadora de córners**: no recomendar si `corners.available=false` o si solo hay córners actuales sin tendencia; permitir *watchlist* bajo condiciones live (futuro ajuste si hace falta).
+- **Recomendación conservadora de córners**: no recomendar si `corners.available=false` o si solo hay córners actuales sin tendencia; permitir *watchlist* bajo condiciones live (extensión futura si hace falta).
+
+### Objetivos nuevos / extendidos (F82.1) — Protección de timeouts (crítico)
+- Separar enriquecimiento en:
+  - **FAST tier obligatorio (inline)**: H2H desde `h2h_recent` + corners solo desde datos ya presentes (API-Sports/live_stats o snapshot TheStatsAPI). **Cero HTTP externo**.
+  - **EXTERNAL tier opcional**: 365Scores (scrape.do + resolver IDs por fecha/nombres). **Nunca inline por defecto**.
+- Añadir feature flags + timeouts duros para proteger el job principal de picks.
+
+### Objetivos nuevos / extendidos (F83) — Intervención manual de mercado + cuota
+- Cuando haya `REQUIRES_MARKET_IDENTIFICATION`, habilitar intervención manual:
+  - cuota detectada
+  - cuota manual editable
+  - selector de mercado / selección / línea
+  - botón “Recalcular con mercado manual”
+  - resultado recalculado: edge, fragilidad, confianza, veredicto
+- Backend con endpoint POST para reprice + endpoint GET con catálogo de mercados.
 
 ### Estado global (Phases F58–F70)
 - ✅ F58 completado (backend + UI + scripts + tests).
@@ -206,15 +221,11 @@ Activar line movement desde día 1:
   - `normalize_365scores_match_stats(raw)` extrae corners/shots/SOT/possession/cards con aliases ES/EN/PT.
   - ID resolvers:
     - Fase 1: `resolve_game_id_from_match_doc` (external_ids o URL)
-    - Fase 2: `resolve_game_id_by_date_and_names` (lista games del día ±1 con alias map: USA↔United States, Bosnia 6 Herzegovina, etc.).
+    - Fase 2: `resolve_game_id_by_date_and_names` (lista games del día ±1 con alias map: USA↔United States, Bosnia & Herzegovina, etc.).
 
 ### ✅ 5) Corners provider cascade + persistencia
 - **NEW** `services/football_corners_provider.py`
-  - `enrich_match_corners(client, db, match_doc)` cascade:
-    1) API-Sports (`live_stats.home_stats/away_stats` con “Corner Kicks/Corners”)
-    2) 365Scores
-    3) TheStatsAPI (si corners existen)
-    4) none → `available=false`
+  - Cascade (en versión F82 original): API-Sports → 365Scores → TheStatsAPI → none
   - Persistencia:
     - `match_doc['football_data_enrichment']['corners']`
     - `match_doc['thestatsapi_snapshot']['corners']` (si existe)
@@ -235,31 +246,108 @@ Activar line movement desde día 1:
   - Mantiene compat con el modo pregame protegido existente.
 
 ## Testing
-- ✅ 18 tests nuevos: `backend/tests/test_f82_h2h_and_corners.py`
-- ✅ Suite global: **2207 passed**, 2 skipped, 0 regresiones.
-- ✅ Lint limpio. Backend RUNNING. Frontend esbuild OK.
+- ✅ Tests nuevos: `backend/tests/test_f82_h2h_and_corners.py`
+- ✅ Suite global se mantuvo verde.
 
 ---
 
-## 3) Pendientes y siguientes pasos (post-F82)
+# Phase F82.1 — Non-blocking H2H/Corners Enrichment + Job Timeout Protection (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Problema
+El job principal de picks de fútbol se quedaba en “LLM analyzing…” y terminaba en gateway timeout por llamadas inline a 365Scores/scrape.do.
+
+## Fix aplicado (arquitectura en 2 tiers)
+### FAST tier (inline, obligatorio, 0 HTTP)
+- ✅ `enrich_match_corners_fast()`
+  - Solo API-Sports/live_stats + corners en snapshot TheStatsAPI ya presente en `match_doc`.
+  - No realiza HTTP.
+
+### EXTERNAL tier (opt-in, con timeout)
+- ✅ `enrich_match_corners_external()`
+  - 365Scores vía scrape.do.
+  - Envoltorio con `asyncio.wait_for`.
+
+## Feature flags + timeouts (env)
+- ✅ `ENABLE_INLINE_365SCORES_CORNERS=False` (default)
+- ✅ `ENABLE_BACKGROUND_365SCORES_CORNERS=True`
+- ✅ `FOOTBALL_CORNERS_FAST_TIMEOUT_MS=1200`
+- ✅ `FOOTBALL_365SCORES_TIMEOUT_MS=3500`
+
+## Cambios de integración
+- ✅ `data_ingestion.py` ahora usa **solo** `enrich_match_corners_fast()`.
+
+## Reason codes nuevos
+- ✅ `SCORE365_SKIPPED_INLINE_FLAG_DISABLED`
+- ✅ `SCORE365_FETCH_TIMEOUT`
+
+## Testing
+- ✅ Nuevos tests: `backend/tests/test_f82_1_and_f83.py` (parte F82.1)
+- ✅ Suite global: **2223 passed**, 2 skipped, 0 regresiones.
+
+---
+
+# Phase F83 — Manual Market Identity + Manual Odds Injection (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Objetivo
+Cuando el engine detecta una cuota pero el mercado es UNKNOWN/AMBIGUOUS, la UI puede:
+- elegir market family + selección + línea
+- inyectar cuota manual
+- recalcular edge/veredicto de forma aislada (sin pisar la cuota original)
+
+## Implementación ejecutada
+### Backend
+- ✅ **NEW** `services/manual_market_identity.py`
+  - `MANUAL_MARKET_TYPES` (8 familias)
+  - `MARKET_OPTIONS` (selecciones + líneas permitidas)
+  - `validate_manual_payload()` (validación estricta)
+  - `recalculate_with_manual_market()` (manual_edge, implied/model prob, fragilidad/confianza heredada si existe)
+  - Preserva siempre `detected_odd` separado de `manual_odd`.
+
+- ✅ **NEW** endpoints:
+  - `GET /api/football/manual-market-options`
+  - `POST /api/football/manual-market-reprice`
+
+### Frontend
+- ✅ **NEW** `frontend/src/components/ManualMarketIdentityPanel.jsx`
+  - Cuota detectada + input de cuota manual
+  - Selects para mercado/selección/línea
+  - Botón “Recalcular con mercado manual”
+  - Render de resultado (`manual_edge`, fragilidad, confianza, veredicto, warnings)
+  - Acepta `candidateMarkets` (del resolver de identidad por odds) para sugerir opciones.
+
+## Testing
+- ✅ Nuevos tests: `backend/tests/test_f82_1_and_f83.py` (parte F83)
+- ✅ Endpoints verificados por `curl` (200 OK payload válido, 422 inválido).
+
+---
+
+## 3) Pendientes y siguientes pasos (post-F83)
 
 ### Pendientes no bloqueantes (actualizadas)
 - (P1) **Alternative rescue**: implementar `alternative_rescue.infer_original_pick_side()`
   - Inferencia: `recommendation.selection` → Forebet → favorito por cuota → edge TheStatsAPI.
   - Bloquear rescates direccionales si la dirección original no es inferible.
-- (P2) Bucket UI + acción manual:
-  - Exponer bucket para `REQUIRES_MANUAL_MARKET_SELECTION` con `candidate_markets` + input manual de cuota.
+
+- (P2) Wiring UI del bucket `REQUIRES_MANUAL_MARKET_SELECTION`
+  - Integrar `ManualMarketIdentityPanel` dentro del panel/bucket
+    `requires_market_identity` cuando `state==REQUIRES_MANUAL_MARKET_SELECTION`.
+  - Permitir input manual de cuota y disparar `POST /api/football/manual-market-reprice`.
+
 - (P3) Expandir `team_name_translations.py` para clubes UCL/UEL.
 - (P4) Validar resolver TheStatsAPI por nombres con datos reales y mejorar filtros por `competition` donde aplique.
 - (P5) Extender corner engine live/watchlist:
   - permitir watchlist solo si hay presión ofensiva alta de ambos equipos + total actual bajo vs ritmo.
 
-### Validación esperada (post-F82)
+### Validación esperada (post-F83)
 - UI/JSON:
   - `editorial.h2h_context.matches[]` con resultados concretos (no solo conteo).
   - `football_data_enrichment.corners.available` con fuente y reason_codes claros.
-  - Mensajes de debug: si no hay corners por falta de ID/blocked, reason_codes lo explican.
+  - `requires_market_identity` bucket con `candidate_markets` y panel manual (F83) disponible.
 - Logs:
   - `[h2h_context] ...`
-  - `[corners_provider] ...`
+  - `[corners_provider] ...` (fast tier inline) y `SCORE365_*` solo en external tier.
   - `[odds_coverage] ...`

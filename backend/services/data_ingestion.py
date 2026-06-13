@@ -803,9 +803,10 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
         except Exception as exc:  # noqa: BLE001
             log.warning("h2h_context build failed for %s: %s", fid, exc)
         # Phase F82 — corners provider (API-Sports → 365Scores → TheStatsAPI).
+        # Phase F82.1 — FAST tier only (no HTTP); 365Scores opt-in via env flag.
         try:
-            from .football_corners_provider import enrich_match_corners
-            await enrich_match_corners(client, db, match_doc)
+            from .football_corners_provider import enrich_match_corners_fast
+            await enrich_match_corners_fast(client, db, match_doc)
         except Exception as exc:  # noqa: BLE001
             log.debug("corners_provider failed for %s: %s", fid, exc)
         if fx_raw.get("_is_national_team"):
