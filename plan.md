@@ -1,8 +1,8 @@
-# Plan — Phases F58–F90 (bitácora)
+# Plan — Phases F58–F91 (bitácora)
 
 > **Nota:** Este plan se mantiene como bitácora completa.
-> **Estado histórico:** ✅ F58–F70 completadas (ver secciones abajo).
-> **Estado actual (resumen):** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA** + ✅ **F83.1 (Pantalla-negra fix + match_id robust + odd isolation + data availability sections) COMPLETADA** + ✅ **P2 (infer_original_pick_side 4-source cascade) COMPLETADA** + ✅ **F82.2 backend (Scores24 deprecated, 365Scores cross integrator, provider re-order, persistence) COMPLETADA** + ✅ **F82.2 frontend (CornersEnrichmentButton wiring + Scores24 label removal + FE tests) COMPLETADA** + ✅ **F83.2 / Bloque E (xG L1/L5/L15 desde shotmap TheStatsAPI + UI + tests) COMPLETADA** + ✅ **P4.1 (LiveReevalPanel.test.jsx 3 preexistentes) COMPLETADA** + ✅ **F84.a (team_stats prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.b (H2H prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.e (odds prioridad-inversa a TheStatsAPI + line movement) COMPLETADA** + ✅ **F85 (Public xG — FBref + Forebet vía scrape.do) COMPLETADA** + ✅ **F85 Phase 2 (FBref search-page resolver + fuzzy matching) COMPLETADA** + ✅ **F86 (H2H Decision Policy puro en Python) COMPLETADA** + ✅ **F87 (Cableado quirúrgico en `_enrich_football`: H2H decision + xG-recent background dispatch) COMPLETADA** + ✅ **F88 (F86.2 — Editorial Consumer: h2h_decision + xg_recent_averages + UI) COMPLETADA** + ✅ **F89 (Sprint F86.1 — Calibración H2H rules + explicit polarity/sample/cap guards) COMPLETADA** + ✅ **F90 (Sprint F83-update — Corners cascade con diagnóstico estructurado vía Scrape.do + flag F83 cascade order) COMPLETADA**.
+> **Estado histórico:** ✅ F58–F70 completadas.
+> **Estado actual (resumen):** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA** + ✅ **F83.1 (Pantalla-negra fix + match_id robust + odd isolation + data availability sections) COMPLETADA** + ✅ **P2 (infer_original_pick_side 4-source cascade) COMPLETADA** + ✅ **F82.2 backend (Scores24 deprecated, 365Scores cross integrator, provider re-order, persistence) COMPLETADA** + ✅ **F82.2 frontend (CornersEnrichmentButton wiring + Scores24 label removal + FE tests) COMPLETADA** + ✅ **F83.2 / Bloque E (xG L1/L5/L15 desde shotmap TheStatsAPI + UI + tests) COMPLETADA** + ✅ **P4.1 (LiveReevalPanel.test.jsx 3 preexistentes) COMPLETADA** + ✅ **F84.a (team_stats prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.b (H2H prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.e (odds prioridad-inversa a TheStatsAPI + line movement) COMPLETADA** + ✅ **F85 (Public xG — FBref + Forebet vía scrape.do) COMPLETADA** + ✅ **F85 Phase 2 (FBref search-page resolver + fuzzy matching) COMPLETADA** + ✅ **F86 (H2H Decision Policy puro en Python) COMPLETADA** + ✅ **F87 (Cableado quirúrgico en `_enrich_football`: H2H decision + xG-recent background dispatch) COMPLETADA** + ✅ **F88 (F86.2 — Editorial Consumer: h2h_decision + xg_recent_averages + UI) COMPLETADA** + ✅ **F89 (Sprint F86.1 — Calibración H2H rules + explicit polarity/sample/cap guards) COMPLETADA** + ✅ **F90 (Sprint F83-update — Corners cascade con diagnóstico estructurado vía Scrape.do + flag F83 cascade order) COMPLETADA** + ✅ **F91 (MLB Quality Contact Matchup Engine — módulo puro + tests) COMPLETADA**.
 >
 > **Idioma operativo:** Español.
 
@@ -99,6 +99,28 @@
   - dialog con cascade order usado, estado scrape.do (token+breaker) y providers_checked.
 - Mantener el order por defecto de F82.2 (TSA→APS→365) y habilitar un order alternativo bajo flag:
   - `ENABLE_F83_CASCADE_ORDER=true` → APS→365→TSA
+
+### Objetivos nuevos / extendidos (F91) — MLB Quality Contact Matchup Engine (módulo puro)
+- Detectar discrepancias entre:
+  - calidad real del contacto ofensivo (xwOBA, sweet-spot%, barrel%, hard-hit%)
+  - vulnerabilidad del abridor (xERA, xwOBA allowed, barrel% allowed, hard-hit% allowed)
+  - percepción pública basada en ERA
+- **No generar picks automáticos**: solo output explicable con señales.
+- Entregar un **módulo puro** con:
+  - lineup_contact_quality (ponderado por orden al bate)
+  - pitcher_vulnerability (0–100)
+  - matchup_contact_factor y contact_mismatch_score
+  - detector de regresión (xERA − ERA)
+  - señales: `MATCHUP_CONTACT_ADVANTAGE`, `PITCHER_BARREL_REGRESSION_RISK`, `ERA_UNDERSTATES_DAMAGE`, `TOP_ORDER_THREAT`, `OVER_CONTACT_WARNING`
+- Datos por bateador:
+  - por defecto **derivados** desde team-level
+  - flag `QCM_LINEUP_PER_BATTER=true` para consumir per-batter real en el futuro
+- Thresholds:
+  - defaults hardcoded + override por env `QCM_THRESHOLDS` JSON
+- Scope acordado:
+  - **solo módulo + tests + payload fail-soft**
+  - NO crear `mlb_under_discovery.py` ni `pick_ranking.py`
+  - NO modificar `picks[]` ni ranking aún
 
 ---
 
@@ -228,124 +250,99 @@
 ---
 
 # Phase F89 — Sprint F86.1: Calibración H2H_POINT_RULES + explicit polarity guard + sample guard (COMPLETED ✅)
-**(COMPLETADO)** — sin cambios (ver sección histórica F89 en este archivo).
+**(COMPLETADO)** — sin cambios.
 
 ---
 
 # Phase F90 — Sprint F83-update: Corners cascade con diagnóstico estructurado vía Scrape.do + flag F83 cascade order (COMPLETED ✅)
+**(COMPLETADO)** — ver historial F90 en este mismo archivo.
+
+---
+
+# Phase F91 — MLB Quality Contact Matchup Engine (módulo puro) (COMPLETED ✅)
 
 ## Estado: ✅ COMPLETADA
 
-## Motivación
-- `scrape_do_client.fetch_via_scrapedo` devolvía solo `HTML|None`, por lo que era imposible saber por qué fallaba la carga.
-- La UI mostraba un mensaje genérico (“Falló la carga de córners”) sin guiar el debug.
-- Se necesitaba:
-  - **reason_code** + **stage** + **message_user/message_debug**
-  - endpoint de diagnóstico
-  - UI de debug
-  - orden de cascada alternativo bajo flag sin romper el default F82.2.
+## Decisión de scope (acordada)
+- ✅ Solo módulo puro + tests + output fail-soft.
+- ✅ NO crear `mlb_under_discovery.py` ni `pick_ranking.py` (no existen en este repo).
+- ✅ NO modificar `picks[]` ni ranking.
+- ✅ Métricas por bateador derivadas por defecto; flag `QCM_LINEUP_PER_BATTER=true` para real per-batter en el futuro.
+- ✅ Thresholds hardcoded + override por env `QCM_THRESHOLDS` (JSON).
 
 ## Implementación ejecutada
 
 ### Backend
-1) **MOD** `backend/services/scrape_do_client.py`
-- ✅ **NEW** `fetch_via_scrapedo_result(target_url, *, timeout, render, geo)` → dict diagnóstico:
-  - `ok`, `html`, `status_code`, `target_url`, `provider`, `reason_code`, `message_debug`, `fetched_at`.
-- ✅ Reason codes implementados:
-  - `SCRAPEDO_TOKEN_MISSING`, `SCRAPEDO_BREAKER_OPEN`, `SCRAPEDO_HTTP_ERROR`,
-    `SCRAPEDO_TIMEOUT`, `SCRAPEDO_EMPTY_BODY`, `SCRAPEDO_EXCEPTION`.
-- ✅ `fetch_via_scrapedo` preservado como wrapper legacy:
-  - `ok=True` → retorna `html`
-  - `ok=False` → retorna `None`
-
-2) **NEW** `backend/services/external_sources/score365_scrapedo_client.py`
-- ✅ `extract_365scores_ids(match_doc)`:
-  - cascade 5 pasos (external_ids, url, match_url, external_urls, pick/ui payload)
-  - output: `{game_id, matchup_id, match_url, available, resolved_from}`
-- ✅ `fetch_365scores_match_page(..., match_url)`:
-  - usa `fetch_via_scrapedo_result(timeout=60, render=True, geo="mx")`
-  - retorna dict con `stage`, `reason_code`, `message_user`, `message_debug`.
-- ✅ `fetch_365scores_game_stats(..., game_id, matchup_id)`:
-  - usa endpoint JSON vía scrape.do + parse JSON
-  - reason `SCORE365_JSON_PARSE_FAILED` si no parsea
-- ✅ `parse_365scores_corners_from_html(html)`:
-  - extrae `__NEXT_DATA__` / `__INITIAL_STATE__`
-  - DFS heurístico para encontrar `statistics|gameStats|stats|matchStats`
-  - aliases multi-idioma (Corners, Corner Kicks, Córners, Tiros de esquina, Escanteios, …)
-- ✅ `normalize_365scores_corners(raw)` idempotente con shape:
-  - `{available, source:"365scores_scrapedo", provider:"365scores", transport:"scrape_do", home, away, total_corners, raw_stat_names, confidence:"USABLE", reason_codes:["CORNERS_FROM_365SCORES_SCRAPEDO"], fetched_at}`
-- ✅ HTTP 403/429/503 mapeado a `SCORE365_BLOCKED_OR_FORBIDDEN`.
-
-3) **MOD** `backend/services/football_corners_provider.py`
-- ✅ **NEW flag** `ENABLE_F83_CASCADE_ORDER`:
-  - default (F82.2): **TheStatsAPI → API-Sports → 365Scores**
-  - F83 ON: **API-Sports → 365Scores → TheStatsAPI**
-- ✅ **NEW** `debug_corners_cascade(match_doc, *, allow_external=True)`:
-  - output: `{match_id, home, away, cascade_order_used, flag_enabled, scrapedo{enabled, breaker_status}, providers_checked[], winner, final{...}}`
-  - `providers_checked` en orden real usado con `provider`, `transport`, `stage`, `reason_code`, `message_user`, `message_debug`, `retryable`.
-- ✅ **NEW** `enrich_match_corners_f83(...)`:
-  - ejecuta `debug_corners_cascade` y persiste winner/failure con diagnóstico en:
-    - `match_doc.corners_snapshot`
-    - `match_doc.football_data_enrichment.corners`
-    - `match_doc.thestatsapi_snapshot.corners` (si existe)
-- ✅ Fail-soft total (nunca rompe el análisis).
-
-4) **MOD** `backend/server.py`
-- ✅ **NEW** endpoint `GET /api/football/corners/debug?match_id=...`
-  - carga match_doc desde `analyst_runs` vía `_load_match_doc_for_corners`
-  - retorna diagnóstico estructurado
-  - `match_doc_found=false` si no existe el match (igual corre cascade para diagnóstico)
-
-### Frontend
-5) **NEW** `frontend/src/components/CornersDebugDialog.jsx`
-- ✅ Consume `GET /api/football/corners/debug?match_id=`.
-- ✅ Renderiza:
-  - `cascade_order_used` + `flag_enabled`
-  - scrape.do health (`enabled`, `open_hosts`)
-  - providers_checked con stage/reason/message_user/debug
-  - final outcome + winner
-- ✅ Botón “Reejecutar”.
-
-6) **MOD** `frontend/src/components/CornersEnrichmentButton.jsx`
-- ✅ Mapping `reason_code → mensaje específico` (ES/EN) para:
-  - `SCORE365_ID_MISSING`, `SCRAPEDO_*`, `SCORE365_*`, `NO_CORNERS_PROVIDER_AVAILABLE`, `MATCH_NOT_FOUND`.
-- ✅ En error:
-  - muestra mensaje específico + `<code>` con el reason_code
-  - botón **“Ver debug de córners”** abre `CornersDebugDialog`.
+1) **NEW** `backend/services/mlb_quality_contact_matchup.py`
+- Implementa el engine completo como módulo puro:
+  - **Weighted Lineup Quality Score** con `LINEUP_WEIGHTS`.
+  - **Offensive Contact Quality Score** (xwOBA/sweet-spot/barrel/hard-hit) con escalado 0–100.
+  - **Pitcher Vulnerability Score** con escalado 0–100.
+  - **ERA Regression Detector** (`era_gap = xERA − ERA`) con niveles:
+    - `SEVERE_REGRESSION_RISK` (≥ 1.50)
+    - `HIGH_REGRESSION_RISK` (≥ 1.00)
+    - `MODERATE_REGRESSION_RISK` (≥ 0.50)
+    - `NORMAL`
+  - **Matchup Contact Factor**: `lineup_quality * (1 + barrel_pct_allowed)`.
+  - **Contact Mismatch Score**: `(lineup_quality * pitcher_vulnerability)/100` (0–100).
+  - **Signals**:
+    - `MATCHUP_CONTACT_ADVANTAGE`
+    - `PITCHER_BARREL_REGRESSION_RISK`
+    - `ERA_UNDERSTATES_DAMAGE`
+    - `TOP_ORDER_THREAT`
+    - `OVER_CONTACT_WARNING`
+- **Thresholds**:
+  - defaults hardcoded en `_DEFAULT_THRESHOLDS`
+  - override por env `QCM_THRESHOLDS` (JSON) leído **en tiempo de llamada** (`get_active_thresholds`).
+- **Fuentes de datos (mock/derivado, acordado)**:
+  - Reutiliza `mlb_advanced_stats_helpers.extract_mlb_advanced_context()` + `_team_block/_pitcher_block`.
+  - Default: deriva 9 filas de bateadores desde snapshot de equipo con jitter posicional.
+  - Futuro: con `QCM_LINEUP_PER_BATTER=true` consume `payload.lineups.official.<side>[].statcast`.
+- **Fail-soft**:
+  - si faltan datos → `available=false`, `reason_codes=["QCM_INSUFFICIENT_DATA"]`, `signals=[]`.
+- **Output**:
+  - `compute_quality_contact_matchup(payload)` devuelve el bloque `quality_contact_matchup` con:
+    - `available`, `lineup_contact_quality`, `pitcher_vulnerability`, `matchup_contact_factor`, `contact_mismatch_score`, `era_gap`, `regression_risk`, `signals`
+    - `reason_codes` (provenance: REAL vs DERIVED)
+    - `thresholds_used` (auditoría)
+    - `score_breakdown` (per-batter weighted + pitcher_metrics)
 
 ### Tests
-7) **NEW** `backend/tests/test_f83_update_corners_debug.py`
-- ✅ 29 tests cubriendo:
-  - `fetch_via_scrapedo_result` reason codes + wrapper legacy
-  - ID resolution cascade
-  - parser HTML (__NEXT_DATA__ + alias multi-idioma)
-  - cascade order default vs flag
-  - debug endpoint shape
+2) **NEW** `backend/tests/test_mlb_quality_contact_matchup.py`
+- **36 tests** que cubren:
+  - invariantes de pesos `LINEUP_WEIGHTS`
+  - scoring primitives (batter score, lineup quality, pitcher vulnerability)
+  - clasificación de gap xERA−ERA
+  - override de thresholds por env
+  - flag `QCM_LINEUP_PER_BATTER`
+  - señales (incluye TOP_ORDER_THREAT y OVER_CONTACT_WARNING con override)
+  - audit `score_breakdown`
+  - garantía de no tocar `picks[]`
 
 ## Validación
-- ✅ Ruff: limpio.
-- ✅ Tests F83-update: **29/29 PASS**.
-- ✅ Tests focales corners (F82.1/F82.2/F82-h2h/F83.1/F83.2/F83-update): **124/124 PASS**.
-- ✅ Suite completa backend: **2635 passed, 2 skipped, 0 fallos** (2606 → 2635).
-- ✅ Suite completa frontend: **125 passed, 12 suites, 0 fallos**.
-- ✅ Smoke runtime: `curl /api/football/corners/debug?match_id=test_smoke` devuelve shape esperado.
-
-## Compatibilidad
-- `fetch_via_scrapedo` legacy preservado (no rompe callers existentes).
-- `score365_client.py` legacy NO modificado.
-- `enrich_match_corners*` legacy preservados; el nuevo flujo vive en helpers F83-update.
-- Default F82.2 cascade order preservado; F83 order disponible bajo flag.
+- ✅ Ruff lint clean.
+- ✅ Tests F91: **36/36 PASS**.
+- ✅ Suite completa backend: **2671 passed, 2 skipped, 0 failed** (2635 → 2671).
+- ✅ Cero regresiones.
 
 ---
 
-## 3) Pendientes y siguientes pasos (post-F90)
+## 3) Pendientes y siguientes pasos (post-F91)
 
 ### Pendientes no bloqueantes
 - (F84.c) lineups / injuries — fuera de scope inicial, requiere confirmar cobertura TheStatsAPI.
 - (F84.d) standings — fuera de scope inicial.
 - (P3) Expandir `team_name_translations.py` para clubes UCL/UEL.
 
-### Futuras mejoras recomendadas
+### Próximos sprints recomendados para MLB (post-F91)
+- **F91.1 — Emisión al pipeline MLB**: integrar `quality_contact_matchup` en el payload contract (p.ej. `mlb_pipeline_payload_contract.py` o punto único equivalente del pipeline). *(En F91 solo se entregó el módulo puro + tests).*
+- **F91.2 — Señales impactan confianza (sin picks automáticos)**:
+  - Under: penalización `UNDER_CONTACT_RISK` en el layer de fragilidad (p.ej. `mlb_under_fragility_calibrator.py`).
+  - Over: boost moderado `CONTACT_EXPLOSION_POTENTIAL` en `mlb_over_discovery.py` cuando coincidan: contact_factor alto + barrel risk + regression.
+- **F91.3 — UI panel MLB**: renderizar scores + signals + breakdown (narrativo) sin generar picks.
+- **F91.4 — Per-batter real**: habilitar `QCM_LINEUP_PER_BATTER=true` cuando `mlb_official_lineups.py` exponga métricas por bateador (Statcast).
+
+### Futuras mejoras recomendadas (global)
 - Backtest de la calibración F86.1 con ≥ 30 picks reales con H2H aplicado para ajustar thresholds, `MAX_H2H_POINTS_TOTAL` y el cap DNB.
 - Implementar calibrador offline cuando exista una fuente estable (p.ej. `football_market_results`) + endpoint opcional.
 - Para FBref Phase 2: ampliar heurísticas (country/team_type) para equipos UCL/UEL.
@@ -361,6 +358,8 @@
   - `ENABLE_INLINE_PUBLIC_XG_SCRAPING=false` mantiene scraping fuera del camino crítico.
   - `H2H_POINT_RULES_OVERRIDE` permite override JSON en runtime (solo en policy; tests usan monkeypatch).
   - `ENABLE_F83_CASCADE_ORDER=true` (opcional) invierte corners cascade a **APS → 365Scores → TSA**.
+  - `QCM_LINEUP_PER_BATTER=true` (opcional) activa path real per-batter (cuando exista data) — default off.
+  - `QCM_THRESHOLDS='{...}'` (opcional) override de thresholds del engine QCM.
 - Auditoría runtime:
   - `match_doc._provenance_team_stats`, `_provenance_h2h`, `_provenance_odds` presentes.
   - `match_doc.h2h_context` + `match_doc.h2h_decision` presentes tras ingesta (F87).
@@ -371,11 +370,14 @@
   - `best_protected_market.confidence_score` puede incorporar bump H2H con clamp+polarity.
   - Corners debug:
     - `GET /api/football/corners/debug?match_id=...` expone `cascade_order_used`, `flag_enabled`, `providers_checked` y `winner`.
+  - MLB QCM (F91):
+    - `services.mlb_quality_contact_matchup.compute_quality_contact_matchup(payload)` produce el bloque `quality_contact_matchup` (aún sin integración al pipeline).
 - No regresiones:
-  - Backend `pytest` verde (actual: **2635 passed, 2 skipped**).
+  - Backend `pytest` verde (actual: **2671 passed, 2 skipped**).
   - Frontend `craco test` verde (actual: **125 passed**).
 - Fail-soft:
   - Si TheStatsAPI falla → fallback API-Sports o bloque vacío.
   - Si scraping FBref/Forebet falla → no bloquea; UI muestra parcial.
   - Si xG recent averages falla/timeout → no bloquea; UI informa estado.
   - Si corners fallan → nunca rompe el análisis; UI informa reason_code y ofrece debug.
+  - MLB QCM: si faltan métricas → `available=false` y no bloquea ningún pipeline.

@@ -1,26 +1,26 @@
 [
   {
-    "content": "PARTE 1 — fetch_via_scrapedo_result() en scrape_do_client.py",
+    "content": "Crear services/mlb_quality_contact_matchup.py: módulo puro con LINEUP_WEIGHTS, contact_score, pitcher_vulnerability, era_gap, matchup_contact_factor, mismatch_score, top_order_threat, signals",
     "status": "completed"
   },
   {
-    "content": "PARTE 2 — score365_scrapedo_client.py",
+    "content": "Deriver mocked + flag QCM_LINEUP_PER_BATTER",
     "status": "completed"
   },
   {
-    "content": "PARTE 6 — football_corners_provider.py: cascade reorder + debug_corners_cascade()",
+    "content": "Thresholds: defaults hardcoded + override por env QCM_THRESHOLDS (JSON)",
     "status": "completed"
   },
   {
-    "content": "PARTE 7 — GET /api/football/corners/debug",
+    "content": "compute_quality_contact_matchup(payload) — entrypoint fail-soft",
     "status": "completed"
   },
   {
-    "content": "PARTE 8 — UI: mensajes específicos + botón debug + CornersDebugDialog",
+    "content": "Tests F91: 36/36 PASS",
     "status": "completed"
   },
   {
-    "content": "PARTE 9 — Tests F83-update: 29/29 PASS | Backend total: 2635 passed | Frontend: 125 passed | zero-regression ✅",
+    "content": "Lint clean + Backend suite: 2671 passed, 2 skipped (subida de 2635 → 2671) ✅",
     "status": "completed"
   }
 ]
