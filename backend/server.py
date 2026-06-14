@@ -1090,12 +1090,10 @@ async def football_player_heatmap_by_name_endpoint(
                     )
                 # Match doc may already be in prematch_cache (from F66).
                 if stats_match_id:
-                    cached_match = await db.thestatsapi_prematch_cache.find_one(
-                        {"_id": stats_match_id},
-                    )
-                    # The prematch_cache stores ONLY odds, not the match
-                    # meta — so we still need to query the match list when
-                    # we don't have comp/season. Cheap on-demand fetch.
+                    # The prematch_cache fetch result is consumed below
+                    # only via its presence-by-ID; we don't read the
+                    # body, so we skip the actual query here and only
+                    # branch on whether we still need meta fields.
                     if not competition_id or not season_id:
                         from services.thestatsapi_client import _http_get
                         m = await _http_get(
@@ -1354,8 +1352,10 @@ async def football_editorial_prediction_endpoint(
             from services.head_to_head_ingestor import fetch_h2h_for_match
             h_name = match_doc.get("home_team")
             a_name = match_doc.get("away_team")
-            if isinstance(h_name, dict): h_name = h_name.get("name")
-            if isinstance(a_name, dict): a_name = a_name.get("name")
+            if isinstance(h_name, dict):
+                h_name = h_name.get("name")
+            if isinstance(a_name, dict):
+                a_name = a_name.get("name")
             h2h_rows = await fetch_h2h_for_match(db, h_name, a_name, limit=5)
         except Exception as exc:  # noqa: BLE001
             log.debug("[F67_H2H_FETCH_FAIL] %s: %s", match_id, exc)
@@ -8113,11 +8113,16 @@ async def patch_pick_user_bet(
 
     # Refresh actual_bet sub-document defensively.
     actual_bet = dict(row.get("actual_bet") or {})
-    if payload.market    is not None: actual_bet["market"]    = payload.market
-    if payload.selection is not None: actual_bet["selection"] = payload.selection
-    if payload.line      is not None: actual_bet["line"]      = payload.line
-    if payload.odds      is not None: actual_bet["odds"]      = payload.odds
-    if payload.outcome   is not None: actual_bet["outcome"]   = payload.outcome
+    if payload.market    is not None:
+        actual_bet["market"]    = payload.market
+    if payload.selection is not None:
+        actual_bet["selection"] = payload.selection
+    if payload.line      is not None:
+        actual_bet["line"]      = payload.line
+    if payload.odds      is not None:
+        actual_bet["odds"]      = payload.odds
+    if payload.outcome   is not None:
+        actual_bet["outcome"]   = payload.outcome
 
     # Final score (either supplied or read from the row).
     fs_block = row.get("final_score") or {}
@@ -8247,8 +8252,10 @@ async def calibration_summary(
             line_protections.append(float(ld))
         er = (r.get("engine_result") or "").upper()
         ur = (r.get("user_result")   or "").upper()
-        if er == "WIN"  and ur == "LOSS": engine_won_user_lost += 1
-        if er == "LOSS" and ur == "WIN":  engine_lost_user_won += 1
+        if er == "WIN"  and ur == "LOSS":
+            engine_won_user_lost += 1
+        if er == "LOSS" and ur == "WIN":
+            engine_lost_user_won += 1
 
     avg_protection = (
         round(sum(line_protections) / len(line_protections), 3)

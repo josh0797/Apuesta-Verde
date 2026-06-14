@@ -1,8 +1,8 @@
-# Plan — Phases F58–F85 (bitácora)
+# Plan — Phases F58–F87 (bitácora)
 
 > **Nota:** Este plan se mantiene como bitácora completa.
 > **Estado histórico:** ✅ F58–F70 completadas (ver secciones abajo).
-> **Estado actual (resumen):** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA** + ✅ **F83.1 (Pantalla-negra fix + match_id robust + odd isolation + data availability sections) COMPLETADA** + ✅ **P2 (infer_original_pick_side 4-source cascade) COMPLETADA** + ✅ **F82.2 backend (Scores24 deprecated, 365Scores cross integrator, provider re-order, persistence) COMPLETADA** + ✅ **F82.2 frontend (CornersEnrichmentButton wiring + Scores24 label removal + FE tests) COMPLETADA** + ✅ **F83.2 / Bloque E (xG L1/L5/L15 desde shotmap TheStatsAPI + UI + tests) COMPLETADA** + ✅ **P4.1 (LiveReevalPanel.test.jsx 3 preexistentes) COMPLETADA** + ✅ **F84.a (team_stats prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.b (H2H prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.e (odds prioridad-inversa a TheStatsAPI + line movement) COMPLETADA** + ✅ **F85 (Public xG — FBref + Forebet vía scrape.do) COMPLETADA** + ✅ **F85 Phase 2 (FBref search-page resolver + fuzzy matching) COMPLETADA**.
+> **Estado actual (resumen):** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA** + ✅ **F83.1 (Pantalla-negra fix + match_id robust + odd isolation + data availability sections) COMPLETADA** + ✅ **P2 (infer_original_pick_side 4-source cascade) COMPLETADA** + ✅ **F82.2 backend (Scores24 deprecated, 365Scores cross integrator, provider re-order, persistence) COMPLETADA** + ✅ **F82.2 frontend (CornersEnrichmentButton wiring + Scores24 label removal + FE tests) COMPLETADA** + ✅ **F83.2 / Bloque E (xG L1/L5/L15 desde shotmap TheStatsAPI + UI + tests) COMPLETADA** + ✅ **P4.1 (LiveReevalPanel.test.jsx 3 preexistentes) COMPLETADA** + ✅ **F84.a (team_stats prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.b (H2H prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.e (odds prioridad-inversa a TheStatsAPI + line movement) COMPLETADA** + ✅ **F85 (Public xG — FBref + Forebet vía scrape.do) COMPLETADA** + ✅ **F85 Phase 2 (FBref search-page resolver + fuzzy matching) COMPLETADA** + ✅ **F86 (H2H Decision Policy puro en Python) COMPLETADA** + ✅ **F87 (Cableado quirúrgico en `_enrich_football`: H2H decision + xG-recent background dispatch) COMPLETADA**.
 >
 > **Idioma operativo:** Español.
 
@@ -84,6 +84,23 @@
 - Persistir resultados de forma **fail-soft**, con **timeouts** y arquitectura **run-now/background** para que **no bloquee** el generador principal.
 - Exponer UI para disparar enriquecimiento y renderizar datos parciales sin ocultar otros bloques.
 - **F85 Phase 2:** Resolver URLs FBref vía search-page + fuzzy matching cuando static mapping/Mongo miss ✅.
+
+### Objetivos nuevos / extendidos (F86) — H2H Decision Policy (puro Python)
+- Implementar un módulo de decisión para H2H **sin I/O**, que defina estrictamente:
+  - Cuándo H2H es **decisivo** para puntuar mercados (requiere `MIN_DECISION_SAMPLE=4` en historia reciente).
+  - Cuándo H2H es **solo narrativo** (contexto + warnings visibles en UI).
+- Output:
+  - `h2h_context` enriquecido con `warnings`, `recent_within_1y`, `decision_useful`.
+  - `h2h_decision` con `applied`, `points_by_market` y `signals`.
+
+### Objetivos nuevos / extendidos (F87) — Cableado quirúrgico en `_enrich_football` (data_ingestion)
+- Integrar **sin refactor grande** (cambio quirúrgico) dos comportamientos en el pipeline:
+  1) **H2H Decision Policy** inmediatamente tras construir el contexto.
+  2) **xG recent averages (L1/L5/L15) en background** (fire-and-forget) para evitar latencias P95.
+- Garantía central:
+  - **No bloquear** el camino crítico.
+  - **Fail-soft total** (no propaga excepciones al caller).
+  - Persistencia consistente en Mongo + mutación del `match_doc` en memoria.
 
 ---
 
@@ -282,7 +299,7 @@ Arquitectura:
 - **Background-first** + **run-now** explícito.
 - Timeouts duros.
 - Fail-soft total.
-- Persistencia en `xg_public_enrichment` y mirror a `xg_recent_averages` cuando aplica.
+- Persistencia en `xg_public_enrichment`.
 
 ---
 
@@ -388,16 +405,82 @@ Cuando el resolver no encuentra una URL en el static mapping ni en Mongo cache:
 
 ---
 
-## Validación final combinada (F84.e + F85 Phase 2)
-- ✅ Backend `pytest`: **2521 passed, 2 skipped, 0 fallos**
-  - Base previa: 2477
-  - +17 (F84.e)
-  - +27 (F85 Phase 2)
-- ✅ Sin regresiones.
+# Phase F86 — H2H Decision Policy (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Objetivo
+Implementar una política de decisión **pura** (sin I/O) para definir cuándo H2H:
+- suma puntos a mercados (cuando `MIN_DECISION_SAMPLE=4` en historia reciente), o
+- queda como **contexto narrativo** (warnings + `decision_useful=false`).
+
+## Implementación ejecutada
+- ✅ `backend/services/football_h2h_decision_policy.py`
+  - `classify_h2h_context(h2h_context, h2h_recent)` → enriquece warnings/reason_codes y define `decision_useful`.
+  - `apply_h2h_decision_points(classified, home_name, away_name)` → `points_by_market`, `signals`, `rates`, `applied`.
+  - `build_h2h_decision(match_doc)` → wrapper `(classified, decision)`.
+
+## Tests
+- ✅ `backend/tests/test_f86_h2h_decision_policy.py`
 
 ---
 
-## 3) Pendientes y siguientes pasos (post-F85)
+# Phase F87 — Cableado quirúrgico H2H Decision + xG-recent background dispatch en `_enrich_football` (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Motivación
+- El cálculo de xG reciente (L1/L5/L15) puede requerir **hasta 30 HTTP calls** (15 por lado) al endpoint shotmap.
+- Para proteger el P95 del ingestor y evitar 504/latencia, el cómputo se despacha **en background**.
+- El H2H rico (F82) era informativo, pero faltaba el **gating decisional** (F86) para scoring.
+
+## Implementación ejecutada (MOD: `backend/services/data_ingestion.py`)
+
+### A) Helpers nuevos (antes de `_enrich_football`)
+- ✅ `_ensure_thestatsapi_recent_match_ids(match_doc, fid)`
+  - Pobla `home_team.thestatsapi_recent_match_ids` y `away_team.thestatsapi_recent_match_ids` si faltan.
+  - Fuente: `services.external_sources.thestatsapi_client.fetch_recent_match_ids(team_id, n=15)`.
+  - Fail-soft total (nunca raise).
+- ✅ `_schedule_xg_recent_background(match_doc, fid, db)`
+  - Ejecuta `compute_xg_recent_averages(match_doc)` bajo `asyncio.wait_for(..., timeout=30s)`.
+  - Persiste en Mongo: `db.matches.update_one({"match_id": fid}, {"$set": {"xg_recent_averages": result}})`.
+  - Muta `match_doc["xg_recent_averages"] = result` en memoria.
+  - Estados:
+    - `SUCCESS` cuando `available=true`
+    - `UNAVAILABLE` cuando `available=false`
+    - `TIMEOUT` con reason `XG_RECENT_BACKGROUND_TIMEOUT`
+  - Fail-soft total.
+
+### B) Bloque H2H Decision Policy (después de `build_h2h_context`)
+- ✅ `classified, decision = build_h2h_decision(match_doc)`
+- ✅ Persistencia:
+  - `match_doc["h2h_context"]  = classified` (incluye `warnings`, `recent_within_1y`, `decision_useful`, etc.)
+  - `match_doc["h2h_decision"] = decision` (`points_by_market`, `signals`, `applied`, etc.)
+
+### C) Dispatch xG recent averages en background (justo después)
+- ✅ Inicialización no bloqueante:
+  - `match_doc.setdefault("xg_recent_averages", {"available": False, "status": "PENDING_BACKGROUND_ENRICHMENT", "reason_codes": ["XG_RECENT_BACKGROUND_DEFERRED"]})`
+- ✅ Fire-and-forget:
+  - `asyncio.create_task(_schedule_xg_recent_background(match_doc, fid, db))`
+
+## Contrato para el consumer (editorial / scoring engine)
+- UI H2H:
+  - `h2h_context.warnings`
+  - `h2h_context.recent_within_1y`
+  - `h2h_context.decision_useful` (badge informativo vs decisivo)
+- Scoring:
+  - Si `h2h_decision.applied` entonces sumar `points_by_market` y anexar `signals`.
+
+## Validación
+- ✅ Lint Python: sin issues bloqueantes.
+- ✅ Smoke import: OK.
+- ✅ `pytest` selectivo (F83.2/F85/F86): **109 passed**.
+- ✅ Tests relevantes de ingesta (F74 + Batch3): **41 passed**.
+- ✅ Suite completa backend: **2573 passed, 2 skipped, 0 fallos** (169s) — **zero-regression confirmada**.
+
+---
+
+## 3) Pendientes y siguientes pasos (post-F87)
 
 ### Pendientes no bloqueantes
 - (F84.c) lineups / injuries — fuera de scope inicial, requiere confirmar cobertura TheStatsAPI.
@@ -405,8 +488,9 @@ Cuando el resolver no encuentra una URL en el static mapping ni en Mongo cache:
 - (P3) Expandir `team_name_translations.py` para clubes UCL/UEL.
 
 ### Futuras mejoras recomendadas
-- Para FBref Phase 2: añadir heurísticas por `country`/`team_type` en la selección de candidatos.
+- Para FBref Phase 2: añadir heurísticas por `country`/`team_type` en la selección de candidatos (nota: algunas heurísticas ya se implementaron en Phase 2/2.1; revisar si falta ampliar coverage UCL/UEL).
 - Para odds: agregar comparación de `bookmakers_count` TSA vs APS como métrica de calidad.
+- Para `data_ingestion.py` y `server.py`: refactor incremental (pero **evitar extracción excesiva** para no romper; solo cambios quirúrgicos cuando sean necesarios).
 
 ---
 
@@ -419,9 +503,14 @@ Cuando el resolver no encuentra una URL en el static mapping ni en Mongo cache:
 - Auditoría runtime:
   - `match_doc._provenance_team_stats`, `match_doc._provenance_h2h`, `match_doc._provenance_odds` presentes.
   - `match_doc.xg_public_enrichment` persistido al ejecutar run-now/background.
+  - `match_doc.h2h_context` + `match_doc.h2h_decision` presentes tras ingesta (F87).
+  - `match_doc.xg_recent_averages.status` puede ser:
+    - `PENDING_BACKGROUND_ENRICHMENT` al finalizar `_enrich_football` (F87)
+    - `SUCCESS | UNAVAILABLE | TIMEOUT` al completar el background job.
 - No regresiones:
-  - Backend `pytest` verde (actual: **2521 passed**).
+  - Backend `pytest` verde (actual: **2573 passed, 2 skipped**).
   - Frontend `craco test` verde (actual: **125 passed**).
 - Fail-soft:
   - Si TheStatsAPI falla → se cae a API-Sports o queda vacío.
-  - Si FBref/Forebet fallan → el análisis principal no se bloquea y el UI muestra datos parciales.
+  - Si FBref/Forebet fallan → el análisis principal no se bloquea y la UI muestra datos parciales.
+  - Si xG recent averages falla/timeout → el análisis principal no se bloquea; la UI deja de mostrar “PENDING” al persistir `UNAVAILABLE/TIMEOUT`.

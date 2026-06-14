@@ -1,26 +1,26 @@
 [
   {
-    "content": "Heurísticas Phase 2: extraer country desde search-page",
+    "content": "A) Insertar helpers _XG_RECENT_BG_TIMEOUT_S + _ensure_thestatsapi_recent_match_ids + _schedule_xg_recent_background antes de _enrich_football",
     "status": "completed"
   },
   {
-    "content": "Heurísticas Phase 2: filtros team_type + country + women/men",
+    "content": "B) Insertar bloque H2H Decision Policy (build_h2h_decision) después del try/except de h2h_context",
     "status": "completed"
   },
   {
-    "content": "Heurísticas Phase 2: tests (23/23)",
+    "content": "C) Insertar dispatch xG en background (asyncio.create_task) inmediatamente después del bloque H2H",
     "status": "completed"
   },
   {
-    "content": "Pre-existentes: corregir E701 + F841 en data_ingestion.py",
-    "status": "in_progress"
+    "content": "Lint check del archivo modificado con ruff/mcp_lint_python",
+    "status": "completed"
   },
   {
-    "content": "Pre-existentes: corregir E701 + F841 en server.py",
-    "status": "pending"
+    "content": "Verificar smoke import + correr pytest selectivo de tests relevantes (h2h_decision_policy, xg_recent_averages, data_ingestion)",
+    "status": "completed"
   },
   {
-    "content": "Validar pytest completo y plan.md",
-    "status": "pending"
+    "content": "Correr suite completa de backend para confirmar zero-regression: 2573 passed / 2 skipped ✅",
+    "status": "completed"
   }
 ]

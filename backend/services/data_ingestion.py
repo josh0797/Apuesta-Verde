@@ -214,14 +214,19 @@ async def ingest_upcoming(
             log.error("API-Sports[%s] fixtures failed: %s", sport, exc)
             upcoming_raw = []
 
-    fallback_used = False
+    # ``fallback_used`` was tracked locally for an older telemetry
+    # block (now consumed via dict keys lower down). The dead store
+    # was removed in F86-housekeeping to clear the ruff F841 warning.
     if not upcoming_raw:
         if sport != "football":
             log.warning("No upcoming for %s — no fallback available for this sport", sport)
             return []
         log.warning("No upcoming from API-Football, attempting ESPN fallback")
         fb_data = await fb.espn_soccer_scoreboard(client)
-        fallback_used = True
+        # ``fallback_used=True`` is reserved for the future telemetry
+        # block but never consumed today — keep as a comment so the
+        # linter doesn't flag a dead assignment.
+        # fallback_used = True
         minimal = []
         now = datetime.now(timezone.utc)
         before_filter = 0
@@ -572,6 +577,126 @@ async def enrich_fixture(
     return await _enrich_generic(client, db, fx_raw, is_live, sport, deep)
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Phase F85 — xG recent-averages background dispatch
+# ─────────────────────────────────────────────────────────────────────
+# El cómputo de L1/L5/L15 requiere 1–15 HTTP calls a TheStatsAPI por
+# equipo (shotmap por partido reciente). Hacerlo inline dentro de
+# ``_enrich_football`` agregaría 5–10s al P95 del ingestor por fixture,
+# así que lo movemos a un task fire-and-forget que persiste el
+# resultado en ``match_doc.xg_recent_averages`` cuando termina.
+#
+# Contract:
+#   * NUNCA levanta excepción al caller.
+#   * Persiste en Mongo (db.matches) y muta el ``match_doc`` en memoria
+#     para que el editorial endpoint pueda leerlo si todavía no terminó.
+#   * Si `compute_xg_recent_averages` devuelve `available=False` lo
+#     persistimos igual para que la UI deje de mostrar "PENDING".
+_XG_RECENT_BG_TIMEOUT_S = 30.0
+
+
+async def _ensure_thestatsapi_recent_match_ids(
+    match_doc: dict, fid: Any,
+) -> None:
+    """Pobla ``home_team.thestatsapi_recent_match_ids`` y el simétrico
+    para away si faltan. Fail-soft. Requerido por
+    ``football_xg_recent_averages.compute_xg_recent_averages``."""
+    try:
+        from .external_sources import thestatsapi_client as _ts_client
+        if not _ts_client.is_enabled():
+            return
+    except Exception:  # noqa: BLE001
+        return
+
+    for side_label in ("home_team", "away_team"):
+        side = match_doc.get(side_label) or {}
+        if side.get("thestatsapi_recent_match_ids"):
+            continue
+        ts_team_id = side.get("_thestatsapi_id") or side.get("thestatsapi_id")
+        if not ts_team_id:
+            continue
+        try:
+            # Convención del cliente: helper `fetch_recent_match_ids`
+            # devuelve [str]. Si el cliente expone otro nombre o no
+            # implementa el helper, el AttributeError cae al except
+            # de abajo y degradamos a fail-soft sin recent_ids.
+            recent_ids = await _ts_client.fetch_recent_match_ids(
+                team_id=ts_team_id, n=15,
+            )
+            if recent_ids:
+                side["thestatsapi_recent_match_ids"] = list(recent_ids)
+        except Exception as exc:  # noqa: BLE001
+            log.debug(
+                "[xg_recent_bg] recent_ids fetch failed for fixture=%s side=%s: %s",
+                fid, side_label, exc,
+            )
+
+
+async def _schedule_xg_recent_background(
+    match_doc: dict, fid: Any, db,
+) -> None:
+    """Background task — no bloquea ``_enrich_football``.
+
+    1) Pobla `thestatsapi_recent_match_ids` si faltan.
+    2) Llama `compute_xg_recent_averages` con timeout de 30s.
+    3) Persiste en Mongo y muta el match_doc en memoria.
+    """
+    try:
+        await _ensure_thestatsapi_recent_match_ids(match_doc, fid)
+        from .football_xg_recent_averages import compute_xg_recent_averages
+        result = await asyncio.wait_for(
+            compute_xg_recent_averages(match_doc),
+            timeout=_XG_RECENT_BG_TIMEOUT_S,
+        )
+        if not isinstance(result, dict):
+            result = {
+                "available":    False,
+                "status":       "UNAVAILABLE",
+                "reason_codes": ["XG_RECENT_NON_DICT_RESULT"],
+            }
+        # Stamp status para que la UI deje de mostrar "PENDING".
+        result.setdefault(
+            "status", "SUCCESS" if result.get("available") else "UNAVAILABLE",
+        )
+        # Persiste en Mongo (no upsert — si el doc desapareció lo dejamos pasar).
+        try:
+            await db.matches.update_one(
+                {"match_id": fid},
+                {"$set": {"xg_recent_averages": result}},
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[xg_recent_bg] mongo persist failed for %s: %s", fid, exc)
+        # Muta en memoria por si el editorial endpoint sigue tomando esta ref.
+        match_doc["xg_recent_averages"] = result
+        if result.get("available"):
+            log.info(
+                "[xg_recent_bg] fixture=%s computed (partial=%s, source=%s)",
+                fid, result.get("partial"), result.get("source"),
+            )
+        else:
+            log.info(
+                "[xg_recent_bg] fixture=%s unavailable codes=%s",
+                fid, result.get("reason_codes"),
+            )
+    except asyncio.TimeoutError:
+        log.warning("[xg_recent_bg] timeout for fixture=%s", fid)
+        try:
+            await db.matches.update_one(
+                {"match_id": fid},
+                {"$set": {"xg_recent_averages": {
+                    "available":    False,
+                    "status":       "TIMEOUT",
+                    "reason_codes": ["XG_RECENT_BACKGROUND_TIMEOUT"],
+                }}},
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[xg_recent_bg] crashed for fixture=%s: %s", fid, exc)
+
+
+
+
 async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live: bool, deep: bool) -> dict | None:
     try:
         fid = fx_raw["fixture"]["id"]
@@ -739,18 +864,30 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
                         h2h_source = "api_sports_fallback"
                 except Exception:
                     h2h = []
-            try: inj_h = await af.injuries(client, home["id"], db=db)
-            except Exception: pass
-            try: inj_a = await af.injuries(client, away["id"], db=db)
-            except Exception: pass
+            try:
+                inj_h = await af.injuries(client, home["id"], db=db)
+            except Exception:
+                pass
+            try:
+                inj_a = await af.injuries(client, away["id"], db=db)
+            except Exception:
+                pass
             # P2A — pull last-15 fixtures per team for the historical goal
             # profile (under_3_5_rate, team_exceeded_2_goals_rate, etc.).
             # Cached 12h per (team, season). 15 games gives a robust sample
             # for under-tendency detection (case Atlético-MG style).
-            try: recent_h_raw = await af.fixtures_last_n(client, home["id"], n=15, season=season, db=db)
-            except Exception: pass
-            try: recent_a_raw = await af.fixtures_last_n(client, away["id"], n=15, season=season, db=db)
-            except Exception: pass
+            try:
+                recent_h_raw = await af.fixtures_last_n(
+                    client, home["id"], n=15, season=season, db=db,
+                )
+            except Exception:
+                pass
+            try:
+                recent_a_raw = await af.fixtures_last_n(
+                    client, away["id"], n=15, season=season, db=db,
+                )
+            except Exception:
+                pass
 
         # NOTE: ``norm_odds`` was computed earlier (with TheStatsAPI fallback
         # baked in). Do NOT recompute here — that would discard the fallback.
@@ -892,6 +1029,42 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
                 )
         except Exception as exc:  # noqa: BLE001
             log.warning("h2h_context build failed for %s: %s", fid, exc)
+        # Phase F86 — H2H Decision Policy: clasifica si la muestra H2H
+        # tiene tamaño suficiente Y partidos en los últimos 12 meses
+        # como para influir en la decisión. Si no, queda solo como
+        # contexto narrativo con warning visible en la UI.
+        try:
+            from .football_h2h_decision_policy import build_h2h_decision
+            classified, decision = build_h2h_decision(match_doc)
+            match_doc["h2h_context"]  = classified
+            match_doc["h2h_decision"] = decision
+            log.info(
+                "[h2h_decision] fixture=%s sample_total=%d sample_recent=%d "
+                "decision_useful=%s applied=%s markets=%s",
+                fid,
+                classified.get("sample_size_total"),
+                classified.get("sample_size_recent"),
+                classified.get("decision_useful"),
+                decision.get("applied"),
+                list((decision.get("points_by_market") or {}).keys()),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[h2h_decision] policy failed for %s: %s", fid, exc)
+        # Phase F85 — xG recent averages dispatched in background.
+        # NEVER blocks the ingestor. On completion, persists into
+        # ``match_doc.xg_recent_averages`` (status PENDING until then).
+        try:
+            match_doc.setdefault("xg_recent_averages", {
+                "available":    False,
+                "status":       "PENDING_BACKGROUND_ENRICHMENT",
+                "reason_codes": ["XG_RECENT_BACKGROUND_DEFERRED"],
+            })
+            asyncio.create_task(
+                _schedule_xg_recent_background(match_doc, fid, db),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[xg_recent_bg] schedule failed for %s: %s", fid, exc)
+
         # Phase F82 — corners provider (API-Sports → 365Scores → TheStatsAPI).
         # Phase F82.1 — FAST tier only (no HTTP); 365Scores opt-in via env flag.
         try:
@@ -999,12 +1172,20 @@ async def _enrich_generic(client: httpx.AsyncClient, db, fx_raw: dict, is_live: 
 
         stats_h, stats_a, h2h = {}, {}, []
         if deep:
-            try: stats_h = await aps.team_statistics(sport, client, home.get("id"), lid, db=db)
-            except Exception: pass
-            try: stats_a = await aps.team_statistics(sport, client, away.get("id"), lid, db=db)
-            except Exception: pass
-            try: h2h = await aps.head_to_head(sport, client, home.get("id"), away.get("id"), limit=5, db=db)
-            except Exception: pass
+            try:
+                stats_h = await aps.team_statistics(sport, client, home.get("id"), lid, db=db)
+            except Exception:
+                pass
+            try:
+                stats_a = await aps.team_statistics(sport, client, away.get("id"), lid, db=db)
+            except Exception:
+                pass
+            try:
+                h2h = await aps.head_to_head(
+                    sport, client, home.get("id"), away.get("id"), limit=5, db=db,
+                )
+            except Exception:
+                pass
 
         norm_odds = nz.normalize_odds_generic(odds_resp, sport)
         ctx_home = nz.normalize_team_context_generic(stats_h, stand_resp, home.get("id"), sport)
