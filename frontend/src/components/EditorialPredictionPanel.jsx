@@ -3,6 +3,8 @@ import { MapPin, Activity, Target, TrendingUp, ListChecks, History, Trophy, Aler
 import { PlayerHeatmapDialog } from '@/components/PlayerHeatmapDialog';
 import { ExternalEditorialPanel } from '@/components/ExternalEditorialPanel';
 import { H2HContextPanel } from '@/components/H2HContextPanel';
+import { H2HBlockPanel } from '@/components/H2HBlockPanel';
+import { XGBlockPanel } from '@/components/XGBlockPanel';
 import { CornersRefreshPanel } from '@/components/CornersRefreshPanel';
 
 
@@ -300,11 +302,28 @@ export function EditorialPredictionPanel({
         testIdPrefix={`${testIdPrefix}-key-players`}
         lang={lang}
       />
-      {/* Phase F82 — Rich H2H Context: shows concrete results + metrics. */}
-      {editorial.h2h_context && (
+      {/* Phase F82 — Rich H2H Context: shows concrete results + metrics.
+          Phase F86.2 — when ``editorial.h2h_block`` is present (new
+          consumer-grade payload with matches_detail + narrative +
+          warnings + applied_signals), it takes precedence over the
+          legacy h2h_context panel. */}
+      {editorial.h2h_block ? (
+        <H2HBlockPanel
+          block={editorial.h2h_block}
+          testIdPrefix={`${testIdPrefix}-h2h-block`}
+        />
+      ) : (editorial.h2h_context && (
         <H2HContextPanel
           context={editorial.h2h_context}
           testIdPrefix={`${testIdPrefix}-h2h-context`}
+        />
+      ))}
+      {/* Phase F86.2 — xG block (consumer of xg_recent_averages background
+          job). Honours PENDING/SUCCESS/UNAVAILABLE states. */}
+      {editorial.xg_block && (
+        <XGBlockPanel
+          block={editorial.xg_block}
+          testIdPrefix={`${testIdPrefix}-xg-block`}
         />
       )}
       {/* Phase F82.1-adjust — When corners_snapshot is in the deferred

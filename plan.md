@@ -1,8 +1,8 @@
-# Plan — Phases F58–F87 (bitácora)
+# Plan — Phases F58–F88 (bitácora)
 
 > **Nota:** Este plan se mantiene como bitácora completa.
 > **Estado histórico:** ✅ F58–F70 completadas (ver secciones abajo).
-> **Estado actual (resumen):** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA** + ✅ **F83.1 (Pantalla-negra fix + match_id robust + odd isolation + data availability sections) COMPLETADA** + ✅ **P2 (infer_original_pick_side 4-source cascade) COMPLETADA** + ✅ **F82.2 backend (Scores24 deprecated, 365Scores cross integrator, provider re-order, persistence) COMPLETADA** + ✅ **F82.2 frontend (CornersEnrichmentButton wiring + Scores24 label removal + FE tests) COMPLETADA** + ✅ **F83.2 / Bloque E (xG L1/L5/L15 desde shotmap TheStatsAPI + UI + tests) COMPLETADA** + ✅ **P4.1 (LiveReevalPanel.test.jsx 3 preexistentes) COMPLETADA** + ✅ **F84.a (team_stats prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.b (H2H prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.e (odds prioridad-inversa a TheStatsAPI + line movement) COMPLETADA** + ✅ **F85 (Public xG — FBref + Forebet vía scrape.do) COMPLETADA** + ✅ **F85 Phase 2 (FBref search-page resolver + fuzzy matching) COMPLETADA** + ✅ **F86 (H2H Decision Policy puro en Python) COMPLETADA** + ✅ **F87 (Cableado quirúrgico en `_enrich_football`: H2H decision + xG-recent background dispatch) COMPLETADA**.
+> **Estado actual (resumen):** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA** + ✅ **F83.1 (Pantalla-negra fix + match_id robust + odd isolation + data availability sections) COMPLETADA** + ✅ **P2 (infer_original_pick_side 4-source cascade) COMPLETADA** + ✅ **F82.2 backend (Scores24 deprecated, 365Scores cross integrator, provider re-order, persistence) COMPLETADA** + ✅ **F82.2 frontend (CornersEnrichmentButton wiring + Scores24 label removal + FE tests) COMPLETADA** + ✅ **F83.2 / Bloque E (xG L1/L5/L15 desde shotmap TheStatsAPI + UI + tests) COMPLETADA** + ✅ **P4.1 (LiveReevalPanel.test.jsx 3 preexistentes) COMPLETADA** + ✅ **F84.a (team_stats prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.b (H2H prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.e (odds prioridad-inversa a TheStatsAPI + line movement) COMPLETADA** + ✅ **F85 (Public xG — FBref + Forebet vía scrape.do) COMPLETADA** + ✅ **F85 Phase 2 (FBref search-page resolver + fuzzy matching) COMPLETADA** + ✅ **F86 (H2H Decision Policy puro en Python) COMPLETADA** + ✅ **F87 (Cableado quirúrgico en `_enrich_football`: H2H decision + xG-recent background dispatch) COMPLETADA** + ✅ **F88 (F86.2 — Editorial Consumer: h2h_decision + xg_recent_averages + UI) COMPLETADA**.
 >
 > **Idioma operativo:** Español.
 
@@ -101,6 +101,16 @@
   - **No bloquear** el camino crítico.
   - **Fail-soft total** (no propaga excepciones al caller).
   - Persistencia consistente en Mongo + mutación del `match_doc` en memoria.
+
+### Objetivos nuevos / extendidos (F88 / Sprint F86.2) — Editorial Consumer para `h2h_decision` + `xg_recent_averages`
+- Consumir los campos del ingestor (F85+F86+F87):
+  - `match_doc["h2h_context"]` (enriquecido con warnings/decision_useful)
+  - `match_doc["h2h_decision"]` (nuevo: `points_by_market` + `signals`)
+  - `match_doc["xg_recent_averages"]` (dispatch en background, puede ser PENDING)
+- Objetivos del sprint:
+  1) Editorial renderiza partidos H2H uno por uno cuando la muestra es pequeña, y agregados/rates cuando es decision_useful.
+  2) Motor de scoring suma puntos de `h2h_decision.points_by_market` a `confidence_score` por mercado afectado, sin doble conteo; clamp +8 y polarity guard.
+  3) Editorial respeta estados `PENDING|SUCCESS|TIMEOUT|UNAVAILABLE` de xG recent averages y renderiza L1/L5/L15 cuando SUCCESS.
 
 ---
 
@@ -480,7 +490,93 @@ Implementar una política de decisión **pura** (sin I/O) para definir cuándo H
 
 ---
 
-## 3) Pendientes y siguientes pasos (post-F87)
+# Phase F88 — Sprint F86.2: Editorial Consumer para H2H decision + xG recent averages (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Problema
+El ingestor ya producía:
+- `match_doc["h2h_context"]` (con warnings/decision_useful)
+- `match_doc["h2h_decision"]` (points_by_market + signals)
+- `match_doc["xg_recent_averages"]` (background con estado PENDING/SUCCESS/TIMEOUT)
+
+Pero el editorial interno y la UI seguían:
+- mostrando checks genéricos (p. ej. "✓ H2H reciente cargado"),
+- hardcodeando textos de muestra limitada,
+- marcando "⚠ xG no normalizado" incluso cuando el background ya había completado.
+
+## Implementación ejecutada
+
+### Backend
+1) ✅ **NEW** `backend/services/football_h2h_scoring_applier.py`
+   - `_market_to_h2h_key(market_label)` / alias `market_to_h2h_key`:
+     mapea labels internos y strings (OVER_2_5, OVER_2_5_GOALS, Over 2.5 goles,
+     BTTS_NO_GOALS, HOME_NO_LOSE, etc.) al naming canónico (OVER_2_5, BTTS_NO,
+     HOME_DNB, …).
+   - `apply_h2h_points_to_candidate(candidate, h2h_decision)`:
+     - Polarity guard `_enforce_polarity`.
+     - Clamp ±`MAX_H2H_DELTA` (=8).
+     - Mutación in-place: `confidence_score += delta`, señales y
+       `score_breakdown["h2h_pattern"] = delta`.
+     - Compatible con candidates tipo dict u objeto.
+     - Logging: `[h2h_scoring] market=%s delta=%+d signals=%s ...`.
+
+2) ✅ **MOD** `backend/services/football_editorial_prediction.py`
+   - **NEW** `_build_h2h_block(match_doc)`:
+     - Consume `h2h_context`, `h2h_decision`, `h2h_recent`.
+     - Genera `matches_detail` SIEMPRE: `{date, home, away, score, is_recent, result_for_home}`.
+     - `rates` solo si `decision_useful=True`.
+     - `applied_signals` desde `h2h_decision.signals`.
+     - Narrativa ES con templates del spec.
+   - **NEW** `_build_xg_block(match_doc)`:
+     - `PENDING_BACKGROUND_ENRICHMENT` → `status=PENDING` + mensaje "refresca en 10s".
+     - `TIMEOUT/UNAVAILABLE` → `status=UNAVAILABLE` + missing_reason.
+     - `SUCCESS` → tabla L1/L5/L15 + `derive_xg_signals` (signals + explanations).
+   - Wrapper extendido de `generate_football_editorial_prediction`:
+     - Inyecta `out["h2h_block"]` y `out["xg_block"]`.
+     - Aplica H2H scoring al `best_protected_market` (back-compat con `confidence`).
+     - Añade reason codes:
+       - `H2H_SCORING_APPLIED_TO_BEST_PROTECTED_MARKET`
+       - `H2H_SCORING_CLAMPED_AT_MAX_DELTA`
+       - `H2H_SCORING_POLARITY_CONFLICT`
+   - Housekeeping: arregladas 6 ocurrencias E701 preexistentes para mantener lint-clean.
+
+### Frontend
+3) ✅ **NEW** `frontend/src/components/H2HBlockPanel.jsx`
+   - Badge “Decisivo” vs “Solo contexto”.
+   - Narrative + warning banner.
+   - Chips verdes “+N MARKET” cuando `decision_useful=True`.
+   - Rates table para rates clave.
+   - `matches_detail` siempre (colapsable cuando decisivo y >3).
+
+4) ✅ **NEW** `frontend/src/components/XGBlockPanel.jsx`
+   - `PENDING` → spinner + texto.
+   - `UNAVAILABLE/TIMEOUT` → warning ámbar.
+   - `SUCCESS` → tabla 2×3 (Home/Away × L1/L5/L15) + chips de signals.
+
+5) ✅ **MOD** `frontend/src/components/EditorialPredictionPanel.jsx`
+   - Si `editorial.h2h_block` existe: renderiza `H2HBlockPanel`.
+   - Fallback conservador a `H2HContextPanel` para zero-regression.
+   - Si `editorial.xg_block` existe: renderiza `XGBlockPanel`.
+
+### Tests
+6) ✅ **NEW** `backend/tests/test_f86_2_editorial_consumer.py` — 19 tests
+   - Cubre: thin sample rendering, scoring apply, clamp +8, polarity guard,
+     PENDING xG no bloquea, SUCCESS xG render + signals, mapping markets,
+     y bump end-to-end sobre best_protected_market.
+
+## Validación
+- ✅ Ruff: limpio.
+- ✅ ESLint: limpio.
+- ✅ esbuild (smoke build del panel): OK.
+- ✅ `pytest tests/test_f86_2_editorial_consumer.py`: 19/19 PASS.
+- ✅ pytest selectivo (F86.2 + F86 + F83.2 + F69 + F74 + F82.1 + F85.3 + F85.4): 173/173 PASS.
+- ✅ Suite completa backend: **2592 passed, 2 skipped, 0 fallos**.
+- ✅ Suite completa frontend (`craco test`): **125 passed, 0 fallos**.
+
+---
+
+## 3) Pendientes y siguientes pasos (post-F88)
 
 ### Pendientes no bloqueantes
 - (F84.c) lineups / injuries — fuera de scope inicial, requiere confirmar cobertura TheStatsAPI.
@@ -488,7 +584,8 @@ Implementar una política de decisión **pura** (sin I/O) para definir cuándo H
 - (P3) Expandir `team_name_translations.py` para clubes UCL/UEL.
 
 ### Futuras mejoras recomendadas
-- Para FBref Phase 2: añadir heurísticas por `country`/`team_type` en la selección de candidatos (nota: algunas heurísticas ya se implementaron en Phase 2/2.1; revisar si falta ampliar coverage UCL/UEL).
+- Backtest F86 (≥ 30 picks con H2H aplicado) para recalibrar `MAX_H2H_DELTA` y thresholds.
+- Para FBref Phase 2: ampliar heurísticas (country/team_type) para equipos UCL/UEL.
 - Para odds: agregar comparación de `bookmakers_count` TSA vs APS como métrica de calidad.
 - Para `data_ingestion.py` y `server.py`: refactor incremental (pero **evitar extracción excesiva** para no romper; solo cambios quirúrgicos cuando sean necesarios).
 
@@ -507,8 +604,12 @@ Implementar una política de decisión **pura** (sin I/O) para definir cuándo H
   - `match_doc.xg_recent_averages.status` puede ser:
     - `PENDING_BACKGROUND_ENRICHMENT` al finalizar `_enrich_football` (F87)
     - `SUCCESS | UNAVAILABLE | TIMEOUT` al completar el background job.
+  - Editorial output ahora incluye:
+    - `editorial.h2h_block` (shape consumer-grade)
+    - `editorial.xg_block` (status normalizado + tabla L1/L5/L15)
+  - `best_protected_market.confidence_score` puede incorporar bump H2H con clamp+polarity.
 - No regresiones:
-  - Backend `pytest` verde (actual: **2573 passed, 2 skipped**).
+  - Backend `pytest` verde (actual: **2592 passed, 2 skipped**).
   - Frontend `craco test` verde (actual: **125 passed**).
 - Fail-soft:
   - Si TheStatsAPI falla → se cae a API-Sports o queda vacío.

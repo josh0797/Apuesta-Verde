@@ -129,12 +129,18 @@ def _data_completeness(match: dict) -> dict:
     )
 
     sources = []
-    if has_corners_l5:     sources.append("corners L5/L15")
-    if has_goals_history:  sources.append("historial de goles L5/L15")
-    if has_xg:             sources.append("xG / xGA")
-    if has_btts:           sources.append("BTTS rate L15")
-    if has_clean_sheets:   sources.append("porterías a cero L15")
-    if has_market_context: sources.append("contexto de mercado (cuota/edge)")
+    if has_corners_l5:
+        sources.append("corners L5/L15")
+    if has_goals_history:
+        sources.append("historial de goles L5/L15")
+    if has_xg:
+        sources.append("xG / xGA")
+    if has_btts:
+        sources.append("BTTS rate L15")
+    if has_clean_sheets:
+        sources.append("porterías a cero L15")
+    if has_market_context:
+        sources.append("contexto de mercado (cuota/edge)")
 
     stats_sources = sum([has_corners_l5, has_goals_history, has_xg,
                           has_btts, has_clean_sheets])
@@ -1362,7 +1368,375 @@ def _empty_response(*, reason: str) -> dict:
     }
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Phase F86.2 — Consumer for h2h_decision + xg_recent_averages
+# ─────────────────────────────────────────────────────────────────────
+# The ingestor (F85+F86) attaches three new blocks on ``match_doc``:
+#   * ``match_doc["h2h_context"]``   — F86 classified context.
+#   * ``match_doc["h2h_decision"]``  — F86 ``points_by_market`` + signals.
+#   * ``match_doc["xg_recent_averages"]`` — F85 L1/L5/L15 background job.
+# This consumer surfaces them in the editorial so the UI can render
+# matches one-by-one (thin sample), apply scoring deltas via
+# ``football_h2h_scoring_applier`` and respect PENDING/TIMEOUT states.
+
+_H2H_SIGNAL_TRANSLATIONS_ES = {
+    "H2H_PROFILE_OVER_1_5":  "Over 1.5 goles en {pct}% de los enfrentamientos recientes",
+    "H2H_PROFILE_OVER_2_5":  "Over 2.5 goles en {pct}% de los enfrentamientos recientes",
+    "H2H_PROFILE_OVER_3_5":  "Over 3.5 goles en {pct}% de los enfrentamientos recientes",
+    "H2H_PROFILE_UNDER_1_5": "Under 1.5 goles en {pct}% de los enfrentamientos recientes",
+    "H2H_PROFILE_UNDER_2_5": "Under 2.5 goles en {pct}% de los enfrentamientos recientes",
+    "H2H_PROFILE_UNDER_3_5": "Under 3.5 goles en {pct}% de los enfrentamientos recientes",
+    "H2H_PROFILE_BTTS_YES":  "Ambos anotan en {pct}% de los enfrentamientos recientes",
+    "H2H_PROFILE_BTTS_NO":   "Ambos NO anotan en {pct}%",
+    "H2H_HOME_DOMINANT":     "{home_name} no pierde en {pct}%",
+    "H2H_AWAY_DOMINANT":     "{away_name} no pierde en {pct}%",
+}
+
+_H2H_SIGNAL_TO_RATE_KEY = {
+    "H2H_PROFILE_OVER_1_5":  "over_1_5",
+    "H2H_PROFILE_OVER_2_5":  "over_2_5",
+    "H2H_PROFILE_OVER_3_5":  "over_3_5",
+    "H2H_PROFILE_UNDER_1_5": "under_1_5",
+    "H2H_PROFILE_UNDER_2_5": "under_2_5",
+    "H2H_PROFILE_UNDER_3_5": "under_3_5",
+    "H2H_PROFILE_BTTS_YES":  "btts_yes",
+    "H2H_PROFILE_BTTS_NO":   "btts_no",
+    "H2H_HOME_DOMINANT":     "home_dnb",
+    "H2H_AWAY_DOMINANT":     "away_dnb",
+}
+
+
+def _result_for_home(score_str: Any, side_of_home: Optional[str]) -> Optional[str]:
+    """Return 'W' | 'D' | 'L' for the *current fixture's home team*
+    based on the historical match score, given whether they played
+    home or away in that match.
+    """
+    if not isinstance(score_str, str) or "-" not in score_str:
+        return None
+    try:
+        h, a = score_str.split("-", 1)
+        h, a = int(h.strip()), int(a.strip())
+    except (TypeError, ValueError):
+        return None
+    if side_of_home == "home":
+        if h > a:
+            return "W"
+        if h < a:
+            return "L"
+        return "D"
+    if side_of_home == "away":
+        if a > h:
+            return "W"
+        if a < h:
+            return "L"
+        return "D"
+    return None
+
+
+def _matches_detail(
+    h2h_recent: Optional[list],
+    home_team_name: str,
+    *,
+    max_days_recent: int = 365,
+) -> list[dict]:
+    """Project the raw H2H list into the UI-friendly detail shape.
+
+    Each entry → {date, home, away, score, is_recent, result_for_home}.
+    """
+    if not isinstance(h2h_recent, list):
+        return []
+    try:
+        from .football_h2h_decision_policy import _is_recent  # type: ignore
+    except Exception:  # noqa: BLE001
+        def _is_recent(s: Any, *, max_days: int = max_days_recent) -> bool:  # type: ignore
+            return False
+
+    home_lc = (home_team_name or "").strip().lower()
+    out: list[dict] = []
+    for m in h2h_recent:
+        if not isinstance(m, dict):
+            continue
+        home_n = m.get("home") or m.get("home_team") or ""
+        away_n = m.get("away") or m.get("away_team") or ""
+        score  = m.get("score") or m.get("final_score") or ""
+        side_of_home: Optional[str] = None
+        if isinstance(home_n, str) and home_n.strip().lower() == home_lc:
+            side_of_home = "home"
+        elif isinstance(away_n, str) and away_n.strip().lower() == home_lc:
+            side_of_home = "away"
+        out.append({
+            "date":             m.get("date") or m.get("utc_date") or "",
+            "home":             home_n,
+            "away":             away_n,
+            "score":            score,
+            "is_recent":        bool(_is_recent(m.get("date"))),
+            "result_for_home":  _result_for_home(score, side_of_home),
+        })
+    return out
+
+
+def _build_h2h_narrative(
+    *,
+    classified: dict,
+    decision: dict,
+    matches_detail: list[dict],
+    home_name: str,
+    away_name: str,
+) -> str:
+    """Compose the human-readable narrative for the H2H block."""
+    sample_total  = int(classified.get("sample_size_total")  or 0)
+    sample_recent = int(classified.get("sample_size_recent") or 0)
+    decision_useful = bool(classified.get("decision_useful"))
+    applied_signals = list((decision or {}).get("signals") or [])
+    rates           = (decision or {}).get("rates") or {}
+
+    if sample_total == 0:
+        return ("Sin enfrentamientos directos previos registrados — "
+                "sin contexto H2H.")
+
+    if not decision_useful:
+        # Show the most recent match factually.
+        last = matches_detail[0] if matches_detail else None
+        if last:
+            return (
+                f"{sample_total} enfrentamiento(s) directo(s) registrado(s). "
+                f"Último: {last.get('date', '—')} → {last.get('home', '—')} "
+                f"{last.get('score', '—')} {last.get('away', '—')}. "
+                "Muestra insuficiente / antigua para influir en la "
+                "decisión; se muestra como contexto."
+            )
+        return (
+            f"{sample_total} enfrentamiento(s) directo(s) registrado(s). "
+            "Muestra insuficiente para influir en la decisión; se muestra "
+            "como contexto."
+        )
+
+    # decision_useful == True
+    if not applied_signals:
+        return (
+            f"{sample_recent} enfrentamientos en últimos 12 meses, pero "
+            "ningún patrón cruza los umbrales de decisión. Contexto "
+            "informativo."
+        )
+
+    bullets: list[str] = []
+    for sig in applied_signals:
+        tmpl = _H2H_SIGNAL_TRANSLATIONS_ES.get(sig)
+        if not tmpl:
+            continue
+        rate_key = _H2H_SIGNAL_TO_RATE_KEY.get(sig)
+        rate = rates.get(rate_key) if rate_key else None
+        try:
+            pct = int(round(float(rate) * 100)) if rate is not None else 0
+        except (TypeError, ValueError):
+            pct = 0
+        bullets.append(tmpl.format(
+            pct=pct, home_name=home_name, away_name=away_name,
+        ))
+    intro = (f"{sample_recent} enfrentamientos en últimos 12 meses. "
+             f"Patrón claro: ")
+    if not bullets:
+        return intro.rstrip(": ") + "."
+    return intro + "; ".join(bullets) + "."
+
+
+def _build_h2h_block(match_doc: dict) -> dict:
+    """Produce the F86.2 ``h2h_block`` consumed by the UI.
+
+    Reads ``h2h_context``, ``h2h_decision`` and ``h2h_recent`` from
+    ``match_doc``. Fail-soft on every missing field.
+    """
+    classified = (match_doc.get("h2h_context")  or {}) if isinstance(match_doc, dict) else {}
+    decision   = (match_doc.get("h2h_decision") or {}) if isinstance(match_doc, dict) else {}
+    raw_recent = (match_doc.get("h2h_recent")   or []) if isinstance(match_doc, dict) else []
+
+    # When the ingestor's h2h_recent is empty fall back to the
+    # ``recent_matches`` field of the classified context (also a list).
+    if not raw_recent and isinstance(classified.get("recent_matches"), list):
+        raw_recent = classified["recent_matches"]
+
+    home_name = _team_name(match_doc if isinstance(match_doc, dict) else {}, "home")
+    away_name = _team_name(match_doc if isinstance(match_doc, dict) else {}, "away")
+
+    detail = _matches_detail(raw_recent, home_name)
+    decision_useful = bool(classified.get("decision_useful"))
+    rates = (decision.get("rates") or {}) if decision_useful else {}
+    applied_signals = list(decision.get("signals") or []) if decision.get("applied") else []
+    narrative = _build_h2h_narrative(
+        classified=classified, decision=decision, matches_detail=detail,
+        home_name=home_name, away_name=away_name,
+    )
+
+    return {
+        "available":          bool(classified) or bool(detail),
+        "decision_useful":    decision_useful,
+        "sample_size_total":  int(classified.get("sample_size_total")  or len(detail)),
+        "sample_size_recent": int(classified.get("sample_size_recent") or 0),
+        "warnings":           list(classified.get("warnings") or []),
+        "matches_detail":     detail,
+        "rates":              rates if isinstance(rates, dict) else {},
+        "applied_signals":    applied_signals,
+        "narrative":          narrative,
+        "points_by_market":   dict(decision.get("points_by_market") or {}),
+    }
+
+
+def _build_xg_block(match_doc: dict) -> dict:
+    """Produce the F86.2 ``xg_block`` consumed by the UI.
+
+    Honours the PENDING/SUCCESS/TIMEOUT/UNAVAILABLE state stamped by
+    ``_schedule_xg_recent_background`` (F87) and pulls signals from
+    :func:`football_xg_signals.derive_xg_signals` when available.
+    """
+    xg_recent = (match_doc.get("xg_recent_averages") if isinstance(match_doc, dict) else None) or {}
+    status_raw = str(xg_recent.get("status") or "").upper()
+
+    # Normalise status into the UI vocabulary.
+    if status_raw == "PENDING_BACKGROUND_ENRICHMENT":
+        status = "PENDING"
+    elif status_raw in ("SUCCESS", "TIMEOUT", "UNAVAILABLE"):
+        status = status_raw
+    elif xg_recent.get("available"):
+        status = "SUCCESS"
+    elif xg_recent:
+        status = "UNAVAILABLE"
+    else:
+        status = "UNAVAILABLE"
+
+    block: dict = {
+        "status":         status,
+        "partial":        bool(xg_recent.get("partial")),
+        "home":           None,
+        "away":           None,
+        "signals":        [],
+        "explanations":   {},
+        "missing_reason": None,
+    }
+
+    if status == "PENDING":
+        block["missing_reason"] = (
+            "Cómputo de xG L1/L5/L15 en proceso — refresca en 10s."
+        )
+        return block
+
+    if status in ("UNAVAILABLE", "TIMEOUT"):
+        block["missing_reason"] = (
+            "xG no disponible (TheStatsAPI sin shotmaps para este equipo)."
+        )
+        return block
+
+    # SUCCESS path — surface L1/L5/L15 + signals.
+    home_block = xg_recent.get("home") or {}
+    away_block = xg_recent.get("away") or {}
+    home_team_name = _team_name(match_doc if isinstance(match_doc, dict) else {}, "home")
+    away_team_name = _team_name(match_doc if isinstance(match_doc, dict) else {}, "away")
+
+    def _project_side(side_payload: dict, team_label: str) -> dict:
+        proj: dict = {"team": team_label}
+        for window in ("l1", "l5", "l15"):
+            w = side_payload.get(window) if isinstance(side_payload, dict) else None
+            if isinstance(w, dict):
+                proj[window] = {
+                    "xg_for":     _safe(w.get("xg_for_avg")),
+                    "xg_against": _safe(w.get("xg_against_avg")),
+                    "sample":     w.get("sample"),
+                }
+            else:
+                proj[window] = None
+        return proj
+
+    block["home"] = _project_side(home_block, home_team_name)
+    block["away"] = _project_side(away_block, away_team_name)
+
+    try:
+        from .football_xg_signals import derive_xg_signals
+        derived = derive_xg_signals(xg_recent) or {}
+        block["signals"]      = list(derived.get("signals") or [])
+        block["explanations"] = dict(derived.get("explanations") or {})
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[F86.2_XG_SIGNALS] derive failed: %s", exc)
+
+    return block
+
+
+# Patch the public entry-point to attach the new blocks and (optionally)
+# bump the best_protected_market via H2H scoring deltas. We monkey-patch
+# in-place to avoid duplicating the long signature.
+_original_generate_football_editorial_prediction = generate_football_editorial_prediction
+
+
+def generate_football_editorial_prediction(  # type: ignore[no-redef]
+    match_payload: Any,
+    *,
+    odds: Optional[dict] = None,
+    h2h_matches: Optional[list[dict]] = None,
+) -> dict:
+    """Phase F86.2 wrapper — extends the F66 output with ``h2h_block``
+    and ``xg_block`` and applies the H2H scoring delta to the
+    ``best_protected_market`` (clamped, polarity-guarded).
+    """
+    out = _original_generate_football_editorial_prediction(
+        match_payload, odds=odds, h2h_matches=h2h_matches,
+    )
+    if not isinstance(out, dict):
+        return out
+    if not isinstance(match_payload, dict):
+        return out
+
+    # Build new blocks (fail-soft).
+    try:
+        out["h2h_block"] = _build_h2h_block(match_payload)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[F86.2_H2H_BLOCK_FAIL] %s", exc)
+        out["h2h_block"] = {
+            "available": False, "decision_useful": False,
+            "sample_size_total": 0, "sample_size_recent": 0,
+            "warnings": [], "matches_detail": [], "rates": {},
+            "applied_signals": [], "narrative": "",
+            "points_by_market": {},
+        }
+    try:
+        out["xg_block"] = _build_xg_block(match_payload)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[F86.2_XG_BLOCK_FAIL] %s", exc)
+        out["xg_block"] = {
+            "status": "UNAVAILABLE", "partial": False,
+            "home": None, "away": None, "signals": [],
+            "explanations": {}, "missing_reason": str(exc),
+        }
+
+    # Apply H2H scoring delta on the best_protected_market (in-place).
+    best = out.get("best_protected_market")
+    h2h_decision = match_payload.get("h2h_decision") or {}
+    if isinstance(best, dict) and h2h_decision.get("applied"):
+        try:
+            from .football_h2h_scoring_applier import (
+                apply_h2h_points_to_candidate,
+            )
+            # The editorial uses ``confidence`` (not confidence_score) —
+            # mirror both for downstream consumers.
+            best.setdefault("confidence_score", best.get("confidence") or 0)
+            result = apply_h2h_points_to_candidate(best, h2h_decision)
+            if result.get("applied"):
+                # Keep ``confidence`` mirrored for back-compat with the
+                # legacy UI chip.
+                best["confidence"] = best.get("confidence_score")
+                out.setdefault("reason_codes", []).append(
+                    "H2H_SCORING_APPLIED_TO_BEST_PROTECTED_MARKET"
+                )
+                if result.get("clamped"):
+                    out["reason_codes"].append("H2H_SCORING_CLAMPED_AT_MAX_DELTA")
+                if result.get("polarity_conflict"):
+                    out["reason_codes"].append("H2H_SCORING_POLARITY_CONFLICT")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[F86.2_H2H_APPLY_FAIL] %s", exc)
+
+    return out
+
+
 __all__ = [
     "ENGINE_VERSION",
     "generate_football_editorial_prediction",
+    "_build_h2h_block",
+    "_build_xg_block",
 ]

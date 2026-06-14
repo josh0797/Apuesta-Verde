@@ -1,26 +1,30 @@
 [
   {
-    "content": "A) Insertar helpers _XG_RECENT_BG_TIMEOUT_S + _ensure_thestatsapi_recent_match_ids + _schedule_xg_recent_background antes de _enrich_football",
+    "content": "1) Crear backend/services/football_h2h_scoring_applier.py (mapping mercado, clamp, polarity guard)",
     "status": "completed"
   },
   {
-    "content": "B) Insertar bloque H2H Decision Policy (build_h2h_decision) después del try/except de h2h_context",
+    "content": "2) Modificar football_editorial_prediction.py: añadir _build_h2h_block, _build_xg_block, narrative, aplicar puntos al best_protected_market",
     "status": "completed"
   },
   {
-    "content": "C) Insertar dispatch xG en background (asyncio.create_task) inmediatamente después del bloque H2H",
+    "content": "3) Crear backend/tests/test_f86_2_editorial_consumer.py con los 6 tests del spec: 19/19 PASSED",
     "status": "completed"
   },
   {
-    "content": "Lint check del archivo modificado con ruff/mcp_lint_python",
+    "content": "4) Crear H2HBlockPanel + XGBlockPanel + wire en EditorialPredictionPanel (lint clean, esbuild OK)",
     "status": "completed"
   },
   {
-    "content": "Verificar smoke import + correr pytest selectivo de tests relevantes (h2h_decision_policy, xg_recent_averages, data_ingestion)",
+    "content": "5) Tests selectivos F86.2 + tests focales F69/F82/F83/F85/F86: 173/173 PASSED",
     "status": "completed"
   },
   {
-    "content": "Correr suite completa de backend para confirmar zero-regression: 2573 passed / 2 skipped ✅",
+    "content": "6) Suite completa backend pytest: 2592 passed, 2 skipped, 0 fallos ✅",
+    "status": "completed"
+  },
+  {
+    "content": "7) Frontend craco test: 125/125 pasan, zero-regression ✅",
     "status": "completed"
   }
 ]
