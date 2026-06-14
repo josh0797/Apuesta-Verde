@@ -1,18 +1,26 @@
 [
   {
-    "content": "F84.e - Adapter + inversion + tests (17/17)",
+    "content": "Heurísticas Phase 2: extraer country desde search-page",
     "status": "completed"
   },
   {
-    "content": "F85 Phase 2 - Search-page resolver + fuzzy matching + persist + integración",
+    "content": "Heurísticas Phase 2: filtros team_type + country + women/men",
     "status": "completed"
   },
   {
-    "content": "F85 Phase 2 - Tests resolver search + fuzzy (27/27)",
+    "content": "Heurísticas Phase 2: tests (23/23)",
     "status": "completed"
   },
   {
-    "content": "pytest completo 2521 passed + plan.md actualizado",
-    "status": "completed"
+    "content": "Pre-existentes: corregir E701 + F841 en data_ingestion.py",
+    "status": "in_progress"
+  },
+  {
+    "content": "Pre-existentes: corregir E701 + F841 en server.py",
+    "status": "pending"
+  },
+  {
+    "content": "Validar pytest completo y plan.md",
+    "status": "pending"
   }
 ]

@@ -202,10 +202,54 @@ def _fuzzy_similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, na, nb).ratio()
 
 
+_WOMEN_TOKENS = (" women", " femenino", "-women", "wfc", " ladies")
+
+
+def _detect_gender(display: str) -> str:
+    """Return ``'women'``, ``'men'`` or ``'unknown'`` from a display
+    name. Used by the Phase 2 fuzzy matcher to avoid serving a women's
+    team URL for a men's query (and vice-versa)."""
+    if not isinstance(display, str):
+        return "unknown"
+    low = display.lower()
+    if any(tok in low for tok in _WOMEN_TOKENS):
+        return "women"
+    if low.endswith(" men") or " men " in low or low.endswith(" m"):
+        return "men"
+    return "unknown"
+
+
+def _extract_country_from_search_item(item) -> Optional[str]:
+    """FBref search-items include a small descriptor under the link
+    that often holds the country (``"Spain"``, ``"England"``,
+    ``"National Team — Argentina"``). Return the lower-case ASCII
+    country name or ``None``."""
+    if item is None:
+        return None
+    # Common containers: <span class="search-item-leagues">,
+    # <small>, <span class="search-item-country">.
+    for sel in (".search-item-country", ".search-item-leagues",
+                 ".search-item-meta", "small"):
+        node = item.css_first(sel)
+        if node is None:
+            continue
+        raw = (node.text(strip=True) or "").strip()
+        if not raw:
+            continue
+        # Strip "National Team — " / leading dashes.
+        cleaned = re.sub(r"^(national team[\s—\-:]*)", "", raw, flags=re.I)
+        cleaned = re.sub(r"[—–\-]+", " ", cleaned).strip()
+        norm = _normalise_name(cleaned)
+        if norm:
+            return norm
+    return None
+
+
 def _parse_fbref_search_results(html: str) -> list[dict]:
     """Extract club / national-team candidates from FBref's search-page
-    HTML. Returns ``[{name, url, team_type, country}]`` in document
-    order. Always best-effort; returns ``[]`` on any parse error."""
+    HTML. Returns ``[{name, url, team_type, country, gender}]`` in
+    document order. Always best-effort; returns ``[]`` on any parse
+    error."""
     if not isinstance(html, str) or not html:
         return []
     try:
@@ -235,11 +279,14 @@ def _parse_fbref_search_results(html: str) -> list[dict]:
             team_type = "club"
         else:
             team_type = None
+        display = (name_node.text(strip=True) or "").strip()
         candidates.append({
-            "name":      _normalise_name(name_node.text(strip=True)),
-            "display":   (name_node.text(strip=True) or "").strip(),
+            "name":      _normalise_name(display),
+            "display":   display,
             "url":       full_url,
             "team_type": team_type,
+            "country":   _extract_country_from_search_item(item),
+            "gender":    _detect_gender(display),
         })
 
     # Fallback layout: when only ONE match exists, FBref redirects to
@@ -310,15 +357,61 @@ def _best_fuzzy_hit(
     query: str,
     *,
     threshold: float = SEARCH_FUZZY_THRESHOLD,
+    team_type: Optional[str] = None,
+    country: Optional[str] = None,
+    gender: Optional[str] = None,
 ) -> Optional[dict]:
     """Return the best candidate whose normalised name is ``>= threshold``
-    similar to the query, or ``None``."""
+    similar to the query, or ``None``.
+
+    Optional filters (all soft — they apply BEFORE scoring):
+
+    * ``team_type`` — ``"club"`` or ``"national_team"``. When provided,
+      candidates with a *different* known ``team_type`` are dropped.
+      ``team_type=None`` on a candidate is accepted (we don't have
+      enough signal to reject).
+    * ``country`` — free-text country name. Normalised before
+      comparison. Drops candidates whose ``country`` field is known
+      and different.
+    * ``gender`` — ``"men"`` / ``"women"``. When provided, candidates
+      whose detected gender is the *opposite* are dropped. ``"unknown"``
+      candidates are kept so the static-mapping use case (``"Paraguay
+      Men"`` vs query ``"Paraguay"``) still resolves cleanly.
+
+    Bonuses (applied AFTER scoring):
+    * +0.05 to the ratio when the candidate's ``team_type`` matches.
+    * +0.05 when ``country`` matches.
+    """
     if not candidates:
         return None
+
+    target_country = _normalise_name(country) if country else None
+    target_gender  = (gender or "").lower() or None
+
+    def _passes(c: dict) -> bool:
+        if team_type and c.get("team_type") and c["team_type"] != team_type:
+            return False
+        if target_country and c.get("country") and c["country"] != target_country:
+            return False
+        if target_gender and c.get("gender") and c["gender"] != "unknown":
+            if c["gender"] != target_gender:
+                return False
+        return True
+
     best: Optional[dict] = None
     best_score = 0.0
     for c in candidates:
+        if not _passes(c):
+            continue
         score = _fuzzy_similarity(query, c.get("display") or c.get("name") or "")
+        # Soft bonuses for matching metadata.
+        if team_type and c.get("team_type") == team_type:
+            score += 0.05
+        if target_country and c.get("country") == target_country:
+            score += 0.05
+        # Clamp to 1.0 so test code can still reason about the range.
+        if score > 1.0:
+            score = 1.0
         if score >= threshold and score > best_score:
             best, best_score = c, score
     if best:
@@ -361,12 +454,20 @@ async def resolve_fbref_team_url(
     client: Optional[httpx.AsyncClient],
     team_name: str,
     *,
-    country: Optional[str] = None,  # noqa: ARG001 — reserved for Phase 2 search
+    country: Optional[str] = None,
+    team_type: Optional[str] = None,  # "club" | "national_team"
+    gender: Optional[str] = None,     # "men" | "women"
     db=None,
 ) -> dict:
     """Return ``{url, team_type, source, available, reason_codes}`` for
     ``team_name`` or an ``available=False`` payload when we cannot map
-    it. Never raises."""
+    it. Never raises.
+
+    Optional filters (``country`` / ``team_type`` / ``gender``) are
+    forwarded to the Phase 2 fuzzy resolver so we don't accept a club
+    URL for a national-team query (and vice versa) or pick a women's
+    team when the caller is asking about the men's roster.
+    """
     if not team_name or not isinstance(team_name, str):
         return {"available": False, "reason_codes": [RC_TEAM_URL_MISSING]}
     norm = _normalise_name(team_name)
@@ -414,7 +515,12 @@ async def resolve_fbref_team_url(
         except Exception as exc:  # noqa: BLE001
             log.debug("[fbref] search Phase 2 crashed: %s", exc)
             candidates = []
-        hit = _best_fuzzy_hit(candidates, team_name)
+        hit = _best_fuzzy_hit(
+            candidates, team_name,
+            team_type=team_type,
+            country=country,
+            gender=gender,
+        )
         if hit:
             # Best-effort cache so subsequent lookups skip the network.
             try:
