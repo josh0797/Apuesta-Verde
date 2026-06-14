@@ -659,6 +659,81 @@ async def corners_enrichment_status(match_id: str) -> dict:
     }
 
 
+# ── Phase F83-update — Corners Debug Endpoint ──
+#
+# Surfaces the exact stage / reason_code each provider returned so the
+# UI can show specific user-facing messages instead of the generic
+# "Falló la carga de córners".
+@app.get("/api/football/corners/debug")
+async def football_corners_debug(match_id: str) -> dict:
+    """Run the corners cascade in diagnostic mode for the given fixture.
+
+    Returns the full provider-by-provider breakdown including:
+      * ``cascade_order_used``  — order actually applied.
+      * ``flag_enabled``        — whether ``ENABLE_F83_CASCADE_ORDER`` is on.
+      * ``scrapedo``            — scrape.do health (enabled + breaker).
+      * ``providers_checked``   — list of every provider tried.
+      * ``winner``              — the provider that resolved the corners.
+      * ``final``               — UI-ready outcome (available / reason_code / message_user).
+    """
+    if not match_id:
+        return {
+            "ok":            False,
+            "match_id":      "",
+            "reason_code":   "MATCH_ID_REQUIRED",
+            "message_user":  "Falta el match_id en la solicitud.",
+        }
+
+    try:
+        match_doc = await _load_match_doc_for_corners(match_id)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[corners_debug] match_doc lookup failed for %s: %s", match_id, exc)
+        match_doc = None
+
+    try:
+        from services.football_corners_provider import debug_corners_cascade
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok":            False,
+            "match_id":      match_id,
+            "reason_code":   "CORNERS_DEBUG_MODULE_MISSING",
+            "message_user":  "No se pudo cargar el módulo de diagnóstico de córners.",
+            "message_debug": str(exc),
+        }
+
+    if not match_doc:
+        try:
+            res_no_match = await debug_corners_cascade(
+                {"match_id": match_id}, allow_external=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok":            False,
+                "match_id":      match_id,
+                "reason_code":   "CORNERS_DEBUG_EXCEPTION",
+                "message_user":  "No se pudo ejecutar el diagnóstico de córners.",
+                "message_debug": str(exc),
+            }
+        res_no_match["match_doc_found"] = False
+        res_no_match["ok"] = True
+        return res_no_match
+
+    try:
+        res = await debug_corners_cascade(match_doc, allow_external=True)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[corners_debug] cascade crashed for %s: %s", match_id, exc)
+        return {
+            "ok":            False,
+            "match_id":      match_id,
+            "reason_code":   "CORNERS_DEBUG_EXCEPTION",
+            "message_user":  "No se pudo ejecutar el diagnóstico de córners.",
+            "message_debug": str(exc),
+        }
+    res["match_doc_found"] = True
+    res["ok"] = True
+    return res
+
+
 # ── Phase F83.2 — xG Recent Averages (L1/L5/L15) Endpoints ──
 #
 # Same architectural pattern as the corners enrichment endpoints, but

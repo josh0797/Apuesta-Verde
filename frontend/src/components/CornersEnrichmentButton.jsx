@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Loader2, Flag, RefreshCw, AlertCircle, CheckCircle2,
-  TrendingUp, TrendingDown, Minus, Link2, Link2Off, Target,
+  TrendingUp, TrendingDown, Minus, Link2, Link2Off, Target, Bug,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { CornersDebugDialog } from '@/components/CornersDebugDialog';
 
 /**
  * CornersEnrichmentButton — manual trigger for the 365Scores corners
@@ -51,7 +52,40 @@ export function CornersEnrichmentButton({ match, lang = 'es' }) {
   const [snapshot,  setSnapshot]  = useState(initial);
   const [state,     setState]     = useState('idle');     // idle|loading|polling|done|error
   const [error,     setError]     = useState(null);
+  const [errorCode, setErrorCode] = useState(null);
+  const [debugOpen, setDebugOpen] = useState(false);
   const pollRef = useRef({ ticks: 0, timer: null });
+
+  // Phase F83-update — map specific reason_codes to user-facing copy.
+  const reasonMessages = lang === 'en' ? {
+    SCORE365_ID_MISSING:             "Could not load corners: 365Scores ID missing.",
+    SCRAPEDO_TOKEN_MISSING:          "Could not load corners: Scrape.do has no token configured.",
+    SCRAPEDO_BREAKER_OPEN:           "Could not load corners: Scrape.do is temporarily paused.",
+    SCRAPEDO_HTTP_ERROR:             "Could not load corners: 365Scores did not respond correctly.",
+    SCRAPEDO_TIMEOUT:                "Could not load corners: 365Scores took too long.",
+    SCRAPEDO_EMPTY_BODY:             "Could not load corners: 365Scores returned no content.",
+    SCRAPEDO_EXCEPTION:              "Could not load corners: transport error with Scrape.do.",
+    SCORE365_BLOCKED_OR_FORBIDDEN:   "Could not load corners: 365Scores blocked the page.",
+    SCORE365_STATS_EMPTY:            "Could not load corners: the page loaded, but contains no statistics.",
+    SCORE365_CORNERS_NOT_FOUND:      "Could not load corners: statistics found, but no corners.",
+    SCORE365_JSON_PARSE_FAILED:      "Could not load corners: invalid response format from 365Scores.",
+    NO_CORNERS_PROVIDER_AVAILABLE:   "No reliable corner data available for this match.",
+    MATCH_NOT_FOUND:                 "Match not found in the system.",
+  } : {
+    SCORE365_ID_MISSING:             "No se pudo cargar córners: falta ID de 365Scores.",
+    SCRAPEDO_TOKEN_MISSING:          "No se pudo cargar córners: Scrape.do no tiene token configurado.",
+    SCRAPEDO_BREAKER_OPEN:           "No se pudo cargar córners: Scrape.do está pausado temporalmente.",
+    SCRAPEDO_HTTP_ERROR:             "No se pudo cargar córners: 365Scores no respondió correctamente.",
+    SCRAPEDO_TIMEOUT:                "No se pudo cargar córners: la solicitud a 365Scores tardó demasiado.",
+    SCRAPEDO_EMPTY_BODY:             "No se pudo cargar córners: 365Scores respondió pero sin contenido.",
+    SCRAPEDO_EXCEPTION:              "No se pudo cargar córners: error de transporte con Scrape.do.",
+    SCORE365_BLOCKED_OR_FORBIDDEN:   "No se pudo cargar córners: 365Scores bloqueó o no devolvió la página.",
+    SCORE365_STATS_EMPTY:            "No se pudo cargar córners: la página cargó, pero no contiene estadísticas.",
+    SCORE365_CORNERS_NOT_FOUND:      "No se pudo cargar córners: se encontraron estadísticas, pero no córners.",
+    SCORE365_JSON_PARSE_FAILED:      "No se pudo cargar córners: el formato de la respuesta de 365Scores no es válido.",
+    NO_CORNERS_PROVIDER_AVAILABLE:   "No hay datos confiables de córners para este partido.",
+    MATCH_NOT_FOUND:                 "Partido no encontrado en el sistema.",
+  };
 
   const T = lang === 'en'
     ? {
@@ -131,12 +165,25 @@ export function CornersEnrichmentButton({ match, lang = 'es' }) {
     setSnapshot(result);
     setState('done');
     setError(null);
+    setErrorCode(null);
   };
 
-  const handleUnavailable = (msg) => {
+  // Phase F83-update — accept a reason_code so we can show the
+  // *specific* user-facing message instead of the generic
+  // "Falló la carga de córners".
+  const handleUnavailable = (msgOrCode, providedCode = null) => {
     setState('error');
-    setError(msg || T.empty);
-    try { toast.error(msg || T.empty); } catch (_e) { /* sonner unavailable */ }
+    // Prefer an explicit code; otherwise try to interpret the first
+    // argument as a code we know about.
+    const code = providedCode
+                  || (typeof msgOrCode === 'string' && reasonMessages[msgOrCode]
+                       ? msgOrCode
+                       : null);
+    setErrorCode(code);
+    const specificMsg = code ? reasonMessages[code] : null;
+    const finalMsg    = specificMsg || msgOrCode || T.empty;
+    setError(finalMsg);
+    try { toast.error(finalMsg); } catch (_e) { /* sonner unavailable */ }
   };
 
   const pollStatus = () => {
@@ -240,13 +287,44 @@ export function CornersEnrichmentButton({ match, lang = 'es' }) {
 
       {state === 'error' && error && (
         <div
-          className="flex items-start gap-1.5 text-[11.5px] text-rose-300/90"
+          className="flex flex-col gap-1.5"
           data-testid={`corners-enrichment-error-${matchId}`}
         >
-          <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
-          <span>{T.errorPrefix}: {String(error)}</span>
+          <div className="flex items-start gap-1.5 text-[11.5px] text-rose-300/90">
+            <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+            <span data-testid={`corners-enrichment-error-msg-${matchId}`}>
+              {String(error)}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {errorCode && (
+              <code
+                className="text-[10px] font-mono text-rose-200/60 bg-rose-500/5 border border-rose-500/20 rounded px-1 py-0.5"
+                data-testid={`corners-enrichment-error-code-${matchId}`}
+              >
+                {errorCode}
+              </code>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setDebugOpen(true)}
+              className="h-6 text-[10.5px] px-1.5"
+              data-testid={`corners-enrichment-debug-btn-${matchId}`}
+            >
+              <Bug className="h-3 w-3 mr-1" />
+              {lang === 'en' ? 'View corners debug' : 'Ver debug de córners'}
+            </Button>
+          </div>
         </div>
       )}
+
+      <CornersDebugDialog
+        matchId={matchId}
+        open={debugOpen}
+        onOpenChange={setDebugOpen}
+        lang={lang}
+      />
 
       {/* F59/F60 — Engine cross profile (always render when available,
           independent of 365Scores button state). */}

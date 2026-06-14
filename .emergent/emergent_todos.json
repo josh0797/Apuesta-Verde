@@ -1,26 +1,26 @@
 [
   {
-    "content": "1) Reescribir football_h2h_decision_policy.py: tabla recalibrada (baseline+min_sample+STRONG labels), get_active_rules() con env override, POLARITY_PAIRS, DNB_OVERLAP_PAIR, MAX_H2H_POINTS_TOTAL",
+    "content": "PARTE 1 — fetch_via_scrapedo_result() en scrape_do_client.py",
     "status": "completed"
   },
   {
-    "content": "2) apply_h2h_decision_points: usar get_active_rules(), sample guard per-rule (LOW_SAMPLE_H2H_SIGNAL + puntos reducidos), apply_polarity_guard, DNB overlap soft, cap global",
+    "content": "PARTE 2 — score365_scrapedo_client.py",
     "status": "completed"
   },
   {
-    "content": "3) Actualizar mapping de F86.2 (football_editorial_prediction.py) para reconocer labels nuevos (X_STRONG) Y antiguos (PROFILE_X)",
+    "content": "PARTE 6 — football_corners_provider.py: cascade reorder + debug_corners_cascade()",
     "status": "completed"
   },
   {
-    "content": "4) Actualizar 6 tests existentes en test_f86_h2h_decision_policy.py: 29/29 PASSED",
+    "content": "PARTE 7 — GET /api/football/corners/debug",
     "status": "completed"
   },
   {
-    "content": "5) Añadir 14 tests nuevos F86.1: 43/43 PASSED (incluye 8 del spec + 6 adicionales para cobertura)",
+    "content": "PARTE 8 — UI: mensajes específicos + botón debug + CornersDebugDialog",
     "status": "completed"
   },
   {
-    "content": "6) Backend pytest suite completa: 2606 passed, 2 skipped ✅ | Frontend craco: 125 passed ✅ (zero-regression)",
+    "content": "PARTE 9 — Tests F83-update: 29/29 PASS | Backend total: 2635 passed | Frontend: 125 passed | zero-regression ✅",
     "status": "completed"
   }
 ]

@@ -21,6 +21,12 @@ Usage:
         "https://www.sportytrader.com/es/pronosticos/canada-bosnia-353713/",
         timeout=45.0,
     )
+
+Phase F83-update — :func:`fetch_via_scrapedo_result`:
+    A structured-result variant returning a dict with ``ok``,
+    ``html``, ``status_code``, ``reason_code``, ``message_debug`` and
+    ``fetched_at``. Used by the corners 365Scores cascade to report
+    *exactly* why a fetch failed.
 """
 from __future__ import annotations
 
@@ -28,6 +34,7 @@ import logging
 import os
 import time
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -45,6 +52,14 @@ _CB_FAILS: dict[str, int] = {}
 _CB_OPENED_AT: dict[str, float] = {}
 _CB_THRESHOLD = 5
 _CB_PAUSE_S = 600  # 10 min cool-down
+
+# Reason codes surfaced by ``fetch_via_scrapedo_result``.
+RC_TOKEN_MISSING = "SCRAPEDO_TOKEN_MISSING"
+RC_BREAKER_OPEN  = "SCRAPEDO_BREAKER_OPEN"
+RC_HTTP_ERROR    = "SCRAPEDO_HTTP_ERROR"
+RC_TIMEOUT       = "SCRAPEDO_TIMEOUT"
+RC_EMPTY_BODY    = "SCRAPEDO_EMPTY_BODY"
+RC_EXCEPTION     = "SCRAPEDO_EXCEPTION"
 
 
 def _token() -> Optional[str]:
@@ -103,38 +118,141 @@ def _build_request_url(target_url: str, *,
 # ─────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────
+def _empty_result(target_url: str) -> dict:
+    return {
+        "ok":            False,
+        "html":          None,
+        "status_code":   None,
+        "target_url":    target_url,
+        "provider":      "scrape_do",
+        "reason_code":   None,
+        "message_debug": None,
+        "fetched_at":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def fetch_via_scrapedo_result(
+    target_url: str,
+    *,
+    timeout: float = DEFAULT_TIMEOUT,
+    render: bool = False,
+    geo: Optional[str] = None,
+) -> dict:
+    """Structured-result variant of :func:`fetch_via_scrapedo`.
+
+    Returns a dict with::
+
+        {
+          "ok":            bool,
+          "html":          str | None,
+          "status_code":   int | None,
+          "target_url":    str,
+          "provider":      "scrape_do",
+          "reason_code":   str | None,
+          "message_debug": str | None,
+          "fetched_at":    "<iso>"
+        }
+
+    Reason codes:
+      * ``SCRAPEDO_TOKEN_MISSING`` — env var absent.
+      * ``SCRAPEDO_BREAKER_OPEN``  — circuit breaker tripped for host.
+      * ``SCRAPEDO_HTTP_ERROR``    — non-200 status.
+      * ``SCRAPEDO_TIMEOUT``       — read/connect timed out.
+      * ``SCRAPEDO_EMPTY_BODY``    — 200 but body empty.
+      * ``SCRAPEDO_EXCEPTION``     — any other transport error.
+    """
+    out = _empty_result(target_url)
+    host = urllib.parse.urlparse(target_url).netloc.lower()
+
+    if not _token():
+        out["reason_code"]   = RC_TOKEN_MISSING
+        out["message_debug"] = (
+            "SCRAPEDO_TOKEN env var not set; cannot reach scrape.do for "
+            f"{target_url}"
+        )
+        log.debug("[F83_SCRAPEDO_RESULT] token missing for %s", target_url)
+        return out
+
+    if _cb_open(host):
+        out["reason_code"]   = RC_BREAKER_OPEN
+        out["message_debug"] = (
+            f"Circuit breaker is OPEN for host={host}; "
+            f"pause_s={_CB_PAUSE_S}s, threshold={_CB_THRESHOLD}"
+        )
+        log.debug("[F83_SCRAPEDO_RESULT] breaker open for %s", host)
+        return out
+
+    api_url = _build_request_url(target_url, render=render, geo=geo)
+    if not api_url:  # defensive (token was checked above)
+        out["reason_code"]   = RC_TOKEN_MISSING
+        out["message_debug"] = "Failed to build scrape.do request URL"
+        return out
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            r = await client.get(api_url)
+    except httpx.TimeoutException as exc:
+        out["reason_code"]   = RC_TIMEOUT
+        out["message_debug"] = (
+            f"scrape.do timed out after {timeout:.0f}s for {target_url}: {exc}"
+        )
+        _cb_record_failure(host)
+        log.warning("[F83_SCRAPEDO_RESULT] timeout %s after %.0fs",
+                    target_url, timeout)
+        return out
+    except Exception as exc:  # noqa: BLE001
+        out["reason_code"]   = RC_EXCEPTION
+        out["message_debug"] = (
+            f"scrape.do transport exception for {target_url}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        _cb_record_failure(host)
+        log.warning("[F83_SCRAPEDO_RESULT] exception %s: %s", target_url, exc)
+        return out
+
+    out["status_code"] = r.status_code
+    body = r.text or ""
+
+    if r.status_code != 200:
+        out["reason_code"]   = RC_HTTP_ERROR
+        out["message_debug"] = (
+            f"HTTP {r.status_code} from scrape.do for {target_url} "
+            f"(body_len={len(body)})"
+        )
+        _cb_record_failure(host)
+        log.warning("[F83_SCRAPEDO_RESULT] HTTP %s for %s",
+                    r.status_code, target_url)
+        return out
+
+    if not body:
+        out["reason_code"]   = RC_EMPTY_BODY
+        out["message_debug"] = (
+            f"scrape.do returned 200 with EMPTY body for {target_url}"
+        )
+        _cb_record_failure(host)
+        log.warning("[F83_SCRAPEDO_RESULT] empty body for %s", target_url)
+        return out
+
+    out["ok"]   = True
+    out["html"] = body
+    _cb_record_success(host)
+    return out
+
+
 async def fetch_via_scrapedo(target_url: str,
                               *, timeout: float = DEFAULT_TIMEOUT,
                               render: bool = False,
                               geo: Optional[str] = None) -> Optional[str]:
     """Async fetch via scrape.do. Returns HTML string or ``None``.
 
-    All failures (no token, breaker open, HTTP error, timeout) return
-    ``None`` so callers can degrade silently.
+    Legacy wrapper around :func:`fetch_via_scrapedo_result` — preserved
+    for back-compat. All failures (no token, breaker open, HTTP error,
+    timeout) return ``None`` so callers can degrade silently.
     """
-    host = urllib.parse.urlparse(target_url).netloc.lower()
-    if _cb_open(host):
-        log.debug("[F70_SCRAPEDO] breaker open for host=%s — skipping", host)
-        return None
-
-    api_url = _build_request_url(target_url, render=render, geo=geo)
-    if not api_url:
-        return None
-
-    try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            r = await client.get(api_url)
-        if r.status_code == 200 and r.text:
-            _cb_record_success(host)
-            return r.text
-        log.warning("[F70_SCRAPEDO] HTTP %s for %s (len=%d)",
-                    r.status_code, target_url, len(r.text or ""))
-        _cb_record_failure(host)
-        return None
-    except Exception as exc:  # noqa: BLE001
-        log.warning("[F70_SCRAPEDO] fetch failed %s: %s", target_url, exc)
-        _cb_record_failure(host)
-        return None
+    res = await fetch_via_scrapedo_result(
+        target_url, timeout=timeout, render=render, geo=geo,
+    )
+    return res["html"] if res.get("ok") else None
 
 
 def fetch_via_scrapedo_sync(target_url: str,
@@ -179,7 +297,10 @@ def breaker_status() -> dict:
 
 __all__ = [
     "fetch_via_scrapedo",
+    "fetch_via_scrapedo_result",
     "fetch_via_scrapedo_sync",
     "is_enabled",
     "breaker_status",
+    "RC_TOKEN_MISSING", "RC_BREAKER_OPEN", "RC_HTTP_ERROR",
+    "RC_TIMEOUT", "RC_EMPTY_BODY", "RC_EXCEPTION",
 ]

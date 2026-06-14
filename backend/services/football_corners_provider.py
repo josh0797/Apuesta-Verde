@@ -50,6 +50,20 @@ RC_PROVIDER_BREAKER  = 'CORNERS_PROVIDER_BREAKER_OPEN'
 RC_DEFERRED          = 'CORNERS_EXTERNAL_ENRICHMENT_DEFERRED'
 STATUS_PENDING_BG    = 'PENDING_BACKGROUND_ENRICHMENT'
 
+# Phase F83-update — explicit cascade order under feature flag.
+RC_NO_PROVIDER_AVAILABLE = 'NO_CORNERS_PROVIDER_AVAILABLE'
+RC_THESTATSAPI_EMPTY     = 'THESTATSAPI_CORNERS_EMPTY'
+RC_APISPORTS_NO_STATS    = 'CORNERS_NOT_IN_FIXTURE_STATS'
+
+
+def is_f83_cascade_order_enabled() -> bool:
+    """When True the cascade runs as: API-Sports → 365Scores → TheStatsAPI.
+
+    When False (default) the legacy F82.2 order applies: TheStatsAPI →
+    API-Sports → 365Scores. Toggled via ``ENABLE_F83_CASCADE_ORDER``.
+    """
+    return _flag_bool('ENABLE_F83_CASCADE_ORDER', False)
+
 
 # ── Feature flags (env, fail-safe defaults) ──────────────────────────
 def _flag_bool(name: str, default: bool) -> bool:
@@ -388,10 +402,395 @@ __all__ = [
     'enrich_match_corners_external',
     'is_inline_365scores_enabled',
     'is_background_365scores_enabled',
+    'is_f83_cascade_order_enabled',
     'score365_timeout_seconds',
     'corners_fast_timeout_seconds',
     'RC_APISPORTS', 'RC_365SCORES', 'RC_THESTATSAPI', 'RC_UNAVAILABLE',
     'RC_NO_API_SPORTS', 'RC_NO_365_ID', 'RC_365_BLOCKED', 'RC_365_TIMEOUT',
     'RC_365_SKIPPED_INLINE', 'RC_NO_THESTATSAPI', 'RC_PROVIDER_BREAKER',
     'RC_DEFERRED', 'STATUS_PENDING_BG',
+    'RC_NO_PROVIDER_AVAILABLE', 'RC_THESTATSAPI_EMPTY', 'RC_APISPORTS_NO_STATS',
+    # Phase F83-update
+    'debug_corners_cascade', 'enrich_match_corners_f83',
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase F83-update — UI-grade cascade + debug helper
+# ─────────────────────────────────────────────────────────────────────
+# Maps a reason_code (whatever stage) to a Spanish user-facing message.
+_F83_USER_MESSAGES: dict[str, str] = {
+    RC_NO_365_ID:              "No se pudo cargar córners: falta ID de 365Scores.",
+    'SCORE365_ID_MISSING':     "No se pudo cargar córners: falta ID de 365Scores.",
+    'SCRAPEDO_TOKEN_MISSING':  "No se pudo cargar córners: Scrape.do no tiene token configurado.",
+    'SCRAPEDO_BREAKER_OPEN':   "No se pudo cargar córners: Scrape.do está pausado temporalmente.",
+    'SCRAPEDO_HTTP_ERROR':     "No se pudo cargar córners: 365Scores no respondió correctamente.",
+    'SCRAPEDO_TIMEOUT':        "No se pudo cargar córners: la solicitud a 365Scores tardó demasiado.",
+    'SCRAPEDO_EMPTY_BODY':     "No se pudo cargar córners: 365Scores respondió pero sin contenido.",
+    'SCRAPEDO_EXCEPTION':      "No se pudo cargar córners: error de transporte con Scrape.do.",
+    'SCORE365_BLOCKED_OR_FORBIDDEN': "No se pudo cargar córners: 365Scores bloqueó o no devolvió la página.",
+    'SCORE365_STATS_EMPTY':    "No se pudo cargar córners: la página cargó, pero no contiene estadísticas.",
+    'SCORE365_CORNERS_NOT_FOUND': "No se pudo cargar córners: se encontraron estadísticas, pero no córners.",
+    'SCORE365_JSON_PARSE_FAILED': "No se pudo cargar córners: el formato de la respuesta de 365Scores no es válido.",
+    RC_THESTATSAPI_EMPTY:      "TheStatsAPI no tiene córners para este partido.",
+    RC_APISPORTS_NO_STATS:     "API-Sports no devolvió estadísticas de córners en este fixture.",
+    RC_NO_PROVIDER_AVAILABLE:  "No hay datos confiables de córners para este partido.",
+}
+
+
+def _f83_user_message(reason_code: Optional[str]) -> str:
+    return _F83_USER_MESSAGES.get(
+        reason_code or '',
+        "No se pudieron cargar los córners en este partido.",
+    )
+
+
+def _f83_check_thestatsapi(match_doc: dict) -> dict:
+    """Run the TheStatsAPI probe (no HTTP) → structured entry."""
+    tsa = _extract_thestatsapi_corners(match_doc)
+    if tsa is None:
+        return {
+            "provider":     "thestatsapi",
+            "transport":    "match_doc",
+            "available":    False,
+            "stage":        "READ_MATCH_DOC",
+            "reason_code":  RC_THESTATSAPI_EMPTY,
+            "message_user": _f83_user_message(RC_THESTATSAPI_EMPTY),
+            "retryable":    False,
+        }
+    return {
+        "provider":     "thestatsapi",
+        "transport":    "match_doc",
+        "available":    True,
+        "stage":        "READ_MATCH_DOC",
+        "data":         {"home": tsa["home"], "away": tsa["away"], "total": tsa["total"]},
+        "reason_code":  RC_THESTATSAPI,
+        "confidence":   _confidence_from("thestatsapi", tsa["home"], tsa["away"]),
+    }
+
+
+def _f83_check_apisports(match_doc: dict) -> dict:
+    """Run the API-Sports probe (no HTTP) → structured entry."""
+    aps = _extract_apisports_corners(match_doc)
+    if aps is None or (aps["home"] is None and aps["away"] is None):
+        return {
+            "provider":     "api_sports",
+            "transport":    "match_doc",
+            "available":    False,
+            "stage":        "READ_MATCH_DOC",
+            "reason_code":  RC_APISPORTS_NO_STATS,
+            "message_user": _f83_user_message(RC_APISPORTS_NO_STATS),
+            "retryable":    False,
+        }
+    return {
+        "provider":     "api_sports",
+        "transport":    "match_doc",
+        "available":    True,
+        "stage":        "READ_MATCH_DOC",
+        "data":         {"home": aps["home"], "away": aps["away"], "total": aps["total"]},
+        "reason_code":  RC_APISPORTS,
+        "confidence":   _confidence_from("api_sports", aps["home"], aps["away"]),
+    }
+
+
+async def _f83_check_365scores(match_doc: dict, *, timeout_s: float) -> dict:
+    """Run the 365Scores probe via the new scrape.do client.
+
+    Order of resolution:
+      1. ID resolution (fail fast with SCORE365_ID_MISSING if absent).
+      2. Try the JSON stats endpoint (cheap, no rendering).
+      3. If JSON path fails, attempt the rendered match-page URL.
+      4. Parse / normalize → structured entry.
+    """
+    try:
+        from .external_sources import score365_scrapedo_client as s365
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "provider":     "365scores",
+            "transport":    "scrape_do",
+            "available":    False,
+            "stage":        "MODULE_IMPORT",
+            "reason_code":  "SCORE365_SCRAPEDO_MODULE_MISSING",
+            "message_user": _f83_user_message(None),
+            "message_debug": f"score365_scrapedo_client import failed: {exc}",
+            "retryable":    False,
+        }
+
+    ids = s365.extract_365scores_ids(match_doc)
+    if not ids["available"]:
+        return {
+            "provider":      "365scores",
+            "transport":     "scrape_do",
+            "available":     False,
+            "stage":         "ID_RESOLUTION",
+            "reason_code":   s365.RC_ID_MISSING,
+            "message_user":  _f83_user_message(s365.RC_ID_MISSING),
+            "message_debug": "Missing external_ids.365scores.game_id and match_url",
+            "retryable":     False,
+        }
+
+    # JSON stats endpoint first.
+    if ids.get("game_id"):
+        stats_res = await s365.fetch_365scores_game_stats(
+            None, ids["game_id"], ids.get("matchup_id"), timeout_s=timeout_s,
+        )
+        if stats_res.get("available"):
+            normalised = s365.normalize_365scores_corners(stats_res["json"])
+            if normalised.get("available"):
+                return {
+                    "provider":     "365scores",
+                    "transport":    "scrape_do",
+                    "available":    True,
+                    "stage":        "FETCH_STATS",
+                    "data":         {
+                        "home":  normalised["home"].get("corners"),
+                        "away":  normalised["away"].get("corners"),
+                        "total": normalised.get("total_corners"),
+                    },
+                    "reason_code":  s365.RC_CORNERS_FOUND,
+                    "confidence":   normalised.get("confidence", "USABLE"),
+                    "raw_provider": normalised,
+                    "ids":          ids,
+                }
+            # Stats came through but no corners → try the rendered page.
+            stats_failure = {
+                "provider":      "365scores",
+                "transport":     "scrape_do",
+                "available":     False,
+                "stage":         "PARSE_STATS",
+                "reason_code":   normalised.get("reason_code") or s365.RC_CORNERS_NOT_FOUND,
+                "message_user":  _f83_user_message(normalised.get("reason_code")),
+                "message_debug": normalised.get("message_debug"),
+                "retryable":     True,
+                "ids":           ids,
+            }
+        else:
+            stats_failure = {
+                "provider":     "365scores",
+                "transport":    "scrape_do",
+                "available":    False,
+                "stage":        stats_res.get("stage", "FETCH_STATS"),
+                "reason_code":  stats_res.get("reason_code"),
+                "message_user": stats_res.get("message_user")
+                                or _f83_user_message(stats_res.get("reason_code")),
+                "message_debug": stats_res.get("message_debug"),
+                "status_code":  stats_res.get("status_code"),
+                "retryable":    stats_res.get("retryable", True),
+                "ids":          ids,
+            }
+    else:
+        stats_failure = None
+
+    # Fall back to fetching the rendered match-page HTML.
+    if ids.get("match_url"):
+        page_res = await s365.fetch_365scores_match_page(
+            None, ids["match_url"], timeout_s=timeout_s,
+        )
+        if page_res.get("available"):
+            normalised = s365.parse_365scores_corners_from_html(page_res["html"])
+            if normalised.get("available"):
+                return {
+                    "provider":     "365scores",
+                    "transport":    "scrape_do",
+                    "available":    True,
+                    "stage":        "PARSE_HTML",
+                    "data":         {
+                        "home":  normalised["home"].get("corners"),
+                        "away":  normalised["away"].get("corners"),
+                        "total": normalised.get("total_corners"),
+                    },
+                    "reason_code":  s365.RC_CORNERS_FOUND,
+                    "confidence":   normalised.get("confidence", "USABLE"),
+                    "raw_provider": normalised,
+                    "ids":          ids,
+                }
+            return {
+                "provider":      "365scores",
+                "transport":     "scrape_do",
+                "available":     False,
+                "stage":         "PARSE_HTML",
+                "reason_code":   normalised.get("reason_code") or s365.RC_CORNERS_NOT_FOUND,
+                "message_user":  _f83_user_message(normalised.get("reason_code")),
+                "message_debug": normalised.get("message_debug"),
+                "retryable":     True,
+                "ids":           ids,
+            }
+        return {
+            "provider":      "365scores",
+            "transport":     "scrape_do",
+            "available":     False,
+            "stage":         page_res.get("stage", "FETCH_PAGE"),
+            "reason_code":   page_res.get("reason_code"),
+            "message_user":  page_res.get("message_user")
+                              or _f83_user_message(page_res.get("reason_code")),
+            "message_debug": page_res.get("message_debug"),
+            "status_code":   page_res.get("status_code"),
+            "retryable":     page_res.get("retryable", True),
+            "ids":           ids,
+        }
+
+    return stats_failure or {
+        "provider":      "365scores",
+        "transport":     "scrape_do",
+        "available":     False,
+        "stage":         "FETCH_STATS",
+        "reason_code":   s365.RC_ID_MISSING,
+        "message_user":  _f83_user_message(s365.RC_ID_MISSING),
+        "message_debug": "No game_id nor match_url available after resolution",
+        "retryable":     False,
+        "ids":           ids,
+    }
+
+
+async def debug_corners_cascade(match_doc: dict, *, allow_external: bool = True) -> dict:
+    """Run the corners cascade in *diagnostic* mode and return a dict
+    suitable for the F83 debug endpoint.
+
+    Honours :func:`is_f83_cascade_order_enabled`:
+      * F83 ON  → API-Sports → 365Scores → TheStatsAPI.
+      * F83 OFF → TheStatsAPI → API-Sports → 365Scores (F82.2 default).
+
+    The function ALWAYS returns a dict; never raises.
+    """
+    if not isinstance(match_doc, dict):
+        match_doc = {}
+
+    flag_on = is_f83_cascade_order_enabled()
+    cascade_order = (
+        ["api_sports", "365scores", "thestatsapi"]
+        if flag_on else
+        ["thestatsapi", "api_sports", "365scores"]
+    )
+
+    home = (match_doc.get("home_team") or {}).get("name") \
+        if isinstance(match_doc.get("home_team"), dict) else None
+    away = (match_doc.get("away_team") or {}).get("name") \
+        if isinstance(match_doc.get("away_team"), dict) else None
+
+    # Always include scrape.do diagnostics.
+    try:
+        from .external_sources.score365_scrapedo_client import (
+            breaker_status as _bs, is_enabled as _ise,
+        )
+        scrapedo_block = {
+            "enabled":        _ise(),
+            "breaker_status": _bs(),
+        }
+    except Exception as exc:  # noqa: BLE001
+        scrapedo_block = {"enabled": False, "error": str(exc)}
+
+    providers_checked: list[dict] = []
+    winner: Optional[dict] = None
+    timeout_s = score365_timeout_seconds()
+
+    for prov in cascade_order:
+        if winner is not None:
+            break
+        if prov == "thestatsapi":
+            entry = _f83_check_thestatsapi(match_doc)
+        elif prov == "api_sports":
+            entry = _f83_check_apisports(match_doc)
+        elif prov == "365scores":
+            if not allow_external:
+                entry = {
+                    "provider":     "365scores",
+                    "transport":    "scrape_do",
+                    "available":    False,
+                    "stage":        "SKIPPED",
+                    "reason_code":  RC_365_SKIPPED_INLINE,
+                    "message_user": "365Scores no se consultó porque está deshabilitado en modo rápido.",
+                    "retryable":    True,
+                }
+            else:
+                entry = await _f83_check_365scores(match_doc, timeout_s=timeout_s)
+        else:
+            continue
+        providers_checked.append(entry)
+        if entry.get("available"):
+            winner = entry
+
+    final: dict
+    if winner is not None:
+        final = {
+            "available":    True,
+            "provider":     winner["provider"],
+            "transport":    winner.get("transport"),
+            "stage":        winner.get("stage"),
+            "data":         winner.get("data"),
+            "confidence":   winner.get("confidence"),
+            "reason_code":  winner.get("reason_code"),
+            "message_user": "Córners cargados correctamente.",
+        }
+    else:
+        # Pick the most actionable reason from the last provider checked.
+        last = providers_checked[-1] if providers_checked else {}
+        final = {
+            "available":     False,
+            "reason_code":   RC_NO_PROVIDER_AVAILABLE,
+            "message_user":  _f83_user_message(RC_NO_PROVIDER_AVAILABLE),
+            "message_debug": last.get("message_debug"),
+            "last_reason":   last.get("reason_code"),
+        }
+
+    return {
+        "match_id":           match_doc.get("match_id"),
+        "home":               home,
+        "away":               away,
+        "cascade_order_used": cascade_order,
+        "flag_enabled":       flag_on,
+        "scrapedo":           scrapedo_block,
+        "providers_checked":  providers_checked,
+        "winner":             winner,
+        "final":              final,
+    }
+
+
+async def enrich_match_corners_f83(client, db, match_doc: dict) -> dict:
+    """F83-grade corners enrichment.
+
+    Runs :func:`debug_corners_cascade` and adapts the winner (if any) to
+    the legacy ``payload`` shape so the rest of the pipeline (persist
+    + UI) keeps working with the new diagnostics surfaced.
+    """
+    res = await debug_corners_cascade(match_doc, allow_external=True)
+    final = res["final"]
+    if final.get("available"):
+        winner = res["winner"]
+        data   = winner.get("data") or {}
+        payload = {
+            "available":     True,
+            "source":        winner["provider"],
+            "current_match": {
+                "home":  data.get("home"),
+                "away":  data.get("away"),
+                "total": data.get("total"),
+            },
+            "confidence":    winner.get("confidence")
+                              or _confidence_from(winner["provider"],
+                                                   data.get("home"),
+                                                   data.get("away")),
+            "reason_codes":  [winner.get("reason_code")] if winner.get("reason_code") else [],
+            "stage":         winner.get("stage"),
+            "transport":     winner.get("transport"),
+            "cascade_order": res["cascade_order_used"],
+            "_raw_provider": (winner.get("raw_provider")
+                               if isinstance(winner.get("raw_provider"), dict) else None),
+        }
+        _persist(match_doc, payload)
+        return payload
+
+    payload = {
+        "available":     False,
+        "reason_code":   final.get("reason_code", RC_NO_PROVIDER_AVAILABLE),
+        "reason_codes":  [final.get("reason_code") or RC_NO_PROVIDER_AVAILABLE],
+        "message_user":  final.get("message_user"),
+        "cascade_order": res["cascade_order_used"],
+        "providers_checked": [
+            {"provider": e.get("provider"),
+             "reason_code": e.get("reason_code"),
+             "stage": e.get("stage")}
+            for e in res["providers_checked"]
+        ],
+    }
+    _persist(match_doc, payload)
+    return payload
