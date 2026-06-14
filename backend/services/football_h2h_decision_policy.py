@@ -1,67 +1,164 @@
-"""Phase F86 — H2H Decision Policy.
+"""Phase F86 + F86.1 — H2H Decision Policy (calibrated).
 
-Define cuándo el contexto H2H puede influir en decisiones y cuándo es
-solo contexto narrativo.
+This module defines **when** the head-to-head context may influence the
+engine's scoring and **how much** weight it carries. It is purely
+analytical (no Mongo, no httpx) so it can be exercised with ``pytest``
+without any external dependency.
 
-Reglas
-------
-* ``sample_size_total < MIN_DECISION_SAMPLE``  → solo contexto + warning,
-  NO afecta puntos.
-* ``sample_size_recent < MIN_DECISION_SAMPLE`` → solo contexto + warning
-  (partidos > 1 año), NO afecta puntos.
-* ``sample_size_recent ≥ MIN_DECISION_SAMPLE`` → aplica puntos por mercado
-  (Over/Under 1.5/2.5/3.5, BTTS, DNB).
-
-El módulo es puro (sin Mongo, sin httpx) — testeable con ``pytest`` sin
-mocks externos.
+What changed with F86.1
+-----------------------
+* Recalibrated ``H2H_POINT_RULES`` thresholds against typical baselines
+  for football matches; each rule now carries ``baseline`` (documentation
+  only) and ``min_sample`` (effective).
+* :func:`get_active_rules` allows an env-var driven override
+  (``H2H_POINT_RULES_OVERRIDE`` as JSON) and is read at call time so
+  ``pytest.monkeypatch`` works without module reload.
+* :func:`apply_polarity_guard` makes the OVER/UNDER + BTTS_YES/BTTS_NO
+  conflict explicit: if both fire the rule with the higher *rate* wins
+  (tie → higher points; second tie → ``H2H_POLARITY_UNRESOLVED``).
+* DNB overlap (``HOME_DNB`` + ``AWAY_DNB``) is treated as a **soft**
+  conflict — neither side is dropped; we emit
+  ``H2H_DNB_OVERLAP_DRAW_HEAVY`` and a ``soft_conflicts`` entry.
+* :data:`MAX_H2H_POINTS_TOTAL` caps the *aggregated* H2H influence per
+  match so H2H can never dominate scoring (signals are preserved).
+* Per-rule ``min_sample`` introduces a halved-points + ``LOW_SAMPLE_H2H_SIGNAL``
+  path when the recent sample is below the rule's preferred sample size.
 """
 from __future__ import annotations
 
+import json
+import logging
+import math
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable, Optional
+
+log = logging.getLogger("football.h2h_decision_policy")
 
 # ─────────────────────────────────────────────────────────────────────
 # Configuración
 # ─────────────────────────────────────────────────────────────────────
 
-# Muestra mínima para que el H2H influya en decisión.
-# 4 partidos recientes es el piso defendible estadísticamente:
-# - 3 ó menos: cualquier outlier sesga el rate >25 pts porcentuales.
-# - 4 ó más: un outlier sesga ≤25 pts, suficiente para señal direccional.
+# Muestra mínima para que el H2H influya en decisión (gate global).
+# Reglas individuales (``min_sample``) pueden requerir MÁS muestra; en ese
+# caso emiten ``LOW_SAMPLE_H2H_SIGNAL`` y otorgan puntos a la mitad.
 MIN_DECISION_SAMPLE = 4
 
 # Edad máxima en días para considerar un partido "recencia útil".
 MAX_RECENT_DAYS = 365
 
-# Tabla de puntos por mercado cuando H2H es decision-useful.
-# Los valores se suman al ``confidence_score`` del mercado correspondiente
-# en el motor de scoring. Mantén los puntos pequeños (≤ +5) — H2H es
-# solo UN factor entre xG, forma reciente, lesiones, motivación, etc.
+# Aggregated cap on the total H2H influence per match. The signals are
+# preserved, but the numeric impact reported in ``h2h_points_total`` is
+# clamped so H2H stays as a *secondary* factor.
+MAX_H2H_POINTS_TOTAL = 8
+
+# Tabla de reglas de puntos H2H (defaults).
+# Cada regla expone:
+#   * ``min_rate``   — umbral efectivo para que la señal dispare.
+#   * ``points``     — puntos asignados al mercado (≤ 5 por convención).
+#   * ``baseline``   — referencia de tasa base esperada (DOCUMENTACIÓN
+#                       únicamente; no se usa en la lógica de decisión).
+#   * ``min_sample`` — sample recent mínimo recomendado; por debajo se
+#                       aplica puntuación parcial + ``LOW_SAMPLE_H2H_SIGNAL``.
+#   * ``label``      — código de señal emitido en ``signals``.
 H2H_POINT_RULES: dict[str, dict] = {
-    # Over/Under
-    "OVER_1_5":  {"min_rate": 0.80, "points": +5, "label": "H2H_PROFILE_OVER_1_5"},
-    "UNDER_1_5": {"min_rate": 0.50, "points": +4, "label": "H2H_PROFILE_UNDER_1_5"},
-    "OVER_2_5":  {"min_rate": 0.70, "points": +4, "label": "H2H_PROFILE_OVER_2_5"},
-    "UNDER_2_5": {"min_rate": 0.65, "points": +4, "label": "H2H_PROFILE_UNDER_2_5"},
-    "OVER_3_5":  {"min_rate": 0.60, "points": +5, "label": "H2H_PROFILE_OVER_3_5"},
-    "UNDER_3_5": {"min_rate": 0.75, "points": +5, "label": "H2H_PROFILE_UNDER_3_5"},
-    # BTTS
-    "BTTS_YES":  {"min_rate": 0.60, "points": +4, "label": "H2H_PROFILE_BTTS_YES"},
-    "BTTS_NO":   {"min_rate": 0.70, "points": +5, "label": "H2H_PROFILE_BTTS_NO"},
-    # Home / Away dominance (Doble Oportunidad / DNB).
-    "HOME_DNB":  {"min_rate": 0.60, "points": +4, "label": "H2H_HOME_DOMINANT"},
-    "AWAY_DNB":  {"min_rate": 0.60, "points": +4, "label": "H2H_AWAY_DOMINANT"},
+    "OVER_1_5": {
+        "min_rate":   0.90,
+        "points":     3,
+        "baseline":   0.78,
+        "min_sample": 4,
+        "label":      "H2H_OVER_1_5_STRONG",
+    },
+    "UNDER_1_5": {
+        "min_rate":   0.50,
+        "points":     5,
+        "baseline":   0.22,
+        "min_sample": 4,
+        "label":      "H2H_UNDER_1_5_STRONG",
+    },
+    "OVER_2_5": {
+        "min_rate":   0.75,
+        "points":     4,
+        "baseline":   0.55,
+        "min_sample": 4,
+        "label":      "H2H_OVER_2_5_STRONG",
+    },
+    "UNDER_2_5": {
+        "min_rate":   0.70,
+        "points":     4,
+        "baseline":   0.45,
+        "min_sample": 4,
+        "label":      "H2H_UNDER_2_5_STRONG",
+    },
+    "OVER_3_5": {
+        "min_rate":   0.65,
+        "points":     5,
+        "baseline":   0.32,
+        "min_sample": 4,
+        "label":      "H2H_OVER_3_5_STRONG",
+    },
+    "UNDER_3_5": {
+        "min_rate":   0.80,
+        "points":     5,
+        "baseline":   0.68,
+        "min_sample": 4,
+        "label":      "H2H_UNDER_3_5_STRONG",
+    },
+    "BTTS_YES": {
+        "min_rate":   0.70,
+        "points":     4,
+        "baseline":   0.52,
+        "min_sample": 4,
+        "label":      "H2H_BTTS_YES_STRONG",
+    },
+    "BTTS_NO": {
+        "min_rate":   0.70,
+        "points":     5,
+        "baseline":   0.48,
+        "min_sample": 4,
+        "label":      "H2H_BTTS_NO_STRONG",
+    },
+    "HOME_DNB": {
+        "min_rate":   0.85,
+        "points":     4,
+        "baseline":   0.75,
+        "min_sample": 4,
+        "label":      "H2H_HOME_DNB_STRONG",
+    },
+    "AWAY_DNB": {
+        "min_rate":   0.70,
+        "points":     4,
+        "baseline":   0.45,
+        "min_sample": 4,
+        "label":      "H2H_AWAY_DNB_STRONG",
+    },
 }
 
-# Reason codes (machine-readable).
-RC_NO_SAMPLE              = "H2H_NO_SAMPLE"
-RC_SAMPLE_BELOW_THRESHOLD = "H2H_SAMPLE_BELOW_DECISION_THRESHOLD"
-RC_RECENT_BELOW_THRESHOLD = "H2H_RECENT_SAMPLE_BELOW_THRESHOLD"
-RC_DECISION_USEFUL        = "H2H_DECISION_USEFUL"
+# Polarity pairs — hard conflicts that cancel each other on a single line.
+# DNB pair is intentionally OUT of this list: HOME_DNB + AWAY_DNB jointly
+# describe a draw-heavy profile (legitimate H2H pattern, not a conflict).
+POLARITY_PAIRS: list[tuple[str, str]] = [
+    ("OVER_1_5", "UNDER_1_5"),
+    ("OVER_2_5", "UNDER_2_5"),
+    ("OVER_3_5", "UNDER_3_5"),
+    ("BTTS_YES", "BTTS_NO"),
+]
+DNB_OVERLAP_PAIR: tuple[str, str] = ("HOME_DNB", "AWAY_DNB")
+
+# Reason codes (machine-readable, surfaced in ``decision.reason_codes``).
+RC_NO_SAMPLE                = "H2H_NO_SAMPLE"
+RC_SAMPLE_BELOW_THRESHOLD   = "H2H_SAMPLE_BELOW_DECISION_THRESHOLD"
+RC_RECENT_BELOW_THRESHOLD   = "H2H_RECENT_SAMPLE_BELOW_THRESHOLD"
+RC_DECISION_USEFUL          = "H2H_DECISION_USEFUL"
+RC_LOW_SAMPLE_SIGNAL        = "LOW_SAMPLE_H2H_SIGNAL"
+RC_POLARITY_GUARD_TRIGGERED = "H2H_POLARITY_GUARD_TRIGGERED"
+RC_POLARITY_UNRESOLVED      = "H2H_POLARITY_UNRESOLVED"
+RC_DNB_OVERLAP_DRAW_HEAVY   = "H2H_DNB_OVERLAP_DRAW_HEAVY"
+RC_POINTS_CAPPED            = "H2H_POINTS_CAPPED"
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Helpers privados
+# Helpers privados (parseo / fechas / scores)
 # ─────────────────────────────────────────────────────────────────────
 def _parse_iso(s: Any) -> Optional[datetime]:
     if not s or not isinstance(s, str):
@@ -98,8 +195,7 @@ def _total_goals(m: dict) -> Optional[int]:
 
 
 def _side_of(m: dict, team_name: str) -> Optional[str]:
-    """Was ``team_name`` home or away in this match? Returns ``'home'``,
-    ``'away'`` or ``None``."""
+    """Was ``team_name`` home or away in this match?"""
     if not team_name:
         return None
     tn = team_name.strip().lower()
@@ -119,7 +215,48 @@ def _rate_of(matches: list[dict], predicate: Callable[[dict], bool]) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# API pública
+# Active rules (env-overridable)
+# ─────────────────────────────────────────────────────────────────────
+def get_active_rules() -> dict:
+    """Return :data:`H2H_POINT_RULES` merged with an env-var override.
+
+    Reads ``os.environ["H2H_POINT_RULES_OVERRIDE"]`` **at call time** so
+    that tests using ``monkeypatch.setenv`` work without reloading the
+    module. The override must be a JSON object of the form::
+
+        {"OVER_2_5": {"min_rate": 0.80, "points": 5}, ...}
+
+    Unknown markets and invalid shapes are logged at WARNING and ignored.
+    On JSON parse failure the function falls back to the defaults.
+    """
+    raw = (os.environ.get("H2H_POINT_RULES_OVERRIDE") or "").strip()
+    if not raw:
+        return {k: dict(v) for k, v in H2H_POINT_RULES.items()}
+    try:
+        override = json.loads(raw)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[h2h_rules] override parse failed: %s — using defaults", exc)
+        return {k: dict(v) for k, v in H2H_POINT_RULES.items()}
+
+    merged: dict[str, dict] = {k: dict(v) for k, v in H2H_POINT_RULES.items()}
+    if not isinstance(override, dict):
+        log.warning("[h2h_rules] override must be a JSON object; got %s", type(override).__name__)
+        return merged
+
+    for market, rule_override in override.items():
+        if market not in merged:
+            log.warning("[h2h_rules] ignoring unknown override market=%s", market)
+            continue
+        if not isinstance(rule_override, dict):
+            log.warning("[h2h_rules] invalid override for market=%s (expected dict, got %s)",
+                        market, type(rule_override).__name__)
+            continue
+        merged[market].update(rule_override)
+    return merged
+
+
+# ─────────────────────────────────────────────────────────────────────
+# classify_h2h_context (unchanged API)
 # ─────────────────────────────────────────────────────────────────────
 def classify_h2h_context(
     h2h_context: dict | None,
@@ -174,6 +311,161 @@ def classify_h2h_context(
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Polarity guard (hard conflicts)
+# ─────────────────────────────────────────────────────────────────────
+def apply_polarity_guard(
+    out: dict,
+    market_to_rate: dict,
+    active_rules: dict,
+) -> dict:
+    """Drop the losing side when an OVER_X / UNDER_X or BTTS_YES / NO pair
+    is dual-applied.
+
+    Tie-breaking order:
+      1. Higher *rate* wins.
+      2. Higher *points* wins.
+      3. ``H2H_POLARITY_UNRESOLVED`` reason code; signals removed from
+         BOTH sides but ``polarity_conflicts`` still recorded.
+
+    Mutates ``out`` in place and returns it for chaining.
+    """
+    points: dict = dict(out.get("points_by_market") or {})
+    signals: list = list(out.get("signals") or [])
+    conflicts: list[dict] = []
+    triggered = False
+
+    for a, b in POLARITY_PAIRS:
+        if a not in points or b not in points:
+            continue
+        triggered = True
+        rate_a = float(market_to_rate.get(a, 0) or 0)
+        rate_b = float(market_to_rate.get(b, 0) or 0)
+        pts_a  = int(active_rules.get(a, {}).get("points", 0) or 0)
+        pts_b  = int(active_rules.get(b, {}).get("points", 0) or 0)
+
+        if rate_a > rate_b:
+            loser, winner = b, a
+        elif rate_b > rate_a:
+            loser, winner = a, b
+        elif pts_a > pts_b:
+            loser, winner = b, a
+        elif pts_b > pts_a:
+            loser, winner = a, b
+        else:
+            loser, winner = None, None
+
+        conflict_entry = {
+            "a":          a,
+            "b":          b,
+            "rate_a":     rate_a,
+            "rate_b":     rate_b,
+            "resolution": "DROP_LOSER" if loser else "UNRESOLVED",
+        }
+        conflicts.append(conflict_entry)
+
+        if loser:
+            loser_label = active_rules.get(loser, {}).get("label")
+            points.pop(loser, None)
+            if loser_label:
+                signals = [s for s in signals if s != loser_label]
+            log.warning(
+                "[h2h_polarity_guard] conflict %s(%.2f) vs %s(%.2f) — "
+                "dropping %s (winner=%s). Review thresholds.",
+                a, rate_a, b, rate_b, loser, winner,
+            )
+        else:
+            # Unresolved: drop BOTH points but keep the entries in
+            # conflicts for audit. Add reason code.
+            label_a = active_rules.get(a, {}).get("label")
+            label_b = active_rules.get(b, {}).get("label")
+            points.pop(a, None)
+            points.pop(b, None)
+            signals = [s for s in signals if s not in (label_a, label_b)]
+            log.warning(
+                "[h2h_polarity_guard] unresolved conflict %s(%.2f) vs %s(%.2f) — "
+                "dropping both. Review thresholds.",
+                a, rate_a, b, rate_b,
+            )
+            out.setdefault("reason_codes", [])
+            if RC_POLARITY_UNRESOLVED not in out["reason_codes"]:
+                out["reason_codes"].append(RC_POLARITY_UNRESOLVED)
+
+    out["points_by_market"] = points
+    out["signals"]          = signals
+    if triggered:
+        out["polarity_conflicts"] = conflicts
+        out.setdefault("reason_codes", [])
+        if RC_POLARITY_GUARD_TRIGGERED not in out["reason_codes"]:
+            out["reason_codes"].append(RC_POLARITY_GUARD_TRIGGERED)
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────
+# DNB overlap (soft conflict)
+# ─────────────────────────────────────────────────────────────────────
+def apply_dnb_overlap_guard(out: dict) -> dict:
+    """Annotate DNB overlap as a *soft* conflict — keep both points, but
+    cap their combined contribution at 4 to reflect that the underlying
+    pattern is "draw-heavy / low margin" rather than two independent
+    dominant teams.
+    """
+    points = out.get("points_by_market") or {}
+    a, b = DNB_OVERLAP_PAIR
+    if a not in points or b not in points:
+        return out
+    out.setdefault("reason_codes", [])
+    if RC_DNB_OVERLAP_DRAW_HEAVY not in out["reason_codes"]:
+        out["reason_codes"].append(RC_DNB_OVERLAP_DRAW_HEAVY)
+    out.setdefault("soft_conflicts", []).append({
+        "type":           "DNB_OVERLAP",
+        "markets":        [a, b],
+        "interpretation": ("Draw-heavy or low-margin H2H profile; "
+                           "do not treat as hard polarity conflict."),
+    })
+    # Cap combined contribution at 4 (both at 2 each, preserving ratio).
+    total = int(points[a]) + int(points[b])
+    if total > 4:
+        ratio_a = int(points[a]) / total
+        new_a   = max(1, math.floor(4 * ratio_a))
+        new_b   = max(1, 4 - new_a)
+        out.setdefault("soft_conflict_adjustments", {})
+        out["soft_conflict_adjustments"][a] = {"from": points[a], "to": new_a}
+        out["soft_conflict_adjustments"][b] = {"from": points[b], "to": new_b}
+        points[a] = new_a
+        points[b] = new_b
+        out["points_by_market"] = points
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Total cap (preserve signals, clamp numeric impact)
+# ─────────────────────────────────────────────────────────────────────
+def apply_total_cap(out: dict) -> dict:
+    """Cap the aggregated H2H points at :data:`MAX_H2H_POINTS_TOTAL`.
+
+    Signals are preserved; only the reported ``h2h_points_total`` is
+    clamped. ``h2h_points_uncapped`` stays available for audit.
+    """
+    points = out.get("points_by_market") or {}
+    try:
+        total = sum(int(v) for v in points.values())
+    except (TypeError, ValueError):
+        total = 0
+    if total > MAX_H2H_POINTS_TOTAL:
+        out["h2h_points_uncapped"] = total
+        out["h2h_points_total"]    = MAX_H2H_POINTS_TOTAL
+        out.setdefault("reason_codes", [])
+        if RC_POINTS_CAPPED not in out["reason_codes"]:
+            out["reason_codes"].append(RC_POINTS_CAPPED)
+    else:
+        out["h2h_points_total"] = total
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────
+# apply_h2h_decision_points (rewritten to use active rules + guards)
+# ─────────────────────────────────────────────────────────────────────
 def apply_h2h_decision_points(
     classified: dict,
     home_name: str,
@@ -181,23 +473,19 @@ def apply_h2h_decision_points(
 ) -> dict:
     """Compute per-market points contributed by H2H.
 
-    Returns
-    -------
-    dict
-        ``{
-            "points_by_market": {"OVER_2_5": +4, "BTTS_NO": +5, ...},
-            "signals":          ["H2H_PROFILE_OVER_2_5", ...],
-            "applied":          True/False,    # False when not decision_useful
-            "rates":            {"over_2_5": 0.71, "btts_yes": 0.43, ...},
-            "sample_size":      sample_size_recent,
-        }``
+    The function now reads thresholds from :func:`get_active_rules`
+    (env-overridable), enforces polarity / DNB / total caps and emits
+    ``LOW_SAMPLE_H2H_SIGNAL`` + halved points when the recent sample is
+    below the rule's ``min_sample``.
     """
     out: dict = {
-        "points_by_market": {},
-        "signals":          [],
-        "applied":          False,
-        "rates":            {},
-        "sample_size":      0,
+        "points_by_market":  {},
+        "signals":           [],
+        "applied":           False,
+        "rates":             {},
+        "sample_size":       0,
+        "reason_codes":      [],
+        "h2h_points_total":  0,
     }
 
     if not classified.get("decision_useful"):
@@ -207,7 +495,7 @@ def apply_h2h_decision_points(
     if not recent:
         return out
 
-    # Goal-based rates.
+    # Tasa por mercado (siempre se computa, incluso si no dispara).
     rates = {
         "over_1_5":  _rate_of(recent, lambda m: (_total_goals(m) or 0) >= 2),
         "over_2_5":  _rate_of(recent, lambda m: (_total_goals(m) or 0) >= 3),
@@ -223,7 +511,6 @@ def apply_h2h_decision_points(
     rates["btts_yes"] = _rate_of(recent, _btts)
     rates["btts_no"]  = 1.0 - rates["btts_yes"] if recent else 0.0
 
-    # DNB (Draw No Bet) = gana o empata.
     def _team_did_not_lose(m: dict, team: str) -> bool:
         p = _score_pair(m.get("score"))
         if p is None:
@@ -250,18 +537,64 @@ def apply_h2h_decision_points(
         "HOME_DNB":  rates["home_dnb"],
         "AWAY_DNB":  rates["away_dnb"],
     }
-    for market, rule in H2H_POINT_RULES.items():
-        rate = market_to_rate.get(market, 0.0)
-        if rate >= rule["min_rate"]:
-            out["points_by_market"][market] = rule["points"]
-            out["signals"].append(rule["label"])
+
+    active_rules = get_active_rules()
+    sample_size  = len(recent)
+    low_sample_markets: list[str] = []
+
+    for market, rule in active_rules.items():
+        rate = float(market_to_rate.get(market, 0.0))
+        try:
+            min_rate = float(rule.get("min_rate", 1.0))
+        except (TypeError, ValueError):
+            min_rate = 1.0
+        if rate < min_rate:
+            continue
+        try:
+            full_points = int(rule.get("points", 0))
+        except (TypeError, ValueError):
+            full_points = 0
+        try:
+            rule_min_sample = int(rule.get("min_sample", MIN_DECISION_SAMPLE))
+        except (TypeError, ValueError):
+            rule_min_sample = MIN_DECISION_SAMPLE
+
+        # Per-rule sample guard: when sample < rule.min_sample we still
+        # *emit* the signal (so the editorial sees the pattern) but at
+        # half the points, and we surface LOW_SAMPLE_H2H_SIGNAL.
+        if sample_size < rule_min_sample:
+            applied_points = max(1, full_points // 2)
+            low_sample_markets.append(market)
+        else:
+            applied_points = full_points
+
+        out["points_by_market"][market] = applied_points
+        label = rule.get("label")
+        if isinstance(label, str) and label and label not in out["signals"]:
+            out["signals"].append(label)
+
+    if low_sample_markets:
+        if RC_LOW_SAMPLE_SIGNAL not in out["reason_codes"]:
+            out["reason_codes"].append(RC_LOW_SAMPLE_SIGNAL)
+        out["low_sample_markets"] = low_sample_markets
 
     out["rates"]       = rates
+    out["sample_size"] = sample_size
     out["applied"]     = True
-    out["sample_size"] = len(recent)
+
+    # Hard polarity guard first (drops conflicting signals).
+    apply_polarity_guard(out, market_to_rate, active_rules)
+    # DNB soft overlap (keeps both, caps combined).
+    apply_dnb_overlap_guard(out)
+    # Aggregated cap (preserves signals).
+    apply_total_cap(out)
+
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────
+# build_h2h_decision (unchanged signature)
+# ─────────────────────────────────────────────────────────────────────
 def build_h2h_decision(match_doc: dict) -> tuple[dict, dict]:
     """Convenience wrapper used by the ingestor.
 
@@ -282,9 +615,16 @@ def build_h2h_decision(match_doc: dict) -> tuple[dict, dict]:
 __all__ = [
     "classify_h2h_context",
     "apply_h2h_decision_points",
+    "apply_polarity_guard",
+    "apply_dnb_overlap_guard",
+    "apply_total_cap",
     "build_h2h_decision",
-    "MIN_DECISION_SAMPLE", "MAX_RECENT_DAYS",
-    "H2H_POINT_RULES",
+    "get_active_rules",
+    "MIN_DECISION_SAMPLE", "MAX_RECENT_DAYS", "MAX_H2H_POINTS_TOTAL",
+    "H2H_POINT_RULES", "POLARITY_PAIRS", "DNB_OVERLAP_PAIR",
     "RC_NO_SAMPLE", "RC_SAMPLE_BELOW_THRESHOLD",
     "RC_RECENT_BELOW_THRESHOLD", "RC_DECISION_USEFUL",
+    "RC_LOW_SAMPLE_SIGNAL", "RC_POLARITY_GUARD_TRIGGERED",
+    "RC_POLARITY_UNRESOLVED", "RC_DNB_OVERLAP_DRAW_HEAVY",
+    "RC_POINTS_CAPPED",
 ]

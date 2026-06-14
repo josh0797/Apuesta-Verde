@@ -1,30 +1,26 @@
 [
   {
-    "content": "1) Crear backend/services/football_h2h_scoring_applier.py (mapping mercado, clamp, polarity guard)",
+    "content": "1) Reescribir football_h2h_decision_policy.py: tabla recalibrada (baseline+min_sample+STRONG labels), get_active_rules() con env override, POLARITY_PAIRS, DNB_OVERLAP_PAIR, MAX_H2H_POINTS_TOTAL",
     "status": "completed"
   },
   {
-    "content": "2) Modificar football_editorial_prediction.py: añadir _build_h2h_block, _build_xg_block, narrative, aplicar puntos al best_protected_market",
+    "content": "2) apply_h2h_decision_points: usar get_active_rules(), sample guard per-rule (LOW_SAMPLE_H2H_SIGNAL + puntos reducidos), apply_polarity_guard, DNB overlap soft, cap global",
     "status": "completed"
   },
   {
-    "content": "3) Crear backend/tests/test_f86_2_editorial_consumer.py con los 6 tests del spec: 19/19 PASSED",
+    "content": "3) Actualizar mapping de F86.2 (football_editorial_prediction.py) para reconocer labels nuevos (X_STRONG) Y antiguos (PROFILE_X)",
     "status": "completed"
   },
   {
-    "content": "4) Crear H2HBlockPanel + XGBlockPanel + wire en EditorialPredictionPanel (lint clean, esbuild OK)",
+    "content": "4) Actualizar 6 tests existentes en test_f86_h2h_decision_policy.py: 29/29 PASSED",
     "status": "completed"
   },
   {
-    "content": "5) Tests selectivos F86.2 + tests focales F69/F82/F83/F85/F86: 173/173 PASSED",
+    "content": "5) Añadir 14 tests nuevos F86.1: 43/43 PASSED (incluye 8 del spec + 6 adicionales para cobertura)",
     "status": "completed"
   },
   {
-    "content": "6) Suite completa backend pytest: 2592 passed, 2 skipped, 0 fallos ✅",
-    "status": "completed"
-  },
-  {
-    "content": "7) Frontend craco test: 125/125 pasan, zero-regression ✅",
+    "content": "6) Backend pytest suite completa: 2606 passed, 2 skipped ✅ | Frontend craco: 125 passed ✅ (zero-regression)",
     "status": "completed"
   }
 ]

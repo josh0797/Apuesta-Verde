@@ -1380,6 +1380,7 @@ def _empty_response(*, reason: str) -> dict:
 # ``football_h2h_scoring_applier`` and respect PENDING/TIMEOUT states.
 
 _H2H_SIGNAL_TRANSLATIONS_ES = {
+    # Phase F86 legacy labels (back-compat).
     "H2H_PROFILE_OVER_1_5":  "Over 1.5 goles en {pct}% de los enfrentamientos recientes",
     "H2H_PROFILE_OVER_2_5":  "Over 2.5 goles en {pct}% de los enfrentamientos recientes",
     "H2H_PROFILE_OVER_3_5":  "Over 3.5 goles en {pct}% de los enfrentamientos recientes",
@@ -1390,9 +1391,21 @@ _H2H_SIGNAL_TRANSLATIONS_ES = {
     "H2H_PROFILE_BTTS_NO":   "Ambos NO anotan en {pct}%",
     "H2H_HOME_DOMINANT":     "{home_name} no pierde en {pct}%",
     "H2H_AWAY_DOMINANT":     "{away_name} no pierde en {pct}%",
+    # Phase F86.1 calibrated labels (current).
+    "H2H_OVER_1_5_STRONG":   "Over 1.5 goles en {pct}% de los enfrentamientos recientes",
+    "H2H_OVER_2_5_STRONG":   "Over 2.5 goles en {pct}% de los enfrentamientos recientes",
+    "H2H_OVER_3_5_STRONG":   "Over 3.5 goles en {pct}% de los enfrentamientos recientes",
+    "H2H_UNDER_1_5_STRONG":  "Under 1.5 goles en {pct}% de los enfrentamientos recientes",
+    "H2H_UNDER_2_5_STRONG":  "Under 2.5 goles en {pct}% de los enfrentamientos recientes",
+    "H2H_UNDER_3_5_STRONG":  "Under 3.5 goles en {pct}% de los enfrentamientos recientes",
+    "H2H_BTTS_YES_STRONG":   "Ambos anotan en {pct}% de los enfrentamientos recientes",
+    "H2H_BTTS_NO_STRONG":    "Ambos NO anotan en {pct}%",
+    "H2H_HOME_DNB_STRONG":   "{home_name} no pierde en {pct}%",
+    "H2H_AWAY_DNB_STRONG":   "{away_name} no pierde en {pct}%",
 }
 
 _H2H_SIGNAL_TO_RATE_KEY = {
+    # Phase F86 legacy labels.
     "H2H_PROFILE_OVER_1_5":  "over_1_5",
     "H2H_PROFILE_OVER_2_5":  "over_2_5",
     "H2H_PROFILE_OVER_3_5":  "over_3_5",
@@ -1403,6 +1416,17 @@ _H2H_SIGNAL_TO_RATE_KEY = {
     "H2H_PROFILE_BTTS_NO":   "btts_no",
     "H2H_HOME_DOMINANT":     "home_dnb",
     "H2H_AWAY_DOMINANT":     "away_dnb",
+    # Phase F86.1 calibrated labels.
+    "H2H_OVER_1_5_STRONG":   "over_1_5",
+    "H2H_OVER_2_5_STRONG":   "over_2_5",
+    "H2H_OVER_3_5_STRONG":   "over_3_5",
+    "H2H_UNDER_1_5_STRONG":  "under_1_5",
+    "H2H_UNDER_2_5_STRONG":  "under_2_5",
+    "H2H_UNDER_3_5_STRONG":  "under_3_5",
+    "H2H_BTTS_YES_STRONG":   "btts_yes",
+    "H2H_BTTS_NO_STRONG":    "btts_no",
+    "H2H_HOME_DNB_STRONG":   "home_dnb",
+    "H2H_AWAY_DNB_STRONG":   "away_dnb",
 }
 
 
