@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AnalysisProgressModal } from '@/components/AnalysisProgressModal';
 import { MatchCard } from '@/components/MatchCard';
 import { LiveReevalPanel } from '@/components/LiveReevalPanel';
+import { FootballLiveVisibilityStrip } from '@/components/FootballLiveVisibilityStrip';
 import { LiveStateBadge, LiveFreshnessBadge } from '@/components/LiveStateBadges';
 import { LiveAnalysisStrip } from '@/components/LiveAnalysisStrip';
 import { LiveCopilotCard } from '@/components/LiveCopilotCard';
@@ -421,6 +422,14 @@ export default function LivePage() {
           <div className="rounded-xl border border-dashed border-border bg-card/40 p-8 text-center" data-testid="live-empty">
             <p className="text-sm text-muted-foreground">{t.live.noLive}</p>
           </div>
+        )}
+
+        {/* F94 — Visibility audit strip (football only). Shows ALL live
+            fixtures the provider returns, including exotic / friendly /
+            low-priority leagues that the priority filter would have
+            hidden. Independent of the analyzable list above. */}
+        {isFootball && (
+          <FootballLiveVisibilityStrip lang={lang} testId="football-live-visibility-strip" />
         )}
 
         {!loading && items.length > 0 && visibleItems.length === 0 && isFootball && footballFilter === 'big_five' && (

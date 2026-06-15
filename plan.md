@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.
 > **Estado histórico:** ✅ F58–F70 completadas.
-> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade) COMPLETADA** + ✅ **F87.1 (Fixture Discovery Contract Fix + Visible Audit + Parte 1.5 upstream audit) COMPLETADA** + ✅ **MLB-F93 (Manual Odds Override Reprice + UI Refresh) COMPLETADA**.
+> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade) COMPLETADA** + ✅ **F87.1 (Fixture Discovery Contract Fix + Visible Audit + Parte 1.5 upstream audit) COMPLETADA** + ✅ **MLB-F93 (Manual Odds Override Reprice + UI Refresh) COMPLETADA** + ✅ **MLB-F93.1 (Manual Odds Reprice Context Pass-through + Authenticated Debug) COMPLETADA** + ✅ **F94 (Restaurar visibilidad de fixtures, descartados y live exóticos — Live + Dashboard) COMPLETADA**.
 >
 > **Idioma operativo:** Español.
 
@@ -216,10 +216,87 @@
 
 ---
 
-## 3) Pendientes y siguientes pasos (post-MLB-F93)
+# Phase F94 — Restaurar visibilidad de fixtures, descartados y live exóticos (COMPLETED ✅)
+
+## Estado
+✅ **Completado end-to-end** en dos pasos:
+1. **Tab Live** — backend `football_live_visibility.py` + endpoint `GET /api/football/live/visibility` + frontend `FootballLiveVisibilityStrip.jsx` integrado en `LivePage.jsx` con KPI strip (provider/sport/league/visible/analyzable/hidden) y listado de fixtures exóticos visibles pero no analizados.
+2. **Tab Dashboard / Picks del día** — nuevo `DashboardDiscardedSummary.jsx` integrado en `DashboardPage.jsx`: cuando `sport === 'football'` y no hay picks recomendados, restaura el comportamiento previo (perdido en refactorización anterior) de mostrar los descartados como bloque colapsable con contador.
+
+## Problema (resumen)
+Tras una refactorización previa, en la pestaña **Picks del día** los fixtures descartados/incompletos quedaban **invisibles** cuando `recommended === 0` (no se renderizaba el detalle ni la cuenta agregada). En la pestaña **Live**, los fixtures de ligas exóticas/baja prioridad nunca se mostraban aunque el provider los devolvía. Ambos rompían el principio de auditoría completa de F84/F87.
+
+## Reglas confirmadas con el usuario
+- Alcance: **solo Football** (otros deportes no afectados).
+- Comportamiento esperado: los descartados/incompletos **siempre** deben renderizarse aunque `recommended = 0`, especialmente en Dashboard / Picks del día.
+- UI preferida (Opción 2): **bloque colapsado con contador** "N partidos descartados — ver detalle"; al expandir muestra cada fixture con `match`, `discard_reason`, `secondary_reasons`, `stage`, `provider/status` si existen.
+- Texto del banner: `"No hay picks recomendados hoy, pero se analizaron X partidos. Revisa los descartados para ver por qué no pasaron los filtros."`
+- Regla clave: no ocultar descartados por `recommended === 0`.
+
+## Implementación realizada (resumen)
+
+### Backend (paso 1 — Live)
+- ✅ `backend/services/football_live_visibility.py` (módulo puro fail-soft):
+  - Resuelve la lista completa de fixtures live + clasificación + razones.
+  - Devuelve `items[]` con `analysis_status`, `discard_reason`, `secondary_reasons`, league info, etc.
+  - Devuelve `live_debug` con counters por etapa (`provider_live_count`, `after_sport_filter_count`, `after_league_filter_count`, `visible_live_count`, `analysis_eligible_live_count`, `hidden_by_priority_filter`).
+- ✅ Endpoint `GET /api/football/live/visibility` añadido en `server.py`.
+
+### Frontend (paso 1 — Live)
+- ✅ `frontend/src/components/FootballLiveVisibilityStrip.jsx`:
+  - Header con icono Eye + botón refresh (auto-cada 60s).
+  - KPI strip 3×2 con los 6 counters del `live_debug`.
+  - Listado de fixtures exóticos con `ReasonChip` (EXOTIC_LEAGUE, LOW_PRIORITY_LEAGUE, NO_MARKET_IDENTITY, CLASSIFICATION_FAILED) + `secondary_reasons` colapsadas y status "Visible / no analizado".
+  - Auto-hide cuando `provider_live_count === 0` (evita ruido).
+- ✅ Integrado en `LivePage.jsx`.
+
+### Frontend (paso 2 — Dashboard / Picks del día)
+- ✅ Nuevo componente `frontend/src/components/DashboardDiscardedSummary.jsx`:
+  - **Scope guards** (F94 alcance): no renderiza si `sport !== 'football'` o `recommendedCount > 0` o `totalDiscarded === 0`.
+  - **Intro banner** con texto exacto agreed con el usuario (ES/EN).
+  - **Toggle colapsable** "N partidos descartados — ver detalle" / "ver detalle (Expand)/(Hide)".
+  - **Bucket pills** (Motivación / Mercado / Datos incompletos / Falta cuota / Baja relevancia) con contador por bucket.
+  - **Detalle expandido** por fixture con `match`, `reason` (prefiere `discard_reason` → `reason` → `missing`), `secondary_reasons` (chips), `stage` (`pipeline_stage`/`discard_stage` fallback), `provider` (`source`/`odds_provider` fallback) y `status` (`analysis_status`/`value_status` fallback).
+  - **Footer hint** reforzando el rationale: "Estos partidos se analizaron pero no produjeron pick recomendado".
+  - **Rules of Hooks**: todos los `useState`/`useMemo` declarados antes de cualquier early-return.
+  - **Back-compat fail-soft**: items con sólo `reason`/`missing` siguen renderizando.
+- ✅ Integrado en `frontend/src/pages/DashboardPage.jsx` justo antes del `EmptyStateNoValue` (línea ~1414) recibiendo `discMot/discMkt/incomplete/skippedLowRel/watchlistOddsNeeded` ya calculados.
+
+## Tests y validación (zero-regression)
+- ✅ Backend (Live):
+  - `tests/test_f94_live_visibility.py` (suite agregada en paso 1).
+- ✅ Frontend (Live):
+  - `__tests__/FootballLiveVisibilityStrip.test.jsx` (4 tests).
+- ✅ Frontend (Dashboard — paso 2 actual):
+  - `__tests__/DashboardDiscardedSummary.test.jsx` (**7 tests** nuevos):
+    1. Banner + counter + bucket pills render para football + recommended===0.
+    2. Expand on click → revela match, reason, secondary, stage, provider, status.
+    3. Scope guard: NO renderiza para sports !== 'football'.
+    4. NO renderiza cuando `recommendedCount > 0`.
+    5. Back-compat: payload legacy con sólo `reason`/`missing` renderiza sin throw.
+    6. Render null cuando todos los buckets están vacíos.
+    7. Copy en inglés cuando `lang="en"`.
+
+## Suites finales
+- ✅ Backend: **3033 passed, 3 skipped** (5 errores HTTP E2E preexistentes ajenos a F94; 1 flakey de F83.2 que pasa aislado).
+- ✅ Frontend: **152 passed** (baseline previo 145 → **+7 nuevos**).
+
+## API y archivos relevantes
+- `GET /api/football/live/visibility`
+- `/app/backend/services/football_live_visibility.py`
+- `/app/backend/tests/test_f94_live_visibility.py`
+- `/app/frontend/src/components/FootballLiveVisibilityStrip.jsx`
+- `/app/frontend/src/components/DashboardDiscardedSummary.jsx` *(nuevo en este paso)*
+- `/app/frontend/src/components/__tests__/DashboardDiscardedSummary.test.jsx` *(nuevo)*
+- `/app/frontend/src/pages/DashboardPage.jsx` *(integración)*
+- `/app/frontend/src/pages/LivePage.jsx` *(integración paso 1)*
+
+---
+
+## 3) Pendientes y siguientes pasos (post-F94)
 
 ### Pendientes P0 (actual)
-- Ninguno (MLB-F93 cerrado).
+- Ninguno (F94 cerrado: Live tab + Dashboard tab cubiertos).
 
 ### Pendientes no bloqueantes
 - (F84.c) lineups / injuries — fuera de scope inicial, requiere confirmar cobertura TheStatsAPI.
@@ -235,8 +312,8 @@
 ## 6) Validación esperada (estado actual)
 
 - Suites actuales:
-  - Backend: **2956 passed, 2 skipped**.
-  - Frontend: **134 passed**.
+  - Backend: **3033 passed, 3 skipped** (+ 5 errores HTTP E2E preexistentes y 1 flakey aislado, ninguno relacionado a F94).
+  - Frontend: **152 passed** (baseline previo 145 → +7 tests F94 Dashboard).
 
 - Reglas de operación:
   - Siempre usar `yarn` (no `npm`).

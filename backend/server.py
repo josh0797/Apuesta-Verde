@@ -1989,6 +1989,63 @@ async def matches_upcoming(refresh: bool = False, sport: Optional[str] = None, u
     return {"count": len(items), "sport": s, "items": _clean_list(items)}
 
 
+# ─────────────────────────────────────────────────────────────────────
+# F94 — Football Live Visibility (independent of priority filters)
+# ─────────────────────────────────────────────────────────────────────
+@api.get("/football/live/visibility")
+async def football_live_visibility(
+    refresh: bool = False,
+    user: dict = Depends(get_current_user),
+):
+    """F94 — Surface ALL football live fixtures the provider returns,
+    regardless of competition tier / priority / sportytrader identity.
+
+    Annotates each row with ``visibility_status="VISIBLE"`` plus
+    ``analysis_status``, ``discard_reason`` and ``secondary_reasons``
+    so the frontend can render exotic / friendly / low-priority live
+    matches alongside a "Visible / no analizado" chip instead of hiding
+    them.
+
+    Returns a ``live_debug`` block with per-stage counts:
+
+        {
+          "provider_live_count":          int,
+          "after_sport_filter_count":     int,
+          "after_league_filter_count":    int,
+          "visible_live_count":           int,
+          "analysis_eligible_live_count": int,
+          "hidden_by_priority_filter":    0,   # invariant
+        }
+    """
+    from services.football_live_visibility import compute_football_live_visibility
+    # ``refresh`` is accepted for parity with /matches/live but the
+    # visibility endpoint already hits the aggregator on every call to
+    # avoid serving a stale-filtered cache from db.matches.
+    _ = refresh
+    async with httpx.AsyncClient() as client:
+        try:
+            payload = await compute_football_live_visibility(client, db)
+        except Exception as exc:
+            log.warning("/football/live/visibility failed: %s", exc)
+            return {
+                "ok":          False,
+                "items":       [],
+                "live_debug":  {
+                    "provider_live_count": 0,
+                    "after_sport_filter_count": 0,
+                    "after_league_filter_count": 0,
+                    "visible_live_count": 0,
+                    "analysis_eligible_live_count": 0,
+                    "hidden_by_priority_filter": 0,
+                },
+                "by_status_counts": {"ANALYZABLE": 0, "DISCARDED": 0},
+                "by_reason_counts": {},
+                "computed_at": datetime.now(timezone.utc).isoformat(),
+                "error": str(exc),
+            }
+    return payload
+
+
 @api.get("/matches/live")
 async def matches_live(refresh: bool = False, sport: Optional[str] = None, user: dict = Depends(get_current_user)):
     """List current live matches for the given sport.

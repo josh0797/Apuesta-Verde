@@ -28,6 +28,7 @@ import { CornerPregamePanel } from '@/components/CornerPregamePanel';
 import { StructuralReviewPanel } from '@/components/StructuralReviewPanel';
 import { EditorialPredictionPanel } from '@/components/EditorialPredictionPanel';
 import { DiscoveryDebugSheet } from '@/components/DiscoveryDebugSheet';
+import { DashboardDiscardedSummary } from '@/components/DashboardDiscardedSummary';
 
 function GroupSection({ title, count, tier, children, defaultOpen = true, testId, sectionRef, icon: Icon }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -1408,6 +1409,28 @@ export default function DashboardPage() {
             {watchlist.map((w, i) => <WatchlistRow key={(w.match_id || '') + '-' + i} item={w} testId={`watchlist-row-${i}`} />)}
           </div>
         </div>
+      )}
+
+      {/* F94 — Dashboard discarded summary (football only, recommended===0).
+          Restores the previously-implemented "discards always visible"
+          behaviour: shows an intro banner + collapsed "N partidos
+          descartados — ver detalle" toggle on top of the detailed block
+          below so the user can audit every decision even with zero
+          recommended picks. Internal guards make this a no-op when
+          sport !== 'football' or recommended > 0. */}
+      {!loading && data && (
+        <DashboardDiscardedSummary
+          sport={sport}
+          summary={data.summary}
+          recommendedCount={high.length + medium.length + rescued.length + protectedAcceptable.length}
+          discardedMotivation={discMot}
+          discardedMarket={discMkt}
+          incomplete={incomplete}
+          skippedLowRelevance={skippedLowRel}
+          watchlistOddsNeeded={watchlistOddsNeeded}
+          lang={lang}
+          testId="dashboard-discarded-summary"
+        />
       )}
 
       {/* No-value message — ONLY shown when no recommended picks; rescued/watchlist/discarded still appear */}

@@ -1,34 +1,34 @@
 [
   {
-    "content": "F93.1 Backend: 10 tests + suite 2966",
+    "content": "Explorar DashboardPage.jsx y componentes hijos de Picks del día para identificar el condicional/borrado que oculta descartados cuando recommended===0",
     "status": "completed"
   },
   {
-    "content": "F93.1 Frontend: 7 tests + suite 141",
+    "content": "Verificar el payload backend del Dashboard para confirmar que descartados/incompletos están presentes (back-compat legacy)",
     "status": "completed"
   },
   {
-    "content": "F94: explorar pipeline football + identificar punto donde se ocultan fixtures",
-    "status": "in_progress"
+    "content": "Implementar banner introductorio + wrapper colapsable 'N partidos descartados — ver detalle' para football + recommended===0 sobre el bloque hasAnyDiscarded existente",
+    "status": "completed"
   },
   {
-    "content": "F94 Backend: separar visibility_candidates / analysis_candidates / live_candidates / discarded_with_reasons + live_debug bloque",
-    "status": "pending"
+    "content": "Mejorar DiscardedRow para mostrar secondary_reasons, stage y provider/status cuando existan (back-compat fail-soft)",
+    "status": "completed"
   },
   {
-    "content": "F94 Backend: live endpoint independiente de filtros prioridad",
-    "status": "pending"
+    "content": "Verificar sintaxis con esbuild + lint del nuevo componente",
+    "status": "completed"
   },
   {
-    "content": "F94 Frontend: dashboard muestra detalle descartados aunque rec=0; live tab muestra exóticos",
-    "status": "pending"
+    "content": "Crear tests frontend específicos F94 Dashboard para caso recommended===0 con descartados visibles y colapsable",
+    "status": "completed"
   },
   {
-    "content": "F94 Tests obligatorios",
-    "status": "pending"
+    "content": "Correr yarn craco test (mantener 145+ passing) y pytest (mantener 2972+ passing)",
+    "status": "completed"
   },
   {
-    "content": "Plan: marcar F93.1 + F94 COMPLETED",
-    "status": "pending"
+    "content": "Actualizar plan.md marcando F94 como COMPLETED",
+    "status": "completed"
   }
 ]
