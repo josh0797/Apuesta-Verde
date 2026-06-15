@@ -6661,6 +6661,72 @@ async def _locate_pick_multikey(
     return None, None, None, tried
 
 
+async def _locate_match_doc_for_manual_odds(
+    *,
+    payload: "MlbManualOddsIn",
+) -> tuple[Optional[dict], list[str]]:
+    """MLB-F93 — fall back to the `matches` collection when no
+    ``pick_runs`` document carried the pick.
+
+    Tries match_id, game_pk, fixture_id, normalized teams + date.
+    Returns ``(match_doc_or_None, tried_keys)``.
+    """
+    tried: list[str] = []
+    if not hasattr(db, "matches"):
+        return None, tried
+
+    or_query: list[dict] = []
+    for k in ("match_id", "game_pk", "fixture_id"):
+        v = getattr(payload, k, None)
+        if v:
+            tried.append(f"matches.{k}={v}")
+            or_query.append({k: str(v)})
+            or_query.append({k: v})
+
+    away_n = _normalize_team_name(payload.away_team)
+    home_n = _normalize_team_name(payload.home_team)
+    if or_query:
+        try:
+            doc = await db.matches.find_one(
+                {"$or": or_query, "sport": "baseball"},
+                sort=[("kickoff_ts", -1)],
+            )
+        except Exception:
+            doc = None
+        if not doc:
+            try:
+                doc = await db.matches.find_one({"$or": or_query})
+            except Exception:
+                doc = None
+        if doc:
+            return doc, tried
+
+    if away_n and home_n:
+        tried.append(f"matches.teams={away_n!r}@{home_n!r}")
+        q: dict = {
+            "sport": "baseball",
+            "$and": [
+                {"$or": [{"away_team_norm": away_n},
+                         {"away_team": payload.away_team}]},
+                {"$or": [{"home_team_norm": home_n},
+                         {"home_team": payload.home_team}]},
+            ],
+        }
+        if payload.commence_date:
+            q["$and"].append({"$or": [
+                {"commence_date": payload.commence_date},
+                {"commence_time": {"$regex": f"^{payload.commence_date}"}},
+            ]})
+        try:
+            doc = await db.matches.find_one(q, sort=[("kickoff_ts", -1)])
+        except Exception:
+            doc = None
+        if doc:
+            return doc, tried
+
+    return None, tried
+
+
 def _extract_pick_from_run(
     run: dict,
     *,
@@ -6704,24 +6770,32 @@ async def mlb_pick_manual_odds(
     payload: MlbManualOddsIn,
     user: dict = Depends(get_current_user),
 ):
-    """Compute edge/value_status for an MLB structural-lean pick using
-    a user-entered odds value. Patches the pick document in-place so the
-    UI can immediately re-render with the new ``manual_odds_*`` fields.
+    """MLB-F93 — Manual Odds Override Reprice + UI Refresh.
 
-    Fix 4 — Robust multi-key lookup with fail-soft fallback:
-        1. Search ``pick_runs`` by exact pick_id (preferred path).
-        2. Fallback: alternative identifiers (game_pk, match_id,
-           fixture_id, external_id) inside any of the 4 pick buckets.
-        3. Fallback: normalized team names + commence_date.
-        4. If still not found, the odds are persisted in
-           ``mlb_manual_odds_overrides`` (TTL 7d) keyed by
-           (user_id, pick_id|game_pk|match_id|teams+date).
+    Always returns an actionable payload with both the new F93 contract
+    (``status`` / ``reprice`` / ``message_user`` / ``message_debug`` /
+    ``next_action``) AND the legacy fields (``attached_to_pick``,
+    ``fallback_override_created``, ``value_status``, ``manual_edge_pct``,
+    ``manual_odds``, ``tried_keys``, ``message``) so older UI components
+    keep working.
 
-    The endpoint NEVER returns 404 anymore — it always returns
-    ``{ok: true, attached_to_pick: bool, fallback_override_created: bool}``.
-    Logs include the identifiers tried so debugging is straightforward.
+    Flow:
+      1) parse manual_odds (locale-aware).
+      2) locate the pick via `_locate_pick_multikey` (pick_runs buckets).
+      3) if not found, try `matches` collection and reconstruct a minimal
+         pick context for reprice.
+      4) call `reprice_mlb_pick_with_manual_odds`.
+      5) persist override doc + (if pick found) patch the pick entry.
+      6) build the unified response (status REPRICED / OVERRIDE_SAVED_ONLY
+         / PICK_NOT_FOUND / ERROR) with both new + legacy keys.
     """
     from services.mlb_script_conflict import parse_manual_odds, calculate_manual_edge
+    from services.mlb_manual_odds_reprice import (
+        reprice_mlb_pick_with_manual_odds,
+        build_minimal_pick_context_from_match_doc,
+        RC_PICK_CONTEXT_NOT_FOUND,
+        RC_OVERRIDE_USED,
+    )
 
     odds = parse_manual_odds(payload.manual_odds)
     if odds is None:
@@ -6738,126 +6812,436 @@ async def mlb_pick_manual_odds(
         payload.market, payload.line,
     )
 
-    # Multi-key lookup across pick_runs.
+    # 2) Multi-key lookup across pick_runs.
     run, target_bucket, target, tried_keys = await _locate_pick_multikey(
         user_id=user["id"], pick_id=pick_id, payload=payload,
     )
 
+    matched_via_match_doc = False
+    match_doc = None
     if not target:
-        # Fix 4 — Fail-soft fallback: persist a lightweight override
-        # document so the UI can still surface the manual odds on the
-        # card, and so future runs can re-attach it when the pick
-        # surfaces again.
-        log.info(
-            "[MANUAL_ODDS] pick not found via tried=%s — creating fallback override",
-            tried_keys,
+        # 3) Fallback to `matches` collection and reconstruct context.
+        match_doc, matches_tried = await _locate_match_doc_for_manual_odds(
+            payload=payload,
         )
-        override_doc = {
-            "user_id":       user["id"],
-            "sport":         "baseball",
-            "pick_id":       pick_id,
-            "game_pk":       payload.game_pk,
-            "match_id":      payload.match_id,
-            "fixture_id":    payload.fixture_id,
-            "external_id":   payload.external_id,
-            "home_team":     payload.home_team,
-            "away_team":     payload.away_team,
-            "home_team_norm": _normalize_team_name(payload.home_team),
-            "away_team_norm": _normalize_team_name(payload.away_team),
-            "commence_date": payload.commence_date,
-            "market":        payload.market,
-            "line":          payload.line,
-            "manual_odds":   odds,
-            "created_at":    datetime.now(timezone.utc),
-            "tried_keys":    tried_keys,
+        tried_keys.extend(matches_tried)
+        if match_doc:
+            target = build_minimal_pick_context_from_match_doc(
+                match_doc, market=payload.market, line=payload.line,
+            )
+            matched_via_match_doc = bool(target)
+
+    # 4) Reprice (with whatever context we have — may be None).
+    reprice = reprice_mlb_pick_with_manual_odds(
+        target,
+        odds,
+        market=payload.market,
+        line=payload.line,
+        context_reconstructed=matched_via_match_doc,
+        confidence_before=(_safe_float(target.get("confidence_score"))
+                           if isinstance(target, dict) else None),
+    )
+
+    # 5a) Always persist an override doc so the card can re-attach later
+    # and so the debug endpoint sees evidence of the action.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    override_doc = {
+        "user_id":        user["id"],
+        "sport":          "baseball",
+        "pick_id":        pick_id,
+        "game_pk":        payload.game_pk,
+        "match_id":       payload.match_id,
+        "fixture_id":     payload.fixture_id,
+        "external_id":    payload.external_id,
+        "home_team":      payload.home_team,
+        "away_team":      payload.away_team,
+        "home_team_norm": _normalize_team_name(payload.home_team),
+        "away_team_norm": _normalize_team_name(payload.away_team),
+        "commence_date":  payload.commence_date,
+        "market":         payload.market or reprice.get("market"),
+        "line":           payload.line   if payload.line is not None
+                                          else reprice.get("line"),
+        "manual_odds":    odds,
+        "created_at":     datetime.now(timezone.utc),
+        "tried_keys":     tried_keys,
+        "f93_reprice":    reprice,
+        "f93_status":     None,           # filled below
+    }
+    upsert_key: dict = {"user_id": user["id"], "sport": "baseball"}
+    if pick_id:
+        upsert_key["pick_id"] = pick_id
+    elif payload.game_pk:
+        upsert_key["game_pk"] = payload.game_pk
+    elif payload.match_id:
+        upsert_key["match_id"] = payload.match_id
+    else:
+        upsert_key["away_team_norm"] = _normalize_team_name(payload.away_team)
+        upsert_key["home_team_norm"] = _normalize_team_name(payload.home_team)
+        upsert_key["commence_date"]  = payload.commence_date
+
+    # 5b) If the pick lives inside pick_runs, patch the entry with the
+    # reprice / legacy edge fields so subsequent /picks/today calls show
+    # the updated state.
+    promoted = False
+    legacy_edge_payload: dict = {}
+    if run is not None and target_bucket is not None and not matched_via_match_doc:
+        est_prob = (
+            target.get("estimated_probability")
+            or ((target.get("_mlb_script_v2") or {}).get("coverProbability"))
+            or ((target.get("_mlb_script_v2") or {}).get("estimatedProbability"))
+        )
+        legacy_edge_payload = calculate_manual_edge(
+            estimated_probability=est_prob,
+            manual_odds=odds,
+            value_threshold=payload.value_threshold,
+            fair_threshold=payload.fair_threshold,
+        )
+        matched_pick_id = target.get("id") or pick_id
+        update_set = {
+            # Legacy fields (back-compat).
+            f"payload.{target_bucket}.$[elem].manual_odds":                legacy_edge_payload["manual_odds"],
+            f"payload.{target_bucket}.$[elem].manual_implied_probability": legacy_edge_payload["manual_implied_probability"],
+            f"payload.{target_bucket}.$[elem].manual_edge":                legacy_edge_payload["manual_edge"],
+            f"payload.{target_bucket}.$[elem].manual_edge_pct":            legacy_edge_payload["manual_edge_pct"],
+            f"payload.{target_bucket}.$[elem].manual_value_status":        legacy_edge_payload["value_status"],
+            f"payload.{target_bucket}.$[elem].manual_can_recommend":       legacy_edge_payload["can_recommend"],
+            f"payload.{target_bucket}.$[elem].manual_rationale":           legacy_edge_payload["rationale"],
+            f"payload.{target_bucket}.$[elem].manual_odds_status":         "submitted",
+            f"payload.{target_bucket}.$[elem].manual_odds_submitted_at":   now_iso,
+            # MLB-F93 fields.
+            f"payload.{target_bucket}.$[elem].manual_odd":                 reprice.get("manual_odd"),
+            f"payload.{target_bucket}.$[elem].odds_source":                "USER_MANUAL_OVERRIDE",
+            f"payload.{target_bucket}.$[elem].odds_status":                "MANUAL",
+            f"payload.{target_bucket}.$[elem].reprice":                    reprice,
+            f"payload.{target_bucket}.$[elem].value_status":               reprice.get("decision"),
+            f"payload.{target_bucket}.$[elem].edge":                       reprice.get("edge"),
+            f"payload.{target_bucket}.$[elem].ev":                         reprice.get("ev"),
+            f"payload.{target_bucket}.$[elem].fair_odds":                  reprice.get("fair_odds"),
+            f"payload.{target_bucket}.$[elem].implied_probability":        reprice.get("implied_probability"),
+            f"payload.{target_bucket}.$[elem].manual_odds_updated_at":     now_iso,
         }
+        if (payload.promote_if_value
+                and legacy_edge_payload.get("value_status") == "VALUE"):
+            update_set[f"payload.{target_bucket}.$[elem].classification"] = "RECOMMENDED_MANUAL_ODDS"
+            promoted = True
+        if reprice.get("decision") == "VALUE":
+            update_set[f"payload.{target_bucket}.$[elem].manual_reprice_promoted"] = True
         try:
-            # Upsert by (user_id, pick_id) when present, otherwise by
-            # (user_id, game_pk or match_id, market, line).
-            upsert_key: dict = {"user_id": user["id"], "sport": "baseball"}
-            if pick_id:
-                upsert_key["pick_id"] = pick_id
-            elif payload.game_pk:
-                upsert_key["game_pk"] = payload.game_pk
-            elif payload.match_id:
-                upsert_key["match_id"] = payload.match_id
-            else:
-                upsert_key["away_team_norm"] = _normalize_team_name(payload.away_team)
-                upsert_key["home_team_norm"] = _normalize_team_name(payload.home_team)
-                upsert_key["commence_date"]  = payload.commence_date
-            await db.mlb_manual_odds_overrides.update_one(
-                upsert_key, {"$set": override_doc}, upsert=True,
+            await db.pick_runs.update_one(
+                {"_id": run["_id"]},
+                {"$set": update_set},
+                array_filters=[{"elem.id": matched_pick_id}],
             )
         except Exception as exc:
-            log.warning("[MANUAL_ODDS] override persist failed: %s", exc)
+            log.warning("mlb_pick_manual_odds: update_one failed: %s", exc)
+            # Don't 500 — keep the override + reprice payload usable.
 
-        return {
-            "ok":                        True,
-            "manual_odds":               odds,
-            "attached_to_pick":          False,
-            "fallback_override_created": True,
-            "message":                   "Cuota manual guardada (override). El pick no se encontró en runs recientes, pero la cuota queda registrada.",
-            "pick_id":                   pick_id,
-            "tried_keys":                tried_keys,
-        }
+    # 6) Determine F93 status.
+    if target is not None and reprice.get("available"):
+        f93_status   = "REPRICED"
+        next_action  = None
+        decision     = reprice.get("decision") or "MANUAL_ODDS_ONLY"
+        edge_pct     = reprice.get("edge_pct")
+        fair         = reprice.get("fair_odds")
+        if decision == "VALUE":
+            message_user = (
+                f"Cuota aplicada: ahora hay valor a {odds:.2f} "
+                f"({edge_pct:+.1f}% edge)."
+            )
+        elif decision == "NO_VALUE":
+            message_user = (
+                f"Cuota aplicada: sigue sin valor a {odds:.2f}. "
+                f"El precio justo estimado es {fair:.2f}."
+                if fair else
+                f"Cuota aplicada: sigue sin valor a {odds:.2f}."
+            )
+        elif decision == "WATCHLIST":
+            message_user = (
+                f"Cuota aplicada: cerca de valor a {odds:.2f}, "
+                "pero falta confirmación del mercado."
+            )
+        else:
+            message_user = (
+                f"Cuota aplicada a {odds:.2f}: solo informativo "
+                "(sin probabilidad confiable del engine)."
+            )
+        message_debug = (
+            "Pick found via match_id/game_pk fallback."
+            if matched_via_match_doc
+            else "Pick found via pick_runs lookup."
+        )
+    elif target is not None and not reprice.get("available"):
+        # Context exists but reprice not available (no model_probability).
+        f93_status    = "OVERRIDE_SAVED_ONLY"
+        next_action   = "REFRESH_OR_REGENERATE_REQUIRED"
+        message_user  = (
+            "Cuota guardada, pero no se pudo recalcular porque no se "
+            "encontró probabilidad estimada para el pick."
+        )
+        message_debug = (
+            "Pick context reconstructed but model probability missing."
+            if matched_via_match_doc
+            else "Pick found but engine probability missing."
+        )
+    else:
+        f93_status    = "OVERRIDE_SAVED_ONLY"
+        next_action   = "REFRESH_OR_REGENERATE_REQUIRED"
+        message_user  = (
+            "Cuota guardada, pero no se pudo recalcular porque no se "
+            "encontró el contexto del pick."
+        )
+        message_debug = f"Tried keys: {tried_keys}"
+        # Surface explicit reason code so the debug endpoint can read it.
+        if RC_PICK_CONTEXT_NOT_FOUND not in (reprice.get("reason_codes") or []):
+            reprice = {**reprice, "reason_codes":
+                       list(reprice.get("reason_codes") or [])
+                       + [RC_PICK_CONTEXT_NOT_FOUND, RC_OVERRIDE_USED]}
 
-    est_prob = (
-        target.get("estimated_probability")
-        or ((target.get("_mlb_script_v2") or {}).get("coverProbability"))
-        or ((target.get("_mlb_script_v2") or {}).get("estimatedProbability"))
-    )
-
-    edge_payload = calculate_manual_edge(
-        estimated_probability=est_prob,
-        manual_odds=odds,
-        value_threshold=payload.value_threshold,
-        fair_threshold=payload.fair_threshold,
-    )
-
-    # Persist on the pick document.
-    update_set = {
-        f"payload.{target_bucket}.$[elem].manual_odds":                edge_payload["manual_odds"],
-        f"payload.{target_bucket}.$[elem].manual_implied_probability": edge_payload["manual_implied_probability"],
-        f"payload.{target_bucket}.$[elem].manual_edge":                edge_payload["manual_edge"],
-        f"payload.{target_bucket}.$[elem].manual_edge_pct":            edge_payload["manual_edge_pct"],
-        f"payload.{target_bucket}.$[elem].manual_value_status":        edge_payload["value_status"],
-        f"payload.{target_bucket}.$[elem].manual_can_recommend":       edge_payload["can_recommend"],
-        f"payload.{target_bucket}.$[elem].manual_rationale":           edge_payload["rationale"],
-        f"payload.{target_bucket}.$[elem].manual_odds_status":         "submitted",
-        f"payload.{target_bucket}.$[elem].manual_odds_submitted_at":   datetime.now(timezone.utc).isoformat(),
-    }
-    # Optional promotion to a recommended bucket if the user opted in
-    # AND the edge confirms VALUE.
-    promoted = False
-    if payload.promote_if_value and edge_payload["value_status"] == "VALUE":
-        update_set[f"payload.{target_bucket}.$[elem].classification"] = "RECOMMENDED_MANUAL_ODDS"
-        promoted = True
-
-    # Use the actual pick id stored on the document (might differ from
-    # the URL pick_id when matched by alternative identifiers).
-    matched_pick_id = target.get("id") or pick_id
+    override_doc["f93_status"] = f93_status
     try:
-        await db.pick_runs.update_one(
-            {"_id": run["_id"]},
-            {"$set": update_set},
-            array_filters=[{"elem.id": matched_pick_id}],
+        await db.mlb_manual_odds_overrides.update_one(
+            upsert_key, {"$set": override_doc}, upsert=True,
         )
     except Exception as exc:
-        log.warning("mlb_pick_manual_odds: update_one failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"persistence failed: {exc}")
+        log.warning("[MANUAL_ODDS] override persist failed: %s", exc)
+
+    # Legacy compat fields (always populated).
+    attached_to_pick          = bool(target is not None
+                                     and run is not None
+                                     and not matched_via_match_doc)
+    fallback_override_created = not attached_to_pick
+
+    legacy_message = (
+        legacy_edge_payload.get("rationale")
+        or reprice.get("rationale")
+        or message_user
+    )
+
+    legacy_value_status = (
+        legacy_edge_payload.get("value_status")
+        or reprice.get("decision")
+        or "UNKNOWN"
+    )
 
     return {
-        "ok":            True,
-        "pick_id":       pick_id,
-        "matched_pick_id": matched_pick_id,
-        "bucket":        target_bucket,
-        "promoted":      promoted,
-        "attached_to_pick":          True,
-        "fallback_override_created": False,
-        "message":       "Cuota manual guardada y adjuntada al pick.",
-        "estimated_probability": float(est_prob) if est_prob is not None else None,
-        **edge_payload,
+        # ── New F93 contract ────────────────────────────────────────
+        "ok":           True,
+        "status":       f93_status,
+        "match_id":     payload.match_id,
+        "game_pk":      payload.game_pk,
+        "pick_id":      pick_id,
+        "manual_odd":   reprice.get("manual_odd"),
+        "market":       reprice.get("market"),
+        "line":         reprice.get("line"),
+        "previous_odd": (target.get("manual_odds")
+                         if isinstance(target, dict) else None),
+        "reprice":      reprice,
+        "message_user":  message_user,
+        "message_debug": message_debug,
+        "next_action":   next_action,
+        # ── Legacy compat (do NOT remove — UI depends on these) ─────
+        "attached_to_pick":          attached_to_pick,
+        "fallback_override_created": fallback_override_created,
+        "promoted":                  promoted,
+        "value_status":              legacy_value_status,
+        "manual_odds":               odds,
+        "manual_implied_probability": (legacy_edge_payload.get("manual_implied_probability")
+                                       or reprice.get("implied_probability")),
+        "manual_edge":               (legacy_edge_payload.get("manual_edge")
+                                      or reprice.get("edge")),
+        "manual_edge_pct":           (legacy_edge_payload.get("manual_edge_pct")
+                                      or reprice.get("edge_pct")),
+        "manual_can_recommend":      (legacy_edge_payload.get("can_recommend")
+                                      if legacy_edge_payload
+                                      else (reprice.get("decision") == "VALUE")),
+        "manual_rationale":          legacy_message,
+        "tried_keys":                tried_keys,
+        "matched_pick_id":           (target.get("id") if isinstance(target, dict) else None),
+        "bucket":                    target_bucket,
+        "estimated_probability":     reprice.get("model_probability"),
+        "message":                   legacy_message,
     }
+
+
+@api.get("/mlb/manual-odds/debug")
+async def mlb_manual_odds_debug(
+    user: dict = Depends(get_current_user),
+    match_id: Optional[str] = None,
+    pick_id:  Optional[str] = None,
+    game_pk:  Optional[str] = None,
+):
+    """MLB-F93 — Debug endpoint for manual-odds lookups.
+
+    Reports every lookup attempt the manual-odds endpoint would have made
+    against the user's data, plus whether an override exists, whether a
+    reprice would be possible, which fields are missing, and the final
+    status that would be returned.
+    """
+    from services.mlb_manual_odds_reprice import (
+        reprice_mlb_pick_with_manual_odds,
+        build_minimal_pick_context_from_match_doc,
+        RC_PICK_CONTEXT_NOT_FOUND,
+    )
+
+    attempts: list[dict] = []
+    target  = None
+    bucket  = None
+    coll    = None
+
+    # 1) pick_id lookup.
+    found_by_pick_id = False
+    if pick_id:
+        run = await db.pick_runs.find_one(
+            {"user_id": user["id"], "sport": "baseball",
+             "$or": [
+                {"payload.picks.id":                  pick_id},
+                {"payload.rescued.id":                pick_id},
+                {"payload.watchlist_manual_odds.id":  pick_id},
+                {"payload.structural_lean_requires_odds.id": pick_id},
+            ]},
+            sort=[("generated_at", -1)],
+        )
+        if run:
+            target, bucket = _extract_pick_from_run(run, pick_id=pick_id)
+            if target:
+                coll = "pick_runs"
+                found_by_pick_id = True
+        attempts.append({
+            "method": "pick_id",
+            "value":  pick_id,
+            "found":  found_by_pick_id,
+            "collection": coll if found_by_pick_id else None,
+            "bucket":     bucket if found_by_pick_id else None,
+        })
+
+    # 2) game_pk / match_id lookup in pick_runs.
+    if not target and (game_pk or match_id):
+        or_q: list[dict] = []
+        if game_pk:
+            for b in ("picks", "rescued", "watchlist_manual_odds",
+                      "structural_lean_requires_odds"):
+                or_q.append({f"payload.{b}.game_pk": str(game_pk)})
+                or_q.append({f"payload.{b}.gamePk":  str(game_pk)})
+        if match_id:
+            for b in ("picks", "rescued", "watchlist_manual_odds",
+                      "structural_lean_requires_odds"):
+                or_q.append({f"payload.{b}.match_id": str(match_id)})
+        if or_q:
+            run = await db.pick_runs.find_one(
+                {"user_id": user["id"], "sport": "baseball", "$or": or_q},
+                sort=[("generated_at", -1)],
+            )
+            if run:
+                alt = [("game_pk", str(game_pk))] if game_pk else []
+                if match_id:
+                    alt.append(("match_id", str(match_id)))
+                target, bucket = _extract_pick_from_run(run, alt_ids=alt)
+                if target:
+                    coll = "pick_runs"
+        attempts.append({
+            "method":      "game_pk_or_match_id",
+            "value":       {"game_pk": game_pk, "match_id": match_id},
+            "found":       bool(target) and not found_by_pick_id,
+            "collection":  coll if (target and not found_by_pick_id) else None,
+            "bucket":      bucket if (target and not found_by_pick_id) else None,
+        })
+
+    # 3) matches collection.
+    if not target and (game_pk or match_id):
+        or_q = []
+        if match_id:
+            or_q.append({"match_id": str(match_id)})
+            or_q.append({"id":       str(match_id)})
+        if game_pk:
+            or_q.append({"game_pk":  str(game_pk)})
+            or_q.append({"gamePk":   str(game_pk)})
+        try:
+            mdoc = await db.matches.find_one({"$or": or_q, "sport": "baseball"})
+        except Exception:
+            mdoc = None
+        if not mdoc:
+            try:
+                mdoc = await db.matches.find_one({"$or": or_q})
+            except Exception:
+                mdoc = None
+        if mdoc:
+            target = build_minimal_pick_context_from_match_doc(mdoc)
+            coll   = "matches"
+            bucket = "match_doc"
+        attempts.append({
+            "method":     "matches_collection",
+            "value":      {"game_pk": game_pk, "match_id": match_id},
+            "found":      bool(target) and coll == "matches",
+            "collection": coll if (target and coll == "matches") else None,
+            "bucket":     bucket if (target and coll == "matches") else None,
+        })
+
+    # 4) override doc.
+    override_q: dict = {"user_id": user["id"], "sport": "baseball"}
+    if pick_id:
+        override_q["pick_id"] = pick_id
+    elif game_pk:
+        override_q["game_pk"] = game_pk
+    elif match_id:
+        override_q["match_id"] = match_id
+    try:
+        override = await db.mlb_manual_odds_overrides.find_one(override_q)
+    except Exception:
+        override = None
+
+    # Try reprice dry-run to surface missing fields.
+    dry_odd = 1.90  # neutral test odd — pure-evaluation, not persisted.
+    dry = reprice_mlb_pick_with_manual_odds(target, dry_odd)
+    missing: list[str] = []
+    if not target:
+        missing.append("pick_context")
+    if (target is not None) and dry.get("model_probability") is None:
+        missing.append("model_probability")
+    if not payload_market_present(override, match_id, pick_id):
+        # `market` is not strictly required for reprice but worth surfacing.
+        missing.append("market")
+
+    if target and dry.get("available"):
+        final_status = "REPRICED"
+    elif target and not dry.get("available"):
+        final_status = "OVERRIDE_SAVED_ONLY"
+    elif override:
+        final_status = "OVERRIDE_SAVED_ONLY"
+    else:
+        final_status = "PICK_NOT_FOUND"
+
+    return {
+        "ok":             True,
+        "match_id":       match_id,
+        "pick_id":        pick_id,
+        "game_pk":        game_pk,
+        "lookup_attempts": attempts,
+        "override_found": bool(override),
+        "can_reprice":    bool(target and dry.get("available")),
+        "missing_fields": missing,
+        "final_status":   final_status,
+        "reason_codes":   dry.get("reason_codes", []),
+    }
+
+
+def payload_market_present(override: Optional[dict],
+                           match_id: Optional[str],
+                           pick_id:  Optional[str]) -> bool:
+    """Trivial helper used by the debug endpoint to flag whether we know
+    the bet market for this card. Used only to decide if ``market``
+    should be reported as ``missing``."""
+    if isinstance(override, dict) and override.get("market"):
+        return True
+    return False
+
+
+def _safe_float(v):  # local helper to avoid import-cycle
+    try:
+        if v is None:
+            return None
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
 
 @api.get("/mlb/daily_market_audit")

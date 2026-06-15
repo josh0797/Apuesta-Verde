@@ -51,6 +51,10 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
   const [expanded, setExpanded] = useState(false);
   const [pendingSaving, setPendingSaving] = useState(false);
   const [savedPending, setSavedPending] = useState(false);
+  // MLB-F93 — local override of cuota / value badge / edge / EV after the
+  // user enters a manual odd. When `manualReprice` is set, the
+  // recommendation row uses it instead of the engine's `odds_range`.
+  const [manualReprice, setManualReprice] = useState(null);
   const visibleDrivers = (intel?.drivers || []).slice(0, 3);
   const remainingDrivers = Math.max(0, (intel?.drivers || []).length - visibleDrivers.length);
 
@@ -219,7 +223,57 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
             <span className="text-foreground" data-testid={`pick-selection-${m.match_id}`}>{humanizeSelection(m.recommendation?.selection, m.recommendation?.market, m.home_team?.name || m.match_label?.split(/\s+vs\s+/i)[0], m.away_team?.name || m.match_label?.split(/\s+vs\s+/i)[1], lang, sport)}</span>
           </div>
           <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
-            <span className="mono font-mono-tabular">{t.match.oddsRange}: <span className="text-foreground">{m.recommendation?.odds_range || '—'}</span></span>
+            <span
+              className="mono font-mono-tabular"
+              data-testid={`pick-odds-range-${m.match_id}`}
+            >
+              {t.match.oddsRange}: <span className="text-foreground">{
+                manualReprice?.manual_odd != null
+                  ? Number(manualReprice.manual_odd).toFixed(2)
+                  : (m.recommendation?.odds_range || '—')
+              }</span>
+            </span>
+            {/* MLB-F93 — manual decision badge after reprice. */}
+            {manualReprice?.reprice?.decision && (() => {
+              const dec   = manualReprice.reprice.decision;
+              const edge  = Number(manualReprice.reprice.edge_pct ?? 0);
+              const fair  = manualReprice.reprice.fair_odds;
+              const cls   = dec === 'VALUE'
+                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+                : dec === 'WATCHLIST'
+                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+                  : dec === 'NO_VALUE'
+                    ? 'border-rose-500/40 bg-rose-500/10 text-rose-200'
+                    : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200';
+              const lbl   = dec === 'NO_VALUE' ? 'NO VALUE'
+                          : dec === 'MANUAL_ODDS_ONLY' ? 'SOLO INFO'
+                          : dec;
+              return (
+                <span
+                  className={`text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded border ${cls}`}
+                  data-testid={`pick-manual-decision-${m.match_id}`}
+                >
+                  {lbl}
+                  {manualReprice.reprice.available && (
+                    <span className="ml-1 opacity-80">
+                      ({edge >= 0 ? '+' : ''}{edge.toFixed(1)}%)
+                    </span>
+                  )}
+                  {fair != null && dec === 'NO_VALUE' && (
+                    <span className="ml-1 opacity-70">fair {Number(fair).toFixed(2)}</span>
+                  )}
+                </span>
+              );
+            })()}
+            {manualReprice?.reprice?.ev != null && manualReprice.reprice.available && (
+              <span
+                className="text-[10px] tabular-nums text-muted-foreground"
+                data-testid={`pick-manual-ev-${m.match_id}`}
+              >
+                EV {Number(manualReprice.reprice.ev) >= 0 ? '+' : ''}
+                {Number(manualReprice.reprice.ev).toFixed(3)}
+              </span>
+            )}
             <LineMovement movement={m.key_data?.line_movement} />
             {(m._moneyball || m._market_edge) && (
               <MoneyballBadge
@@ -230,6 +284,15 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
               />
             )}
           </div>
+          {/* MLB-F93 — manual reprice message (one-line). */}
+          {manualReprice?.message_user && (
+            <div
+              className="text-[11px] text-cyan-100/80 mt-1"
+              data-testid={`pick-manual-reprice-msg-${m.match_id}`}
+            >
+              {manualReprice.message_user}
+            </div>
+          )}
           {/* Inline manual-odds entry — surfaces inside the recommendation
               row whenever an MLB pick was produced WITHOUT automatic odds
               (`odds_range` empty / "—") so the user can paste a bookie
@@ -251,6 +314,7 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
                   line={m.recommendation?.line}
                   lang={lang}
                   testId={`pick-inline-manual-odds-${m.match_id}`}
+                  onReprice={(payload) => setManualReprice(payload)}
                 />
               </div>
             ) : null}

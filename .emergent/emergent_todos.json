@@ -1,30 +1,26 @@
 [
   {
-    "content": "Fase A: Contract + adapters ampliados",
+    "content": "Backend B1-B5: módulo + lookup + endpoints",
     "status": "completed"
   },
   {
-    "content": "Fase B: Endpoint /api/football/discovery/debug ampliado",
+    "content": "Backend B6: 14 tests verdes, 2956 passed total",
     "status": "completed"
   },
   {
-    "content": "Fase C: 9 tests upstream verdes",
+    "content": "Frontend F1: InlineManualOddsInput reescrito",
     "status": "completed"
   },
   {
-    "content": "Fase C-verify: pytest 2942 passed, zero regresión",
+    "content": "Frontend F2: MatchCard — manualReprice + override visual",
     "status": "completed"
   },
   {
-    "content": "Fase D: UI Sheet 'Ver debug de discovery'",
+    "content": "Frontend F4: 5 tests F93 verdes, 130 passed total",
     "status": "completed"
   },
   {
-    "content": "Fase D-verify: 125/125 frontend tests + esbuild OK",
-    "status": "completed"
-  },
-  {
-    "content": "Fase E: plan.md F87.1 COMPLETED",
+    "content": "Plan: MLB-F93 COMPLETED en plan.md",
     "status": "completed"
   }
 ]
