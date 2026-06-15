@@ -401,3 +401,55 @@ class TestSignalThresholdEdges:
         )
         out = qcm.compute_quality_contact_matchup(payload)
         assert qcm.SIGNAL_PITCHER_BARREL_REGRESSION not in out["signals"]
+
+
+# =====================================================================
+# Phase F91 wiring: seal_pick_payload attaches the block
+# =====================================================================
+class TestPipelineContractWiring:
+    def test_seal_pick_payload_attaches_quality_contact_matchup(self):
+        from services.mlb_pipeline_payload_contract import (
+            seal_pick_payload, CONTRACT_FIELDS,
+        )
+        assert "quality_contact_matchup" in CONTRACT_FIELDS
+
+        payload = _payload(
+            home_team={"xwoba": 0.330, "sweet_spot_pct": 0.35,
+                        "barrel_pct": 0.085, "hard_hit_pct": 0.42},
+            home_pitcher=_vulnerable_pitcher(),
+            away_team={"xwoba": 0.420, "sweet_spot_pct": 0.45,
+                        "barrel_pct": 0.15, "hard_hit_pct": 0.55},
+            away_pitcher=_ace_pitcher(),
+            target_side="away",
+        )
+        payload["sport"] = "mlb"
+        payload["picks"] = [{"market": "OVER_8_5", "confidence": 60}]
+
+        sealed = seal_pick_payload(payload)
+        # Block exists & is computed.
+        assert "quality_contact_matchup" in sealed
+        block = sealed["quality_contact_matchup"]
+        assert block["available"] is True
+        assert qcm.SIGNAL_MATCHUP_CONTACT_ADVANTAGE in block["signals"]
+        # F92 wiring: picks remain a single-entry list at the same index,
+        # the market is never altered, ordering is preserved and an audit
+        # trail is exposed under ``qcm_audit`` for transparency.
+        assert isinstance(sealed["picks"], list)
+        assert len(sealed["picks"]) == 1
+        assert sealed["picks"][0]["market"] == "OVER_8_5"
+        assert "qcm_audit" in sealed
+        assert isinstance(sealed["qcm_audit"].get("audits"), list)
+
+    def test_seal_pick_payload_fails_soft_on_empty_payload(self):
+        from services.mlb_pipeline_payload_contract import seal_pick_payload
+        sealed = seal_pick_payload({})
+        block = sealed["quality_contact_matchup"]
+        assert block["available"] is False
+        assert qcm.RC_INSUFFICIENT_DATA in block["reason_codes"]
+        assert block["signals"] == []
+
+    def test_seal_pick_payload_handles_non_dict_input(self):
+        from services.mlb_pipeline_payload_contract import seal_pick_payload
+        sealed = seal_pick_payload(None)
+        assert "quality_contact_matchup" in sealed
+        assert sealed["quality_contact_matchup"]["available"] is False

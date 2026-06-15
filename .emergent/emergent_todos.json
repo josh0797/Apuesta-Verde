@@ -1,26 +1,34 @@
 [
   {
-    "content": "Crear services/mlb_quality_contact_matchup.py: módulo puro con LINEUP_WEIGHTS, contact_score, pitcher_vulnerability, era_gap, matchup_contact_factor, mismatch_score, top_order_threat, signals",
+    "content": "Fase 1 — Cierre F92: ejecutar suite backend completo (pytest) y verificar 0 regresiones",
     "status": "completed"
   },
   {
-    "content": "Deriver mocked + flag QCM_LINEUP_PER_BATTER",
+    "content": "Fase 1 — Cierre F92: ejecutar suite frontend (yarn craco test) y verificar 0 regresiones",
     "status": "completed"
   },
   {
-    "content": "Thresholds: defaults hardcoded + override por env QCM_THRESHOLDS (JSON)",
+    "content": "Fase 1 — Actualizar plan.md marcando F92 como COMPLETED",
     "status": "completed"
   },
   {
-    "content": "compute_quality_contact_matchup(payload) — entrypoint fail-soft",
+    "content": "Bugfix — Excluir partidos terminados (FT/PST/CANC/AET/PEN) del pool upcoming",
     "status": "completed"
   },
   {
-    "content": "Tests F91: 36/36 PASS",
+    "content": "Fase 2 — F93: crear clientes TotalCorner + FootyStats vía scrape_do_client",
     "status": "completed"
   },
   {
-    "content": "Lint clean + Backend suite: 2671 passed, 2 skipped (subida de 2635 → 2671) ✅",
+    "content": "Fase 2 — F93: modificar football_corners_provider para cascade TSA→APS→TotalCorner→365Scores→FootyStats",
+    "status": "completed"
+  },
+  {
+    "content": "Fase 2 — F93: añadir tests focales y correr suite completo",
+    "status": "completed"
+  },
+  {
+    "content": "Fase 2 — Actualizar plan.md marcando F93 como COMPLETED",
     "status": "completed"
   }
 ]

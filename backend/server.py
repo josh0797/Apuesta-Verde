@@ -1823,6 +1823,127 @@ def _sport_filter(sport: Optional[str]) -> dict:
     return {"sport": s}
 
 
+# ── Bugfix: drop finished / postponed / cancelled matches from "upcoming" ──
+# API-Sports / TheStatsAPI / ESPN status_short codes that are *terminal* and
+# must NEVER appear as analyzable candidates. ``NS``/``TBD`` (not started /
+# to-be-defined) are the only states we treat as upcoming. Empty / unknown
+# status is left through so legacy docs (older ingestions without
+# status_short) keep working — the kickoff_ts filter still guards them.
+_TERMINAL_FOOTBALL_STATUSES: set[str] = {
+    "FT", "AET", "PEN", "FT_PEN",          # completed regulation / ET / pens
+    "PST", "CANC", "ABD", "AWD", "WO",     # cancelled / postponed / abandoned / walkover
+    "SUSP", "INT",                          # suspended / interrupted (operator must reload)
+}
+_TERMINAL_GENERIC_STATUSES: set[str] = {
+    "post", "final", "final/ot", "final/so", "completed", "ended", "closed",
+    "ft", "aet", "pen", "ft_pen",
+    "postponed", "cancelled", "canceled", "abandoned", "walkover", "suspended",
+    "delayed",          # deferred starts; treat as non-upcoming until rescheduled
+    "match finished",   # API-Sports long label
+    "match cancelled", "match canceled", "match postponed", "match abandoned",
+}
+
+
+def _is_match_upcoming(match_doc: dict, *, now_ts: Optional[float] = None,
+                       grace_seconds: int = 600) -> bool:
+    """Return ``True`` when this DB-level match document still qualifies as
+    *upcoming* for the analysis pipeline.
+
+    Three independent guards (any failure → drop):
+      1. ``kickoff_ts`` must be ``>= now - grace_seconds`` (default 10 min
+         of grace so a "just-started" candidate still flows to live).
+      2. ``status_short`` (preferred) **must not** be in
+         :data:`_TERMINAL_FOOTBALL_STATUSES` — covers ``FT``, ``AET``,
+         ``PEN``, ``PST``, ``CANC``, ``ABD``, ``AWD``, ``WO``, ``SUSP``,
+         ``INT``.
+      3. Long-form ``status`` strings (TheStatsAPI / ESPN / MLB Stats API)
+         must not match :data:`_TERMINAL_GENERIC_STATUSES`.
+
+    Fail-soft semantics: a document that lacks BOTH status fields but has a
+    valid future ``kickoff_ts`` is still treated as upcoming so legacy
+    documents (pre-status field) keep flowing.
+    """
+    if not isinstance(match_doc, dict):
+        return False
+    if now_ts is None:
+        now_ts = datetime.now(timezone.utc).timestamp()
+
+    # 1) Kickoff window guard.
+    kt = match_doc.get("kickoff_ts") or 0
+    try:
+        kt_float = float(kt)
+    except (TypeError, ValueError):
+        kt_float = 0.0
+    if kt_float < (now_ts - grace_seconds):
+        return False
+
+    # 2) Short status guard (API-Sports / TheStatsAPI football canonical).
+    sshort = (match_doc.get("status_short") or "").strip()
+    if sshort:
+        if sshort.upper() in _TERMINAL_FOOTBALL_STATUSES:
+            return False
+
+    # 3) Long status guard (multi-source / multi-sport).
+    slong = (match_doc.get("status") or "")
+    if isinstance(slong, str) and slong.strip():
+        if slong.strip().lower() in _TERMINAL_GENERIC_STATUSES:
+            return False
+    elif isinstance(slong, dict):
+        # Some legacy MLB docs nest the status: {"abstract": "Final", ...}
+        for v in slong.values():
+            if isinstance(v, str) and v.strip().lower() in _TERMINAL_GENERIC_STATUSES:
+                return False
+
+    # 4) Final score safety net: if both teams have an integer "score"
+    #    persisted *and* kickoff_ts is in the past, the match is over even
+    #    when the status field was never refreshed.
+    if kt_float < now_ts:
+        hs = (match_doc.get("home_score") if isinstance(match_doc.get("home_score"), (int, float))
+              else (match_doc.get("home_team") or {}).get("score") if isinstance(match_doc.get("home_team"), dict)
+              else None)
+        as_ = (match_doc.get("away_score") if isinstance(match_doc.get("away_score"), (int, float))
+               else (match_doc.get("away_team") or {}).get("score") if isinstance(match_doc.get("away_team"), dict)
+               else None)
+        if isinstance(hs, (int, float)) and isinstance(as_, (int, float)):
+            return False
+
+    return True
+
+
+def _filter_upcoming_candidates(matches: list[dict], *,
+                                grace_seconds: int = 600) -> list[dict]:
+    """Apply :func:`_is_match_upcoming` to a list of candidate docs and emit
+    a single info log with the drop count + the offending match_ids (for
+    auditability)."""
+    if not matches:
+        return matches
+    now_ts = datetime.now(timezone.utc).timestamp()
+    kept: list[dict] = []
+    dropped: list[dict] = []
+    for m in matches:
+        if _is_match_upcoming(m, now_ts=now_ts, grace_seconds=grace_seconds):
+            kept.append(m)
+        else:
+            dropped.append(m)
+    if dropped:
+        sample = [
+            {
+                "match_id":     d.get("match_id"),
+                "status_short": d.get("status_short"),
+                "status":       d.get("status") if isinstance(d.get("status"), str) else "<dict>",
+                "kickoff_iso":  d.get("kickoff_iso"),
+                "home":         ((d.get("home_team") or {}).get("name") if isinstance(d.get("home_team"), dict) else d.get("home_team")),
+                "away":         ((d.get("away_team") or {}).get("name") if isinstance(d.get("away_team"), dict) else d.get("away_team")),
+            }
+            for d in dropped[:5]
+        ]
+        log.info(
+            "[upcoming_filter] dropped %d/%d finished/postponed match(es) — sample=%s",
+            len(dropped), len(matches), sample,
+        )
+    return kept
+
+
 def _clean(doc: dict | None) -> dict | None:
     """Strip Mongo's _id (ObjectId) which is not JSON serializable."""
     if not doc:
@@ -1925,8 +2046,7 @@ async def matches_upcoming(refresh: bool = False, sport: Optional[str] = None, u
     query = {**_sport_filter(s), "is_live": False}
     cursor = db.matches.find(query).sort("kickoff_ts", 1).limit(60)
     items = await cursor.to_list(length=60)
-    now_ts = datetime.now(timezone.utc).timestamp()
-    items = [i for i in items if (i.get("kickoff_ts") or 0) >= now_ts - 600]
+    items = _filter_upcoming_candidates(items)
     return {"count": len(items), "sport": s, "items": _clean_list(items)}
 
 
@@ -3681,8 +3801,7 @@ async def _run_analysis_pipeline(
             "match_id": {"$in": priority_match_ids},
             "is_live": False,
         }).to_list(length=len(priority_match_ids))
-        now_ts = datetime.now(timezone.utc).timestamp()
-        upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
+        upcoming = _filter_upcoming_candidates(upcoming)
         log.info(
             "priority candidate query: requested=%d found_in_db=%d",
             len(priority_fixtures), len(upcoming),
@@ -3690,8 +3809,7 @@ async def _run_analysis_pipeline(
     else:
         query_upcoming = {**_sport_filter(sport), "is_live": False}
         upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
-        now_ts = datetime.now(timezone.utc).timestamp()
-        upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
+        upcoming = _filter_upcoming_candidates(upcoming)
 
     # ── MLB Stats API fallback (baseball only) ──────────────────────────
     # If API-Sports returned 0 baseball games for today, hit the official
@@ -3729,8 +3847,7 @@ async def _run_analysis_pipeline(
             # games (with their kickoff_ts already populated).
             query_upcoming = {**_sport_filter(sport), "is_live": False}
             upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
-            now_ts = datetime.now(timezone.utc).timestamp()
-            upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
+            upcoming = _filter_upcoming_candidates(upcoming)
             log.info(
                 "MLB fallback succeeded: %d games persisted, %d kept after time filter",
                 len(mlb_games), len(upcoming),
@@ -3760,8 +3877,7 @@ async def _run_analysis_pipeline(
             pipeline_meta["fallback_reason"] = "api_sports_zero_games"
             query_upcoming = {**_sport_filter(sport), "is_live": False}
             upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
-            now_ts = datetime.now(timezone.utc).timestamp()
-            upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
+            upcoming = _filter_upcoming_candidates(upcoming)
             log.info(
                 "ESPN NBA fallback succeeded: %d games persisted, %d kept after time filter",
                 len(nba_games), len(upcoming),
@@ -3788,8 +3904,7 @@ async def _run_analysis_pipeline(
                 pipeline_meta["fallback_reason"] = "api_sports_and_espn_zero_games"
                 query_upcoming = {**_sport_filter(sport), "is_live": False}
                 upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
-                now_ts = datetime.now(timezone.utc).timestamp()
-                upcoming = [c for c in upcoming if (c.get("kickoff_ts") or 0) >= now_ts - 600]
+                upcoming = _filter_upcoming_candidates(upcoming)
                 log.info(
                     "SofaScore basketball fallback succeeded: %d games persisted, %d kept after time filter",
                     len(sofa_games), len(upcoming),

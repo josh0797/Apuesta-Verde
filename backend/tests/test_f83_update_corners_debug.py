@@ -252,17 +252,37 @@ class TestF83CascadeOrder:
 
     @pytest.mark.asyncio
     async def test_debug_cascade_default_order(self, monkeypatch):
+        # Phase F93 — the default cascade now includes TotalCorner and
+        # FootyStats (TSA → APS → TC → 365 → FS). Legacy F82.2 order is
+        # only reachable when both F93 and F83 flags are explicitly off.
         monkeypatch.delenv("ENABLE_F83_CASCADE_ORDER", raising=False)
+        monkeypatch.delenv("ENABLE_F93_CASCADE_ORDER", raising=False)
+        res = await cp.debug_corners_cascade({"match_id": "m1"})
+        assert res["cascade_order_used"] == [
+            "thestatsapi", "api_sports", "totalcorner", "365scores", "footystats",
+        ]
+        assert res["flag_enabled"] is True
+        assert res["cascade_flag"] == "F93"
+
+    @pytest.mark.asyncio
+    async def test_debug_cascade_legacy_f82_2_order(self, monkeypatch):
+        # Both feature flags off → fall back to F82.2 default 3-step cascade.
+        monkeypatch.setenv("ENABLE_F93_CASCADE_ORDER", "false")
+        monkeypatch.setenv("ENABLE_F83_CASCADE_ORDER", "false")
         res = await cp.debug_corners_cascade({"match_id": "m1"})
         assert res["cascade_order_used"] == ["thestatsapi", "api_sports", "365scores"]
         assert res["flag_enabled"] is False
+        assert res["cascade_flag"] == "F82.2"
 
     @pytest.mark.asyncio
     async def test_debug_cascade_f83_order(self, monkeypatch):
+        # F93 disabled + F83 enabled → legacy F83 3-step order.
+        monkeypatch.setenv("ENABLE_F93_CASCADE_ORDER", "false")
         monkeypatch.setenv("ENABLE_F83_CASCADE_ORDER", "true")
         res = await cp.debug_corners_cascade({"match_id": "m1"})
         assert res["cascade_order_used"] == ["api_sports", "365scores", "thestatsapi"]
         assert res["flag_enabled"] is True
+        assert res["cascade_flag"] == "F83"
 
 
 class TestF83CascadeDiagnostics:
@@ -312,9 +332,10 @@ class TestF83CascadeDiagnostics:
         res = await cp.debug_corners_cascade({"match_id": "void"})
         assert res["final"]["available"] is False
         assert res["final"]["reason_code"] == cp.RC_NO_PROVIDER_AVAILABLE
-        # All 3 providers must be present in the audit.
+        # Phase F93 — the audit now lists 5 providers (TSA, APS, TC, 365, FS).
         names = [p["provider"] for p in res["providers_checked"]]
-        assert set(names) == {"thestatsapi", "api_sports", "365scores"}
+        assert set(names) == {"thestatsapi", "api_sports",
+                              "totalcorner", "365scores", "footystats"}
 
     @pytest.mark.asyncio
     async def test_debug_endpoint_includes_scrapedo_status(self):

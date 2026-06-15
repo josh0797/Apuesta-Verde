@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.
 > **Estado histórico:** ✅ F58–F70 completadas.
-> **Estado actual (resumen):** ✅ **F74 (parcial) COMPLETADA** + ✅ **F74-post (9 cambios) COMPLETADA** + ✅ **F74-post v2 (TheStatsAPI Odds Fallback Wiring) COMPLETADA** + ✅ **F74-post v2.5 (Opening Odds → Line Movement Wiring) COMPLETADA** + ✅ **F82 (Rich H2H Context + 365Scores Corners) COMPLETADA** + ✅ **F82.1 (Non-blocking Enrichment + Timeout Protection) COMPLETADA** + ✅ **F83 (Manual Market Identity + Manual Odds Injection) COMPLETADA** + ✅ **F82.1-adjust (Manual/Background Corners Enrichment Endpoints) COMPLETADA** + ✅ **F83.1 (Pantalla-negra fix + match_id robust + odd isolation + data availability sections) COMPLETADA** + ✅ **P2 (infer_original_pick_side 4-source cascade) COMPLETADA** + ✅ **F82.2 backend (Scores24 deprecated, 365Scores cross integrator, provider re-order, persistence) COMPLETADA** + ✅ **F82.2 frontend (CornersEnrichmentButton wiring + Scores24 label removal + FE tests) COMPLETADA** + ✅ **F83.2 / Bloque E (xG L1/L5/L15 desde shotmap TheStatsAPI + UI + tests) COMPLETADA** + ✅ **P4.1 (LiveReevalPanel.test.jsx 3 preexistentes) COMPLETADA** + ✅ **F84.a (team_stats prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.b (H2H prioridad-inversa a TheStatsAPI) COMPLETADA** + ✅ **F84.e (odds prioridad-inversa a TheStatsAPI + line movement) COMPLETADA** + ✅ **F85 (Public xG — FBref + Forebet vía scrape.do) COMPLETADA** + ✅ **F85 Phase 2 (FBref search-page resolver + fuzzy matching) COMPLETADA** + ✅ **F86 (H2H Decision Policy puro en Python) COMPLETADA** + ✅ **F87 (Cableado quirúrgico en `_enrich_football`: H2H decision + xG-recent background dispatch) COMPLETADA** + ✅ **F88 (F86.2 — Editorial Consumer: h2h_decision + xg_recent_averages + UI) COMPLETADA** + ✅ **F89 (Sprint F86.1 — Calibración H2H rules + explicit polarity/sample/cap guards) COMPLETADA** + ✅ **F90 (Sprint F83-update — Corners cascade con diagnóstico estructurado vía Scrape.do + flag F83 cascade order) COMPLETADA** + ✅ **F91 (MLB Quality Contact Matchup Engine — módulo puro + tests) COMPLETADA**.
+> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + ✅ **F93 (Corners cascade TSA→APS→TotalCorner→365→FootyStats vía scrape.do) COMPLETADA** + ✅ **Bugfix (upcoming filter elimina FT/PST/CANC/AET/PEN) COMPLETADA**.
 >
 > **Idioma operativo:** Español.
 
@@ -260,6 +260,190 @@
 ---
 
 # Phase F91 — MLB Quality Contact Matchup Engine (módulo puro) (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+(Detalles del engine puro mantenidos arriba; ver `mlb_quality_contact_matchup.py` + 36 tests focales.)
+
+---
+
+# Phase F92 — MLB QCM Signals Applier + Pipeline Wiring (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Decisión de scope (acordada)
+- ✅ Aplicar `UNDER_CONTACT_RISK` (penalización pequeña a Unders) y `CONTACT_EXPLOSION_POTENTIAL` (boost moderado a Overs).
+- ✅ Wiring vía `seal_pick_payload` (no se duplica orquestación). El applier es puro.
+- ✅ Polarity guard, clamps `[MAX_UNDER_PENALTY, MAX_OVER_BOOST]`, severity bonus (`SEVERE_REGRESSION_RISK`).
+- ✅ F5 Under sólo si `TOP_ORDER_THREAT` activo.
+- ✅ Hard veto NO se aplica en este layer (queda como hint en `qcm_audit.hard_veto_hint` para uso futuro de `mlb_under_veto_layer`).
+- ✅ Override por env `QCM_APPLIER_DELTAS` (JSON) leído en tiempo de llamada (patrón F86.1).
+
+## Implementación ejecutada
+
+### Backend
+1) **NEW** `backend/services/mlb_qcm_signals_applier.py`
+- `apply_qcm_to_candidate(candidate, qcm_block, *, deltas=None, logger=None) → audit dict`.
+- `apply_qcm_to_candidates(candidates, qcm_block, *, deltas=None) → list[audit]`.
+- `qcm_hard_veto_active(qcm_block) → bool` (consumible por veto layer).
+- Constantes públicas:
+  - `SIGNAL_UNDER_CONTACT_RISK`, `SIGNAL_CONTACT_EXPLOSION_POTENTIAL`.
+  - `RC_QCM_NO_DATA`, `RC_QCM_NOT_APPLICABLE`, `RC_QCM_POLARITY_CONFLICT`, `RC_QCM_CLAMPED`, `RC_QCM_VETO_TRIGGERED`.
+- `_market_classification(market) → {side, period, is_team_total}` cubre `OVER`/`UNDER`, `F5/1H/FIRST_5`, `TEAM_TOTAL/TT`.
+- `_contact_explosion_active`: requiere `PITCHER_BARREL_REGRESSION_RISK` + `ERA_UNDERSTATES_DAMAGE` + `MATCHUP_CONTACT_ADVANTAGE`.
+- `_under_contact_risk_active`: `contact_mismatch_score ≥ UNDER_FULL_GAME_THRESHOLD`.
+- Mutación del candidate (in-place):
+  - `confidence_score` ajustado por delta, y `confidence` espejado si existía.
+  - Append a `signals` / `reason_codes` (no duplicados).
+  - `score_breakdown.qcm_contact` con la auditoría (delta, signal, side, period, mismatch_score, regression_risk, clamped, hard_veto_hint).
+
+2) **MOD** `backend/services/mlb_pipeline_payload_contract.py`
+- Tras adjuntar `quality_contact_matchup`, ejecuta `_apply_qcm_signals_to_picks(payload)` (fail-soft).
+- Expone bloque `qcm_audit` en el payload con:
+  - `applied_count`, `hard_veto_hint`, `audits[]` (uno por pick, con `pick_index`).
+- Preserva orden de `picks[]` y nunca añade/quita picks.
+- Coerción QCM se hace ANTES del coerce del advanced snapshot para evitar overwrite del legacy `*_team_advanced` (mantiene la regla F91).
+
+### Tests
+3) **NEW** `backend/tests/test_f92_qcm_signals_applier.py` (24 tests).
+4) **MOD** `backend/tests/test_mlb_quality_contact_matchup.py` — el test de wiring fue actualizado para reflejar que ahora F92 muta picks intencionalmente con auditoría completa en `qcm_audit` (preservando `market`, longitud y orden).
+
+## Validación
+- ✅ Tests focales F92: **24/24 PASS**.
+- ✅ Tests focales F91+wiring: **39/39 PASS** (63 tests combinados QCM verdes).
+- ✅ Suite completa backend: **2698 passed, 2 skipped, 0 failed** en 176s.
+- ✅ Suite completa frontend: **125 passed / 12 suites** en 19s.
+- ✅ Lint Ruff limpio.
+- ✅ Cero regresiones (subimos de 2671 → 2698 backend).
+
+## Flags / env
+- `QCM_APPLIER_DELTAS='{"UNDER_FULL_GAME_THRESHOLD": 70.0, "UNDER_FULL_GAME_PENALTY": -4, ...}'` permite override JSON en runtime.
+
+---
+
+# Phase F93 — Corners cascade migration (TotalCorner + FootyStats vía scrape.do) (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Decisión de scope (acordada)
+- ✅ Despriorizar 365Scores a posición 4 de 5.
+- ✅ Nueva cascada por defecto: **TheStatsAPI → API-Sports → TotalCorner → 365Scores → FootyStats**.
+- ✅ Tanto TotalCorner como FootyStats vía `services.scrape_do_client` (sin nuevas API keys).
+- ✅ Fail-soft estricto: cada proveedor expone `reason_code` granular + `message_user` + `message_debug`.
+- ✅ Compatibilidad hacia atrás: la cascada F82.2 (3 pasos) y F83 (3 pasos en orden alternativo) siguen accesibles bajo flags.
+
+## Implementación ejecutada
+
+### Backend
+1) **NEW** `backend/services/external_sources/totalcorner_scrapedo_client.py`
+- Resolver de URL: `external_ids.totalcorner.match_url` → `match_id` (URL canónica) → campos legacy.
+- `fetch_totalcorner_match_page(url, timeout_s, render=True)` vía `fetch_via_scrapedo_result`.
+- Parser HTML robusto (regex `<tr><th>label</th><td>home</td><td>away</td></tr>`) con aliases multilingües: `corners`, `corner kicks`, `tiros de esquina`, `córner`, `escanteios`.
+- Reason codes propios: `TOTALCORNER_URL_MISSING`, `_STATS_EMPTY`, `_CORNERS_NOT_FOUND`, `_BLOCKED_OR_FORBIDDEN`, `_HTML_PARSE_FAILED`, `CORNERS_FROM_TOTALCORNER_SCRAPEDO`.
+
+2) **NEW** `backend/services/external_sources/footystats_scrapedo_client.py`
+- Resolver de URL: `external_ids.footystats.match_url` → `slug` (URL canónica) → legacy.
+- `fetch_footystats_match_page` vía `fetch_via_scrapedo_result`.
+- Parser HTML con 3 patrones complementarios:
+  - `data-stat="corners"` (estructura limpia).
+  - Bloque label-HOME-AWAY (`<div>5 Corners 4</div>`).
+  - Loose triplet "label THEN two numbers" (último recurso).
+- Reason codes propios: `FOOTYSTATS_URL_MISSING`, `_STATS_EMPTY`, `_CORNERS_NOT_FOUND`, `_BLOCKED_OR_FORBIDDEN`, `_HTML_PARSE_FAILED`, `CORNERS_FROM_FOOTYSTATS_SCRAPEDO`.
+
+3) **MOD** `backend/services/football_corners_provider.py`
+- Nuevos probes:
+  - `_f93_check_totalcorner(match_doc, *, timeout_s)` — resuelve URL, fetch via scrape.do, parse HTML.
+  - `_f93_check_footystats(match_doc, *, timeout_s)` — idem.
+- Nuevo flag: `is_f93_cascade_order_enabled()` con default **True** y override `ENABLE_F93_CASCADE_ORDER=false`.
+- Nuevo resolver de orden `_resolve_cascade_order()` (precedencia: F93 → F83 → F82.2):
+  - F93 (default): `[thestatsapi, api_sports, totalcorner, 365scores, footystats]`.
+  - F83 (legacy, sólo si F93 explícitamente off): `[api_sports, 365scores, thestatsapi]`.
+  - F82.2 (sólo si ambos flags off): `[thestatsapi, api_sports, 365scores]`.
+- `debug_corners_cascade(...)` ahora:
+  - itera la cascada según `_resolve_cascade_order()`.
+  - emite `cascade_flag` (`"F93"` | `"F83"` | `"F82.2"`).
+  - cada probe respeta `allow_external=False` (no HTTP en modo rápido) emitiendo `*_SKIPPED_INLINE` sin awaits.
+  - mantiene `_persist`, `enrich_match_corners_f83`, `score365_timeout_seconds`, `breaker_status` y `is_enabled` para back-compat.
+- Nuevos reason codes exportados: `RC_TOTALCORNER`, `RC_FOOTYSTATS`, `RC_TOTALCORNER_EMPTY`, `RC_FOOTYSTATS_EMPTY`.
+
+### Tests
+4) **NEW** `backend/tests/test_f93_corners_cascade.py` — **32 tests** que cubren:
+- Resolvers TotalCorner / FootyStats (explicit URL, slug/match_id, legacy fields, missing → fail-soft).
+- Parser TotalCorner (`<tr><th>Corners</th><td>9</td><td>5</td></tr>`, aliases, sin córners, HTML vacío).
+- Parser FootyStats (data-stat, bloque label, loose triplet, HTML vacío).
+- Fetch fail-soft: URL vacía, HTTP 403 → mapeado a `*_BLOCKED_OR_FORBIDDEN`, timeout.
+- `_resolve_cascade_order()` con 4 escenarios (default, F93 explícito, F93 off → F82.2, F83 only).
+- `debug_corners_cascade` end-to-end mocked:
+  - TheStatsAPI gana temprano → TC + FS nunca se invocan.
+  - TotalCorner gana → 365Scores y FootyStats no se llaman.
+  - FootyStats es last-resort → todos los 5 proveedores aparecen en `providers_checked`.
+  - `allow_external=False` evita TODOS los HTTP probes (TC, 365, FS skipped en orden).
+- Contrato no-raise (resolvers + parsers + cascade con inputs basura).
+
+5) **MOD** `backend/tests/test_f83_update_corners_debug.py` — actualizados 3 tests pre-existentes para reflejar la nueva default F93 + agregado test específico para fallback F82.2 cuando ambos flags están off.
+
+## Validación
+- ✅ Tests focales F93: **32/32 PASS**.
+- ✅ Tests F83 corners debug (legacy + F93 wiring): **30/30 PASS**.
+- ✅ Suite completa backend: **2782 passed, 2 skipped, 0 failed** en 176s.
+- ✅ Suite completa frontend: **125 passed / 12 suites** en 6s.
+- ✅ Lint Ruff limpio en los 3 archivos nuevos/modificados.
+- ✅ Cero regresiones (subimos de 2698 → 2782 backend, +84 nuevos tests).
+
+## Flags / env
+- `ENABLE_F93_CASCADE_ORDER=true` (default) — cascada F93 de 5 proveedores.
+- `ENABLE_F93_CASCADE_ORDER=false` + `ENABLE_F83_CASCADE_ORDER=true` — cascada legacy F83 (3 proveedores).
+- Ambos `false` — cascada legacy F82.2 (3 proveedores).
+- `FOOTBALL_365SCORES_TIMEOUT_MS=3500` — aplica también a TotalCorner y FootyStats (timeout compartido vía scrape.do).
+- Sin nuevas API keys requeridas (todo el transporte usa `SCRAPEDO_TOKEN`).
+
+---
+
+# Bugfix — Upcoming filter rechaza partidos terminados / aplazados / cancelados (COMPLETED ✅)
+
+## Estado: ✅ COMPLETADA
+
+## Reporte del usuario
+- "Otra vez está trayendo partidos ya terminados" — Bournemouth vs Manchester City, Ried vs Wolfsberger AC, Genk vs Antwerp, Hapoel Beer Sheva vs Maccabi Tel Aviv aparecían en *Descartados de ligas prioritarias* con badge `Frag 24` y razón "Mercado descartado por market identity missing", aunque ya habían finalizado.
+
+## Causa raíz
+- En `server._run_analysis_pipeline` el filtro de candidatos `upcoming` se hacía solo con `kickoff_ts >= now_ts - 600`. Si el documento DB tenía `status_short=FT` pero su `kickoff_ts` quedaba en el futuro o se reusaba para otro fixture, el partido finalizado pasaba al scoring.
+- No había guard explícito por `status_short` ni por `status` de larga forma (TheStatsAPI / ESPN / MLB Stats API).
+
+## Implementación ejecutada
+
+### Backend
+1) **MOD** `backend/server.py` — nuevo helper centralizado:
+- `_TERMINAL_FOOTBALL_STATUSES = {FT, AET, PEN, FT_PEN, PST, CANC, ABD, AWD, WO, SUSP, INT}`.
+- `_TERMINAL_GENERIC_STATUSES = {post, final, completed, ended, postponed, cancelled, abandoned, walkover, suspended, "match finished", ...}`.
+- `_is_match_upcoming(match_doc, *, now_ts=None, grace_seconds=600) -> bool` con 4 guards independientes:
+  1. `kickoff_ts >= now - grace_seconds`.
+  2. `status_short` ∉ `_TERMINAL_FOOTBALL_STATUSES` (case-insensitive).
+  3. `status` (str o dict-anidado) ∉ `_TERMINAL_GENERIC_STATUSES`.
+  4. Safety net: si `kickoff_ts` está en el pasado y hay `home_score`+`away_score` numéricos persistidos (top-level o dentro de `home_team`/`away_team`), el partido se considera terminado.
+- `_filter_upcoming_candidates(matches, *, grace_seconds=600)` aplica el guard a una lista y emite un log de auditoría con sample de los drops.
+- Reemplazadas **6 ocurrencias** del filtro inline `(c.get("kickoff_ts") or 0) >= now_ts - 600` (en el pipeline + en `/api/matches/upcoming` + en 4 ramas de fallback MLB / ESPN NBA / SofaScore).
+
+### Tests
+2) **NEW** `backend/tests/test_upcoming_filter_finished_dropoff.py` — **51 tests** que cubren:
+- `_is_match_upcoming` con kickoff futuro/pasado/grace.
+- TODOS los `_TERMINAL_FOOTBALL_STATUSES` (parametrizado).
+- TODOS los `_TERMINAL_GENERIC_STATUSES` (parametrizado).
+- Status dict anidado (caso MLB legacy).
+- Documents legacy sin `status_*` con `kickoff_ts` futuro siguen pasando.
+- Safety net: `kickoff_ts` pasado + `home_score`/`away_score` numéricos → drop.
+- Inputs basura no levantan excepción.
+- `_filter_upcoming_candidates`: empty list, mixed list, preserva orden, `grace_seconds` configurable.
+- Caso real reportado: drop explícito de Bournemouth-MC, Genk-Antwerp, Hapoel-Maccabi, Ried-Wolfsberger.
+
+## Validación
+- ✅ Tests focales: **51/51 PASS**.
+- ✅ Suite completa backend: **2782 passed, 2 skipped, 0 failed**.
+- ✅ Frontend: **125/125 PASS**.
+- ✅ Backend re-arranca limpio (sin errores en `/var/log/supervisor/backend.err.log`).
+- ✅ Cero regresiones.
+
+---
 
 ## Estado: ✅ COMPLETADA
 

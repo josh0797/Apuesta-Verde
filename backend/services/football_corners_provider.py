@@ -55,6 +55,23 @@ RC_NO_PROVIDER_AVAILABLE = 'NO_CORNERS_PROVIDER_AVAILABLE'
 RC_THESTATSAPI_EMPTY     = 'THESTATSAPI_CORNERS_EMPTY'
 RC_APISPORTS_NO_STATS    = 'CORNERS_NOT_IN_FIXTURE_STATS'
 
+# Phase F93 — TotalCorner + FootyStats reason codes / source tokens.
+RC_TOTALCORNER           = 'CORNERS_FROM_TOTALCORNER'
+RC_FOOTYSTATS            = 'CORNERS_FROM_FOOTYSTATS'
+RC_TOTALCORNER_EMPTY     = 'TOTALCORNER_CORNERS_EMPTY'
+RC_FOOTYSTATS_EMPTY      = 'FOOTYSTATS_CORNERS_EMPTY'
+
+
+def is_f93_cascade_order_enabled() -> bool:
+    """When True the cascade uses the F93 spec:
+    TheStatsAPI → API-Sports → TotalCorner → 365Scores → FootyStats.
+
+    Default ``True`` because F93 supersedes F83 once shipped. Operators
+    can still pin to the legacy F82.2 order by exporting
+    ``ENABLE_F93_CASCADE_ORDER=false``.
+    """
+    return _flag_bool('ENABLE_F93_CASCADE_ORDER', True)
+
 
 def is_f83_cascade_order_enabled() -> bool:
     """When True the cascade runs as: API-Sports → 365Scores → TheStatsAPI.
@@ -403,6 +420,7 @@ __all__ = [
     'is_inline_365scores_enabled',
     'is_background_365scores_enabled',
     'is_f83_cascade_order_enabled',
+    'is_f93_cascade_order_enabled',
     'score365_timeout_seconds',
     'corners_fast_timeout_seconds',
     'RC_APISPORTS', 'RC_365SCORES', 'RC_THESTATSAPI', 'RC_UNAVAILABLE',
@@ -410,13 +428,15 @@ __all__ = [
     'RC_365_SKIPPED_INLINE', 'RC_NO_THESTATSAPI', 'RC_PROVIDER_BREAKER',
     'RC_DEFERRED', 'STATUS_PENDING_BG',
     'RC_NO_PROVIDER_AVAILABLE', 'RC_THESTATSAPI_EMPTY', 'RC_APISPORTS_NO_STATS',
+    'RC_TOTALCORNER', 'RC_FOOTYSTATS',
+    'RC_TOTALCORNER_EMPTY', 'RC_FOOTYSTATS_EMPTY',
     # Phase F83-update
     'debug_corners_cascade', 'enrich_match_corners_f83',
 ]
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Phase F83-update — UI-grade cascade + debug helper
+# Phase F83-update / F93 — UI-grade cascade + debug helper
 # ─────────────────────────────────────────────────────────────────────
 # Maps a reason_code (whatever stage) to a Spanish user-facing message.
 _F83_USER_MESSAGES: dict[str, str] = {
@@ -435,6 +455,16 @@ _F83_USER_MESSAGES: dict[str, str] = {
     RC_THESTATSAPI_EMPTY:      "TheStatsAPI no tiene córners para este partido.",
     RC_APISPORTS_NO_STATS:     "API-Sports no devolvió estadísticas de córners en este fixture.",
     RC_NO_PROVIDER_AVAILABLE:  "No hay datos confiables de córners para este partido.",
+    'TOTALCORNER_URL_MISSING':       "TotalCorner no tiene una URL de partido conocida.",
+    'TOTALCORNER_BLOCKED_OR_FORBIDDEN': "TotalCorner bloqueó la solicitud o devolvió un error.",
+    'TOTALCORNER_STATS_EMPTY':       "TotalCorner cargó la página pero no contiene estadísticas.",
+    'TOTALCORNER_CORNERS_NOT_FOUND': "TotalCorner cargó la página pero no incluye córners.",
+    'TOTALCORNER_HTML_PARSE_FAILED': "TotalCorner devolvió HTML pero no se pudo analizar.",
+    'FOOTYSTATS_URL_MISSING':        "FootyStats no tiene una URL de partido conocida.",
+    'FOOTYSTATS_BLOCKED_OR_FORBIDDEN': "FootyStats bloqueó la solicitud o devolvió un error.",
+    'FOOTYSTATS_STATS_EMPTY':        "FootyStats cargó la página pero no contiene estadísticas.",
+    'FOOTYSTATS_CORNERS_NOT_FOUND':  "FootyStats cargó la página pero no incluye córners.",
+    'FOOTYSTATS_HTML_PARSE_FAILED':  "FootyStats devolvió HTML pero no se pudo analizar.",
 }
 
 
@@ -642,32 +672,214 @@ async def _f83_check_365scores(match_doc: dict, *, timeout_s: float) -> dict:
     }
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Phase F93 — TotalCorner + FootyStats probes via scrape.do
+# ─────────────────────────────────────────────────────────────────────
+async def _f93_check_totalcorner(match_doc: dict, *, timeout_s: float) -> dict:
+    """Run the TotalCorner probe (HTTP via scrape.do) → structured entry."""
+    try:
+        from .external_sources import totalcorner_scrapedo_client as tc
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "provider":      "totalcorner",
+            "transport":     "scrape_do",
+            "available":     False,
+            "stage":         "MODULE_IMPORT",
+            "reason_code":   "TOTALCORNER_MODULE_MISSING",
+            "message_user":  _f83_user_message(None),
+            "message_debug": f"totalcorner_scrapedo_client import failed: {exc}",
+            "retryable":     False,
+        }
+
+    resolver = tc.extract_totalcorner_match_url(match_doc)
+    if not resolver.get("available"):
+        return {
+            "provider":      "totalcorner",
+            "transport":     "scrape_do",
+            "available":     False,
+            "stage":         "URL_RESOLUTION",
+            "reason_code":   tc.RC_URL_MISSING,
+            "message_user":  _f83_user_message(tc.RC_URL_MISSING),
+            "message_debug": "external_ids.totalcorner.{match_id|match_url} missing",
+            "retryable":     False,
+            "resolver":      resolver,
+        }
+
+    page_res = await tc.fetch_totalcorner_match_page(
+        None, resolver["match_url"], timeout_s=timeout_s,
+    )
+    if not page_res.get("available"):
+        return {
+            "provider":      "totalcorner",
+            "transport":     "scrape_do",
+            "available":     False,
+            "stage":         page_res.get("stage", "FETCH_PAGE"),
+            "reason_code":   page_res.get("reason_code"),
+            "message_user":  page_res.get("message_user")
+                              or _f83_user_message(page_res.get("reason_code")),
+            "message_debug": page_res.get("message_debug"),
+            "status_code":   page_res.get("status_code"),
+            "retryable":     page_res.get("retryable", True),
+            "resolver":      resolver,
+        }
+
+    normalised = tc.parse_totalcorner_corners_from_html(page_res.get("html"))
+    if not normalised.get("available"):
+        return {
+            "provider":      "totalcorner",
+            "transport":     "scrape_do",
+            "available":     False,
+            "stage":         "PARSE_HTML",
+            "reason_code":   normalised.get("reason_code") or tc.RC_CORNERS_NOT_FOUND,
+            "message_user":  _f83_user_message(normalised.get("reason_code")),
+            "message_debug": normalised.get("message_debug"),
+            "retryable":     True,
+            "resolver":      resolver,
+        }
+
+    return {
+        "provider":     "totalcorner",
+        "transport":    "scrape_do",
+        "available":    True,
+        "stage":        "PARSE_HTML",
+        "data":         {
+            "home":  normalised["home"].get("corners"),
+            "away":  normalised["away"].get("corners"),
+            "total": normalised.get("total_corners"),
+        },
+        "reason_code":  tc.RC_CORNERS_FOUND,
+        "confidence":   normalised.get("confidence", "USABLE"),
+        "raw_provider": normalised,
+        "resolver":     resolver,
+    }
+
+
+async def _f93_check_footystats(match_doc: dict, *, timeout_s: float) -> dict:
+    """Run the FootyStats probe (HTTP via scrape.do) → structured entry."""
+    try:
+        from .external_sources import footystats_scrapedo_client as fs
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "provider":      "footystats",
+            "transport":     "scrape_do",
+            "available":     False,
+            "stage":         "MODULE_IMPORT",
+            "reason_code":   "FOOTYSTATS_MODULE_MISSING",
+            "message_user":  _f83_user_message(None),
+            "message_debug": f"footystats_scrapedo_client import failed: {exc}",
+            "retryable":     False,
+        }
+
+    resolver = fs.extract_footystats_match_url(match_doc)
+    if not resolver.get("available"):
+        return {
+            "provider":      "footystats",
+            "transport":     "scrape_do",
+            "available":     False,
+            "stage":         "URL_RESOLUTION",
+            "reason_code":   fs.RC_URL_MISSING,
+            "message_user":  _f83_user_message(fs.RC_URL_MISSING),
+            "message_debug": "external_ids.footystats.{match_url|slug} missing",
+            "retryable":     False,
+            "resolver":      resolver,
+        }
+
+    page_res = await fs.fetch_footystats_match_page(
+        None, resolver["match_url"], timeout_s=timeout_s,
+    )
+    if not page_res.get("available"):
+        return {
+            "provider":      "footystats",
+            "transport":     "scrape_do",
+            "available":     False,
+            "stage":         page_res.get("stage", "FETCH_PAGE"),
+            "reason_code":   page_res.get("reason_code"),
+            "message_user":  page_res.get("message_user")
+                              or _f83_user_message(page_res.get("reason_code")),
+            "message_debug": page_res.get("message_debug"),
+            "status_code":   page_res.get("status_code"),
+            "retryable":     page_res.get("retryable", True),
+            "resolver":      resolver,
+        }
+
+    normalised = fs.parse_footystats_corners_from_html(page_res.get("html"))
+    if not normalised.get("available"):
+        return {
+            "provider":      "footystats",
+            "transport":     "scrape_do",
+            "available":     False,
+            "stage":         "PARSE_HTML",
+            "reason_code":   normalised.get("reason_code") or fs.RC_CORNERS_NOT_FOUND,
+            "message_user":  _f83_user_message(normalised.get("reason_code")),
+            "message_debug": normalised.get("message_debug"),
+            "retryable":     True,
+            "resolver":      resolver,
+        }
+
+    return {
+        "provider":     "footystats",
+        "transport":    "scrape_do",
+        "available":    True,
+        "stage":        "PARSE_HTML",
+        "data":         {
+            "home":  normalised["home"].get("corners"),
+            "away":  normalised["away"].get("corners"),
+            "total": normalised.get("total_corners"),
+        },
+        "reason_code":  fs.RC_CORNERS_FOUND,
+        "confidence":   normalised.get("confidence", "USABLE"),
+        "raw_provider": normalised,
+        "resolver":     resolver,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Cascade resolver — picks order based on the active flags
+# ─────────────────────────────────────────────────────────────────────
+def _resolve_cascade_order() -> tuple[list[str], str]:
+    """Return ``(order, flag_name_active)``.
+
+    Priority of flags (most recent wins):
+      1. ``ENABLE_F93_CASCADE_ORDER=true`` (default) — F93 5-step cascade:
+         ``thestatsapi → api_sports → totalcorner → 365scores → footystats``.
+      2. ``ENABLE_F83_CASCADE_ORDER=true`` — F83 legacy debug order:
+         ``api_sports → 365scores → thestatsapi``.
+      3. Otherwise — F82.2 default: ``thestatsapi → api_sports → 365scores``.
+
+    F93 takes precedence so legacy ops who explicitly opt-out (``=false``)
+    still get the F83/F82.2 behavior.
+    """
+    if is_f93_cascade_order_enabled():
+        return (
+            ["thestatsapi", "api_sports", "totalcorner", "365scores", "footystats"],
+            "F93",
+        )
+    if is_f83_cascade_order_enabled():
+        return (["api_sports", "365scores", "thestatsapi"], "F83")
+    return (["thestatsapi", "api_sports", "365scores"], "F82.2")
+
+
 async def debug_corners_cascade(match_doc: dict, *, allow_external: bool = True) -> dict:
     """Run the corners cascade in *diagnostic* mode and return a dict
-    suitable for the F83 debug endpoint.
+    suitable for the corners debug endpoint.
 
-    Honours :func:`is_f83_cascade_order_enabled`:
-      * F83 ON  → API-Sports → 365Scores → TheStatsAPI.
-      * F83 OFF → TheStatsAPI → API-Sports → 365Scores (F82.2 default).
+    Honours :func:`is_f93_cascade_order_enabled` first (default ON), then
+    :func:`is_f83_cascade_order_enabled`, then the F82.2 default.
 
     The function ALWAYS returns a dict; never raises.
     """
     if not isinstance(match_doc, dict):
         match_doc = {}
 
-    flag_on = is_f83_cascade_order_enabled()
-    cascade_order = (
-        ["api_sports", "365scores", "thestatsapi"]
-        if flag_on else
-        ["thestatsapi", "api_sports", "365scores"]
-    )
+    cascade_order, flag_label = _resolve_cascade_order()
 
     home = (match_doc.get("home_team") or {}).get("name") \
         if isinstance(match_doc.get("home_team"), dict) else None
     away = (match_doc.get("away_team") or {}).get("name") \
         if isinstance(match_doc.get("away_team"), dict) else None
 
-    # Always include scrape.do diagnostics.
+    # Always include scrape.do diagnostics (single transport shared by
+    # 365scores, totalcorner and footystats).
     try:
         from .external_sources.score365_scrapedo_client import (
             breaker_status as _bs, is_enabled as _ise,
@@ -703,6 +915,32 @@ async def debug_corners_cascade(match_doc: dict, *, allow_external: bool = True)
                 }
             else:
                 entry = await _f83_check_365scores(match_doc, timeout_s=timeout_s)
+        elif prov == "totalcorner":
+            if not allow_external:
+                entry = {
+                    "provider":     "totalcorner",
+                    "transport":    "scrape_do",
+                    "available":    False,
+                    "stage":        "SKIPPED",
+                    "reason_code":  "TOTALCORNER_SKIPPED_INLINE",
+                    "message_user": "TotalCorner no se consultó porque está deshabilitado en modo rápido.",
+                    "retryable":    True,
+                }
+            else:
+                entry = await _f93_check_totalcorner(match_doc, timeout_s=timeout_s)
+        elif prov == "footystats":
+            if not allow_external:
+                entry = {
+                    "provider":     "footystats",
+                    "transport":    "scrape_do",
+                    "available":    False,
+                    "stage":        "SKIPPED",
+                    "reason_code":  "FOOTYSTATS_SKIPPED_INLINE",
+                    "message_user": "FootyStats no se consultó porque está deshabilitado en modo rápido.",
+                    "retryable":    True,
+                }
+            else:
+                entry = await _f93_check_footystats(match_doc, timeout_s=timeout_s)
         else:
             continue
         providers_checked.append(entry)
@@ -737,7 +975,8 @@ async def debug_corners_cascade(match_doc: dict, *, allow_external: bool = True)
         "home":               home,
         "away":               away,
         "cascade_order_used": cascade_order,
-        "flag_enabled":       flag_on,
+        "cascade_flag":       flag_label,
+        "flag_enabled":       flag_label != "F82.2",
         "scrapedo":           scrapedo_block,
         "providers_checked":  providers_checked,
         "winner":             winner,

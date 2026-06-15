@@ -52,6 +52,7 @@ CONTRACT_FIELDS: tuple[str, ...] = (
     "historical_pattern_match",
     "pattern_memory_audit",
     "manual_odds_review",
+    "quality_contact_matchup",   # F91 (contextual; never mutates picks).
 )
 
 
@@ -519,6 +520,13 @@ def seal_pick_payload(pick_payload: Any) -> dict:
     if not isinstance(pick_payload, dict):
         pick_payload = {}
 
+    # Phase F91 — compute QCM BEFORE the advanced_snapshot coercion
+    # would overwrite the legacy top-level ``*_team_advanced`` keys.
+    # The QCM module reads those keys directly via
+    # ``extract_mlb_advanced_context``; if we let the coercion run
+    # first the QCM block would always show as unavailable.
+    _qcm_block = _coerce_quality_contact_matchup(pick_payload)
+
     pick_payload["advanced_stats_snapshot"] = _coerce_advanced_snapshot(pick_payload)
     pick_payload["pressure_base"]            = _coerce_pressure_base(pick_payload)
     pick_payload["sabermetrics_audit"]       = _coerce_sabermetrics_audit(pick_payload)
@@ -540,8 +548,88 @@ def seal_pick_payload(pick_payload: Any) -> dict:
     pick_payload["ghost_edges"]         = build_ghost_edges_summary(pick_payload)
     pick_payload["pattern_memory_audit"] = build_pattern_memory_audit(pick_payload)
     pick_payload["manual_odds_review"]  = build_manual_odds_review(pick_payload)
+    # Phase F91 — Quality Contact Matchup (computed early; CONTEXTUAL,
+    # NEVER mutates picks).
+    pick_payload["quality_contact_matchup"] = _qcm_block
+    # Phase F92 — apply QCM signals to candidate picks (in-place delta).
+    _apply_qcm_signals_to_picks(pick_payload)
 
     return pick_payload
+
+
+def _apply_qcm_signals_to_picks(payload: dict) -> None:
+    """Phase F92 — Run the QCM signals applier on every pick of this
+    payload. Fail-soft: missing block / module → no-op. Mutates picks
+    in place; never invents new picks; never modifies pick ordering.
+
+    Audit trail goes into ``payload["qcm_audit"]`` so the orchestrator
+    and UI can show *why* each Over/Under was adjusted.
+    """
+    qcm_block = payload.get("quality_contact_matchup") or {}
+    if not qcm_block.get("available"):
+        return
+    picks = payload.get("picks")
+    if not isinstance(picks, list) or not picks:
+        return
+    try:
+        from .mlb_qcm_signals_applier import (
+            apply_qcm_to_candidate, qcm_hard_veto_active,
+        )
+    except Exception:  # noqa: BLE001
+        return
+
+    audits: list[dict] = []
+    for idx, pick in enumerate(picks):
+        if not isinstance(pick, dict):
+            continue
+        try:
+            audit = apply_qcm_to_candidate(pick, qcm_block)
+        except Exception:  # noqa: BLE001
+            continue
+        audit["pick_index"] = idx
+        audit["market"]     = pick.get("market") or pick.get("market_key")
+        audits.append(audit)
+
+    try:
+        hard_veto = qcm_hard_veto_active(qcm_block)
+    except Exception:  # noqa: BLE001
+        hard_veto = False
+
+    payload["qcm_audit"] = {
+        "applied_count":    sum(1 for a in audits if a.get("applied")),
+        "hard_veto_hint":   hard_veto,
+        "audits":           audits,
+    }
+
+
+def _coerce_quality_contact_matchup(payload: dict) -> dict:
+    """Phase F91 — attach the Quality Contact Matchup block.
+
+    The block is computed by the pure module
+    ``services.mlb_quality_contact_matchup`` and is **contextual only**:
+    it never mutates ``picks[]`` and never participates in ranking.
+    Fail-soft — when the module / data isn't available we surface a
+    canonical ``{"available": False, ...}`` shape so the UI can always
+    read the key without branching.
+    """
+    try:
+        from .mlb_quality_contact_matchup import compute_quality_contact_matchup
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "available":     False,
+            "reason_codes":  ["QCM_MODULE_UNAVAILABLE"],
+            "signals":       [],
+            "message_debug": f"import failed: {exc}",
+        }
+    try:
+        return compute_quality_contact_matchup(payload)
+    except Exception as exc:  # noqa: BLE001 — fail-soft contract.
+        return {
+            "available":     False,
+            "reason_codes":  ["QCM_COMPUTE_EXCEPTION"],
+            "signals":       [],
+            "message_debug": str(exc),
+        }
 
 
 # ─────────────────────────────────────────────────────────────────────
