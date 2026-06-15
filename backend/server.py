@@ -6559,7 +6559,13 @@ class MlbManualOddsIn(BaseModel):
     away_team:       Optional[str] = None
     commence_date:   Optional[str] = None  # YYYY-MM-DD
     market:          Optional[str] = None  # e.g. "total_runs_under"
+    selection:       Optional[str] = None  # e.g. "Menos de 9.5 carreras"
     line:            Optional[float] = None
+    # ── MLB-F93.1 — frontend can pass the full pick payload so the
+    # backend can reprice even if the pick is not in `pick_runs` /
+    # `matches`. ``pick_context`` mirrors the React `pick` object: any
+    # subset of the fields documented in the F93.1 spec is accepted.
+    pick_context:    Optional[dict] = None
 
 
 def _normalize_team_name(name: Optional[str]) -> str:
@@ -6793,6 +6799,7 @@ async def mlb_pick_manual_odds(
     from services.mlb_manual_odds_reprice import (
         reprice_mlb_pick_with_manual_odds,
         build_minimal_pick_context_from_match_doc,
+        build_pick_context_from_request_payload,
         RC_PICK_CONTEXT_NOT_FOUND,
         RC_OVERRIDE_USED,
     )
@@ -6818,6 +6825,7 @@ async def mlb_pick_manual_odds(
     )
 
     matched_via_match_doc = False
+    matched_via_request_payload = False
     match_doc = None
     if not target:
         # 3) Fallback to `matches` collection and reconstruct context.
@@ -6831,13 +6839,24 @@ async def mlb_pick_manual_odds(
             )
             matched_via_match_doc = bool(target)
 
+    if not target and payload.pick_context:
+        # 3.5) F93.1 — last resort: trust the pick_context blob the
+        # frontend sent. The reprice fn handles missing fields gracefully.
+        ctx = build_pick_context_from_request_payload(payload.pick_context)
+        if ctx:
+            target = ctx
+            matched_via_request_payload = True
+            tried_keys.append("payload.pick_context")
+
     # 4) Reprice (with whatever context we have — may be None).
     reprice = reprice_mlb_pick_with_manual_odds(
         target,
         odds,
         market=payload.market,
+        selection=payload.selection,
         line=payload.line,
         context_reconstructed=matched_via_match_doc,
+        context_from_request=matched_via_request_payload,
         confidence_before=(_safe_float(target.get("confidence_score"))
                            if isinstance(target, dict) else None),
     )
@@ -6884,7 +6903,7 @@ async def mlb_pick_manual_odds(
     # the updated state.
     promoted = False
     legacy_edge_payload: dict = {}
-    if run is not None and target_bucket is not None and not matched_via_match_doc:
+    if run is not None and target_bucket is not None and not matched_via_match_doc and not matched_via_request_payload:
         est_prob = (
             target.get("estimated_probability")
             or ((target.get("_mlb_script_v2") or {}).get("coverProbability"))
@@ -6966,7 +6985,9 @@ async def mlb_pick_manual_odds(
                 "(sin probabilidad confiable del engine)."
             )
         message_debug = (
-            "Pick found via match_id/game_pk fallback."
+            "Pick context from request payload (frontend pick_context)."
+            if matched_via_request_payload
+            else "Pick found via match_id/game_pk fallback."
             if matched_via_match_doc
             else "Pick found via pick_runs lookup."
         )
@@ -7008,7 +7029,8 @@ async def mlb_pick_manual_odds(
     # Legacy compat fields (always populated).
     attached_to_pick          = bool(target is not None
                                      and run is not None
-                                     and not matched_via_match_doc)
+                                     and not matched_via_match_doc
+                                     and not matched_via_request_payload)
     fallback_override_created = not attached_to_pick
 
     legacy_message = (
@@ -7076,12 +7098,28 @@ async def mlb_manual_odds_debug(
     against the user's data, plus whether an override exists, whether a
     reprice would be possible, which fields are missing, and the final
     status that would be returned.
+
+    F93.1: requires at least one of ``match_id`` / ``pick_id`` / ``game_pk``;
+    422 otherwise.
     """
     from services.mlb_manual_odds_reprice import (
         reprice_mlb_pick_with_manual_odds,
         build_minimal_pick_context_from_match_doc,
         RC_PICK_CONTEXT_NOT_FOUND,
     )
+
+    if not (match_id or pick_id or game_pk):
+        # 422 via HTTPException so the API surface is consistent with
+        # FastAPI's validation responses.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "ok":            False,
+                "reason_code":   "DEBUG_IDENTIFIER_REQUIRED",
+                "message_user":  ("Falta match_id, pick_id o game_pk para "
+                                  "ejecutar el debug."),
+            },
+        )
 
     attempts: list[dict] = []
     target  = None

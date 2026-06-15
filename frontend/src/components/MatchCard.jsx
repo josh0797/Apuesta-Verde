@@ -233,12 +233,18 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
                   : (m.recommendation?.odds_range || '—')
               }</span>
             </span>
-            {/* MLB-F93 — manual decision badge after reprice. */}
+            {/* MLB-F93 / F93.1 — manual decision badge after reprice.
+                When status === OVERRIDE_SAVED_ONLY we force the visible
+                label to "SOLO INFO" (never NO VALUE) because there is
+                no reprice basis to value the pick. */}
             {manualReprice?.reprice?.decision && (() => {
-              const dec   = manualReprice.reprice.decision;
-              const edge  = Number(manualReprice.reprice.edge_pct ?? 0);
-              const fair  = manualReprice.reprice.fair_odds;
-              const cls   = dec === 'VALUE'
+              const isSavedOnly = manualReprice?.status === 'OVERRIDE_SAVED_ONLY';
+              const dec         = isSavedOnly
+                                    ? 'MANUAL_ODDS_ONLY'
+                                    : manualReprice.reprice.decision;
+              const edge        = Number(manualReprice.reprice.edge_pct ?? 0);
+              const fair        = manualReprice.reprice.fair_odds;
+              const cls         = dec === 'VALUE'
                 ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
                 : dec === 'WATCHLIST'
                   ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
@@ -249,20 +255,29 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
                           : dec === 'MANUAL_ODDS_ONLY' ? 'SOLO INFO'
                           : dec;
               return (
-                <span
-                  className={`text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded border ${cls}`}
-                  data-testid={`pick-manual-decision-${m.match_id}`}
-                >
-                  {lbl}
-                  {manualReprice.reprice.available && (
-                    <span className="ml-1 opacity-80">
-                      ({edge >= 0 ? '+' : ''}{edge.toFixed(1)}%)
-                    </span>
-                  )}
-                  {fair != null && dec === 'NO_VALUE' && (
-                    <span className="ml-1 opacity-70">fair {Number(fair).toFixed(2)}</span>
-                  )}
-                </span>
+                <>
+                  {/* "Cuota" source pill — replaces the old "Desconocido". */}
+                  <span
+                    className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border border-cyan-500/30 bg-cyan-500/10 text-cyan-200"
+                    data-testid={`pick-manual-source-${m.match_id}`}
+                  >
+                    MANUAL
+                  </span>
+                  <span
+                    className={`text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded border ${cls}`}
+                    data-testid={`pick-manual-decision-${m.match_id}`}
+                  >
+                    {lbl}
+                    {!isSavedOnly && manualReprice.reprice.available && (
+                      <span className="ml-1 opacity-80">
+                        ({edge >= 0 ? '+' : ''}{edge.toFixed(1)}%)
+                      </span>
+                    )}
+                    {!isSavedOnly && fair != null && dec === 'NO_VALUE' && (
+                      <span className="ml-1 opacity-70">fair {Number(fair).toFixed(2)}</span>
+                    )}
+                  </span>
+                </>
               );
             })()}
             {manualReprice?.reprice?.ev != null && manualReprice.reprice.available && (
@@ -311,7 +326,9 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
                   awayTeam={m.away_team}
                   commenceDate={(m.commence_time || '').slice(0, 10) || m.commence_date}
                   market={m.recommendation?.market}
+                  selection={m.recommendation?.selection}
                   line={m.recommendation?.line}
+                  pickContext={m}
                   lang={lang}
                   testId={`pick-inline-manual-odds-${m.match_id}`}
                   onReprice={(payload) => setManualReprice(payload)}

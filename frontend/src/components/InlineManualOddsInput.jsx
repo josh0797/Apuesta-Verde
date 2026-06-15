@@ -1,30 +1,61 @@
 import { useState } from 'react';
-import { Calculator, Loader2, RefreshCcw, RotateCw, Bug } from 'lucide-react';
+import { Calculator, Loader2, RefreshCcw, RotateCw, Bug, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
 
 /**
- * InlineManualOddsInput  (MLB-F93)
- * ---------------------------------
- * Inline replacement for the "Cuota aprox.: —" line on MLB pick cards.
+ * Normalize a team value that may arrive as a string or as a vendor
+ * object ({ name, displayName, team_name, … }). Returns ``undefined``
+ * when the value is empty so the backend lookup can fall back to the
+ * other identifiers.
+ */
+function normalizeTeamName(team) {
+  if (!team) return undefined;
+  if (typeof team === 'string') return team || undefined;
+  if (typeof team === 'object') {
+    return team.name || team.displayName || team.team_name || undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Build the trimmed `pick_context` blob the backend understands. We
+ * forward only the fields the reprice cascade cares about so the payload
+ * stays small and the server side stays decoupled from React state.
+ */
+function buildPickContext(p) {
+  if (!p || typeof p !== 'object') return undefined;
+  return {
+    id:                          p.id || p.pick_id,
+    match_id:                    p.match_id,
+    game_pk:                     p.game_pk || p.gamePk,
+    match_label:                 p.match_label,
+    home_team:                   normalizeTeamName(p.home_team),
+    away_team:                   normalizeTeamName(p.away_team),
+    commence_date:               (p.commence_time || '').slice(0, 10)
+                                  || p.commence_date,
+    recommendation:              p.recommendation,
+    confidence_score:            p.recommendation?.confidence_score
+                                 ?? p.confidence_score,
+    key_data:                    p.key_data,
+    _mlb_script_v2:              p._mlb_script_v2,
+    margin_v2:                   p.margin_v2,
+    expected_runs_distribution:  p.expected_runs_distribution,
+    baseballHistoricalProfile:   p.baseballHistoricalProfile,
+    inning_lambda_projection:    p.inning_lambda_projection,
+    tail_risk:                   p.tail_risk,
+    market_profile:              p.market_profile,
+    model_probability:           p.model_probability,
+    cover_probability:           p.cover_probability,
+    probability:                 p.probability,
+  };
+}
+
+/**
+ * InlineManualOddsInput  (MLB-F93 / F93.1)
  *
- * Posts to `POST /api/mlb/picks/{pick_id}/manual-odds` and consumes the
- * F93 response contract (`status` + `reprice`) while keeping back-compat
- * with the legacy fields (`value_status`, `manual_edge_pct`,
- * `fallback_override_created`, …) that downstream components may still
- * inspect.
- *
- * Visual states:
- *   • saving   → loading copy "Recalculando con cuota manual…"
- *   • REPRICED → coloured status pill with decision + edge%
- *   • OVERRIDE_SAVED_ONLY → amber notice + action buttons
- *                          (Refrescar, Regenerar, Ver debug)
- *   • PICK_NOT_FOUND / ERROR → red notice + retry hint
- *
- * Communication with the parent card (MatchCard):
- *   • Prop `onReprice(payload)` fires once the backend responds with any
- *     non-error status. The card uses the payload to refresh its
- *     headline odds / VALUE-NO VALUE badge / edge / EV inline.
+ * F93.1: passes the full `pickContext` blob; routes "Ver debug" through
+ * the authenticated api client (inline panel); never opens a raw URL.
  */
 export function InlineManualOddsInput({
   pickId,
@@ -34,7 +65,9 @@ export function InlineManualOddsInput({
   awayTeam,
   commenceDate,
   market,
+  selection,
   line,
+  pickContext,
   lang = 'es',
   testId,
   onReprice,
@@ -45,6 +78,10 @@ export function InlineManualOddsInput({
   const [saving, setSaving]  = useState(false);
   const [result, setResult]  = useState(null);
   const [error,  setError]   = useState(null);
+  const [debugOpen,    setDebugOpen]    = useState(false);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugData,    setDebugData]    = useState(null);
+  const [debugError,   setDebugError]   = useState(null);
 
   if (!pickId) return null;
 
@@ -64,24 +101,22 @@ export function InlineManualOddsInput({
         promote_if_value: false,
         match_id:         matchId,
         game_pk:          gamePk ? String(gamePk) : undefined,
-        home_team:        homeTeam,
-        away_team:        awayTeam,
+        home_team:        normalizeTeamName(homeTeam),
+        away_team:        normalizeTeamName(awayTeam),
         commence_date:    commenceDate,
         market,
+        selection,
         line:             typeof line === 'number' ? line : undefined,
+        pick_context:     buildPickContext(pickContext),
       });
       setResult(r.data);
 
-      // Notify the parent card so it can refresh inline (cuota / badge /
-      // edge / EV). We propagate even on OVERRIDE_SAVED_ONLY because the
-      // card may want to show the manual odd as the displayed price.
       if (typeof onReprice === 'function'
           && (r.data?.status === 'REPRICED'
               || r.data?.status === 'OVERRIDE_SAVED_ONLY')) {
         try { onReprice(r.data); } catch { /* ignore subscriber errors */ }
       }
 
-      // Status-specific toast.
       const decision = r.data?.reprice?.decision;
       const edgePct  = Number(r.data?.reprice?.edge_pct ?? r.data?.manual_edge_pct ?? 0);
       const fair     = r.data?.reprice?.fair_odds;
@@ -132,7 +167,46 @@ export function InlineManualOddsInput({
     }
   };
 
-  // ── Helpers for rendering ───────────────────────────────────────────
+  const openDebug = async () => {
+    setDebugOpen(true);
+    setDebugLoading(true);
+    setDebugError(null);
+    setDebugData(null);
+    try {
+      const r = await api.get('/mlb/manual-odds/debug', {
+        params: {
+          match_id: matchId || undefined,
+          pick_id:  pickId  || undefined,
+          game_pk:  gamePk ? String(gamePk) : undefined,
+        },
+      });
+      setDebugData(r.data);
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        const msg = lang === 'en'
+          ? 'Session expired or missing authorization to view debug.'
+          : 'Sesión expirada o falta autorización para ver debug.';
+        setDebugError(msg);
+        toast.error(msg);
+      } else if (status === 422) {
+        const msg = err?.response?.data?.detail?.message_user
+          || (lang === 'en'
+              ? 'Missing match_id / pick_id / game_pk.'
+              : 'Falta match_id, pick_id o game_pk.');
+        setDebugError(msg);
+      } else {
+        setDebugError(
+          err?.response?.data?.detail
+          || err?.message
+          || (lang === 'en' ? 'Debug fetch failed.' : 'Falló la consulta de debug.'),
+        );
+      }
+    } finally {
+      setDebugLoading(false);
+    }
+  };
+
   const decision    = result?.reprice?.decision || result?.value_status;
   const decisionCls = decision === 'VALUE'
     ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
@@ -146,20 +220,26 @@ export function InlineManualOddsInput({
 
   const decisionLabel = (() => {
     if (!decision) return null;
-    if (decision === 'VALUE')             return lang === 'en' ? 'VALUE'        : 'VALUE';
-    if (decision === 'NO_VALUE')          return lang === 'en' ? 'NO VALUE'     : 'NO VALUE';
-    if (decision === 'WATCHLIST')         return lang === 'en' ? 'WATCHLIST'    : 'WATCHLIST';
-    if (decision === 'MANUAL_ODDS_ONLY')  return lang === 'en' ? 'INFO ONLY'    : 'SOLO INFO';
+    // F93.1 — when OVERRIDE_SAVED_ONLY, force the visible label to
+    // "SOLO INFO" — never NO VALUE — because there is no reprice basis.
+    if (result?.status === 'OVERRIDE_SAVED_ONLY') {
+      return lang === 'en' ? 'INFO ONLY' : 'SOLO INFO';
+    }
+    if (decision === 'VALUE')             return 'VALUE';
+    if (decision === 'NO_VALUE')          return lang === 'en' ? 'NO VALUE' : 'NO VALUE';
+    if (decision === 'WATCHLIST')         return 'WATCHLIST';
+    if (decision === 'MANUAL_ODDS_ONLY')  return lang === 'en' ? 'INFO ONLY' : 'SOLO INFO';
     return decision;
   })();
 
   const edgePct = result?.reprice?.edge_pct ?? result?.manual_edge_pct;
-  const showEdge = typeof edgePct === 'number' && !Number.isNaN(edgePct);
+  const showEdge = typeof edgePct === 'number'
+                  && !Number.isNaN(edgePct)
+                  && result?.status !== 'OVERRIDE_SAVED_ONLY';
 
   const isSavedOnly = result?.status === 'OVERRIDE_SAVED_ONLY';
   const isRepriced  = result?.status === 'REPRICED';
 
-  // Saved-only CTAs.
   const handleRefresh    = () => {
     if (typeof onRefreshCard === 'function') onRefreshCard();
     else if (typeof window !== 'undefined') window.location.reload();
@@ -167,15 +247,6 @@ export function InlineManualOddsInput({
   const handleRegenerate = () => {
     if (typeof onRegenerate === 'function') onRegenerate();
     else if (typeof window !== 'undefined') window.location.reload();
-  };
-  const handleDebug = () => {
-    // Best-effort: open the debug endpoint in a new tab (auth cookies
-    // travel with the request). Headers-based auth users can copy the
-    // URL from the toast.
-    if (typeof window !== 'undefined') {
-      const url = `${(window.location?.origin || '')}/api/mlb/manual-odds/debug?match_id=${encodeURIComponent(matchId || '')}&pick_id=${encodeURIComponent(pickId || '')}&game_pk=${encodeURIComponent(gamePk || '')}`;
-      window.open(url, '_blank', 'noopener');
-    }
   };
 
   return (
@@ -219,7 +290,6 @@ export function InlineManualOddsInput({
           )}
         </button>
 
-        {/* Decision pill — only when we got a non-error response. */}
         {result && decisionLabel && (
           <span
             className={`text-[10.5px] font-semibold tabular-nums px-1.5 py-0.5 rounded border ${decisionCls}`}
@@ -247,7 +317,6 @@ export function InlineManualOddsInput({
         )}
       </div>
 
-      {/* Status-specific descriptive line + actions. */}
       {result?.message_user && isRepriced && (
         <div
           className="text-[10.5px] text-cyan-100/90"
@@ -289,7 +358,7 @@ export function InlineManualOddsInput({
             </button>
             <button
               type="button"
-              onClick={handleDebug}
+              onClick={openDebug}
               className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/40 inline-flex items-center gap-1 transition-colors"
               data-testid={`${testId || 'inline-manual-odds-input'}-debug`}
             >
@@ -306,6 +375,50 @@ export function InlineManualOddsInput({
           data-testid={`${testId || 'inline-manual-odds-input'}-error`}
         >
           {error}
+        </div>
+      )}
+
+      {debugOpen && (
+        <div
+          className="rounded border border-cyan-500/25 bg-background/95 p-2 mt-1 flex flex-col gap-2"
+          data-testid={`${testId || 'inline-manual-odds-input'}-debug-panel`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold text-cyan-200">
+              {lang === 'en' ? 'Manual odds debug' : 'Debug de cuotas manuales'}
+            </div>
+            <button
+              type="button"
+              onClick={() => setDebugOpen(false)}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Close"
+              data-testid={`${testId || 'inline-manual-odds-input'}-debug-close`}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {debugLoading && (
+            <div className="text-[10.5px] text-muted-foreground inline-flex items-center gap-1.5">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {lang === 'en' ? 'Loading…' : 'Cargando…'}
+            </div>
+          )}
+          {debugError && (
+            <div
+              className="text-[10.5px] text-rose-200"
+              data-testid={`${testId || 'inline-manual-odds-input'}-debug-error`}
+            >
+              {debugError}
+            </div>
+          )}
+          {debugData && !debugLoading && (
+            <pre
+              className="text-[10px] font-mono whitespace-pre-wrap break-all bg-secondary/40 p-2 rounded max-h-56 overflow-auto"
+              data-testid={`${testId || 'inline-manual-odds-input'}-debug-content`}
+            >
+              {JSON.stringify(debugData, null, 2)}
+            </pre>
+          )}
         </div>
       )}
     </div>

@@ -1,26 +1,34 @@
 [
   {
-    "content": "Backend B1-B5: módulo + lookup + endpoints",
+    "content": "F93.1 Backend: 10 tests + suite 2966",
     "status": "completed"
   },
   {
-    "content": "Backend B6: 14 tests verdes, 2956 passed total",
+    "content": "F93.1 Frontend: 7 tests + suite 141",
     "status": "completed"
   },
   {
-    "content": "Frontend F1: InlineManualOddsInput reescrito",
-    "status": "completed"
+    "content": "F94: explorar pipeline football + identificar punto donde se ocultan fixtures",
+    "status": "in_progress"
   },
   {
-    "content": "Frontend F2: MatchCard — manualReprice + override visual",
-    "status": "completed"
+    "content": "F94 Backend: separar visibility_candidates / analysis_candidates / live_candidates / discarded_with_reasons + live_debug bloque",
+    "status": "pending"
   },
   {
-    "content": "Frontend F4: 5 tests F93 verdes, 130 passed total",
-    "status": "completed"
+    "content": "F94 Backend: live endpoint independiente de filtros prioridad",
+    "status": "pending"
   },
   {
-    "content": "Plan: MLB-F93 COMPLETED en plan.md",
-    "status": "completed"
+    "content": "F94 Frontend: dashboard muestra detalle descartados aunque rec=0; live tab muestra exóticos",
+    "status": "pending"
+  },
+  {
+    "content": "F94 Tests obligatorios",
+    "status": "pending"
+  },
+  {
+    "content": "Plan: marcar F93.1 + F94 COMPLETED",
+    "status": "pending"
   }
 ]
