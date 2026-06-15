@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.
 > **Estado histórico:** ✅ F58–F70 completadas.
-> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + ✅ **F93 (Corners cascade TSA→APS→TotalCorner→365→FootyStats vía scrape.do) COMPLETADA** + ✅ **Bugfix (upcoming filter elimina FT/PST/CANC/AET/PEN) COMPLETADA**.
+> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + ✅ **Fixture Time/Status Hard Gate (PREMATCH_BUFFER_MINUTES) COMPLETADA** + ✅ **Pipeline Debug Instrumentation + /api/diagnostics/api-health COMPLETADA**.
 >
 > **Idioma operativo:** Español.
 
@@ -441,7 +441,120 @@
 - ✅ Suite completa backend: **2782 passed, 2 skipped, 0 failed**.
 - ✅ Frontend: **125/125 PASS**.
 - ✅ Backend re-arranca limpio (sin errores en `/var/log/supervisor/backend.err.log`).
-- ✅ Cero regresiones.
+- ✅ Cero regresiones (capa inicial — luego endurecida por el Hard Fixture Gate).
+
+---
+
+# Fixture Time/Status Hard Gate (PREMATCH_BUFFER_MINUTES) (COMPLETED ✅)
+
+## Spec usuario
+- `FINAL_STATUSES = {FT, AET, PEN, CANC, PST, ABD, AWD, WO, FINAL, FINISHED, COMPLETED, ...}` deben **bloquearse**.
+- Aplicar `start_time > now + PREMATCH_BUFFER_MINUTES` (default **10 min**, env override).
+- Barrera dura **antes de** market identity → SportyTrader → odds → fragility → ranking → picks[].
+- Payload de descarte estructurado: `{discard_reason, stage, status, start_time, now, match_id, home, away}`.
+
+## Implementación
+1) **NEW** `backend/services/fixture_time_status_gate.py`
+- `FINAL_STATUSES` + `LIVE_STATUSES` (frozensets canónicos).
+- `RC_ALREADY_FINISHED`, `RC_ALREADY_STARTED`, `RC_KICKOFF_TOO_SOON`, `RC_KICKOFF_TIME_MISSING`, `RC_INVALID_INPUT`.
+- `get_prematch_buffer_minutes()` — lee `PREMATCH_BUFFER_MINUTES` env (default 10, clamp ≥ 0).
+- `check_fixture_gate(doc, *, now=None, buffer_minutes=None) → dict`:
+  1. Terminal status guard (status_short / status / fixture.status.short / abstract MLB).
+  2. Score safety net (kickoff pasado + scores numéricos → finalizado).
+  3. Live status guard (`1H`, `HT`, `2H`, `LIVE`, `IN_PLAY`, etc.).
+  4. Kickoff time guard: `start_time > now + buffer_minutes`.
+- `filter_fixtures_through_gate(matches, *, now, buffer_minutes, audit_sink)` — list-level con audit trail JSON-serializable.
+
+2) **MOD** `backend/server.py`
+- `_is_match_upcoming` y `_filter_upcoming_candidates` delegan al gate (mantienen firma legacy; `grace_seconds` es no-op).
+- Barrera dura insertada **antes** del football_quality filter / market identity / SportyTrader / odds.
+- `pipeline_meta["fixture_gate"]` con `{stage, buffer_minutes, before, kept, dropped, audit[]}`.
+
+3) **NEW** `backend/tests/test_fixture_time_status_gate.py` — **39 tests**.
+
+## Validación
+- ✅ 39/39 tests focales del gate + 51/51 tests del wrapper legacy.
+- ✅ Suite backend completa **2782 → estabilizada**.
+
+---
+
+# Pipeline Debug Instrumentation + /api/diagnostics/api-health (COMPLETED ✅)
+
+## Spec usuario
+- Counters por etapa: `provider_response_count`, `raw_fixtures_count`, `after_sport_filter_count`, `after_date_window_count`, `after_priority_league_filter_count`, `after_status_filter_count`, `after_market_filter_count`, `analysis_candidates_count`, `failure_stage`.
+- Health-check de proveedores con shape `{provider, request_sent, response_received, http_status, fixtures_returned, response_time_ms, error, status}`.
+- Endpoint `/api/diagnostics/api-health` con `api_health` + `summary`.
+- Mensaje claro cuando `provider_response_count=0` ("No se recibieron partidos desde el proveedor. Revisa provider, fecha, deporte o caché.").
+- Determinar con evidencia la **primera etapa** donde el conteo cae a cero.
+
+## Implementación
+
+### Backend
+1) **NEW** `backend/services/pipeline_debug.py`
+- `PipelineDebug` dataclass con `record(stage, count, note)` + audit trail.
+- `ORDERED_STAGES`: tupla canónica con las 8 etapas en orden spec.
+- `failure_stage` (property): primera etapa con count==0 **O** primera etapa no-registrada con downstream zero (detecta saltos silenciosos).
+- `failure_message`: mensaje user-facing en español por etapa.
+- `to_dict()`: JSON shape spec (`*_count` keys + `failure_stage` + `failure_message` + `stages[]`).
+- `empty_debug_payload()`: helper para paths que bail-out early.
+
+2) **NEW** `backend/services/api_health_check.py`
+- Probes individuales: `_probe_api_sports`, `_probe_thestatsapi`, `_probe_sportytrader`, `_probe_totalcorner`, `_probe_footystats`.
+- Cada probe: HTTP real con timeout (API-Sports/TheStatsAPI) o check de breaker (scrape.do providers).
+- `check_all_providers(*, timeout_s, only, probes)`: corre concurrente con `asyncio.gather` + per-probe timeout. Nunca raise.
+- Status: `OK`, `DEGRADED` (responde pero 0 fixtures), `DOWN` (HTTP error/timeout/exception), `DISABLED` (key missing).
+
+3) **MOD** `backend/server.py`
+- `_run_analysis_pipeline` instrumentado en **5 puntos** (provider response → raw + sport + date → priority league → status → market → analysis).
+- `pipeline_meta["pipeline_debug"]` + `pipeline_debug_failure_stage` + `pipeline_debug_failure_message` en top-level.
+- Log `WARNING` cuando funnel cae a 0.
+
+4) **NEW endpoint** `GET /api/diagnostics/api-health`
+- Query params: `timeout_s` (default 8s), `providers` (whitelist).
+- Respuesta: `{ok, checked_at, timeout_s, api_health: {…}, summary: {ok, degraded, down, disabled, skipped, total}}`.
+- Nunca 500: errores se convierten a `status: DOWN` con `error` poblado.
+
+### Tests
+5) **NEW** `backend/tests/test_pipeline_debug_instrumentation.py` — **15 tests**.
+6) **NEW** `backend/tests/test_api_health_check.py` — **14 tests**.
+
+## Validación
+- ✅ 15+14 = **29/29 tests focales** verdes.
+- ✅ Suite backend completa: **2869 passed, 2 skipped, 0 failed** (subimos +87 vs 2782).
+- ✅ Suite frontend: **125/125**.
+- ✅ Backend re-arranca limpio.
+- ✅ Endpoint validado en preview vía Python directo: 5 providers DISABLED (esperado: no hay keys en preview).
+
+## Cómo usar en producción
+
+### 1. Frontend — ver el funnel
+Cuando "Generar picks del día" devuelve 0/0/0/0, el frontend recibe `pipeline_meta.pipeline_debug` en la respuesta del job (`/api/analysis/jobs/{job_id}`). `failure_stage` indica EXACTAMENTE en qué etapa cayó a cero:
+
+```json
+{
+  "pipeline_meta": {
+    "pipeline_debug": {
+      "provider_response_count": 0,
+      "raw_fixtures_count": 0,
+      "after_sport_filter_count": 0,
+      "after_date_window_count": 0,
+      "after_priority_league_filter_count": 0,
+      "after_status_filter_count": 0,
+      "after_market_filter_count": 0,
+      "analysis_candidates_count": 0,
+      "failure_stage": "provider_response",
+      "failure_message": "No se recibieron partidos desde el proveedor. Revisa provider, fecha, deporte o caché."
+    }
+  }
+}
+```
+
+### 2. Endpoint diagnóstico
+`GET /api/diagnostics/api-health?timeout_s=8` retorna snapshot de los 5 proveedores con `status`, `fixtures_returned`, `http_status`, `response_time_ms`, `error`. Útil desde panel admin / Postman.
+
+### 3. Redeploy producción
+- Toda esta instrumentación + el Hard Fixture Gate está **solo en PREVIEW**. Producción (`low-volatility-plays.emergent.host`) verá los cambios sólo después de **redesplegar**.
+- En producción verificar variables: `API_FOOTBALL_KEY`, `THESTATSAPI_KEY`, `SCRAPEDO_TOKEN`, `PREMATCH_BUFFER_MINUTES` (opcional, default 10).
 
 ---
 

@@ -52,10 +52,15 @@ class TestIsMatchUpcoming:
         d = _doc(kickoff_ts=_now_ts() - 7200)
         assert _is_match_upcoming(d) is False
 
-    def test_recently_started_within_grace_is_kept(self):
-        # Started 5 minutes ago, status still NS (haven't refreshed yet).
+    def test_recently_started_within_grace_is_dropped(self):
+        # Phase F93-followup: the fixture gate now enforces a strict
+        # PREMATCH BUFFER (default 10 min BEFORE kickoff). A match that
+        # already started is ALWAYS dropped — the old "grace AFTER
+        # kickoff" semantics were exactly the regression the user
+        # reported, so the legacy grace_seconds=600 argument is now a
+        # no-op kept only for API back-compat.
         d = _doc(kickoff_ts=_now_ts() - 300)
-        assert _is_match_upcoming(d) is True
+        assert _is_match_upcoming(d) is False
 
     @pytest.mark.parametrize("status_short", sorted(_TERMINAL_FOOTBALL_STATUSES))
     def test_terminal_status_short_is_always_dropped(self, status_short):
@@ -165,11 +170,13 @@ class TestFilterUpcomingCandidates:
         kept = _filter_upcoming_candidates([a, b, c])
         assert [m["match_id"] for m in kept] == ["a", "b", "c"]
 
-    def test_grace_window_param_is_honoured(self):
-        # 5-minute-old kickoff, status NS, grace 60s → should drop.
+    def test_grace_window_param_is_a_no_op_now(self):
+        # ``grace_seconds`` was deprecated when the fixture gate took
+        # over (the new spec uses PREMATCH_BUFFER_MINUTES which acts
+        # BEFORE kickoff, not after). The parameter still exists for
+        # backward compatibility but no longer changes behaviour.
         d = _doc(kickoff_ts=_now_ts() - 300)
-        kept = _filter_upcoming_candidates([d], grace_seconds=60)
-        assert kept == []
-        # Same doc with default grace (600s) — should be kept.
-        kept2 = _filter_upcoming_candidates([d])
-        assert kept2 == [d]
+        # Both calls drop because the kickoff is in the past, regardless
+        # of the legacy grace_seconds value.
+        assert _filter_upcoming_candidates([d], grace_seconds=60) == []
+        assert _filter_upcoming_candidates([d], grace_seconds=900) == []

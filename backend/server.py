@@ -1823,124 +1823,63 @@ def _sport_filter(sport: Optional[str]) -> dict:
     return {"sport": s}
 
 
-# ── Bugfix: drop finished / postponed / cancelled matches from "upcoming" ──
-# API-Sports / TheStatsAPI / ESPN status_short codes that are *terminal* and
-# must NEVER appear as analyzable candidates. ``NS``/``TBD`` (not started /
-# to-be-defined) are the only states we treat as upcoming. Empty / unknown
-# status is left through so legacy docs (older ingestions without
-# status_short) keep working — the kickoff_ts filter still guards them.
-_TERMINAL_FOOTBALL_STATUSES: set[str] = {
-    "FT", "AET", "PEN", "FT_PEN",          # completed regulation / ET / pens
-    "PST", "CANC", "ABD", "AWD", "WO",     # cancelled / postponed / abandoned / walkover
-    "SUSP", "INT",                          # suspended / interrupted (operator must reload)
-}
-_TERMINAL_GENERIC_STATUSES: set[str] = {
-    "post", "final", "final/ot", "final/so", "completed", "ended", "closed",
-    "ft", "aet", "pen", "ft_pen",
-    "postponed", "cancelled", "canceled", "abandoned", "walkover", "suspended",
-    "delayed",          # deferred starts; treat as non-upcoming until rescheduled
-    "match finished",   # API-Sports long label
-    "match cancelled", "match canceled", "match postponed", "match abandoned",
-}
+# ─────────────────────────────────────────────────────────────────────
+# Fixture time/status gate — single source of truth for the upcoming
+# pool. Re-exported from :mod:`services.fixture_time_status_gate` so
+# legacy call sites that imported ``_is_match_upcoming`` /
+# ``_filter_upcoming_candidates`` keep working unchanged.
+#
+# Per spec the gate enforces:
+#   * status ∉ FINAL_STATUSES (FT/AET/PEN/CANC/PST/ABD/AWD/WO/...).
+#   * status ∉ LIVE_STATUSES  (no in-play matches in pre-match).
+#   * start_time > now + PREMATCH_BUFFER_MINUTES (default 10 min).
+# ─────────────────────────────────────────────────────────────────────
+from services.fixture_time_status_gate import (  # noqa: E402
+    FINAL_STATUSES                    as _FIXTURE_FINAL_STATUSES,
+    LIVE_STATUSES                     as _FIXTURE_LIVE_STATUSES,
+    RC_ALREADY_FINISHED               as _RC_FIXTURE_ALREADY_FINISHED,
+    RC_ALREADY_STARTED                as _RC_FIXTURE_ALREADY_STARTED,
+    RC_KICKOFF_TOO_SOON               as _RC_FIXTURE_KICKOFF_TOO_SOON,
+    check_fixture_gate                as _check_fixture_gate,
+    filter_fixtures_through_gate      as _filter_fixtures_through_gate,
+    get_prematch_buffer_minutes       as _prematch_buffer_minutes,
+)
+
+# Backwards-compatible aliases (the older bugfix exposed these names).
+_TERMINAL_FOOTBALL_STATUSES = _FIXTURE_FINAL_STATUSES
+_TERMINAL_GENERIC_STATUSES  = _FIXTURE_FINAL_STATUSES
 
 
 def _is_match_upcoming(match_doc: dict, *, now_ts: Optional[float] = None,
                        grace_seconds: int = 600) -> bool:
-    """Return ``True`` when this DB-level match document still qualifies as
-    *upcoming* for the analysis pipeline.
+    """Legacy boolean wrapper around the fixture time/status gate.
 
-    Three independent guards (any failure → drop):
-      1. ``kickoff_ts`` must be ``>= now - grace_seconds`` (default 10 min
-         of grace so a "just-started" candidate still flows to live).
-      2. ``status_short`` (preferred) **must not** be in
-         :data:`_TERMINAL_FOOTBALL_STATUSES` — covers ``FT``, ``AET``,
-         ``PEN``, ``PST``, ``CANC``, ``ABD``, ``AWD``, ``WO``, ``SUSP``,
-         ``INT``.
-      3. Long-form ``status`` strings (TheStatsAPI / ESPN / MLB Stats API)
-         must not match :data:`_TERMINAL_GENERIC_STATUSES`.
-
-    Fail-soft semantics: a document that lacks BOTH status fields but has a
-    valid future ``kickoff_ts`` is still treated as upcoming so legacy
-    documents (pre-status field) keep flowing.
+    ``grace_seconds`` is accepted for back-compat but ignored: the new
+    gate uses the ``PREMATCH_BUFFER_MINUTES`` env var instead (which
+    enforces a **buffer BEFORE kickoff**, not a grace AFTER it — the old
+    grace semantics were the root cause of the user-reported regression).
     """
-    if not isinstance(match_doc, dict):
-        return False
-    if now_ts is None:
-        now_ts = datetime.now(timezone.utc).timestamp()
-
-    # 1) Kickoff window guard.
-    kt = match_doc.get("kickoff_ts") or 0
-    try:
-        kt_float = float(kt)
-    except (TypeError, ValueError):
-        kt_float = 0.0
-    if kt_float < (now_ts - grace_seconds):
-        return False
-
-    # 2) Short status guard (API-Sports / TheStatsAPI football canonical).
-    sshort = (match_doc.get("status_short") or "").strip()
-    if sshort:
-        if sshort.upper() in _TERMINAL_FOOTBALL_STATUSES:
-            return False
-
-    # 3) Long status guard (multi-source / multi-sport).
-    slong = (match_doc.get("status") or "")
-    if isinstance(slong, str) and slong.strip():
-        if slong.strip().lower() in _TERMINAL_GENERIC_STATUSES:
-            return False
-    elif isinstance(slong, dict):
-        # Some legacy MLB docs nest the status: {"abstract": "Final", ...}
-        for v in slong.values():
-            if isinstance(v, str) and v.strip().lower() in _TERMINAL_GENERIC_STATUSES:
-                return False
-
-    # 4) Final score safety net: if both teams have an integer "score"
-    #    persisted *and* kickoff_ts is in the past, the match is over even
-    #    when the status field was never refreshed.
-    if kt_float < now_ts:
-        hs = (match_doc.get("home_score") if isinstance(match_doc.get("home_score"), (int, float))
-              else (match_doc.get("home_team") or {}).get("score") if isinstance(match_doc.get("home_team"), dict)
-              else None)
-        as_ = (match_doc.get("away_score") if isinstance(match_doc.get("away_score"), (int, float))
-               else (match_doc.get("away_team") or {}).get("score") if isinstance(match_doc.get("away_team"), dict)
-               else None)
-        if isinstance(hs, (int, float)) and isinstance(as_, (int, float)):
-            return False
-
-    return True
+    if now_ts is not None:
+        now_dt = datetime.fromtimestamp(float(now_ts), tz=timezone.utc)
+    else:
+        now_dt = None
+    decision = _check_fixture_gate(match_doc, now=now_dt)
+    return bool(decision["ok"])
 
 
 def _filter_upcoming_candidates(matches: list[dict], *,
-                                grace_seconds: int = 600) -> list[dict]:
-    """Apply :func:`_is_match_upcoming` to a list of candidate docs and emit
-    a single info log with the drop count + the offending match_ids (for
-    auditability)."""
+                                grace_seconds: int = 600,
+                                audit_sink: Optional[list[dict]] = None,
+                                ) -> list[dict]:
+    """Apply the fixture gate and return the surviving candidates.
+
+    ``grace_seconds`` is accepted for back-compat but ignored (see
+    :func:`_is_match_upcoming`). Pass ``audit_sink=[]`` to capture the
+    structured discard payloads for diagnostics / UI surfacing.
+    """
     if not matches:
         return matches
-    now_ts = datetime.now(timezone.utc).timestamp()
-    kept: list[dict] = []
-    dropped: list[dict] = []
-    for m in matches:
-        if _is_match_upcoming(m, now_ts=now_ts, grace_seconds=grace_seconds):
-            kept.append(m)
-        else:
-            dropped.append(m)
-    if dropped:
-        sample = [
-            {
-                "match_id":     d.get("match_id"),
-                "status_short": d.get("status_short"),
-                "status":       d.get("status") if isinstance(d.get("status"), str) else "<dict>",
-                "kickoff_iso":  d.get("kickoff_iso"),
-                "home":         ((d.get("home_team") or {}).get("name") if isinstance(d.get("home_team"), dict) else d.get("home_team")),
-                "away":         ((d.get("away_team") or {}).get("name") if isinstance(d.get("away_team"), dict) else d.get("away_team")),
-            }
-            for d in dropped[:5]
-        ]
-        log.info(
-            "[upcoming_filter] dropped %d/%d finished/postponed match(es) — sample=%s",
-            len(dropped), len(matches), sample,
-        )
+    kept, _dropped = _filter_fixtures_through_gate(matches, audit_sink=audit_sink)
     return kept
 
 
@@ -3638,6 +3577,22 @@ async def _run_analysis_pipeline(
         "source_used":            "api_sports",
     }
 
+    # ── Per-stage instrumentation (user-facing diagnostics) ─────────────
+    # Surfaces EXACTLY where fixtures disappear (provider → raw → date →
+    # priority league → status gate → market filter → analysis).
+    from services.pipeline_debug import (  # local import to avoid cycle
+        PipelineDebug,
+        STAGE_PROVIDER_RESPONSE,
+        STAGE_RAW_FIXTURES,
+        STAGE_AFTER_SPORT_FILTER,
+        STAGE_AFTER_DATE_WINDOW,
+        STAGE_AFTER_PRIORITY_LEAGUE,
+        STAGE_AFTER_STATUS_FILTER,
+        STAGE_AFTER_MARKET_FILTER,
+        STAGE_ANALYSIS_CANDIDATES,
+    )
+    pipeline_debug = PipelineDebug()
+
     await _emit("ingesting", 5, f"Ingesting upcoming {sport} fixtures…")
     log.info("[ANALYSIS_PIPELINE] start sport=%s refresh=%s include_live=%s max_matches=%s",
              sport, refresh, include_live, max_matches)
@@ -3778,6 +3733,19 @@ async def _run_analysis_pipeline(
                 log.warning("[ANALYSIS_PIPELINE] live ingest failed: %s", exc)
 
     await _emit("enriching", 25, "Selecting candidates by league + odds availability…")
+
+    # Pipeline-debug — provider stage. ``priority_fixtures`` length is
+    # what the provider (TheStatsAPI / API-Sports priority discovery)
+    # actually handed us *before* we touch db.matches. When priority
+    # discovery is disabled (live_only, MLB, basketball, national_teams)
+    # this stage records the db.matches ingest count instead so the
+    # downstream funnel keeps making sense.
+    pipeline_debug.record(
+        STAGE_PROVIDER_RESPONSE,
+        len(priority_fixtures) if priority_fixtures else 0,
+        note=f"priority_discovery={'on' if (sport == 'football' and not live_only and not national_teams_only) else 'off'}",
+    )
+
     if live_only:
         # Skip upcoming entirely — only analyze ongoing matches.
         upcoming = []
@@ -3801,7 +3769,16 @@ async def _run_analysis_pipeline(
             "match_id": {"$in": priority_match_ids},
             "is_live": False,
         }).to_list(length=len(priority_match_ids))
+        # Pipeline-debug — record raw + sport stages BEFORE the status
+        # filter so the funnel reflects what the provider returned.
+        pipeline_debug.record(STAGE_RAW_FIXTURES, len(upcoming),
+                              note=f"priority match_ids={len(priority_match_ids)} → db hits={len(upcoming)}")
+        pipeline_debug.record(STAGE_AFTER_SPORT_FILTER, len(upcoming),
+                              note="sport=football (priority discovery scope)")
+        _before_status_pri = len(upcoming)
         upcoming = _filter_upcoming_candidates(upcoming)
+        pipeline_debug.record(STAGE_AFTER_DATE_WINDOW, len(upcoming),
+                              note=f"after _filter_upcoming_candidates (dropped {_before_status_pri - len(upcoming)})")
         log.info(
             "priority candidate query: requested=%d found_in_db=%d",
             len(priority_fixtures), len(upcoming),
@@ -3809,7 +3786,17 @@ async def _run_analysis_pipeline(
     else:
         query_upcoming = {**_sport_filter(sport), "is_live": False}
         upcoming = await db.matches.find(query_upcoming).sort("kickoff_ts", 1).limit(80).to_list(length=80)
+        # Raw provider response (db.matches load) recorded BEFORE the
+        # status/date filter. Together with the next two records this
+        # tells us if the API returned anything at all.
+        pipeline_debug.record(STAGE_RAW_FIXTURES, len(upcoming),
+                              note="db.matches load (no priority discovery)")
+        pipeline_debug.record(STAGE_AFTER_SPORT_FILTER, len(upcoming),
+                              note=f"sport_filter={sport}")
+        _before_status = len(upcoming)
         upcoming = _filter_upcoming_candidates(upcoming)
+        pipeline_debug.record(STAGE_AFTER_DATE_WINDOW, len(upcoming),
+                              note=f"after _filter_upcoming_candidates (dropped {_before_status - len(upcoming)})")
 
     # ── MLB Stats API fallback (baseball only) ──────────────────────────
     # If API-Sports returned 0 baseball games for today, hit the official
@@ -4035,6 +4022,50 @@ async def _run_analysis_pipeline(
         pipeline_meta["national_teams_kept"] = len(upcoming)
         pipeline_meta["national_teams_dropped"] = before_nt - len(upcoming)
 
+    # Pipeline-debug — priority league filter stage.
+    pipeline_debug.record(
+        STAGE_AFTER_PRIORITY_LEAGUE,
+        len(upcoming),
+        note=(
+            f"big_five_only={big_five_only}, national_teams_only={national_teams_only}, "
+            f"priority_discovery={'hit' if priority_fixtures else 'miss'}"
+        ),
+    )
+
+    # ── Hard gate: fixture time/status (runs BEFORE market identity,
+    # SportyTrader lookup, odds enrichment, fragility scoring, ranking
+    # and picks[] generation). Single source of truth lives in
+    # ``services.fixture_time_status_gate``. Documents that survived the
+    # upcoming filter above but slipped past the league filters can also
+    # be rejected here so the downstream stages NEVER see a finished /
+    # in-play / about-to-start fixture.
+    fixture_gate_audit: list[dict] = []
+    _before_gate = len(upcoming)
+    upcoming, _gate_dropped = _filter_fixtures_through_gate(
+        upcoming, audit_sink=fixture_gate_audit,
+    )
+    pipeline_meta["fixture_gate"] = {
+        "stage":                "fixture_time_status_gate",
+        "buffer_minutes":       _prematch_buffer_minutes(),
+        "before":               _before_gate,
+        "kept":                 len(upcoming),
+        "dropped":              len(_gate_dropped),
+        "audit":                fixture_gate_audit[:20],  # truncate noisy lists
+    }
+    # Pipeline-debug — status filter stage (records what the gate dropped).
+    pipeline_debug.record(
+        STAGE_AFTER_STATUS_FILTER,
+        len(upcoming),
+        note=f"fixture_gate kept {len(upcoming)} / dropped {len(_gate_dropped)} (buffer={_prematch_buffer_minutes()}m)",
+    )
+    if _gate_dropped:
+        log.warning(
+            "[fixture_gate] HARD-GATED %d/%d fixtures before scoring "
+            "(reasons=%s)",
+            len(_gate_dropped), _before_gate,
+            sorted({a.get("discard_reason") for a in fixture_gate_audit}),
+        )
+
     # Universal Football Quality Filter (Phase 8 — Dynamic Match Discovery).
     # Filters out Tier 4 / exotic leagues / low-liquidity matches BEFORE the
     # expensive LLM analysis. Cascades Tier 1 → 2 → 3 until we hit the target.
@@ -4093,6 +4124,17 @@ async def _run_analysis_pipeline(
     upcoming.sort(key=priority_score)
     candidates = upcoming[: max_matches]
 
+    # Pipeline-debug — market filter stage. ``filter_and_prioritize``
+    # (universal football quality filter) is the closest thing we have
+    # to a market filter at this point; for non-football sports the
+    # stage simply echoes the post-status count.
+    pipeline_debug.record(
+        STAGE_AFTER_MARKET_FILTER,
+        len(upcoming),
+        note="after football_quality.filter_and_prioritize"
+              if sport == "football" else f"sport={sport} (no quality filter)",
+    )
+
     # Deep-enrich
     if sport == "football":
         await _emit("enriching", 40, f"Deep-enriching top {min(6, len(candidates))} football fixtures…")
@@ -4140,6 +4182,28 @@ async def _run_analysis_pipeline(
     pipeline_meta["ingested_total"]   = len(upcoming)
     pipeline_meta["candidates_count"] = len(candidates)
     pipeline_meta["ingest_error"]     = ingest_error
+
+    # ── Pipeline-debug — final stage + funnel publication ──────────────
+    # Records the count actually entering LLM analysis (or the LLM-less
+    # path for MLB v5 / Basketball v6). Always publishes the debug block
+    # into ``pipeline_meta`` so the frontend & ops endpoints can render
+    # the funnel even when the run aborts on the next no-candidates check.
+    pipeline_debug.record(
+        STAGE_ANALYSIS_CANDIDATES,
+        len(candidates),
+        note=f"sport={sport}, max_matches={max_matches}, include_live={include_live}",
+    )
+    pipeline_meta["pipeline_debug"] = pipeline_debug.to_dict()
+    # Mirror the failure stage at the top level so the UI doesn't have
+    # to walk the nested dict for the most common signal.
+    pipeline_meta["pipeline_debug_failure_stage"]   = pipeline_meta["pipeline_debug"].get("failure_stage")
+    pipeline_meta["pipeline_debug_failure_message"] = pipeline_meta["pipeline_debug"].get("failure_message")
+    if pipeline_meta["pipeline_debug_failure_stage"]:
+        log.warning(
+            "[pipeline_debug] funnel cayó a 0 en etapa=%s — %s",
+            pipeline_meta["pipeline_debug_failure_stage"],
+            pipeline_meta["pipeline_debug_failure_message"],
+        )
 
     if not candidates:
         # Phase 8.1 — even the "last-resort" fallback path must pass through
@@ -7565,6 +7629,68 @@ async def debug_thestatsapi_health(
     return payload
 
 
+# ─────────────────────────────────────────────────────────────────────
+# /api/diagnostics/api-health — multi-provider health snapshot used by
+# the Pre-match Debug panel when the funnel returns zero candidates.
+# ─────────────────────────────────────────────────────────────────────
+@api.get("/diagnostics/api-health")
+async def diagnostics_api_health(
+    user: dict = Depends(get_current_user),
+    timeout_s: float = 8.0,
+    providers: Optional[str] = None,
+):
+    """Return a structured health snapshot for every ingestion provider.
+
+    Query params:
+      * ``timeout_s``  — per-probe timeout (defaults to 8s).
+      * ``providers``  — comma-separated whitelist (e.g.
+        ``api_sports,thestatsapi``) to limit which probes run. When
+        omitted, every default probe runs concurrently.
+
+    Response shape::
+
+        {
+          "checked_at": "<iso>",
+          "timeout_s":   8.0,
+          "api_health": {
+            "api_sports":   {"status": "OK",   "fixtures_returned": 25, ...},
+            "thestatsapi":  {"status": "OK",   "fixtures_returned": 18, ...},
+            "sportytrader": {"status": "OK"},
+            "totalcorner":  {"status": "OK"},
+            "footystats":   {"status": "OK"}
+          },
+          "summary": {"ok": N, "degraded": N, "down": N, "disabled": N,
+                      "skipped": N, "total": N}
+        }
+
+    NEVER raises — failures surface as ``status: DOWN``.
+    """
+    try:
+        from services.api_health_check import check_all_providers as _check_all
+    except Exception as exc:
+        log.exception("api_health_check import failed")
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "detail": f"import failed: {exc}"},
+        )
+
+    only_list: Optional[list[str]] = None
+    if providers:
+        only_list = [p.strip() for p in providers.split(",") if p.strip()]
+
+    try:
+        snapshot = await _check_all(timeout_s=timeout_s, only=only_list)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("diagnostics_api_health failed")
+        return {
+            "ok":         False,
+            "detail":     f"unexpected failure: {exc!r}",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "api_health": {},
+            "summary":    {"ok": 0, "degraded": 0, "down": 0,
+                            "disabled": 0, "skipped": 0, "total": 0},
+        }
+    return {"ok": True, **snapshot}
 
 
 
