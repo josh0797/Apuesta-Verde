@@ -1,30 +1,38 @@
 [
   {
-    "content": "Localizar endpoint del botón 'Generar picks del día' y entender el flow",
+    "content": "Explorar data_ingestion.py + football_competitions.py + playwright_scraper para entender shapes existentes",
     "status": "completed"
   },
   {
-    "content": "Instrumentar pipeline_debug con counters por etapa + failure_stage",
+    "content": "F87.a — Crear thestatsapi_fixtures_adapter.py",
     "status": "completed"
   },
   {
-    "content": "Crear endpoint /api/diagnostics/api-health con prueba de cada proveedor",
+    "content": "F87.b — Crear sofascore_fixtures_adapter.py + scrapedo_fixtures_adapter.py",
     "status": "completed"
   },
   {
-    "content": "Devolver pipeline_debug y api_health snapshot en la respuesta del endpoint principal",
+    "content": "F87.c — Extender football_competitions.py con unknown bucket + blocklist",
     "status": "completed"
   },
   {
-    "content": "Mensaje claro cuando provider_response_count=0 (no sólo ceros silenciosos)",
+    "content": "F87 — Modificar data_ingestion.py: _discover_football_fixtures + integración unknown bucket",
     "status": "completed"
   },
   {
-    "content": "Tests focales y suite completa",
+    "content": "Verificar aislamiento MLB QCM ⇏ football discovery (seal_pick_payload fail-soft)",
     "status": "completed"
   },
   {
-    "content": "Actualizar plan.md con bugfix + instrumentación + recordatorio redeploy",
+    "content": "Tests test_f87_fixture_discovery.py + test_f87_fixture_discovery_isolation.py",
+    "status": "completed"
+  },
+  {
+    "content": "Suite completa backend + frontend",
+    "status": "completed"
+  },
+  {
+    "content": "Actualizar plan.md",
     "status": "completed"
   }
 ]

@@ -516,9 +516,34 @@ def seal_pick_payload(pick_payload: Any) -> dict:
     Returns the same payload for chaining.  Fail-soft: a non-dict input
     is converted into a new dict with all layers marked as
     ``available:false``.
+
+    **F87 isolation guard:** when the payload's ``sport`` field is set
+    and is NOT in the MLB/baseball family, this function is a strict
+    no-op — it returns the payload unchanged so the football pipeline
+    can never accidentally pull in MLB-only modules (advanced snapshot,
+    sabermetrics audit, quality_contact_matchup, …). When ``sport`` is
+    missing the legacy MLB behaviour is preserved (assumed MLB), which
+    is what the existing F91/F92 tests expect.
     """
     if not isinstance(pick_payload, dict):
         pick_payload = {}
+
+    # F87 — sport isolation guard. Reject any non-MLB sport early.
+    sport = pick_payload.get("sport")
+    if sport is not None:
+        sport_norm = str(sport).strip().lower()
+        if sport_norm and sport_norm not in ("mlb", "baseball"):
+            # Stamp a single marker so callers / tests can verify the
+            # gate fired, but do NOT mutate picks or add MLB-specific
+            # blocks. Returning early prevents accidental imports of
+            # MLB QCM / sabermetrics / advanced_snapshot modules.
+            pick_payload.setdefault(
+                "qcm_audit",
+                {"applied": False,
+                 "reason":  "PAYLOAD_NOT_MLB",
+                 "sport":   sport_norm},
+            )
+            return pick_payload
 
     # Phase F91 — compute QCM BEFORE the advanced_snapshot coercion
     # would overwrite the legacy top-level ``*_team_advanced`` keys.

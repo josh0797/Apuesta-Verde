@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.
 > **Estado histórico:** ✅ F58–F70 completadas.
-> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + ✅ **Fixture Time/Status Hard Gate (PREMATCH_BUFFER_MINUTES) COMPLETADA** + ✅ **Pipeline Debug Instrumentation + /api/diagnostics/api-health COMPLETADA**.
+> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade: TheStatsAPI → API-Football → ESPN → Sofascore PW → scrape.do + Unknown Bucket + MLB Isolation) COMPLETADA**.
 >
 > **Idioma operativo:** Español.
 
@@ -555,6 +555,131 @@ Cuando "Generar picks del día" devuelve 0/0/0/0, el frontend recibe `pipeline_m
 ### 3. Redeploy producción
 - Toda esta instrumentación + el Hard Fixture Gate está **solo en PREVIEW**. Producción (`low-volatility-plays.emergent.host`) verá los cambios sólo después de **redesplegar**.
 - En producción verificar variables: `API_FOOTBALL_KEY`, `THESTATSAPI_KEY`, `SCRAPEDO_TOKEN`, `PREMATCH_BUFFER_MINUTES` (opcional, default 10).
+
+---
+
+# F87 — Football Fixture Discovery Cascade (COMPLETED ✅)
+
+## Spec del usuario
+Tres sub-features + guardia de aislamiento MLB:
+
+### F87.a — TheStatsAPI primary
+TheStatsAPI como **fuente primaria** del fixture-discovery (espejo de F84.e/F84.a/F84.b para odds/h2h/team_stats).
+
+### F87.b — Sofascore (playwright) + scrape.do
+Sofascore via headless browser y vía scrape.do JSON como **tercer y cuarto fallback** de descubrimiento.
+
+### F87.c — Unknown Competition Bucket
+Bucket inclusivo `tier=unknown, priority=10` para ligas no registradas que NO estén en el blocklist (reserves, U13-U17, friendly clubs, regional ≥ div 3).
+
+### Guardia de aislamiento MLB/Football
+- `_discover_football_fixtures` no importa ni ejecuta NINGÚN módulo MLB.
+- `seal_pick_payload` es **no-op** cuando `payload["sport"]` ≠ MLB/baseball.
+
+## Implementación ejecutada
+
+### Backend
+1) **NEW** `backend/services/external_sources/thestatsapi_fixtures_adapter.py`
+- `fetch_fixtures_next_48h(client, *, date_iso, timeout_s) → (fixtures, reason_codes)`.
+- Reason codes: `THESTATSAPI_FIXTURES_DISABLED|TIMEOUT|EMPTY|SUCCESS|HTTP_ERROR|EXCEPTION`.
+- `_normalise_fixture(raw) → dict` produce el shape API-Football exacto (con keys `id`, `fixture.{id,date,timestamp,status}`, `league.{id,name,country,_thestatsapi_id}`, `teams.{home,away}`, `_external_source=thestatsapi`, `_is_national_team`, `_is_international`).
+- Detección heurística de internacionales por nombre (`WC|nations league|copa america|...`) + country normalizado.
+- Mapping de estados TheStatsAPI → API-Football short codes.
+- Fail-soft: nunca raise, `asyncio.wait_for` con timeout dedicado.
+
+2) **NEW** `backend/services/external_sources/sofascore_fixtures_adapter.py`
+- `fetch_fixtures_today(date_iso) → list[dict]` envuelve `playwright_scraper.sofascore_via_playwright`.
+- `_normalise_sofascore_event(ev, source_tag) → dict | None` normalizador compartido (también usado por scrape.do).
+- Soporta dos shapes: playwright (`{id: "sofa-X", league: "Y - Z", ...}`) y raw Sofascore JSON (`{startTimestamp, tournament, homeTeam, status: {type: ...}}`).
+- Status mapping: `inprogress → 1H`, `finished → FT`, otros → `NS`.
+
+3) **NEW** `backend/services/external_sources/scrapedo_fixtures_adapter.py`
+- `fetch_fixtures_today(date_iso, timeout_s) → list[dict]` invoca `https://api.sofascore.com/api/v1/sport/football/scheduled-events/{date}` vía `scrape_do_client.fetch_via_scrapedo_result(render=False)`.
+- Reusa `_normalise_sofascore_event` con `source_tag="scrapedo"`.
+
+4) **MOD** `backend/services/data_ingestion.py`
+- Nuevos helpers F87 al top del módulo (antes de `ingest_upcoming`):
+  - `_normalize_team_for_dedupe(name)` — lowercase + strip diacríticos + drop `FC|CF|SC|SD|AC|U\d+`.
+  - `_fixture_dedupe_key(fx) → (home_norm, away_norm, date_only)`.
+  - `_espn_to_apifootball_shape(ev) → dict`.
+  - `_merge_fixture_buckets(buckets) → list[dict]` con orden de prioridad `thestatsapi > api_football > espn > sofascore_pw > scrapedo`.
+  - `_discover_football_fixtures(client) → (fixtures, audit_dict)`.
+- Cascada:
+  1. TheStatsAPI primary (≥ `F87_MIN_VIABLE_COUNT=5` corta cascada).
+  2. API-Football legacy (≥ 5 corta cascada si TheStatsAPI vacío).
+  3. ESPN scoreboard.
+  4. Sofascore PW.
+  5. Sofascore scrape.do.
+  Si nada superó el threshold → merge + dedupe todos los buckets.
+- Audit dict expone `sources_called`, `counts_per_src`, `reason_codes`, `primary_winner`, `merged`, `total`, `isolated_from_mlb: true`.
+- Log explícito al arrancar: `[F87_discovery] sport=football isolated_from_mlb=true`.
+- Cuando `sport == "football"`, reemplaza el `await af.fixtures_next_48h(client)` por `await _discover_football_fixtures(client)`.
+
+5) **MOD** `backend/services/football_competitions.py` — F87.c
+- `UNKNOWN_TIER_NAME="unknown"`, `UNKNOWN_TIER_PRIORITY=10` (env override).
+- `UNKNOWN_HYDRATE_CAP=3` (cap separado para evitar que partidos unknown coman budget de Tier-1/2/3).
+- `_COMPETITION_BLOCKLIST_PATTERNS`: U13-U17, reserves, friendly clubs, youth, women.*reserve, amateur, regional league, division 3-9, tercera/cuarta/quinta división.
+- `is_competition_blocklisted(name) → bool`.
+- `get_unknown_competition_meta(name) → dict | None` — devuelve meta sintético sólo si NO está blocklisted Y el flag `ENABLE_UNKNOWN_COMPETITION_BUCKET=true`.
+- `get_allowed_tiers()` extiende `ALLOWED_TIERS` con `"unknown"` cuando el flag está on.
+
+6) **MOD** `backend/services/data_ingestion.py::ingest_upcoming` — integración F87.c
+- Tras los pasos 1) tier allowlist + 2) national-teams, añade paso **3) Unknown bucket** ANTES del discard.
+- Después de la hidratación, separa `kept` en `known_subset` + `unknown_subset`, capa el unknown a `UNKNOWN_HYDRATE_CAP=3`, y re-sortea por priority.
+- Logs nuevos: cuenta `Unknown:` en el log de tiers + warning con nombres capeados.
+
+7) **MOD** `backend/services/mlb_pipeline_payload_contract.py::seal_pick_payload` — guardia
+- Si `payload["sport"]` está definido y NO es `mlb|baseball` (case-insensitive), retorna inmediatamente con `qcm_audit = {applied: False, reason: "PAYLOAD_NOT_MLB", sport: <sport>}`.
+- Picks NO se mutan, no se agregan bloques MLB-specific.
+- Compatibilidad: payload sin `sport` (legacy F91) sigue funcionando exactamente igual (asumido MLB).
+
+### Tests
+8) **NEW** `backend/tests/test_f87_fixture_discovery.py` — **34 tests**:
+- F87.a: primary wins, empty falls through, disabled skips, adapter normalisation (basic + intl flags + unparseable).
+- F87.b: playwright shape + raw JSON shape + in-progress mapping + flags off + scrape.do sin token.
+- F87.c: unknown bucket pass, blocklist parametrizado (9 nombres), inclusive competitions parametrizado (5), flag off, get_allowed_tiers.
+- Merge: dedupe across sources, normalisation respects FC suffix, priority order respected.
+- Fail-soft: broken TheStatsAPI cascade fallback.
+
+9) **NEW** `backend/tests/test_f87_fixture_discovery_isolation.py` — **15 tests**:
+- `test_mlb_qcm_import_does_not_affect_football_fixture_discovery`: poisons MLB modules in `sys.modules`, runs discovery, asserts success + isolation flag.
+- `test_football_ingest_does_not_call_seal_pick_payload`: spies seal_pick_payload con `AsyncMock(side_effect=AssertionError)`, ejecuta discovery, assert NOT awaited.
+- `test_football_payload_skips_qcm`: assert picks intact + qcm_audit.reason=PAYLOAD_NOT_MLB.
+- Parametrizados: 4 deportes non-MLB (`basketball`, `tennis`, `hockey`, `nfl`) → skip; 5 variantes MLB (`mlb`, `baseball`, `MLB`, `BaseBall`, `" mlb "`) → procesado normal.
+- Missing sport preserves legacy MLB behavior.
+- Garbage input no exception.
+- Audit dict marca `isolated_from_mlb: true`.
+
+## Variables de entorno nuevas (defaults sanos)
+| Variable | Default | Efecto |
+|---|---|---|
+| `ENABLE_THESTATSAPI_FIXTURES_PRIMARY` | `true` | Activa TheStatsAPI como fuente #1 |
+| `ENABLE_API_FOOTBALL_FALLBACK` | `true` | Activa API-Football como #2 |
+| `ENABLE_SOFASCORE_PW_FALLBACK` | `true` | Activa Sofascore PW como #4 |
+| `ENABLE_SCRAPEDO_FIXTURES_FALLBACK` | `true` | Activa scrape.do como #5 |
+| `ENABLE_UNKNOWN_COMPETITION_BUCKET` | `true` | Activa bucket unknown |
+| `UNKNOWN_COMPETITION_PRIORITY` | `10` | Priority del bucket unknown |
+| `UNKNOWN_COMPETITION_HYDRATE_CAP` | `3` | Cap de unknown en hidratación |
+| `F87_MIN_VIABLE_COUNT` | `5` | Umbral para short-circuit |
+
+## Validación
+- ✅ Tests focales F87: **49/49 PASS** (34 discovery + 15 isolation).
+- ✅ Suite completa backend: **2918 passed, 2 skipped, 0 failed** (subimos de 2869 → 2918, +49 nuevos tests).
+- ✅ Suite completa frontend: **125/125 PASS**.
+- ✅ Lint Ruff limpio en los 5 archivos nuevos / modificados.
+- ✅ Backend re-arranca limpio.
+- ✅ **Cero regresiones MLB QCM**: el guardia de aislamiento preserva todo F91/F92.
+- ✅ **Cero regresiones football**: el discovery sigue devolviendo el shape API-Football exacto.
+
+## Beneficios esperados en producción
+- **Cobertura ampliada**: TheStatsAPI cubre torneos mundiales que API-Football no expone (FIFA Club World Cup, CONMEBOL Libertadores, ligas africanas/asiáticas no top).
+- **Resiliencia**: si una fuente falla, la cascada continúa. Solo se descartan partidos si las 5 fuentes vienen vacías.
+- **No silent discards**: ligas desconocidas pasan al bucket con priority=10 en vez de desaparecer.
+- **Aislamiento**: futuras tocadas a MLB no pueden romper football discovery (guardia probada con `_Exploding` MLB modules).
+
+## Recordatorio producción
+- Cambios sólo en preview. Para activar en producción → **redesplegar**.
+- En producción asegúrate de tener `THESTATSAPI_KEY` y `SCRAPEDO_TOKEN` configurados (si faltan, los respectivos pasos del cascade reportan `DISABLED` vía `/api/diagnostics/api-health`).
 
 ---
 

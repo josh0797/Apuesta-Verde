@@ -45,10 +45,239 @@ log = logging.getLogger("ingestion")
 # (every TheStatsAPI miss gracefully falls back to api_football). Set
 # ``ENABLE_API_SPORTS_FALLBACK=false`` to enter "TheStatsAPI-only" mode
 # — useful for staging environments that need to surface coverage gaps.
-import os as _os  # used only by the F84.a fallback flag helper below
+import os as _os  # used by F84.a + F87 flag helpers
 def _api_sports_fallback_enabled() -> bool:
     raw = (_os.environ.get("ENABLE_API_SPORTS_FALLBACK") or "true").strip().lower()
     return raw not in ("0", "false", "no", "off")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# F87 — Football fixture discovery (TheStatsAPI → API-Football → ESPN
+# → Sofascore PW → scrape.do). Designed to be INDEPENDENT from any
+# MLB / baseball / basketball module so MLB QCM changes can't break
+# football discovery.
+# ─────────────────────────────────────────────────────────────────────
+_F87_MIN_VIABLE_COUNT = int(_os.environ.get("F87_MIN_VIABLE_COUNT", "5"))
+_F87_MERGE_PRIORITY = ("thestatsapi", "api_football", "espn",
+                       "sofascore_pw", "scrapedo")
+
+
+def _f87_flag_enabled(env_var: str, default: str = "true") -> bool:
+    raw = (_os.environ.get(env_var) or default).strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def _normalize_team_for_dedupe(name: str) -> str:
+    """Lowercase, strip diacritics, drop common suffixes (FC, CF, SC, U23).
+    Pure: never depends on any sport-specific module."""
+    import unicodedata as _uc
+    import re as _re
+    s = _uc.normalize("NFKD", name or "").encode("ASCII", "ignore").decode()
+    s = _re.sub(r"\b(fc|cf|sc|sd|ac|u\d+)\b", "", s.lower())
+    return _re.sub(r"\s+", " ", s).strip()
+
+
+def _fixture_dedupe_key(fx: dict) -> tuple:
+    home = ((fx.get("teams") or {}).get("home") or {}).get("name") or ""
+    away = ((fx.get("teams") or {}).get("away") or {}).get("name") or ""
+    ts   = fx.get("timestamp") or (fx.get("fixture") or {}).get("timestamp") or 0
+    try:
+        date_only = (
+            datetime.fromtimestamp(int(ts), tz=timezone.utc).date().isoformat()
+            if ts else ""
+        )
+    except (TypeError, ValueError, OverflowError, OSError):
+        date_only = ""
+    return (
+        _normalize_team_for_dedupe(home),
+        _normalize_team_for_dedupe(away),
+        date_only,
+    )
+
+
+def _espn_to_apifootball_shape(ev: dict) -> dict:
+    """Convert one ESPN scoreboard event into the API-Football shape so
+    it can flow through the same merge step as TheStatsAPI / Sofascore.
+    """
+    if not isinstance(ev, dict):
+        return {}
+    iso = ev.get("kickoff_iso")
+    ts = None
+    if isinstance(iso, str) and iso:
+        try:
+            ts = int(datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp())
+        except (TypeError, ValueError):
+            ts = None
+    home_obj = ev.get("home_team") or {}
+    away_obj = ev.get("away_team") or {}
+    return {
+        "id":        str(ev.get("id") or ""),
+        "fixture":   {
+            "id":        str(ev.get("id") or ""),
+            "date":      iso,
+            "timestamp": ts,
+            "status":    {"short": "1H" if ev.get("is_live") else "NS"},
+            "venue":     {"name": None, "city": None},
+        },
+        "league":    {
+            "id":      None,
+            "name":    ev.get("league") or "",
+            "country": None,
+        },
+        "teams":     {
+            "home": {"id": home_obj.get("id"), "name": home_obj.get("name", "Home")},
+            "away": {"id": away_obj.get("id"), "name": away_obj.get("name", "Away")},
+        },
+        "_external_source":    "espn",
+        "_external_source_id": str(ev.get("id") or ""),
+        "date":      iso,
+        "timestamp": ts,
+        "status":    {"short": "1H" if ev.get("is_live") else "NS"},
+    }
+
+
+def _merge_fixture_buckets(buckets: dict[str, list[dict]]) -> list[dict]:
+    """Dedupe fixtures across discovery sources by (home, away, kickoff_date).
+    Keeps the entry from the highest-priority bucket and stamps
+    ``_discovery_source`` so downstream knows where it came from."""
+    seen: dict[tuple, dict] = {}
+    for src in _F87_MERGE_PRIORITY:
+        for fx in buckets.get(src, []) or []:
+            try:
+                key = _fixture_dedupe_key(fx)
+            except Exception:  # noqa: BLE001
+                continue
+            if key in seen:
+                continue
+            fx.setdefault("_discovery_source", src)
+            seen[key] = fx
+    return list(seen.values())
+
+
+async def _discover_football_fixtures(
+    client: httpx.AsyncClient,
+) -> tuple[list[dict], dict]:
+    """F87 — Resilient football discovery cascade.
+
+    Order:
+      1) TheStatsAPI primary (F87.a)
+      2) API-Football fallback (legacy)
+      3) ESPN scoreboard
+      4) Sofascore via Playwright (F87.b)
+      5) Sofascore via scrape.do (F87.b)
+
+    Merge strategy:
+      * The first source whose normalised count ≥ ``F87_MIN_VIABLE_COUNT``
+        (default 5) short-circuits the cascade.
+      * Otherwise every source is merged + deduped by
+        (home_norm, away_norm, kickoff_date).
+
+    **Isolated from MLB modules** — never imports
+    ``mlb_quality_contact_matchup``, ``mlb_pipeline_payload_contract`` or
+    any MLB/baseball adapter. Failure in those modules cannot affect
+    football discovery.
+    """
+    log.info("[F87_discovery] sport=football isolated_from_mlb=true")
+    audit: dict = {
+        "sources_called":   [],
+        "counts_per_src":   {},
+        "reason_codes":     {},
+        "primary_winner":   None,
+        "merged":           False,
+        "total":            0,
+        "isolated_from_mlb": True,
+    }
+    buckets: dict[str, list[dict]] = {}
+
+    # ── 1) TheStatsAPI primary ──
+    if _f87_flag_enabled("ENABLE_THESTATSAPI_FIXTURES_PRIMARY"):
+        try:
+            from .external_sources import thestatsapi_fixtures_adapter as _tsfx
+            ts_fx, ts_codes = await _tsfx.fetch_fixtures_next_48h(client)
+            buckets["thestatsapi"] = ts_fx
+            audit["sources_called"].append("thestatsapi")
+            audit["counts_per_src"]["thestatsapi"] = len(ts_fx)
+            audit["reason_codes"]["thestatsapi"]   = ts_codes
+            if len(ts_fx) >= _F87_MIN_VIABLE_COUNT:
+                audit["primary_winner"] = "thestatsapi"
+                audit["total"]          = len(ts_fx)
+                for f in ts_fx:
+                    f.setdefault("_discovery_source", "thestatsapi")
+                return ts_fx, audit
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[F87_discovery] thestatsapi failed: %s", exc)
+            audit["reason_codes"]["thestatsapi"] = ["EXCEPTION"]
+
+    # ── 2) API-Football fallback ──
+    if _f87_flag_enabled("ENABLE_API_FOOTBALL_FALLBACK"):
+        try:
+            af_fx_raw = await af.fixtures_next_48h(client)
+            af_fx = af_fx_raw or []
+            # Stamp source for the merge layer.
+            for f in af_fx:
+                f.setdefault("_external_source",    "api_football")
+                f.setdefault("_external_source_id", str(((f.get("fixture") or {}).get("id"))
+                                                          or f.get("id") or ""))
+            buckets["api_football"] = af_fx
+            audit["sources_called"].append("api_football")
+            audit["counts_per_src"]["api_football"] = len(af_fx)
+            if (len(af_fx) >= _F87_MIN_VIABLE_COUNT
+                    and not buckets.get("thestatsapi")):
+                audit["primary_winner"] = "api_football"
+                audit["total"]          = len(af_fx)
+                for f in af_fx:
+                    f.setdefault("_discovery_source", "api_football")
+                return af_fx, audit
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[F87_discovery] api_football failed: %s", exc)
+            audit["reason_codes"]["api_football"] = ["EXCEPTION"]
+
+    # ── 3) ESPN scoreboard ──
+    try:
+        espn_raw = await fb.espn_soccer_scoreboard(client)
+        espn_fx  = [_espn_to_apifootball_shape(e) for e in (espn_raw or [])]
+        espn_fx  = [e for e in espn_fx if e]
+        buckets["espn"] = espn_fx
+        audit["sources_called"].append("espn")
+        audit["counts_per_src"]["espn"] = len(espn_fx)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[F87_discovery] espn failed: %s", exc)
+        audit["reason_codes"]["espn"] = ["EXCEPTION"]
+
+    # ── 4) Sofascore via Playwright ──
+    if _f87_flag_enabled("ENABLE_SOFASCORE_PW_FALLBACK"):
+        try:
+            from .external_sources import sofascore_fixtures_adapter as _sofa
+            sofa_fx = await _sofa.fetch_fixtures_today()
+            buckets["sofascore_pw"] = sofa_fx
+            audit["sources_called"].append("sofascore_pw")
+            audit["counts_per_src"]["sofascore_pw"] = len(sofa_fx)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[F87_discovery] sofascore_pw failed: %s", exc)
+            audit["reason_codes"]["sofascore_pw"] = ["EXCEPTION"]
+
+    # ── 5) Sofascore via scrape.do ──
+    if _f87_flag_enabled("ENABLE_SCRAPEDO_FIXTURES_FALLBACK"):
+        try:
+            from .external_sources import scrapedo_fixtures_adapter as _sdf
+            sd_fx = await _sdf.fetch_fixtures_today()
+            buckets["scrapedo"] = sd_fx
+            audit["sources_called"].append("scrapedo")
+            audit["counts_per_src"]["scrapedo"] = len(sd_fx)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[F87_discovery] scrapedo failed: %s", exc)
+            audit["reason_codes"]["scrapedo"] = ["EXCEPTION"]
+
+    # ── Merge ──
+    merged = _merge_fixture_buckets(buckets)
+    audit["merged"] = True
+    audit["total"]  = len(merged)
+    return merged, audit
+
+
+# Phase F84.a (consolidated above; kept as a no-op anchor for blame).
+def _api_sports_fallback_enabled_legacy() -> bool:
+    return _api_sports_fallback_enabled()
 
 # Top-league IDs per sport, sourced from api_sports.SPORT_CONFIG
 TOP_LEAGUES = aps.SPORT_CONFIG["football"]["top_leagues"]
@@ -201,12 +430,18 @@ async def ingest_upcoming(
     """Ingest upcoming next-48h fixtures (top leagues priority) + odds + context."""
     sport = (sport or "football").lower()
     if sport == "football":
-        # Use legacy football path (backward compatible)
+        # F87 — resilient discovery cascade (TheStatsAPI → API-Football →
+        # ESPN → Sofascore PW → scrape.do). Replaces the old single-call
+        # ``af.fixtures_next_48h``. The cascade is sport-isolated so MLB
+        # QCM changes can't break football discovery.
         try:
-            upcoming_raw = await af.fixtures_next_48h(client)
+            upcoming_raw, discovery_audit = await _discover_football_fixtures(client)
+            log.info("[F87_discovery] %s", discovery_audit)
         except Exception as exc:
-            log.error("API-Football fixtures failed: %s -> using fallback", exc)
+            log.error("[F87_discovery] cascade failed unexpectedly: %s", exc)
             upcoming_raw = []
+            discovery_audit = {"sources_called": [], "total": 0,
+                                "merged": False, "error": repr(exc)}
     else:
         try:
             upcoming_raw = await aps.fixtures_next_48h(sport, client)
@@ -301,8 +536,10 @@ async def ingest_upcoming(
         from .api_sports import NATIONAL_TEAM_LEAGUES, is_national_team_league
         before = len(upcoming_raw)
         kept: list[dict] = []
-        tier_counts = {"tier_1": 0, "tier_2": 0, "tier_3": 0, "national_team": 0}
+        tier_counts = {"tier_1": 0, "tier_2": 0, "tier_3": 0,
+                        "national_team": 0, "unknown": 0}
         removed_leagues: dict[str, int] = {}
+        blocklisted_count = 0
         for f in upcoming_raw:
             league_obj = _fx_league(sport, f)
             league_name = (league_obj.get("name") or "").strip()
@@ -315,15 +552,11 @@ async def ingest_upcoming(
                 kept.append(f)
                 continue
             # 2) National-team leagues that the alias matcher missed
-            #    (e.g. "World Cup - Qualification Europe", "International
-            #    Friendlies", "UEFA Nations League") get a synthetic
-            #    Tier-2 meta so the new "Selecciones Nacionales" button
-            #    has something to analyze. They sit BELOW Big-Five but
-            #    ABOVE Tier-3 cups for priority sorting.
+            #    get a synthetic Tier-2 meta.
             if is_national_team_league(league_id_raw):
                 synthetic_meta = {
                     "tier":           "tier_2",
-                    "priority":       72,   # just below real Tier-2 (70-100)
+                    "priority":       72,
                     "canonical_name": league_name or "National Team Competition",
                     "type":           "international",
                     "region":         league_obj.get("country") or "World",
@@ -333,20 +566,59 @@ async def ingest_upcoming(
                 f["_competition_meta"] = synthetic_meta
                 kept.append(f)
                 continue
+            # 3) F87.c — Unknown competition bucket (inclusive default).
+            #    Accept the fixture at low priority instead of discarding
+            #    when the league name is not in the registry AND not
+            #    blocklisted (youth, reserves, friendly clubs, regional).
+            unk = fc.get_unknown_competition_meta(league_name)
+            if unk is not None:
+                tier_counts["unknown"] = tier_counts.get("unknown", 0) + 1
+                f["_competition_meta"] = unk
+                kept.append(f)
+                continue
+            # 4) Final discard (registry miss + blocklist hit, or flag off).
+            if fc.is_competition_blocklisted(league_name):
+                blocklisted_count += 1
             removed_leagues[league_name or "?"] = removed_leagues.get(league_name or "?", 0) + 1
         log.info(
             "Scraper fetched %d football events. Allowed competition filter kept %d matches. "
-            "Removed %d matches from non-priority leagues.",
-            before, len(kept), before - len(kept),
+            "Removed %d matches from non-priority leagues (blocklisted=%d).",
+            before, len(kept), before - len(kept), blocklisted_count,
         )
         log.info(
-            "Tier 1: %d  Tier 2: %d  Tier 3: %d  National-team: %d  (allowed_tiers=%s)",
+            "Tier 1: %d  Tier 2: %d  Tier 3: %d  National-team: %d  "
+            "Unknown: %d  (allowed_tiers=%s)",
             tier_counts["tier_1"], tier_counts["tier_2"], tier_counts["tier_3"],
             tier_counts.get("national_team", 0),
-            sorted(fc.ALLOWED_TIERS),
+            tier_counts.get("unknown", 0),
+            sorted(fc.get_allowed_tiers()),
         )
 
         # Sort: tier priority desc → kickoff time asc → (live boost handled in ingest_live)
+        kept.sort(key=lambda f: (
+            -((f.get("_competition_meta") or {}).get("priority", 0)),
+            _fx_timestamp(sport, f) or 0,
+        ))
+
+        # F87.c — cap unknown-bucket fixtures so they never crowd out
+        # Tier-1/2/3 ligas from the hydration budget. ``known`` is the
+        # registry + national-team set; ``unknown`` is the inclusive
+        # default bucket.
+        unknown_subset = [f for f in kept
+                          if (f.get("_competition_meta") or {}).get("_unknown_bucket")]
+        known_subset = [f for f in kept
+                        if not (f.get("_competition_meta") or {}).get("_unknown_bucket")]
+        unknown_capped = unknown_subset[:fc.UNKNOWN_HYDRATE_CAP]
+        if len(unknown_subset) > len(unknown_capped):
+            log.info(
+                "[F87_unknown_bucket] capped unknown competitions: %d → %d "
+                "(cap=%d). Dropped names=%s",
+                len(unknown_subset), len(unknown_capped), fc.UNKNOWN_HYDRATE_CAP,
+                [((f.get("_competition_meta") or {}).get("canonical_name"))
+                  for f in unknown_subset[fc.UNKNOWN_HYDRATE_CAP:]][:5],
+            )
+        kept = known_subset + unknown_capped
+        # Preserve the overall priority sort after the cap.
         kept.sort(key=lambda f: (
             -((f.get("_competition_meta") or {}).get("priority", 0)),
             _fx_timestamp(sport, f) or 0,

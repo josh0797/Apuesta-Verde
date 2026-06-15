@@ -543,3 +543,93 @@ def annotate_match_competition(match_doc: dict, league_name: Optional[str] = Non
         match_doc["competition_region"] = None
         match_doc["allowed_competition"] = False
     return match_doc
+
+
+# ─────────────────────────────────────────────────────────────────────
+# F87.c — Unknown-competition bucket (inclusive default filter)
+# ─────────────────────────────────────────────────────────────────────
+# When a league_name is NOT in :data:`_COMPETITION_REGISTRY` (or its
+# aliases) but ALSO is not part of the blocklist (reserve/U18/friendly
+# clubs/regional/division 3+), we accept it at a low priority instead
+# of silently dropping it. This preserves rare-but-valuable fixtures
+# like ``FIFA Club World Cup``, ``CONMEBOL Libertadores``, or one-off
+# youth tournaments with TV/odds coverage.
+UNKNOWN_TIER_NAME     = "unknown"
+UNKNOWN_TIER_PRIORITY = int(os.environ.get("UNKNOWN_COMPETITION_PRIORITY", "10"))
+UNKNOWN_HYDRATE_CAP   = int(os.environ.get("UNKNOWN_COMPETITION_HYDRATE_CAP", "3"))
+
+# Hard blocklist patterns — competitions that we DO want to discard.
+# Carefully scoped:
+#   * Youth tiers U13..U18 (numbers <19).
+#   * Reserve teams.
+#   * Friendly clubs (NOT international friendlies — those are kept).
+#   * Generic ``youth`` / ``amateur`` / ``regional league`` tokens.
+#   * Division ≥ 3 nationals (4th, 5th, 6th tier domestic, etc.).
+_COMPETITION_BLOCKLIST_PATTERNS = [
+    r"\bu1[34567]\b",                        # U13-U17 only — U18+ stays
+    r"\bu1[3-7](?:[\s\-_]|$)",                # explicit boundary forms
+    r"\breserves?\b",
+    r"\bfriendly\s+clubs?\b",
+    r"\bclub\s+friendl(?:y|ies)\b",
+    r"\byouth\b",
+    r"\bwomen.*reserves?\b",
+    r"\bamateur\b",
+    r"\bregional\s+league\b",
+    r"\bdivision\s+[3-9]\b",
+    r"\b(3rd|4th|5th|6th)\s+division\b",
+    r"\b(tercera|cuarta|quinta)\s+divisi[oó]n\b",
+]
+_BLOCKLIST_RE = re.compile("|".join(_COMPETITION_BLOCKLIST_PATTERNS), re.IGNORECASE)
+
+
+def _unknown_bucket_enabled() -> bool:
+    raw = (os.environ.get("ENABLE_UNKNOWN_COMPETITION_BUCKET") or "true").lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def is_competition_blocklisted(league_name: str) -> bool:
+    """Return True when ``league_name`` matches any blocklist regex.
+
+    Blocklisted competitions are dropped EVEN with the unknown-bucket
+    flag on — they are signal-free / non-analyzable noise.
+    """
+    if not isinstance(league_name, str):
+        return False
+    return bool(_BLOCKLIST_RE.search(league_name))
+
+
+def get_unknown_competition_meta(league_name: str) -> Optional[dict]:
+    """Return a synthetic ``unknown``-tier meta dict for a league that
+    is not in the registry AND not blocklisted. Returns ``None`` when
+    the flag is off or the name is blocklisted (silent discard).
+    """
+    if not _unknown_bucket_enabled():
+        return None
+    if is_competition_blocklisted(league_name or ""):
+        return None
+    return {
+        "tier":           UNKNOWN_TIER_NAME,
+        "priority":       UNKNOWN_TIER_PRIORITY,
+        "canonical_name": (league_name or "").strip() or "Unknown Competition",
+        "type":           "unknown",
+        "region":         None,
+        "_unknown_bucket": True,
+    }
+
+
+def get_allowed_tiers() -> set[str]:
+    """Return ``ALLOWED_TIERS`` expanded with ``unknown`` when the flag
+    is on. Call-sites that gate on tier membership should use this
+    helper instead of touching :data:`ALLOWED_TIERS` directly so the
+    unknown bucket participates in routing decisions."""
+    base = set(ALLOWED_TIERS)
+    if _unknown_bucket_enabled():
+        base.add(UNKNOWN_TIER_NAME)
+    return base
+
+
+__all_f87c__ = [
+    "UNKNOWN_TIER_NAME", "UNKNOWN_TIER_PRIORITY", "UNKNOWN_HYDRATE_CAP",
+    "is_competition_blocklisted", "get_unknown_competition_meta",
+    "get_allowed_tiers", "_unknown_bucket_enabled",
+]
