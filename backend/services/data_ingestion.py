@@ -61,6 +61,22 @@ _F87_MIN_VIABLE_COUNT = int(_os.environ.get("F87_MIN_VIABLE_COUNT", "5"))
 _F87_MERGE_PRIORITY = ("thestatsapi", "api_football", "espn",
                        "sofascore_pw", "scrapedo")
 
+# Last discovery audit — exposed via /api/football/discovery/debug.
+# Reset on every ``_discover_football_fixtures`` invocation. NEVER read
+# from outside ``services.data_ingestion`` except by the debug endpoint.
+LAST_FOOTBALL_DISCOVERY_AUDIT: dict = {}
+
+
+def get_last_football_discovery_audit() -> dict:
+    """Public read-only accessor for the latest discovery audit dict.
+
+    Returns an empty dict when discovery has not been invoked since
+    service startup. A deep copy is returned so callers can mutate the
+    result without affecting the module-level cache.
+    """
+    import copy as _copy
+    return _copy.deepcopy(LAST_FOOTBALL_DISCOVERY_AUDIT)
+
 
 def _f87_flag_enabled(env_var: str, default: str = "true") -> bool:
     raw = (_os.environ.get(env_var) or default).strip().lower()
@@ -172,37 +188,81 @@ async def _discover_football_fixtures(
       * Otherwise every source is merged + deduped by
         (home_norm, away_norm, kickoff_date).
 
+    **F87.1 contract guarantee:** every fixture flowing out of this
+    function has been passed through
+    :func:`football_fixture_contract.ensure_api_football_fixture_shape`,
+    so ``_enrich_football`` ALWAYS receives the nested API-Football
+    shape regardless of which adapter discovered the match.
+
     **Isolated from MLB modules** — never imports
     ``mlb_quality_contact_matchup``, ``mlb_pipeline_payload_contract`` or
     any MLB/baseball adapter. Failure in those modules cannot affect
     football discovery.
     """
+    # Lazy import inside the function so the F87.1 contract module
+    # cannot become a circular dependency surface for the legacy paths.
+    from . import football_fixture_contract as ffc
+
     log.info("[F87_discovery] sport=football isolated_from_mlb=true")
     audit: dict = {
         "sources_called":   [],
-        "counts_per_src":   {},
+        "counts_per_src":   {},        # raw (pre-normalisation)
+        "counts_normalised":{},        # post-shape normalisation
+        "shape_audit":      {},        # per-source FFC reason-code counts
         "reason_codes":     {},
         "primary_winner":   None,
         "merged":           False,
         "total":            0,
         "isolated_from_mlb": True,
+        "f87_1_contract":   True,
     }
     buckets: dict[str, list[dict]] = {}
+
+    def _publish_audit(final_fixtures: list[dict]) -> None:
+        """Publish the audit + sample for /api/football/discovery/debug.
+        Called on every exit path (short-circuit or merge)."""
+        try:
+            LAST_FOOTBALL_DISCOVERY_AUDIT.clear()
+            LAST_FOOTBALL_DISCOVERY_AUDIT.update(audit)
+            LAST_FOOTBALL_DISCOVERY_AUDIT["sample_fixtures"] = [
+                {
+                    "source":      f.get("_discovery_source"),
+                    "match_id":    (f.get("fixture") or {}).get("id"),
+                    "home":        ((f.get("teams") or {}).get("home") or {}).get("name"),
+                    "away":        ((f.get("teams") or {}).get("away") or {}).get("name"),
+                    "league":      (f.get("league") or {}).get("name"),
+                    "kickoff_iso": (f.get("fixture") or {}).get("date"),
+                    "status":      ((f.get("fixture") or {}).get("status") or {}).get("short"),
+                    "shape_valid": isinstance(f.get("fixture"), dict)
+                                    and isinstance(f.get("teams"), dict),
+                }
+                for f in (final_fixtures or [])[:8]
+            ]
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _normalise_and_record(name: str, raw: list[Any]) -> list[dict]:
+        normalised, shape_audit = ffc.normalize_bucket(raw or [], source=name)
+        audit["counts_per_src"][name]    = len(raw or [])
+        audit["counts_normalised"][name] = len(normalised)
+        audit["shape_audit"][name]       = shape_audit
+        return normalised
 
     # ── 1) TheStatsAPI primary ──
     if _f87_flag_enabled("ENABLE_THESTATSAPI_FIXTURES_PRIMARY"):
         try:
             from .external_sources import thestatsapi_fixtures_adapter as _tsfx
-            ts_fx, ts_codes = await _tsfx.fetch_fixtures_next_48h(client)
+            ts_raw, ts_codes = await _tsfx.fetch_fixtures_next_48h(client)
+            ts_fx = _normalise_and_record("thestatsapi", ts_raw)
             buckets["thestatsapi"] = ts_fx
             audit["sources_called"].append("thestatsapi")
-            audit["counts_per_src"]["thestatsapi"] = len(ts_fx)
             audit["reason_codes"]["thestatsapi"]   = ts_codes
             if len(ts_fx) >= _F87_MIN_VIABLE_COUNT:
                 audit["primary_winner"] = "thestatsapi"
                 audit["total"]          = len(ts_fx)
                 for f in ts_fx:
                     f.setdefault("_discovery_source", "thestatsapi")
+                _publish_audit(ts_fx)
                 return ts_fx, audit
         except Exception as exc:  # noqa: BLE001
             log.warning("[F87_discovery] thestatsapi failed: %s", exc)
@@ -211,22 +271,17 @@ async def _discover_football_fixtures(
     # ── 2) API-Football fallback ──
     if _f87_flag_enabled("ENABLE_API_FOOTBALL_FALLBACK"):
         try:
-            af_fx_raw = await af.fixtures_next_48h(client)
-            af_fx = af_fx_raw or []
-            # Stamp source for the merge layer.
-            for f in af_fx:
-                f.setdefault("_external_source",    "api_football")
-                f.setdefault("_external_source_id", str(((f.get("fixture") or {}).get("id"))
-                                                          or f.get("id") or ""))
+            af_raw = await af.fixtures_next_48h(client) or []
+            af_fx = _normalise_and_record("api_football", af_raw)
             buckets["api_football"] = af_fx
             audit["sources_called"].append("api_football")
-            audit["counts_per_src"]["api_football"] = len(af_fx)
             if (len(af_fx) >= _F87_MIN_VIABLE_COUNT
                     and not buckets.get("thestatsapi")):
                 audit["primary_winner"] = "api_football"
                 audit["total"]          = len(af_fx)
                 for f in af_fx:
                     f.setdefault("_discovery_source", "api_football")
+                _publish_audit(af_fx)
                 return af_fx, audit
         except Exception as exc:  # noqa: BLE001
             log.warning("[F87_discovery] api_football failed: %s", exc)
@@ -235,11 +290,11 @@ async def _discover_football_fixtures(
     # ── 3) ESPN scoreboard ──
     try:
         espn_raw = await fb.espn_soccer_scoreboard(client)
-        espn_fx  = [_espn_to_apifootball_shape(e) for e in (espn_raw or [])]
-        espn_fx  = [e for e in espn_fx if e]
+        espn_pre = [_espn_to_apifootball_shape(e) for e in (espn_raw or [])]
+        espn_pre = [e for e in espn_pre if e]
+        espn_fx  = _normalise_and_record("espn", espn_pre)
         buckets["espn"] = espn_fx
         audit["sources_called"].append("espn")
-        audit["counts_per_src"]["espn"] = len(espn_fx)
     except Exception as exc:  # noqa: BLE001
         log.warning("[F87_discovery] espn failed: %s", exc)
         audit["reason_codes"]["espn"] = ["EXCEPTION"]
@@ -248,10 +303,10 @@ async def _discover_football_fixtures(
     if _f87_flag_enabled("ENABLE_SOFASCORE_PW_FALLBACK"):
         try:
             from .external_sources import sofascore_fixtures_adapter as _sofa
-            sofa_fx = await _sofa.fetch_fixtures_today()
+            sofa_raw = await _sofa.fetch_fixtures_today()
+            sofa_fx  = _normalise_and_record("sofascore_pw", sofa_raw)
             buckets["sofascore_pw"] = sofa_fx
             audit["sources_called"].append("sofascore_pw")
-            audit["counts_per_src"]["sofascore_pw"] = len(sofa_fx)
         except Exception as exc:  # noqa: BLE001
             log.warning("[F87_discovery] sofascore_pw failed: %s", exc)
             audit["reason_codes"]["sofascore_pw"] = ["EXCEPTION"]
@@ -260,10 +315,10 @@ async def _discover_football_fixtures(
     if _f87_flag_enabled("ENABLE_SCRAPEDO_FIXTURES_FALLBACK"):
         try:
             from .external_sources import scrapedo_fixtures_adapter as _sdf
-            sd_fx = await _sdf.fetch_fixtures_today()
+            sd_raw = await _sdf.fetch_fixtures_today()
+            sd_fx  = _normalise_and_record("scrapedo", sd_raw)
             buckets["scrapedo"] = sd_fx
             audit["sources_called"].append("scrapedo")
-            audit["counts_per_src"]["scrapedo"] = len(sd_fx)
         except Exception as exc:  # noqa: BLE001
             log.warning("[F87_discovery] scrapedo failed: %s", exc)
             audit["reason_codes"]["scrapedo"] = ["EXCEPTION"]
@@ -272,6 +327,7 @@ async def _discover_football_fixtures(
     merged = _merge_fixture_buckets(buckets)
     audit["merged"] = True
     audit["total"]  = len(merged)
+    _publish_audit(merged)
     return merged, audit
 
 

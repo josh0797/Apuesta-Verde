@@ -1,38 +1,26 @@
 [
   {
-    "content": "Explorar data_ingestion.py + football_competitions.py + playwright_scraper para entender shapes existentes",
-    "status": "completed"
+    "content": "Crear services/football_fixture_contract.py con ensure_api_football_fixture_shape",
+    "status": "in_progress"
   },
   {
-    "content": "F87.a — Crear thestatsapi_fixtures_adapter.py",
-    "status": "completed"
+    "content": "Aplicar normalizador en _discover_football_fixtures (todas las sources)",
+    "status": "pending"
   },
   {
-    "content": "F87.b — Crear sofascore_fixtures_adapter.py + scrapedo_fixtures_adapter.py",
-    "status": "completed"
+    "content": "Crear endpoint GET /api/football/discovery/debug con audit completo",
+    "status": "pending"
   },
   {
-    "content": "F87.c — Extender football_competitions.py con unknown bucket + blocklist",
-    "status": "completed"
-  },
-  {
-    "content": "F87 — Modificar data_ingestion.py: _discover_football_fixtures + integración unknown bucket",
-    "status": "completed"
-  },
-  {
-    "content": "Verificar aislamiento MLB QCM ⇏ football discovery (seal_pick_payload fail-soft)",
-    "status": "completed"
-  },
-  {
-    "content": "Tests test_f87_fixture_discovery.py + test_f87_fixture_discovery_isolation.py",
-    "status": "completed"
+    "content": "Tests focales test_f87_1_fixture_contract.py",
+    "status": "pending"
   },
   {
     "content": "Suite completa backend + frontend",
-    "status": "completed"
+    "status": "pending"
   },
   {
     "content": "Actualizar plan.md",
-    "status": "completed"
+    "status": "pending"
   }
 ]

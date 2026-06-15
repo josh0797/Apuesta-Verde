@@ -7693,6 +7693,85 @@ async def diagnostics_api_health(
     return {"ok": True, **snapshot}
 
 
+# ─────────────────────────────────────────────────────────────────────
+# /api/football/discovery/debug — last-run audit for the F87 cascade.
+# Used by the dashboard when "Analizados=0" to surface the exact stage
+# where fixtures disappeared.
+# ─────────────────────────────────────────────────────────────────────
+@api.get("/football/discovery/debug")
+async def football_discovery_debug(
+    user: dict = Depends(get_current_user),
+    refresh: bool = False,
+):
+    """Return the latest football discovery audit.
+
+    Response shape::
+
+        {
+          "ok": True,
+          "window_hours":   48,
+          "sources_called": [...],
+          "counts_raw":     {src: int},
+          "counts_after_shape_normalization": {src: int},
+          "shape_audit":    {src: {raw_count, kept_count, dropped_count,
+                                    reason_codes: {...}}},
+          "primary_winner": "thestatsapi" | "api_football" | null,
+          "merged":         bool,
+          "isolated_from_mlb": True,
+          "f87_1_contract": True,
+          "sample_fixtures": [...]
+        }
+
+    When ``refresh=true`` the cascade is re-run synchronously (useful
+    from the admin panel without firing a full ``/api/analysis/run``).
+
+    Fail-soft: never 500s.
+    """
+    try:
+        from services import data_ingestion as _di
+    except Exception as exc:
+        log.exception("football discovery debug — import failed")
+        return JSONResponse(status_code=500,
+                             content={"ok": False, "detail": f"import: {exc}"})
+
+    if refresh:
+        try:
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=20.0) as cli:
+                await _di._discover_football_fixtures(cli)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("football discovery debug refresh failed: %s", exc)
+
+    audit = _di.get_last_football_discovery_audit()
+    if not audit:
+        return {
+            "ok":      True,
+            "ran":     False,
+            "message": ("No hay auditoría de discovery todavía. Lanza "
+                        "/api/analysis/run o pasa ?refresh=true."),
+        }
+
+    # Normalise shape to the canonical contract requested by the UI.
+    raw_counts        = audit.get("counts_per_src",   {}) or {}
+    norm_counts       = audit.get("counts_normalised", {}) or {}
+    return {
+        "ok":                True,
+        "ran":               True,
+        "window_hours":      48,
+        "sources_called":    audit.get("sources_called", []),
+        "counts_raw":        raw_counts,
+        "counts_after_shape_normalization": norm_counts,
+        "shape_audit":       audit.get("shape_audit",   {}),
+        "reason_codes":      audit.get("reason_codes",  {}),
+        "primary_winner":    audit.get("primary_winner"),
+        "merged":            audit.get("merged", False),
+        "total":             audit.get("total", 0),
+        "isolated_from_mlb": audit.get("isolated_from_mlb", True),
+        "f87_1_contract":    audit.get("f87_1_contract",   True),
+        "sample_fixtures":   audit.get("sample_fixtures", []),
+    }
+
+
 
 
 @api.get("/system/fallback-sources")
