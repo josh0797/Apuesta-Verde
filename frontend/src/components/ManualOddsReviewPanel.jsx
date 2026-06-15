@@ -480,9 +480,14 @@ function ManualReviewRow({ item, idx, testId }) {
             {/* Save button — persists manual odds via backend endpoint
                 /api/mlb/picks/{pick_id}/manual-odds. The backend
                 recomputes value_status server-side so the saved row
-                is consistent with the engine's stored probability. */}
+                is consistent with the engine's stored probability.
+
+                MLB-F93 — consumes the new `status` / `reprice` contract
+                when it's present, and still falls back to the legacy
+                `value_status` + `manual_edge_pct` fields so older
+                backends remain supported. */}
             {edgeCalc && item.id ? (
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex items-center gap-2 pt-1 flex-wrap">
                 <button
                   type="button"
                   disabled={saving}
@@ -494,12 +499,63 @@ function ManualReviewRow({ item, idx, testId }) {
                         {
                           manual_odds:       manualOdds,
                           promote_if_value:  false,
+                          // Pass context so the backend can locate the
+                          // pick / fall back to `matches` collection.
+                          match_id:          item.match_id,
+                          game_pk:           item.game_pk
+                                              ? String(item.game_pk) : undefined,
+                          home_team:         item.home_team,
+                          away_team:         item.away_team,
+                          commence_date:     (item.commence_time || '').slice(0, 10)
+                                              || item.commence_date,
+                          market:            recommendedMarket,
+                          line:              typeof item.line === 'number'
+                                              ? item.line : undefined,
                         },
                       );
                       setSaved(r.data);
-                      toast.success(
-                        `Cuota guardada — ${r.data.value_status} (edge ${r.data.manual_edge_pct >= 0 ? '+' : ''}${r.data.manual_edge_pct?.toFixed(1)}%)`,
-                      );
+
+                      // ── F93 contract path ────────────────────────
+                      const status   = r.data?.status;
+                      const decision = r.data?.reprice?.decision;
+                      const edgePctV = r.data?.reprice?.edge_pct;
+                      const fair     = r.data?.reprice?.fair_odds;
+
+                      if (status === 'REPRICED' && decision === 'VALUE') {
+                        toast.success(
+                          `Ahora hay valor a ${Number(r.data.reprice.manual_odd).toFixed(2)} `
+                          + `(+${Number(edgePctV).toFixed(1)}% edge).`,
+                        );
+                      } else if (status === 'REPRICED' && decision === 'NO_VALUE') {
+                        toast.success(
+                          `Cuota aplicada: sigue sin valor a `
+                          + `${Number(r.data.reprice.manual_odd).toFixed(2)}`
+                          + (fair ? ` (fair ${Number(fair).toFixed(2)})` : '')
+                          + '.',
+                        );
+                      } else if (status === 'REPRICED' && decision === 'WATCHLIST') {
+                        toast.success(
+                          `Cerca de valor a `
+                          + `${Number(r.data.reprice.manual_odd).toFixed(2)}.`,
+                        );
+                      } else if (status === 'REPRICED') {
+                        toast.success(
+                          `Cuota guardada a `
+                          + `${Number(r.data.reprice.manual_odd).toFixed(2)} — informativo.`,
+                        );
+                      } else if (status === 'OVERRIDE_SAVED_ONLY') {
+                        toast.warning(
+                          r.data.message_user
+                          || 'Cuota guardada, pero no se pudo recalcular este pick.',
+                        );
+                      } else {
+                        // ── Legacy path (no F93 contract present) ──
+                        const legacyEdge = Number(r.data?.manual_edge_pct ?? 0);
+                        toast.success(
+                          `Cuota guardada — ${r.data?.value_status} `
+                          + `(edge ${legacyEdge >= 0 ? '+' : ''}${legacyEdge.toFixed(1)}%)`,
+                        );
+                      }
                     } catch (err) {
                       toast.error(
                         err?.response?.data?.detail || 'No se pudo guardar la cuota manual',
@@ -511,21 +567,67 @@ function ManualReviewRow({ item, idx, testId }) {
                   className="text-[10.5px] px-2.5 py-1 rounded border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   data-testid={`manual-review-row-${idx}-save-odds-btn`}
                 >
-                  {saving ? 'Guardando…' : 'Guardar cuota manual'}
+                  {saving ? 'Recalculando con cuota manual…' : 'Guardar cuota manual'}
                 </button>
-                {saved ? (
+                {/* Status pill — prefer F93 decision; fall back to legacy
+                    value_status when only legacy fields are available. */}
+                {saved ? (() => {
+                  const dec = saved?.reprice?.decision || saved?.value_status;
+                  const edgePctShow = saved?.reprice?.edge_pct
+                                       ?? saved?.manual_edge_pct;
+                  const fairOdd     = saved?.reprice?.fair_odds;
+                  const cls = dec === 'VALUE'
+                    ? 'text-emerald-300'
+                    : dec === 'WATCHLIST' || dec === 'FAIR_VALUE'
+                      ? 'text-amber-300'
+                      : dec === 'NO_VALUE'
+                        ? 'text-rose-300'
+                        : dec === 'MANUAL_ODDS_ONLY'
+                          ? 'text-cyan-200'
+                          : 'text-muted-foreground';
+                  const lbl = dec === 'NO_VALUE'        ? 'NO VALUE'
+                            : dec === 'MANUAL_ODDS_ONLY' ? 'SOLO INFO'
+                            : dec || '—';
+                  return (
+                    <span
+                      className={`text-[10.5px] tabular-nums ${cls}`}
+                      data-testid={`manual-review-row-${idx}-saved-status`}
+                    >
+                      {lbl}
+                      {typeof edgePctShow === 'number' ? (
+                        <>
+                          {' '}({Number(edgePctShow) >= 0 ? '+' : ''}
+                          {Number(edgePctShow).toFixed(1)}%)
+                        </>
+                      ) : null}
+                      {fairOdd != null && dec === 'NO_VALUE' ? (
+                        <span className="ml-1 opacity-80">
+                          · fair {Number(fairOdd).toFixed(2)}
+                        </span>
+                      ) : null}
+                    </span>
+                  );
+                })() : null}
+                {/* F93 — OVERRIDE_SAVED_ONLY surfaces a non-blocking
+                    note + a "refresh" hint. We don't render full CTAs
+                    here (the batch panel doesn't own a single-card
+                    refresh primitive), but we do surface the message
+                    so users know they need to regenerate. */}
+                {saved?.status === 'OVERRIDE_SAVED_ONLY' ? (
                   <span
-                    className={`text-[10.5px] tabular-nums ${
-                      saved.value_status === 'VALUE'
-                        ? 'text-emerald-300'
-                        : saved.value_status === 'FAIR_VALUE'
-                          ? 'text-amber-300'
-                          : 'text-rose-300'
-                    }`}
-                    data-testid={`manual-review-row-${idx}-saved-status`}
+                    className="text-[10.5px] text-amber-200/90 basis-full"
+                    data-testid={`manual-review-row-${idx}-override-saved-msg`}
                   >
-                    {saved.value_status}{' '}
-                    ({saved.manual_edge_pct >= 0 ? '+' : ''}{Number(saved.manual_edge_pct ?? 0).toFixed(1)}%)
+                    {saved.message_user
+                     || 'Cuota guardada, pero no se pudo recalcular este pick — regenera el análisis para verlo actualizado.'}
+                  </span>
+                ) : null}
+                {saved?.status === 'REPRICED' && saved?.message_user ? (
+                  <span
+                    className="text-[10.5px] text-cyan-100/85 basis-full"
+                    data-testid={`manual-review-row-${idx}-reprice-msg`}
+                  >
+                    {saved.message_user}
                   </span>
                 ) : null}
               </div>

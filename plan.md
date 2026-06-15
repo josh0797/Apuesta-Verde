@@ -197,8 +197,18 @@
   - +14 tests nuevos (`11 obligatorios + 3 sanity`).
   - Suite completa: **2956 passed, 2 skipped** (baseline anterior 2942 → +14).
 - ✅ Frontend:
-  - +5 tests nuevos (los 5 obligatorios).
-  - Suite completa: **130 passed** (baseline anterior 125 → +5).
+  - +9 tests nuevos (5 InlineManualOddsInput + 4 ManualOddsReviewPanel F93).
+  - Suite completa: **134 passed** (baseline anterior 125 → +9).
+
+## Adaptación adicional — `ManualOddsReviewPanel.jsx`
+- ✅ El panel de revisión batch ahora **consume el contrato F93** cuando `r.data.status` está presente:
+  - Toasts diferenciados (VALUE / NO_VALUE / WATCHLIST / OVERRIDE_SAVED_ONLY).
+  - Pill prefiere `reprice.decision` sobre `value_status` legacy.
+  - Edge% desde `reprice.edge_pct` con fallback a `manual_edge_pct`.
+  - Renderiza `message_user` (línea informativa) cuando viene en la respuesta.
+  - Render explícito de "no se pudo recalcular" para `OVERRIDE_SAVED_ONLY` (basis-full row), evitando la antigua copia genérica.
+  - Pasa al backend los campos de contexto (`match_id`, `game_pk`, `home_team`, `away_team`, `commence_date`, `market`, `line`) para que el lookup multi-key/`matches` collection funcione.
+- ✅ **Back-compat preservada**: cuando el backend devuelve solo los campos legacy (sin `status`/`reprice`), el panel sigue mostrando `value_status` + `manual_edge_pct` como antes.
 
 ## Variables de entorno
 - `MLB_MANUAL_VALUE_EDGE_THRESHOLD` (default `0.03`).
@@ -226,7 +236,7 @@
 
 - Suites actuales:
   - Backend: **2956 passed, 2 skipped**.
-  - Frontend: **130 passed**.
+  - Frontend: **134 passed**.
 
 - Reglas de operación:
   - Siempre usar `yarn` (no `npm`).
