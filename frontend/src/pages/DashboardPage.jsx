@@ -27,6 +27,7 @@ import { FootballMarketAuditPanel } from '@/components/FootballMarketAuditPanel'
 import { CornerPregamePanel } from '@/components/CornerPregamePanel';
 import { StructuralReviewPanel } from '@/components/StructuralReviewPanel';
 import { EditorialPredictionPanel } from '@/components/EditorialPredictionPanel';
+import { DiscoveryDebugSheet } from '@/components/DiscoveryDebugSheet';
 
 function GroupSection({ title, count, tier, children, defaultOpen = true, testId, sectionRef, icon: Icon }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -779,6 +780,8 @@ export default function DashboardPage() {
   // Dedupe key:  match_id (upsert) — the backend never duplicates rows.
   // Only enabled on the Football tab.
   const [refreshingMatches, setRefreshingMatches] = useState(false);
+  // F87.1 — Discovery debug Sheet (only relevant for football when Analizados=0).
+  const [discoveryDebugOpen, setDiscoveryDebugOpen] = useState(false);
   const refreshMatches = async () => {
     if (sport !== 'football') return;
     const requestSport = sport;
@@ -1200,6 +1203,34 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* F87.1 — Discovery debug entry point.
+          Shown when the football pipeline analyzed 0 matches so the user
+          can see whether the loss happened at the adapter or the contract
+          stage, instead of seeing only "No hay partidos…". */}
+      {sport === 'football'
+        && data?.summary
+        && (data.summary.total_analyzed ?? 0) === 0 && (
+        <div
+          className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 flex flex-col sm:flex-row sm:items-center gap-3 justify-between"
+          data-testid="discovery-debug-banner-cta"
+        >
+          <div className="text-sm text-amber-100">
+            {lang === 'en'
+              ? 'Analyzed = 0. If the discovery cascade returned fixtures but the contract rejected them, see exactly where the loss happened.'
+              : 'Analizados = 0. Si la cascada de discovery devolvió fixtures pero el contract los rechazó, revisa dónde se perdieron.'}
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setDiscoveryDebugOpen(true)}
+            data-testid="open-discovery-debug-btn"
+          >
+            <AlertCircle className="h-4 w-4 mr-1.5" />
+            {lang === 'en' ? 'View discovery debug' : 'Ver debug de discovery'}
+          </Button>
+        </div>
+      )}
+
       {data?.summary?.editorial_signal_summary?.total_signals > 0 && (
         <EditorialSignalsSummary
           summary={data.summary.editorial_signal_summary}
@@ -1509,6 +1540,13 @@ export default function DashboardPage() {
           )}
         </div>
       )}
+
+      {/* F87.1 — Discovery debug Sheet (mounted once, opened on demand). */}
+      <DiscoveryDebugSheet
+        open={discoveryDebugOpen}
+        onOpenChange={setDiscoveryDebugOpen}
+        lang={lang}
+      />
     </div>
   );
 }

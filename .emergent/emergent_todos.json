@@ -1,26 +1,30 @@
 [
   {
-    "content": "Crear services/football_fixture_contract.py con ensure_api_football_fixture_shape",
-    "status": "in_progress"
+    "content": "Fase A: Contract + adapters ampliados",
+    "status": "completed"
   },
   {
-    "content": "Aplicar normalizador en _discover_football_fixtures (todas las sources)",
-    "status": "pending"
+    "content": "Fase B: Endpoint /api/football/discovery/debug ampliado",
+    "status": "completed"
   },
   {
-    "content": "Crear endpoint GET /api/football/discovery/debug con audit completo",
-    "status": "pending"
+    "content": "Fase C: 9 tests upstream verdes",
+    "status": "completed"
   },
   {
-    "content": "Tests focales test_f87_1_fixture_contract.py",
-    "status": "pending"
+    "content": "Fase C-verify: pytest 2942 passed, zero regresión",
+    "status": "completed"
   },
   {
-    "content": "Suite completa backend + frontend",
-    "status": "pending"
+    "content": "Fase D: UI Sheet 'Ver debug de discovery'",
+    "status": "completed"
   },
   {
-    "content": "Actualizar plan.md",
-    "status": "pending"
+    "content": "Fase D-verify: 125/125 frontend tests + esbuild OK",
+    "status": "completed"
+  },
+  {
+    "content": "Fase E: plan.md F87.1 COMPLETED",
+    "status": "completed"
   }
 ]

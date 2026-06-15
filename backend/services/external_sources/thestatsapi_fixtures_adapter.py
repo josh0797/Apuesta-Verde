@@ -159,8 +159,15 @@ def _normalise_fixture(raw: dict) -> Optional[dict]:
     if not isinstance(away_raw, dict):
         away_raw = {"name": str(away_raw)}
 
-    home_name = home_raw.get("name") or home_raw.get("display_name") or "Home"
-    away_name = away_raw.get("name") or away_raw.get("display_name") or "Away"
+    home_name = home_raw.get("name") or home_raw.get("display_name")
+    away_name = away_raw.get("name") or away_raw.get("display_name")
+    # F87.1 Parte 1.5 — never fabricate "Home"/"Away" placeholders.
+    # Return None so the contract audit captures the raw rejection with
+    # full home/away candidate evidence instead of silently passing.
+    if not isinstance(home_name, str) or not home_name.strip():
+        return None
+    if not isinstance(away_name, str) or not away_name.strip():
+        return None
     home_id   = home_raw.get("id") or home_raw.get("team_id")
     away_id   = away_raw.get("id") or away_raw.get("team_id")
     home_tsid = home_raw.get("_thestatsapi_id") or home_raw.get("uuid") or home_id

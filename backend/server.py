@@ -7754,6 +7754,45 @@ async def football_discovery_debug(
     # Normalise shape to the canonical contract requested by the UI.
     raw_counts        = audit.get("counts_per_src",   {}) or {}
     norm_counts       = audit.get("counts_normalised", {}) or {}
+    shape_audit       = audit.get("shape_audit",       {}) or {}
+
+    # F87.1 Parte 1.5 — build per-adapter rich audit and globals.
+    raw_total  = sum(int(v or 0) for v in raw_counts.values())
+    norm_total = sum(int(v or 0) for v in norm_counts.values())
+    adapter_audit: dict = {}
+    any_had_raw_but_all_rejected = False
+    any_adapter_returned_empty = False
+    for src, sa in shape_audit.items():
+        if not isinstance(sa, dict):
+            continue
+        had_raw_rej = bool(sa.get("had_raw_but_all_rejected"))
+        empty_ad    = bool(sa.get("adapter_returned_empty"))
+        any_had_raw_but_all_rejected = any_had_raw_but_all_rejected or had_raw_rej
+        any_adapter_returned_empty   = any_adapter_returned_empty   or empty_ad
+        adapter_audit[src] = {
+            "raw_count":                int(sa.get("raw_count",       0) or 0),
+            "normalised_count":         int(sa.get("kept_count",      0) or 0),
+            "dropped_count":            int(sa.get("dropped_count",   0) or 0),
+            "top_reason":               sa.get("top_reason"),
+            "reason_codes":             sa.get("reason_codes",   {}) or {},
+            "dropped_samples":          sa.get("dropped_samples", []) or [],
+            "dropped_samples_shown":    int(sa.get("dropped_samples_shown", 0) or 0),
+            "dropped_samples_cap":      int(sa.get("dropped_samples_cap",   0) or 0),
+            "had_raw_but_all_rejected": had_raw_rej,
+            "adapter_returned_empty":   empty_ad,
+            "message_debug":            sa.get("message_debug"),
+        }
+
+    had_raw_but_all_rejected_global = (raw_total > 0 and norm_total == 0)
+
+    if had_raw_but_all_rejected_global:
+        ui_message = ("Sí hubo fixtures del proveedor, pero el contract los "
+                      "rechazó antes del filtro.")
+    elif raw_total == 0:
+        ui_message = "Los adapters devolvieron 0 fixtures."
+    else:
+        ui_message = f"Discovery devolvió {norm_total}/{raw_total} fixtures normalizados."
+
     return {
         "ok":                True,
         "ran":               True,
@@ -7761,13 +7800,19 @@ async def football_discovery_debug(
         "sources_called":    audit.get("sources_called", []),
         "counts_raw":        raw_counts,
         "counts_after_shape_normalization": norm_counts,
-        "shape_audit":       audit.get("shape_audit",   {}),
+        "raw_total":         raw_total,
+        "normalised_total":  norm_total,
+        "shape_audit":       shape_audit,
+        "adapter_audit":     adapter_audit,
         "reason_codes":      audit.get("reason_codes",  {}),
         "primary_winner":    audit.get("primary_winner"),
         "merged":            audit.get("merged", False),
         "total":             audit.get("total", 0),
         "isolated_from_mlb": audit.get("isolated_from_mlb", True),
         "f87_1_contract":    audit.get("f87_1_contract",   True),
+        "had_raw_but_all_rejected": had_raw_but_all_rejected_global,
+        "any_adapter_returned_empty": any_adapter_returned_empty,
+        "ui_message":        ui_message,
         "sample_fixtures":   audit.get("sample_fixtures", []),
     }
 

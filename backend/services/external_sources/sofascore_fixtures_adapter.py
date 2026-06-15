@@ -133,8 +133,13 @@ def _normalise_sofascore_event(ev: dict, *,
         home_raw = {"name": str(home_raw)}
     if not isinstance(away_raw, dict):
         away_raw = {"name": str(away_raw)}
-    home_name = home_raw.get("name") or "Home"
-    away_name = away_raw.get("name") or "Away"
+    home_name = home_raw.get("name")
+    away_name = away_raw.get("name")
+    # F87.1 Parte 1.5 — never fabricate "Home"/"Away" placeholders.
+    if not isinstance(home_name, str) or not home_name.strip():
+        return None
+    if not isinstance(away_name, str) or not away_name.strip():
+        return None
 
     is_intl = bool(_INT_NAME_RX.search(league_name or ""))
     is_nt = bool(re.search(
