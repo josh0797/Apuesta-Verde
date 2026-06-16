@@ -1,18 +1,34 @@
 [
   {
-    "content": "Validar Fix-New-1 (TheSportsDB) — 23 tests verdes ✅ + 2 tests obsoletos actualizados al contrato Fix-New-2",
+    "content": "Validar Fix-New-1 (TheSportsDB) — 23 tests verdes ✅",
     "status": "completed"
   },
   {
-    "content": "P0: Investigar bug 'mismo momio en football' — cuota 1.275 idéntica en France vs Senegal y Austria vs Jordan",
-    "status": "in_progress"
+    "content": "P0: 'Mismo momio en football' — F94.4 Hallucination Guard, 20 tests verdes ✅",
+    "status": "completed"
   },
   {
-    "content": "Finalizar REFACTOR-1 — extraer Step 2 (deep enrichment) y Step 3 (live stats hydration) de data_ingestion.py",
+    "content": "Sprint A — football_draw_potential.py + 26 tests unitarios ✅",
+    "status": "completed"
+  },
+  {
+    "content": "Sprint A — Script piloto retrospectivo (6 partidos WC2026) + 3 tests ✅",
+    "status": "completed"
+  },
+  {
+    "content": "Sprint A — learning_backtest_report.md generado (recall 71.4%, draws 3/3) ✅",
+    "status": "completed"
+  },
+  {
+    "content": "Sprint A — Suite completa: 3151 passed, 2 skipped, 0 regresiones ✅",
+    "status": "completed"
+  },
+  {
+    "content": "Sprint B (futuro) — Infra completa: collection learning_snapshots + scraping + learning loops + UI panel",
     "status": "pending"
   },
   {
-    "content": "F84.c / F84.d — implementar Lineups y Standings",
+    "content": "REFACTOR-1 + F84.c/d (diferidos)",
     "status": "pending"
   }
 ]
