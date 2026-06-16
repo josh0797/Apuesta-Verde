@@ -504,6 +504,39 @@ def _extract_team_stats(raw_team: dict | None) -> dict[str, Any]:
     return out
 
 
+# FIX-2 — Real TheStatsAPI shape uses ``overview.<stat>.all.{home,away}``
+# (verified live with mt_986264843 Iran vs NZ): corners, possession, shots,
+# expected_goals and friends are nested under buckets named after their
+# split (``all`` | ``first_half`` | ``second_half``). Previously this
+# normalizer only handled the flat shape, so corners (and every other
+# overview stat) were silently dropped from TheStatsAPI fixtures.
+def _split_overview_to_team_blobs(overview: dict) -> tuple[dict, dict]:
+    """Pivot ``overview.<stat>.all.{home,away}`` → ``({stat: home}, {stat: away})``.
+
+    Fail-soft: keys whose ``all`` bucket is missing or malformed are
+    skipped. Returns ``({}, {})`` if the input is not a dict.
+    """
+    if not isinstance(overview, dict):
+        return ({}, {})
+    home: dict[str, Any] = {}
+    away: dict[str, Any] = {}
+    for stat_key, bucket in overview.items():
+        if not isinstance(bucket, dict):
+            continue
+        # Prefer 'all'; fall back to top-level scalars in case the API
+        # ships a flatter shape for some stat types.
+        allb = bucket.get("all") if isinstance(bucket.get("all"), dict) else bucket
+        if not isinstance(allb, dict):
+            continue
+        h = allb.get("home")
+        a = allb.get("away")
+        if h is not None:
+            home[stat_key] = h
+        if a is not None:
+            away[stat_key] = a
+    return (home, away)
+
+
 def normalize_match_stats(raw: dict, fallback_status: str | None = None) -> dict | None:
     """Convert a TheStatsAPI ``/football/matches/{id}/stats`` payload to
     the API-Sports ``live_stats`` shape.
@@ -521,11 +554,61 @@ def normalize_match_stats(raw: dict, fallback_status: str | None = None) -> dict
       C. Data-wrapped:
          ``{"data": {"home": {...}, "away": {...}, ...}}``  → unwrapped before call
 
+      D. *Real* TheStatsAPI shape (FIX-2): pivot-by-stat with split
+         buckets. Example::
+
+            {"data": {
+                "overview": {
+                    "corner_kicks":  {"all": {"home": 4, "away": 1}, ...},
+                    "expected_goals": {"all": {"home": 1.49, "away": 1.24}, ...},
+                    ...
+                },
+                ...
+            }}
+
+         We pivot ``overview.<stat>.all.{home,away}`` → flat per-team
+         blobs so the existing ``_extract_team_stats`` mapper handles
+         it without changes.
+
     Returns ``None`` if no usable stats found (so callers can keep their
     existing API-Sports payload untouched).
     """
     if not isinstance(raw, dict):
         return None
+
+    # FIX-2 — Real shape: TheStatsAPI nests stats under ``overview``,
+    # sometimes one level below ``data``. Detect that path FIRST.
+    overview = raw.get("overview")
+    if not isinstance(overview, dict):
+        data_block = raw.get("data") if isinstance(raw.get("data"), dict) else None
+        if data_block is not None and isinstance(data_block.get("overview"), dict):
+            overview = data_block["overview"]
+
+    if isinstance(overview, dict):
+        home_raw, away_raw = _split_overview_to_team_blobs(overview)
+        if home_raw or away_raw:
+            home_stats = _extract_team_stats(home_raw)
+            away_stats = _extract_team_stats(away_raw)
+            if home_stats or away_stats:
+                # Score / minute / status may live at root or under data.
+                root = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+                score_raw = root.get("score") or {}
+                if isinstance(score_raw, dict):
+                    score = {"home": score_raw.get("home"), "away": score_raw.get("away")}
+                else:
+                    score = {"home": None, "away": None}
+                minute = root.get("minute") or root.get("elapsed")
+                status_str = root.get("status") or fallback_status
+                return {
+                    "minute":     minute,
+                    "status":     _norm_status(status_str) if status_str else None,
+                    "score":      score,
+                    "home_stats": home_stats,
+                    "away_stats": away_stats,
+                    "incidents":  [],
+                    "fetched_at": datetime.now(timezone.utc).isoformat(),
+                    "_source":    "thestatsapi",
+                }
 
     home_raw = (
         raw.get("home_team_stats")

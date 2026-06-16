@@ -212,6 +212,86 @@ async def fetch_match_stats(client: httpx.AsyncClient, match_id: int | str) -> d
     return data
 
 
+async def fetch_recent_match_ids(
+    team_id: int | str,
+    *,
+    n: int = 15,
+    client: httpx.AsyncClient | None = None,
+    status: str = "finished",
+    sport: str = "football",
+    timeout: float = DEFAULT_TIMEOUT_SEC,
+) -> list[str]:
+    """FIX-1 — Return the ``n`` most recent TheStatsAPI match IDs for a team.
+
+    Required by :func:`football_xg_recent_averages.compute_xg_recent_averages`
+    so the L1/L5/L15 xG averages can normalise (previously this helper
+    was missing, raising ``AttributeError`` at call site → IDs were
+    never populated → shotmap had nothing to query → xG never
+    normalised in any match).
+
+    Endpoint::
+
+        GET /football/matches?team_id={tm_XXX}&status=finished&limit={n}
+
+    Returns a flat list of match IDs (strings, ``mt_XXX`` format).
+    Fail-soft: returns ``[]`` on any error (HTTP / parse / disabled).
+
+    Notes
+    -----
+    * ``team_id`` MUST be the TheStatsAPI native ID (``tm_XXX``) — NOT
+      the API-Sports numeric id. The caller is responsible for passing
+      the right one (look at ``home_team._thestatsapi_id`` /
+      ``away_team._thestatsapi_id``).
+    * If ``is_enabled()`` is false (disabled flag or missing key) we
+      short-circuit to ``[]`` without making any HTTP call.
+    """
+    if not team_id:
+        return []
+    if not is_enabled():
+        return []
+
+    sport = (sport or "football").lower()
+    base_path = f"/{sport}/matches" if sport == "football" else "/football/matches"
+    params: dict[str, Any] = {
+        "team_id": str(team_id),
+        "limit":   int(n) if n and int(n) > 0 else 15,
+    }
+    if status:
+        params["status"] = status
+
+    owns_client = client is None
+    if owns_client:
+        client = httpx.AsyncClient(timeout=timeout)
+    try:
+        payload = await _request(
+            client, "GET", base_path, params=params, timeout=timeout,
+        )
+    except Exception as exc:  # noqa: BLE001 — defensive
+        log.debug("[thestatsapi] fetch_recent_match_ids failed team=%s: %s",
+                  team_id, exc)
+        payload = {}
+    finally:
+        if owns_client:
+            try:
+                await client.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+
+    if not isinstance(payload, dict):
+        return []
+    matches = _extract_list(payload, candidate_keys=("data", "matches", "response", "results"))
+    out: list[str] = []
+    for m in matches or []:
+        if not isinstance(m, dict):
+            continue
+        mid = m.get("id") or m.get("match_id")
+        if mid:
+            out.append(str(mid))
+        if len(out) >= int(n):
+            break
+    return out
+
+
 async def fetch_match_details(
     client: httpx.AsyncClient,
     match_id: int | str,

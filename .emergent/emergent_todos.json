@@ -1,38 +1,18 @@
 [
   {
-    "content": "Crear services/football_world_cup_aliases.py con WORLD_CUP_ALIASES y is_world_cup() helper",
+    "content": "F94.3 + REFACTOR-1 (paso 1/3) + FIX-3 (Tail Fragility) + FIX-1 (xG TheStatsAPI) + FIX-2 (corners) — TODOS COMPLETADOS Y VALIDADOS",
     "status": "completed"
   },
   {
-    "content": "Modificar football_live_visibility.py: bypass World Cup, VISIBLE_PENDING_MARKET, debug counters",
-    "status": "completed"
+    "content": "Actualizar plan.md con los 3 fixes completados",
+    "status": "in_progress"
   },
   {
-    "content": "Implementar fallback TheStatsAPI solo para World Cup live",
-    "status": "completed"
+    "content": "REFACTOR-1: Reanudar extracción deep enrichment + live stats hydration (paso 2/3 y 3/3)",
+    "status": "pending"
   },
   {
-    "content": "Crear thestatsapi_diagnostics.py + endpoint /api/debug/thestatsapi/probe",
-    "status": "completed"
-  },
-  {
-    "content": "Frontend: WorldCupLiveCard + CTA manual odds + diagnostic panel",
-    "status": "completed"
-  },
-  {
-    "content": "Tests backend F94.2: 32 nuevos passing",
-    "status": "completed"
-  },
-  {
-    "content": "Tests frontend F94.2: 6 nuevos WC, suite 158 passing",
-    "status": "completed"
-  },
-  {
-    "content": "Validación visual scroll completo - 0 errores",
-    "status": "completed"
-  },
-  {
-    "content": "Actualizar plan.md F94.2 COMPLETED",
-    "status": "completed"
+    "content": "F84.c/d: Lineups + Standings (P1)",
+    "status": "pending"
   }
 ]

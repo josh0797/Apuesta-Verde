@@ -113,6 +113,18 @@ RC_TAIL_SERIES_INTERACTION    = "TAIL_SERIES_INTERACTION"
 RC_TAIL_STARTER_INTERACTION   = "TAIL_STARTER_INTERACTION"
 RC_TAIL_FRAGILITY_CAP_HIT     = "TAIL_FRAGILITY_CAP_HIT"
 RC_TAIL_FRAGILITY_UNAVAILABLE = "TAIL_FRAGILITY_UNAVAILABLE"
+# Polarity guard (post-fix) — fires when the explosive-tail probability
+# distribution clearly signals HIGH risk (either via the explicit
+# probability thresholds or via the external ``tail_risk.tail_bucket``)
+# but the weighted score still buckets at LOW. Without this guard the UI
+# could simultaneously render "Riesgo de cola explosiva: Alta" and
+# "Tail Fragility: Bajo", contradicting the statistical reading.
+RC_TAIL_FRAGILITY_ESCALATED_BY_EXPLOSIVE_TAIL = "TAIL_FRAGILITY_ESCALATED_BY_EXPLOSIVE_TAIL"
+
+# Probability-based escalation thresholds (per spec).
+_ESCALATION_P12_THRESHOLD = 0.25  # p_ge_12 >= 25% forces non-LOW.
+_ESCALATION_P14_THRESHOLD = 0.10  # p_ge_14 >= 10% forces non-LOW.
+_ESCALATION_MIN_SCORE     = 40    # floor for escalated score.
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -244,6 +256,28 @@ def compute_tail_fragility(
     reason_codes: list[str] = [RC_TAIL_FRAGILITY_USED, _bucket_reason_code(bucket)]
     interactions: list[dict] = []
 
+    # ── Polarity guard (post-fix) ───────────────────────────────────
+    # Prevent the contradictory "Riesgo de cola explosiva: Alta" +
+    # "Tail Fragility: Bajo" simultaneous render. The weighted score
+    # can drift LOW when most mass concentrates on p_ge_12 alone (e.g.
+    # 31% / 14% / 5% / 2% gives score=15). When the explicit probability
+    # tail clearly fires HIGH risk, escalate the bucket to MEDIUM and
+    # floor the score at 40.
+    external_bucket = (tail_risk_payload.get("tail_bucket") or "").upper()
+    explosive_high_signal = (
+        (p12 is not None and p12 >= _ESCALATION_P12_THRESHOLD)
+        or (p14 is not None and p14 >= _ESCALATION_P14_THRESHOLD)
+        or external_bucket in (BUCKET_HIGH, BUCKET_EXTREME)
+    )
+    if explosive_high_signal and bucket == BUCKET_LOW:
+        bucket = BUCKET_MEDIUM
+        score  = max(int(score or 0), _ESCALATION_MIN_SCORE)
+        base   = BUCKET_BASE_ADJUSTMENT.get(bucket, 0)
+        # Replace the prior LOW reason-code with the new MEDIUM one + the
+        # explicit escalation tracer.
+        reason_codes = [RC_TAIL_FRAGILITY_USED, _bucket_reason_code(bucket),
+                        RC_TAIL_FRAGILITY_ESCALATED_BY_EXPLOSIVE_TAIL]
+
     # ── Interactions only fire when tail is already HIGH+ ───────────
     tail_high_or_above = _bucket_rank(bucket) >= _bucket_rank(BUCKET_HIGH)
 
@@ -303,6 +337,9 @@ def compute_tail_fragility(
     narrative_es = _build_narrative_es(
         bucket=bucket, score=score, p12=p12, p14=p14, p16=p16, p18=p18,
         interactions=interactions, market_side=market_side,
+        escalated_by_explosive_tail=(
+            RC_TAIL_FRAGILITY_ESCALATED_BY_EXPLOSIVE_TAIL in reason_codes
+        ),
     )
 
     # De-duplicate reason codes preserving order.
@@ -338,6 +375,7 @@ def _build_narrative_es(
     p18: Optional[float],
     interactions: list,
     market_side: Optional[str] = None,
+    escalated_by_explosive_tail: bool = False,
 ) -> str:
     score_txt = f"{score}/100" if score is not None else "—/100"
 
@@ -370,16 +408,27 @@ def _build_narrative_es(
             f"debe ser evaluada con cautela."
         )
 
-    if not interactions:
-        return head
+    parts = [head]
 
-    drivers_txt = " · ".join((i.get("label") or i.get("code")) for i in interactions)
-    tail_es = (
-        f" Drivers estructurales activos: {drivers_txt}. "
-        f"Estas señales amplifican la ruta hacia el Over sin "
-        f"voltear la polaridad del pick."
-    )
-    return head + tail_es
+    # Polarity-guard explanatory line (post-fix). Surfaces when the
+    # weighted score would otherwise read LOW but the explicit
+    # probability distribution forces a MEDIUM bucket.
+    if escalated_by_explosive_tail:
+        parts.append(
+            "Tail Fragility escalado porque la distribución asigna alta "
+            f"probabilidad a escenarios de 12+ (≈ {int((p12 or 0) * 100)}%) "
+            f"/ 14+ (≈ {int((p14 or 0) * 100)}%) carreras."
+        )
+
+    if interactions:
+        drivers_txt = " · ".join((i.get("label") or i.get("code")) for i in interactions)
+        parts.append(
+            f"Drivers estructurales activos: {drivers_txt}. "
+            f"Estas señales amplifican la ruta hacia el Over sin "
+            f"voltear la polaridad del pick."
+        )
+
+    return " ".join(parts)
 
 
 # ─── Pipeline helper ─────────────────────────────────────────────────────────
@@ -426,6 +475,7 @@ __all__ = [
     "RC_TAIL_BULLPEN_INTERACTION", "RC_TAIL_DEFENSE_INTERACTION",
     "RC_TAIL_SERIES_INTERACTION", "RC_TAIL_STARTER_INTERACTION",
     "RC_TAIL_FRAGILITY_CAP_HIT", "RC_TAIL_FRAGILITY_UNAVAILABLE",
+    "RC_TAIL_FRAGILITY_ESCALATED_BY_EXPLOSIVE_TAIL",
     "compute_tail_fragility",
     "apply_to_fragility",
 ]

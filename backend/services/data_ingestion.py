@@ -32,6 +32,9 @@ from . import provenance as prov   # Phase P2: per-section source/freshness tagg
 from . import fallback_scraper as fb
 from . import football_competitions as fc
 from . import normalizer as nz
+from ._ingestion_helpers.football_odds_cascade import (
+    fetch_football_odds_with_fallback as _fetch_football_odds_with_fallback,
+)
 from .external_sources import (
     thestatsapi_team_stats_adapter as _ts_team_stats,
     thestatsapi_h2h_adapter as _ts_h2h,
@@ -1035,72 +1038,17 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
         kickoff = fx_raw["fixture"]["date"]
         venue = (fx_raw.get("fixture", {}).get("venue") or {}).get("name")
 
-        # ── Odds fetch — API-Sports primario, TheStatsAPI fallback ───
-        # Phase F84.e — Prioridad-inversa para odds:
-        #   1) TheStatsAPI primaria (con line_movement / opening odds).
-        #   2) API-Sports fallback detrás del flag ENABLE_API_SPORTS_FALLBACK.
-        # El shape devuelto sigue siendo el API-Sports v3 que el resto
-        # del pipeline ya consume (norm_odds + ``_opening_odds`` para
-        # ``odds_value_engine``).
+        # ── Odds fetch cascade — extracted to _ingestion_helpers ────
+        # See `_ingestion_helpers/football_odds_cascade.py` for the
+        # full provider order. Behavioural parity is enforced; the
+        # helper returns the same tuple shape the inline block used to
+        # compute, and stamps ``_odds_source`` on ``norm_odds``.
         league_name = (fx_raw.get("league") or {}).get("name")
-        odds_source = "no_odds"
-        odds_resp:  list | dict = []
-        norm_odds:  dict        = {}
-
-        try:
-            ts_shape, ts_norm, ts_mid = await _ts_odds.fetch_odds_api_sports_shape(
-                client, fx_raw,
-                home_name=home.get("name"), away_name=away.get("name"),
-                kickoff=kickoff, league_name=league_name,
-            )
-        except Exception as exc:
-            log.debug("[F84.e] thestatsapi odds adapter failed for %s: %s", fid, exc)
-            ts_shape, ts_norm, ts_mid = None, None, None
-
-        if ts_norm and ts_norm.get("available"):
-            odds_resp   = ts_shape
-            norm_odds   = ts_norm
-            odds_source = "thestatsapi"
-            log.info(
-                "[F84.e] fixture=%s odds primary=TheStatsAPI ts_mid=%s bookmakers=%d",
-                fid, ts_mid, len(norm_odds.get("bookmakers") or []),
-            )
-        elif _api_sports_fallback_enabled():
-            try:
-                odds_resp = await af.odds_for_fixture(client, fid, db=db)
-            except Exception as e:
-                log.warning("odds failed for %s: %s", fid, e)
-                odds_resp = []
-            norm_odds = nz.normalize_odds(odds_resp)
-            if norm_odds.get("available"):
-                odds_source = "api_sports_fallback"
-            else:
-                odds_source = "no_odds"
-                # Last-resort: try TheStatsAPI again (it could now succeed
-                # after a slow CDN propagation, this mirrors the v2.5
-                # behaviour for resilience).
-                if not ts_norm:
-                    try:
-                        ts2_shape, ts2_norm, _ = await _ts_odds.fetch_odds_api_sports_shape(
-                            client, fx_raw,
-                            home_name=home.get("name"), away_name=away.get("name"),
-                            kickoff=kickoff, league_name=league_name,
-                        )
-                        if ts2_norm and ts2_norm.get("available"):
-                            odds_resp = ts2_shape
-                            norm_odds = ts2_norm
-                            odds_source = "thestatsapi_late"
-                    except Exception as exc2:
-                        log.debug("[F84.e] thestatsapi late retry failed for %s: %s",
-                                   fid, exc2)
-        else:
-            # Fallback disabled in TheStatsAPI-only mode.
-            odds_source = "no_odds"
-            norm_odds = {"available": False}
-
-        # Stamp source en el snapshot para auditoría downstream.
-        if isinstance(norm_odds, dict):
-            norm_odds["_odds_source"] = odds_source
+        odds_resp, norm_odds, odds_source = await _fetch_football_odds_with_fallback(
+            client, db, fx_raw,
+            fid=fid, home=home, away=away,
+            kickoff=kickoff, league_name=league_name,
+        )
         try:
             stand_resp = await af.standings(client, lid, db=db)
         except Exception as e:
@@ -1109,6 +1057,16 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
 
         stats_h, stats_a, h2h, inj_h, inj_a = {}, {}, [], [], []
         stats_h_source = stats_a_source = "missing"  # F84.a — audit
+        # F94.2 / regression fix — initialise h2h_source OUTSIDE the
+        # `if deep:` branch. The previous behaviour ONLY assigned it
+        # inside the deep-enrichment path, but the `match_doc.setdefault
+        # ("_provenance_h2h", {"source": h2h_source})` line below runs
+        # unconditionally. Live ingestion calls `_enrich_football(...,
+        # deep=False)` so `h2h_source` stayed unbound → `UnboundLocalError`
+        # → enrichment raises → the live match is silently dropped → the
+        # "EN CURSO AHORA" counter stays at 0 even when API-Sports returns
+        # the fixture (e.g. Iran vs New Zealand / FIFA World Cup).
+        h2h_source = "missing"
         recent_h_raw, recent_a_raw = [], []
         if deep:
             # F84.a — Inversión de prioridad para team_statistics:
@@ -1166,8 +1124,9 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             #    localmente por opponent → shape API-Sports v3 compatible).
             # 2) API-Sports fallback detrás del flag ENABLE_API_SPORTS_FALLBACK.
             # El resultado se almacena en ``h2h`` y la fuente en ``h2h_source``
-            # para auditoría en ``_provenance_h2h``.
-            h2h_source = "missing"
+            # para auditoría en ``_provenance_h2h`` (inicializado arriba
+            # fuera del `if deep:` para que el camino live también lo
+            # tenga definido — ver fix F94.2).
             try:
                 h2h = await _ts_h2h.fetch_head_to_head(
                     client,

@@ -10,7 +10,7 @@
  * Consumes `GET /api/football/live/visibility`.
  */
 import { useEffect, useState } from 'react';
-import { Eye, AlertTriangle, RefreshCcw, Loader2, Database } from 'lucide-react';
+import { Eye, AlertTriangle, RefreshCcw, Loader2, Database, AlertOctagon } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -81,13 +81,24 @@ export function FootballLiveVisibilityStrip({ lang = 'es', testId }) {
     : [];
   const tsDiag = debug?.thestatsapi_diag || null;
 
+  // F94.3 — Live enrichment persistence audit banner.
+  // Fires when the upstream provider returned fixtures but the
+  // persistence pipeline dropped every single one of them (historical
+  // h2h_source bug failure mode).
+  const enrichmentDropped = Boolean(debug?.enrichment_dropped_all_fixtures);
+  const enrichmentErrorCode    = debug?.enrichment_error_code || null;
+  const enrichmentErrorMessage = debug?.enrichment_error_message || null;
+  const persistedLiveCount     = Number(debug?.persisted_live_count ?? 0);
+
   // Don't render the strip when there's nothing to surface AND the
   // provider returned 0 raw fixtures (avoid empty noise).
   const providerRaw = Number(debug?.provider_live_count ?? 0);
   const visible     = Number(debug?.visible_live_count ?? 0);
   // F94.2 — keep the strip visible whenever WC is detected, even if
   // the provider somehow returned 0.
-  if (!loading && !error && providerRaw === 0 && worldCupItems.length === 0) {
+  // F94.3 — also keep visible whenever the enrichment-dropped banner
+  // must be shown, regardless of provider count.
+  if (!loading && !error && providerRaw === 0 && worldCupItems.length === 0 && !enrichmentDropped) {
     return null;
   }
 
@@ -120,6 +131,56 @@ export function FootballLiveVisibilityStrip({ lang = 'es', testId }) {
           )}
         </Button>
       </div>
+
+      {/* F94.3 — Live enrichment persistence audit banner (high severity). */}
+      {enrichmentDropped && (
+        <div
+          className="rounded-lg border-2 border-rose-500/60 bg-rose-500/15 p-3 flex flex-col gap-1.5"
+          role="alert"
+          data-testid="live-enrichment-dropped-banner"
+        >
+          <div className="flex items-center gap-2">
+            <AlertOctagon className="h-4 w-4 text-rose-200 shrink-0" />
+            <span className="text-[12px] font-bold uppercase tracking-wider text-rose-100">
+              {lang === 'en'
+                ? 'Technical error — live enrichment dropped all fixtures'
+                : 'Error técnico — la ingesta perdió todos los fixtures'}
+            </span>
+            {enrichmentErrorCode && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-mono border-rose-300/40 bg-rose-500/20 text-rose-50 ml-auto"
+                data-testid="live-enrichment-dropped-code"
+              >
+                {enrichmentErrorCode}
+              </Badge>
+            )}
+          </div>
+          <div
+            className="text-[11.5px] text-rose-100/90 leading-snug"
+            data-testid="live-enrichment-dropped-message"
+          >
+            {enrichmentErrorMessage || (
+              lang === 'en'
+                ? 'The provider returned live fixtures but none were persisted.'
+                : 'El proveedor devolvió partidos en vivo pero ninguno fue persistido.'
+            )}
+          </div>
+          <div className="flex items-center gap-3 text-[10.5px] font-mono text-rose-200/80">
+            <span data-testid="live-enrichment-dropped-discovery">
+              {lang === 'en' ? 'discovery' : 'descubrimiento'}: <b className="text-rose-50">{providerRaw}</b>
+            </span>
+            <span data-testid="live-enrichment-dropped-persisted">
+              {lang === 'en' ? 'persisted' : 'persistidos'}: <b className="text-rose-50">{persistedLiveCount}</b>
+            </span>
+          </div>
+          <div className="text-[10.5px] text-rose-200/70 italic">
+            {lang === 'en'
+              ? 'Hint: review ingest_live / data_ingestion logs and provider connectivity, then retry refresh.'
+              : 'Sugerencia: revisar logs de ingest_live / data_ingestion y la conectividad de proveedores, luego reintentar refresh.'}
+          </div>
+        </div>
+      )}
 
       {/* F94.2 — World Cup pinned card (above everything else). */}
       {worldCupItems.length > 0 && (

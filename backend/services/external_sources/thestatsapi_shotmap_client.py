@@ -158,10 +158,25 @@ async def fetch_shotmap_xg(
         }
 
     summary = payload.get("np_xg_summary") or {}
-    home_team_id = (payload.get("home_team") or {}).get("id") if isinstance(
-        payload.get("home_team"), dict) else payload.get("home_team_id")
-    away_team_id = (payload.get("away_team") or {}).get("id") if isinstance(
-        payload.get("away_team"), dict) else payload.get("away_team_id")
+    # FIX-1 — TheStatsAPI shotmap places team ids inside a nested
+    # ``event`` object (real payload:
+    # ``{"match_id": "...", "event": {"home_team_id": "tm_X",
+    # "away_team_id": "tm_Y"}, "data": [...]}``). Previously this code
+    # only looked at the root, so team_ids resolved to ``None`` and
+    # every shot was discarded by the fallback summer → ``available=False``.
+    event_obj = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+    home_team_id = (
+        ((payload.get("home_team") or {}).get("id") if isinstance(payload.get("home_team"), dict) else None)
+        or payload.get("home_team_id")
+        or event_obj.get("home_team_id")
+        or ((event_obj.get("home_team") or {}).get("id") if isinstance(event_obj.get("home_team"), dict) else None)
+    )
+    away_team_id = (
+        ((payload.get("away_team") or {}).get("id") if isinstance(payload.get("away_team"), dict) else None)
+        or payload.get("away_team_id")
+        or event_obj.get("away_team_id")
+        or ((event_obj.get("away_team") or {}).get("id") if isinstance(event_obj.get("away_team"), dict) else None)
+    )
 
     # 1) stored
     h, a = _extract_from_summary(summary.get("stored"))

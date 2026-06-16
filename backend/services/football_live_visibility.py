@@ -33,6 +33,7 @@ from . import football_competitions as fc
 from .api_sports import is_national_team_league
 from .external_sources import national_team_detector as ntd
 from .football_world_cup_aliases import is_world_cup
+from .live_enrichment_audit import evaluate_enrichment_drop
 
 log = logging.getLogger("services.football_live_visibility")
 
@@ -344,6 +345,15 @@ async def compute_football_live_visibility(
         "world_cup_examples":            [],
         "world_cup_fallback_used":       False,
         "thestatsapi_diag":              None,
+        # F94.3 — Live enrichment persistence audit.
+        # Surface the historical "UnboundLocalError: h2h_source" failure
+        # mode (provider returned fixtures but enrichment dropped them
+        # all silently). The rule fires only when
+        # provider_live_count > 0 and persisted_live_count == 0.
+        "persisted_live_count":              0,
+        "enrichment_dropped_all_fixtures":   False,
+        "enrichment_error_code":             None,
+        "enrichment_error_message":          None,
     }
     by_status: dict[str, int] = {"ANALYZABLE": 0, "DISCARDED": 0}
     by_reason: dict[str, int] = {}
@@ -442,6 +452,39 @@ async def compute_football_live_visibility(
     debug["analysis_eligible_live_count"] = by_status.get("ANALYZABLE", 0)
     # F94 contract: visibility filter must NEVER hide. Always 0.
     debug["hidden_by_priority_filter"]    = 0
+
+    # F94.3 — Live enrichment persistence audit.
+    # Compare provider discovery against rows actually persisted as
+    # is_live=True in db.matches. If discovery>0 but persisted==0, the
+    # ingest_live pipeline silently dropped every fixture (the historical
+    # h2h_source bug failure mode). Surface the error code so the UI
+    # can render a red banner and devs can react fast.
+    persisted_count: Optional[int] = None
+    persist_lookup_error: Optional[str] = None
+    try:
+        if db is not None:
+            matches_coll = getattr(db, "matches", None)
+            if matches_coll is not None and hasattr(matches_coll, "count_documents"):
+                persisted_count = await matches_coll.count_documents(
+                    {"sport": "football", "is_live": True}
+                )
+    except Exception as exc:  # fail-soft: never break the endpoint.
+        persist_lookup_error = f"PERSIST_LOOKUP_FAILED: {exc}"
+        log.warning("[live_visibility] persisted_live_count lookup failed: %s", exc)
+
+    debug["persisted_live_count"] = int(persisted_count) if persisted_count is not None else 0
+
+    audit = evaluate_enrichment_drop(
+        discovery_count=debug["provider_live_count"],
+        persisted_count=persisted_count if persisted_count is not None else 0,
+    )
+    debug["enrichment_dropped_all_fixtures"] = bool(audit["triggered"])
+    debug["enrichment_error_code"]           = audit["error_code"]
+    debug["enrichment_error_message"]        = audit["message"]
+    # Preserve any persist-lookup error as a secondary hint without
+    # losing the primary message when the rule fires.
+    if persist_lookup_error and not debug["enrichment_error_message"]:
+        debug["enrichment_error_message"] = persist_lookup_error
 
     return {
         "ok":           True,

@@ -277,6 +277,14 @@ function TailFragilitySubBlock({ tf, lang = 'es', testId }) {
   const totalAdj          = tf.total_adjustment ?? 0;
   const capHit            = Boolean(tf.cap_hit);
   const interactions      = Array.isArray(tf.interactions) ? tf.interactions : [];
+  // FIX-3 — Polarity guard signal. When the weighted score would have
+  // bucketed LOW but the explicit probability tail forced an
+  // escalation, surface the explanation prominently so the user does
+  // not see a contradictory "Alta / Bajo" pair.
+  const reasonCodes  = Array.isArray(tf.reason_codes) ? tf.reason_codes : [];
+  const escalatedByExplosive = reasonCodes.includes(
+    'TAIL_FRAGILITY_ESCALATED_BY_EXPLOSIVE_TAIL',
+  );
 
   return (
     <div
@@ -344,6 +352,28 @@ function TailFragilitySubBlock({ tf, lang = 'es', testId }) {
               {(i.label || i.code.replaceAll('_', ' ').toLowerCase())} +{i.delta}
             </Badge>
           ))}
+        </div>
+      )}
+
+      {/* FIX-3 — Polarity-guard escalation notice. Shown when the
+          internal weighted score buckets LOW but the explicit
+          probability tail (P(12+)/P(14+)) or the external tail bucket
+          forces a non-LOW Tail Fragility verdict. Without this the UI
+          would simultaneously render "Riesgo de cola explosiva: Alta"
+          and "Tail Fragility: Bajo". */}
+      {escalatedByExplosive && (
+        <div
+          className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 flex items-start gap-1.5"
+          data-testid={`${testId}-escalation-notice`}
+        >
+          <AlertTriangle className="h-3 w-3 text-amber-200 shrink-0 mt-0.5" />
+          <p className="text-[10px] leading-snug text-amber-100">
+            {lang === 'en'
+              ? 'Tail Fragility escalated because the distribution assigns '
+                + 'high probability to 12+ / 14+ runs scenarios.'
+              : 'Tail Fragility escalado porque la distribución asigna alta '
+                + 'probabilidad a escenarios de 12+ / 14+ carreras.'}
+          </p>
         </div>
       )}
 

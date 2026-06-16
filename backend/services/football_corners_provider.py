@@ -165,7 +165,16 @@ def _extract_apisports_corners(match_doc: dict) -> Optional[dict]:
 
 
 def _extract_thestatsapi_corners(match_doc: dict) -> Optional[dict]:
-    """Look for corners inside ``_thestatsapi_enrichment`` / ``thestatsapi_snapshot``."""
+    """Look for corners inside ``_thestatsapi_enrichment`` / ``thestatsapi_snapshot``.
+
+    FIX-2 — Also accepts the post-normaliser shape: when
+    :func:`thestatsapi_normalizer.normalize_match_stats` runs on the
+    real TheStatsAPI payload (``overview.corner_kicks.all.{home,away}``)
+    it merges the result into ``live_stats.home_stats['Corner Kicks']``
+    (canonical API-Sports key). The new branch below picks them up
+    when the source is tagged ``thestatsapi``.
+    """
+    # 1) Pre-existing pre-match enrichment block.
     for key in ('_thestatsapi_enrichment', 'thestatsapi_snapshot',
                  'football_data_enrichment'):
         blob = match_doc.get(key)
@@ -186,6 +195,25 @@ def _extract_thestatsapi_corners(match_doc: dict) -> Optional[dict]:
                 'away':   away,
                 'total':  total,
             }
+    # 2) FIX-2 — Post-normaliser live_stats with TheStatsAPI provenance.
+    live = match_doc.get('live_stats')
+    if isinstance(live, dict):
+        sources = live.get('_sources') or []
+        single = live.get('_source')
+        if single == 'thestatsapi' or 'thestatsapi' in sources:
+            hs = live.get('home_stats') or {}
+            as_ = live.get('away_stats') or {}
+            if isinstance(hs, dict) and isinstance(as_, dict):
+                home = _safe_int(hs.get('Corner Kicks'))
+                away = _safe_int(as_.get('Corner Kicks'))
+                if home is not None or away is not None:
+                    total = (home or 0) + (away or 0) if (home is not None and away is not None) else None
+                    return {
+                        'source': 'thestatsapi',
+                        'home':   home,
+                        'away':   away,
+                        'total':  total,
+                    }
     return None
 
 
