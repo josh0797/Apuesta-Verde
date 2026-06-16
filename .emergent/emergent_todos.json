@@ -1,34 +1,38 @@
 [
   {
-    "content": "Explorar DashboardPage.jsx y componentes hijos de Picks del día para identificar el condicional/borrado que oculta descartados cuando recommended===0",
+    "content": "Crear services/football_world_cup_aliases.py con WORLD_CUP_ALIASES y is_world_cup() helper",
     "status": "completed"
   },
   {
-    "content": "Verificar el payload backend del Dashboard para confirmar que descartados/incompletos están presentes (back-compat legacy)",
+    "content": "Modificar football_live_visibility.py: bypass World Cup, VISIBLE_PENDING_MARKET, debug counters",
     "status": "completed"
   },
   {
-    "content": "Implementar banner introductorio + wrapper colapsable 'N partidos descartados — ver detalle' para football + recommended===0 sobre el bloque hasAnyDiscarded existente",
+    "content": "Implementar fallback TheStatsAPI solo para World Cup live",
     "status": "completed"
   },
   {
-    "content": "Mejorar DiscardedRow para mostrar secondary_reasons, stage y provider/status cuando existan (back-compat fail-soft)",
+    "content": "Crear thestatsapi_diagnostics.py + endpoint /api/debug/thestatsapi/probe",
     "status": "completed"
   },
   {
-    "content": "Verificar sintaxis con esbuild + lint del nuevo componente",
+    "content": "Frontend: WorldCupLiveCard + CTA manual odds + diagnostic panel",
     "status": "completed"
   },
   {
-    "content": "Crear tests frontend específicos F94 Dashboard para caso recommended===0 con descartados visibles y colapsable",
+    "content": "Tests backend F94.2: 32 nuevos passing",
     "status": "completed"
   },
   {
-    "content": "Correr yarn craco test (mantener 145+ passing) y pytest (mantener 2972+ passing)",
+    "content": "Tests frontend F94.2: 6 nuevos WC, suite 158 passing",
     "status": "completed"
   },
   {
-    "content": "Actualizar plan.md marcando F94 como COMPLETED",
+    "content": "Validación visual scroll completo - 0 errores",
+    "status": "completed"
+  },
+  {
+    "content": "Actualizar plan.md F94.2 COMPLETED",
     "status": "completed"
   }
 ]

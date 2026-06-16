@@ -10,11 +10,12 @@
  * Consumes `GET /api/football/live/visibility`.
  */
 import { useEffect, useState } from 'react';
-import { Eye, AlertTriangle, RefreshCcw, Loader2 } from 'lucide-react';
+import { Eye, AlertTriangle, RefreshCcw, Loader2, Database } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { WorldCupLiveCard } from './WorldCupLiveCard';
 
 const REASON_LABEL = {
   EXOTIC_LEAGUE:        { es: 'Liga exótica',           en: 'Exotic league' },
@@ -74,12 +75,19 @@ export function FootballLiveVisibilityStrip({ lang = 'es', testId }) {
   const exotic  = Array.isArray(data?.items)
     ? data.items.filter((it) => it?.analysis_status === 'DISCARDED')
     : [];
+  // F94.2 — pull World Cup matches for the pinned card above the KPI grid.
+  const worldCupItems = Array.isArray(data?.items)
+    ? data.items.filter((it) => Boolean(it?._is_world_cup))
+    : [];
+  const tsDiag = debug?.thestatsapi_diag || null;
 
   // Don't render the strip when there's nothing to surface AND the
   // provider returned 0 raw fixtures (avoid empty noise).
   const providerRaw = Number(debug?.provider_live_count ?? 0);
   const visible     = Number(debug?.visible_live_count ?? 0);
-  if (!loading && !error && providerRaw === 0) {
+  // F94.2 — keep the strip visible whenever WC is detected, even if
+  // the provider somehow returned 0.
+  if (!loading && !error && providerRaw === 0 && worldCupItems.length === 0) {
     return null;
   }
 
@@ -112,6 +120,16 @@ export function FootballLiveVisibilityStrip({ lang = 'es', testId }) {
           )}
         </Button>
       </div>
+
+      {/* F94.2 — World Cup pinned card (above everything else). */}
+      {worldCupItems.length > 0 && (
+        <WorldCupLiveCard
+          items={data?.items}
+          worldCupDebug={debug}
+          lang={lang}
+          testId="football-live-world-cup-card"
+        />
+      )}
 
       {/* KPI strip — always rendered. */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-[10.5px]">
@@ -211,6 +229,69 @@ export function FootballLiveVisibilityStrip({ lang = 'es', testId }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* F94.2 — TheStatsAPI structured diagnostic (only when present + non-OK) */}
+      {tsDiag && tsDiag.status && tsDiag.status !== 'OK' && (
+        <div
+          className="rounded-lg border border-blue-500/20 bg-blue-500/[0.04] p-2.5 flex flex-col gap-1.5"
+          data-testid="football-live-visibility-thestatsapi-diag"
+        >
+          <div className="flex items-center gap-1.5 text-[11px] text-blue-200">
+            <Database className="h-3 w-3" />
+            <span className="font-semibold uppercase tracking-wider">
+              {lang === 'en' ? 'TheStatsAPI probe' : 'Sonda TheStatsAPI'}
+            </span>
+            <Badge
+              variant="outline"
+              className="text-[10px] font-mono border-blue-500/30 bg-blue-500/10 text-blue-100"
+              data-testid="football-live-visibility-thestatsapi-status"
+            >
+              {tsDiag.status}
+            </Badge>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1 text-[10.5px] text-muted-foreground font-mono">
+            {tsDiag.endpoint && (
+              <span data-testid="football-live-visibility-thestatsapi-endpoint">
+                <span className="opacity-70 uppercase tracking-wider">
+                  {lang === 'en' ? 'Endpoint' : 'Endpoint'}:
+                </span>{' '}
+                <span className="text-foreground/80">{tsDiag.endpoint}</span>
+              </span>
+            )}
+            {tsDiag.http_status != null && (
+              <span data-testid="football-live-visibility-thestatsapi-http">
+                <span className="opacity-70 uppercase tracking-wider">HTTP:</span>{' '}
+                <span className="text-foreground/80">{tsDiag.http_status}</span>
+              </span>
+            )}
+            <span data-testid="football-live-visibility-thestatsapi-raw">
+              <span className="opacity-70 uppercase tracking-wider">
+                {lang === 'en' ? 'Raw' : 'Raw'}:
+              </span>{' '}
+              <span className="text-foreground/80">{tsDiag.raw_count ?? 0}</span>
+            </span>
+            {tsDiag.reason && (
+              <span
+                className="col-span-2 sm:col-span-3"
+                data-testid="football-live-visibility-thestatsapi-reason"
+              >
+                <span className="opacity-70 uppercase tracking-wider">
+                  {lang === 'en' ? 'Reason' : 'Motivo'}:
+                </span>{' '}
+                <span className="text-foreground/80">{tsDiag.reason}</span>
+              </span>
+            )}
+          </div>
+          {Array.isArray(tsDiag.sample_payload_keys) && tsDiag.sample_payload_keys.length > 0 && (
+            <div
+              className="text-[10px] text-blue-200/70 font-mono break-all"
+              data-testid="football-live-visibility-thestatsapi-keys"
+            >
+              keys: [{tsDiag.sample_payload_keys.join(', ')}]
+            </div>
+          )}
         </div>
       )}
     </div>

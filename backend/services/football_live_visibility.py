@@ -32,6 +32,7 @@ import httpx
 from . import football_competitions as fc
 from .api_sports import is_national_team_league
 from .external_sources import national_team_detector as ntd
+from .football_world_cup_aliases import is_world_cup
 
 log = logging.getLogger("services.football_live_visibility")
 
@@ -88,12 +89,33 @@ def classify_live_fixture(f: dict) -> dict:
         )
     )
 
+    # F94.2 — Senior FIFA World Cup detector. Takes precedence over the
+    # standard tier ladder so the tournament can NEVER be classified as
+    # EXOTIC / LOW_PRIORITY, regardless of how the provider tags it.
+    is_wc = bool(
+        f.get("_is_world_cup")
+        or is_world_cup(league_name, country=league_country)
+    )
+
     secondary: list[str] = []
     analysis_status = "ANALYZABLE"
     discard_reason: Optional[str] = None
     competition_meta: Optional[dict] = None
 
-    if meta and meta.get("tier") in fc.ALLOWED_TIERS:
+    if is_wc:
+        # F94.2 hard bypass — World Cup is always ANALYZABLE.
+        # The downstream odds / sportytrader cascade may still flag it
+        # as "VISIBLE_PENDING_MARKET" once we evaluate market presence
+        # below, but the fixture is NEVER hidden by the visibility filter.
+        competition_meta = dict(meta) if meta else {
+            "tier":           "tier_1",
+            "priority":       100,
+            "canonical_name": "FIFA World Cup",
+            "type":           "international",
+            "region":         league_country or "World",
+            "_synthetic_world_cup": True,
+        }
+    elif meta and meta.get("tier") in fc.ALLOWED_TIERS:
         competition_meta = dict(meta)
     elif is_nt_by_id or is_nt_by_detector:
         competition_meta = {
@@ -129,6 +151,12 @@ def classify_live_fixture(f: dict) -> dict:
     if not (home_name and away_name):
         secondary.append("TEAM_NAMES_MISSING")
 
+    # F94.2 — World Cup pending market signal. The fixture is ALWAYS
+    # visible+analyzable; this just tells the UI to render the manual
+    # odds CTA (F93-style) instead of waiting silently for sportytrader.
+    if is_wc and (not league_id or "SPORTYTRADER_NOT_FOUND" in secondary):
+        secondary.append("VISIBLE_PENDING_MARKET")
+
     return {
         "visibility_status": "VISIBLE",
         "analysis_status":   analysis_status,
@@ -136,6 +164,7 @@ def classify_live_fixture(f: dict) -> dict:
         "secondary_reasons": secondary,
         "competition_meta":  competition_meta,
         "_is_national_team": bool(is_nt_by_id or is_nt_by_detector),
+        "_is_world_cup":     is_wc,
     }
 
 
@@ -171,8 +200,88 @@ def _flatten_fixture(f: dict, classification: dict) -> dict:
         "secondary_reasons": classification["secondary_reasons"],
         "competition_meta":  classification["competition_meta"],
         "_is_national_team": classification["_is_national_team"],
+        # F94.2 — surface World Cup flag so the UI can pin/highlight it
+        # and render the manual-odds CTA when VISIBLE_PENDING_MARKET.
+        "_is_world_cup":     classification.get("_is_world_cup", False),
         "_external_source":  f.get("_external_source") or f.get("_discovery_source"),
     }
+
+
+async def _thestatsapi_world_cup_fallback(
+    client: Optional[httpx.AsyncClient], db,
+) -> tuple[list[dict], dict]:
+    """F94.2 — TheStatsAPI fallback for World Cup live fixtures only.
+
+    Called when API-Football's live feed does NOT contain any World Cup
+    fixture but the tournament is presumed to be in progress (e.g. the
+    user-reported case ``Iran vs New Zealand``). We query TheStatsAPI's
+    live endpoint, filter through :func:`is_world_cup`, and normalise
+    each match into the API-Football shape so downstream code is
+    provider-agnostic.
+
+    Returns ``(world_cup_fixtures, diag)`` — diag carries:
+      provider, status, raw_count, reason, endpoint, http_status,
+      sample_payload_keys.
+
+    Never raises (fail-soft).
+    """
+    diag: dict = {
+        "provider":            "thestatsapi",
+        "status":              "SKIPPED",
+        "raw_count":           0,
+        "reason":              "DISABLED_OR_PRIMARY_OK",
+        "endpoint":            "/football/matches?status=live",
+        "http_status":         None,
+        "sample_payload_keys": [],
+    }
+    try:
+        from .external_sources import thestatsapi_client as ts_client
+        from .external_sources import thestatsapi_normalizer as ts_norm
+    except Exception as exc:
+        diag.update(status="ERROR", reason=f"IMPORT_FAILED: {exc}")
+        return ([], diag)
+
+    if not ts_client.is_enabled():
+        diag.update(status="DISABLED", reason="THESTATSAPI_DISABLED")
+        return ([], diag)
+
+    try:
+        raw = await ts_client.fetch_live_matches(client)
+    except Exception as exc:
+        diag.update(status="ERROR", reason=f"FETCH_FAILED: {exc}")
+        return ([], diag)
+
+    diag["raw_count"] = len(raw or [])
+    if isinstance(raw, list) and raw and isinstance(raw[0], dict):
+        diag["sample_payload_keys"] = sorted(list(raw[0].keys()))[:20]
+
+    if not raw:
+        diag.update(status="EMPTY", reason="ADAPTER_RETURNED_EMPTY")
+        return ([], diag)
+
+    try:
+        normalised = ts_norm.normalize_matches(raw, competitions_index={})
+    except Exception as exc:
+        diag.update(status="ERROR", reason=f"NORMALIZE_FAILED: {exc}")
+        return ([], diag)
+
+    wc_fixtures: list[dict] = []
+    for fx in normalised or []:
+        if not isinstance(fx, dict):
+            continue
+        league = (fx.get("league") or {}) if isinstance(fx.get("league"), dict) else {}
+        if is_world_cup(league.get("name"), country=league.get("country")):
+            fx["_is_world_cup"] = True
+            fx["_external_source"] = fx.get("_external_source") or "thestatsapi"
+            fx["_discovery_source"] = "thestatsapi_world_cup_fallback"
+            wc_fixtures.append(fx)
+
+    diag.update(
+        status="OK" if wc_fixtures else "NO_WORLD_CUP_LIVE",
+        reason="WORLD_CUP_FOUND" if wc_fixtures else "NO_WORLD_CUP_IN_FEED",
+    )
+    diag["world_cup_count"] = len(wc_fixtures)
+    return (wc_fixtures, diag)
 
 
 async def compute_football_live_visibility(
@@ -192,6 +301,22 @@ async def compute_football_live_visibility(
             "visible_live_count":            int,
             "analysis_eligible_live_count":  int,
             "hidden_by_priority_filter":     int,   # must be 0
+            # F94.2 — explicit World Cup audit counters.
+            "world_cup_live_detected":       bool,
+            "world_cup_live_count":          int,
+            "world_cup_hidden_by_filter":    int,   # must be 0 by contract
+            "world_cup_examples":            list[str],  # up to 8
+            "world_cup_fallback_used":       bool,
+            "thestatsapi_diag": {                   # diagnostic only
+              "provider": "thestatsapi",
+              "status":   "OK|EMPTY|DISABLED|ERROR|SKIPPED_PRIMARY_HAS_WC|NO_WORLD_CUP_LIVE",
+              "raw_count": int,
+              "reason":   str,
+              "endpoint": str,
+              "http_status": int | None,
+              "sample_payload_keys": list[str],
+              "world_cup_count": int | None,
+            } | None,
           },
           "by_status_counts": {
             "ANALYZABLE":          int,
@@ -212,6 +337,13 @@ async def compute_football_live_visibility(
         "visible_live_count":            0,
         "analysis_eligible_live_count":  0,
         "hidden_by_priority_filter":     0,
+        # F94.2 — explicit World Cup audit counters.
+        "world_cup_live_detected":       False,
+        "world_cup_live_count":          0,
+        "world_cup_hidden_by_filter":    0,
+        "world_cup_examples":            [],
+        "world_cup_fallback_used":       False,
+        "thestatsapi_diag":              None,
     }
     by_status: dict[str, int] = {"ANALYZABLE": 0, "DISCARDED": 0}
     by_reason: dict[str, int] = {}
@@ -232,6 +364,37 @@ async def compute_football_live_visibility(
             live_raw = []
             agg_meta = {"fallback": "empty"}
 
+    # F94.2 — Check if API-Football's live feed already contains a
+    # senior World Cup match. If not, ask TheStatsAPI as a targeted
+    # fallback. This is scoped to World Cup ONLY for this sprint per
+    # the user spec.
+    primary_has_wc = False
+    for f in live_raw or []:
+        if not isinstance(f, dict):
+            continue
+        league = (f.get("league") or {}) if isinstance(f.get("league"), dict) else {}
+        if is_world_cup(league.get("name"), country=league.get("country")):
+            primary_has_wc = True
+            break
+
+    if not primary_has_wc:
+        wc_extra, wc_diag = await _thestatsapi_world_cup_fallback(client, db)
+        debug["thestatsapi_diag"] = wc_diag
+        if wc_extra:
+            debug["world_cup_fallback_used"] = True
+            # Append (provider already tagged so dedupe upstream is safe).
+            live_raw = list(live_raw or []) + wc_extra
+    else:
+        debug["thestatsapi_diag"] = {
+            "provider":  "thestatsapi",
+            "status":    "SKIPPED_PRIMARY_HAS_WC",
+            "reason":    "API_FOOTBALL_ALREADY_RETURNED_WORLD_CUP",
+            "raw_count": 0,
+            "endpoint":  "/football/matches?status=live",
+            "http_status": None,
+            "sample_payload_keys": [],
+        }
+
     debug["provider_live_count"] = len(live_raw or [])
     debug["after_sport_filter_count"] = debug["provider_live_count"]  # already football-only
 
@@ -250,13 +413,29 @@ async def compute_football_live_visibility(
                 "secondary_reasons": [],
                 "competition_meta":  None,
                 "_is_national_team": False,
+                "_is_world_cup":     False,
             }
-        items.append(_flatten_fixture(f, classification))
+        flat = _flatten_fixture(f, classification)
+        items.append(flat)
         status = classification["analysis_status"]
         by_status[status] = by_status.get(status, 0) + 1
         rc = classification["discard_reason"]
         if rc:
             by_reason[rc] = by_reason.get(rc, 0) + 1
+
+        # F94.2 — World Cup audit counters.
+        if classification.get("_is_world_cup"):
+            debug["world_cup_live_count"] += 1
+            debug["world_cup_live_detected"] = True
+            if status == "DISCARDED":
+                # This should NEVER happen with the bypass in place; if
+                # it does, surface it so we catch regressions early.
+                debug["world_cup_hidden_by_filter"] += 1
+            teams = flat.get("teams") or {}
+            h = (teams.get("home") or {}).get("name") or "?"
+            a = (teams.get("away") or {}).get("name") or "?"
+            if len(debug["world_cup_examples"]) < 8:
+                debug["world_cup_examples"].append(f"{h} vs {a}")
 
     debug["after_league_filter_count"]    = len(items)
     debug["visible_live_count"]           = len(items)
@@ -278,4 +457,5 @@ async def compute_football_live_visibility(
 __all__ = [
     "classify_live_fixture",
     "compute_football_live_visibility",
+    "_thestatsapi_world_cup_fallback",  # exposed for tests
 ]

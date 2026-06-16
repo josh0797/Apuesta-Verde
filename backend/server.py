@@ -8108,6 +8108,44 @@ async def debug_thestatsapi_health(
     return payload
 
 
+@api.get("/debug/thestatsapi/probe")
+async def debug_thestatsapi_probe(user: dict = Depends(get_current_user)):
+    """F94.2 — Structured TheStatsAPI probe.
+
+    Runs ``probe_fixtures_endpoint`` + ``probe_live_endpoint`` and
+    returns the full diagnostic block:
+
+      * ``endpoint`` / ``http_status`` / ``request_id`` / ``elapsed_ms``
+      * ``raw_count`` + ``sample_payload_keys`` (so we can see what
+        shape the response actually had)
+      * ``status`` ∈ ``{OK, EMPTY, AUTH_ERROR, HTTP_ERROR, TIMEOUT,
+        DISABLED, EXCEPTION}``
+      * ``reason`` — short machine-readable code.
+
+    Used by the Discovery Debug Sheet / Live Visibility Strip to render
+    the "thestatsapi adapter returned 0 fixtures — why?" panel.
+    Authenticated to avoid exposing internal endpoints to unauth callers.
+    """
+    try:
+        from services.external_sources import thestatsapi_diagnostics as diag
+    except Exception as exc:
+        log.exception("thestatsapi_diagnostics import failed")
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "detail": f"import failed: {exc}"})
+
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            result = await asyncio.wait_for(diag.probe_all(client), timeout=20.0)
+        return {"ok": True, "probe": result,
+                "now": datetime.now(timezone.utc).isoformat()}
+    except asyncio.TimeoutError:
+        return {"ok": False, "reason": "global_timeout",
+                "now": datetime.now(timezone.utc).isoformat()}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "reason": str(exc),
+                "now": datetime.now(timezone.utc).isoformat()}
+
+
 # ─────────────────────────────────────────────────────────────────────
 # /api/diagnostics/api-health — multi-provider health snapshot used by
 # the Pre-match Debug panel when the funnel returns zero candidates.

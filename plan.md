@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.
 > **Estado histórico:** ✅ F58–F70 completadas.
-> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade) COMPLETADA** + ✅ **F87.1 (Fixture Discovery Contract Fix + Visible Audit + Parte 1.5 upstream audit) COMPLETADA** + ✅ **MLB-F93 (Manual Odds Override Reprice + UI Refresh) COMPLETADA** + ✅ **MLB-F93.1 (Manual Odds Reprice Context Pass-through + Authenticated Debug) COMPLETADA** + ✅ **F94 (Restaurar visibilidad de fixtures, descartados y live exóticos — Live + Dashboard) COMPLETADA**.
+> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade) COMPLETADA** + ✅ **F87.1 (Fixture Discovery Contract Fix + Visible Audit + Parte 1.5 upstream audit) COMPLETADA** + ✅ **MLB-F93 (Manual Odds Override Reprice + UI Refresh) COMPLETADA** + ✅ **MLB-F93.1 (Manual Odds Reprice Context Pass-through + Authenticated Debug) COMPLETADA** + ✅ **F94 (Restaurar visibilidad de fixtures, descartados y live exóticos — Live + Dashboard) COMPLETADA** + ✅ **F94.2 (FIFA World Cup Live detection + TheStatsAPI diagnostics) COMPLETADA**.
 >
 > **Idioma operativo:** Español.
 
@@ -311,9 +311,129 @@ Tras una refactorización previa, en la pestaña **Picks del día** los fixtures
 
 ## 6) Validación esperada (estado actual)
 
-- Suites actuales:
-  - Backend: **3033 passed, 3 skipped** (+ 5 errores HTTP E2E preexistentes y 1 flakey aislado, ninguno relacionado a F94).
-  - Frontend: **152 passed** (baseline previo 145 → +7 tests F94 Dashboard).
+- Suites actuales (post F94.2):
+  - Backend: **3004 passed, 2 skipped** con `pytest.ini` limitando discovery a `tests/` (vs baseline 2972 → **+32 tests F94.2**).
+  - Frontend: **158 passed** (vs baseline 152 → **+6 tests WC**, vs baseline pre-F94 145 → **+13 tests acumulados**).
+  - Lint Python: clean.
+  - Lint JS: 1 advisory preexistente (no introducido por F94.2).
+  - esbuild compila limpio en `WorldCupLiveCard.jsx` + `FootballLiveVisibilityStrip.jsx`.
+
+---
+
+# Phase F94.2 — FIFA World Cup Live Detection + TheStatsAPI Diagnostics (COMPLETED ✅)
+
+## Estado
+✅ **Completado end-to-end**. Resuelve el caso reportado por el usuario: **"Irán vs Nueva Zelanda / FIFA World Cup 2026 / Status LIVE / minuto 24'"** estaba siendo ocultado por filtros de prioridad, y el adaptador TheStatsAPI devolvía `ADAPTER_RETURNED_EMPTY` sin diagnóstico estructurado.
+
+## Problema (resumen)
+1. **API-Football devolvía 226 fixtures** pero el panel "EN CURSO AHORA" mostraba **0**. Las ligas exóticas (Serie B Brasil, USL, etc.) sí se listaban, pero la Copa del Mundo no.
+2. El bloqueo provenía del filtro `ALLOWED_TIERS` que en algunos paths sí incluía tier_1, pero el feed devolvía variantes como "FIFA World Cup 2026" / "Copa Mundial" que el alias matcher de `football_competitions.py` solo cubría parcialmente (faltaba portugués, y la ruta exacta dependía del path por el que llegaba el fixture).
+3. **TheStatsAPI** devolvía `raw=0 kept=0 drop=0` con razón dominante `ADAPTER_RETURNED_EMPTY`, sin información estructurada sobre `endpoint`, `http_status`, `sample_payload_keys` ni `reason`.
+
+## Reglas confirmadas con el usuario
+- Alcance F94.2: **solo Football**.
+- World Cup nunca puede ocultarse — aunque no tenga mercado, SportyTrader o cuotas.
+- Si `is_world_cup` matchea pero falta mercado → status `VISIBLE_PENDING_MARKET` + CTA de "Ingresar cuota manual" (estilo F93).
+- TheStatsAPI: autorización para investigar/modificar query/endpoint/timezone/parser; mantener fail-soft.
+- Fallback TheStatsAPI: SOLO para World Cup en este sprint.
+- Screenshots: scroll completo (header + middle + footer), no solo header.
+
+## Implementación realizada
+
+### Backend
+- ✅ **Nuevo** `services/football_world_cup_aliases.py`:
+  - `WORLD_CUP_ALIASES` (frozenset): ES/EN/PT/FR/DE/IT — `fifa world cup`, `world cup`, `copa mundial`, `copa do mundo`, `coupe du monde`, `weltmeisterschaft`, `coppa del mondo`…
+  - `is_world_cup(league_name, country)`: case+accent insensitive, con guardas negativas para `qualifying`, `women`, `U-XX`, `Club World Cup`, `eliminator`.
+  - `normalize_world_cup_league_name`: devuelve siempre `"FIFA World Cup"` canónico.
+  - Cobertura: **12 variantes positivas + 10 negativas verificadas en tests**.
+
+- ✅ `services/football_live_visibility.py` (modificado):
+  - `classify_live_fixture`: bypass de filtros para World Cup. Si `is_wc=True`, `analysis_status` siempre = `"ANALYZABLE"`, nunca `DISCARDED`, con `competition_meta` sintético tier_1 si falta meta real.
+  - Si World Cup sin `league_id` → agrega `VISIBLE_PENDING_MARKET` a `secondary_reasons` (señal para el frontend).
+  - Surface `_is_world_cup` en `_flatten_fixture`.
+  - Nuevo helper `_thestatsapi_world_cup_fallback`: solo para World Cup, fail-soft, devuelve `(fixtures, diag)` con `{provider, status, raw_count, reason, endpoint, http_status, sample_payload_keys, world_cup_count}`.
+  - `compute_football_live_visibility`: ahora detecta si primary tiene World Cup; si no, invoca el fallback. Cuando primary ya tiene WC, NO llama al fallback y reporta `SKIPPED_PRIMARY_HAS_WC`.
+  - Nuevos `live_debug` counters: `world_cup_live_detected`, `world_cup_live_count`, `world_cup_hidden_by_filter` (contract: siempre 0), `world_cup_examples[]` (hasta 8), `world_cup_fallback_used`, `thestatsapi_diag`.
+
+- ✅ **Nuevo** `services/external_sources/thestatsapi_diagnostics.py`:
+  - `probe_fixtures_endpoint`, `probe_live_endpoint`, `probe_all` — devuelven envelope estructurado.
+  - Captura `endpoint`, `http_status`, `request_id` (x-request-id / x-trace-id), `elapsed_ms`, `raw_count`, `sample_payload_keys` (hasta 20), `status` ∈ `{OK, EMPTY, AUTH_ERROR, HTTP_ERROR, TIMEOUT, DISABLED, EXCEPTION}`, `reason`.
+  - Nunca lanza; reflejan fielmente el resultado HTTP en `status` + `http_status`.
+
+- ✅ `server.py` — Nuevo endpoint `GET /api/debug/thestatsapi/probe` autenticado, que llama a `probe_all(client)` con timeout global de 20s.
+
+### Frontend
+- ✅ **Nuevo** `frontend/src/components/WorldCupLiveCard.jsx`:
+  - Card pinned destacada (amber/gold gradient) que aparece sobre el KPI strip.
+  - Título con contador: `"FIFA Copa del Mundo en vivo — N partido(s)"`.
+  - Por fixture: minuto, equipos, badge de liga + país, status `Visible / pendiente de mercado`.
+  - CTA "Ingresar cuota manual" estilo F93:
+    - Botón → revela input numérico (decimal, comma/dot agnostic).
+    - Save → persiste en `localStorage` (`wc_manual_odds:<fixture_id>`).
+    - "Cuota guardada: X" como badge + opciones Editar/Borrar.
+  - Warning de violación de contrato cuando `world_cup_hidden_by_filter > 0`.
+  - Footnote: "Per F94.2, World Cup siempre es visible".
+  - Bilingüe ES/EN.
+
+- ✅ `frontend/src/components/FootballLiveVisibilityStrip.jsx` (modificado):
+  - Importa `WorldCupLiveCard`, lo renderiza sobre el KPI strip cuando hay WC.
+  - Nuevo panel diagnóstico **TheStatsAPI** que aparece cuando `live_debug.thestatsapi_diag.status !== 'OK'`:
+    - Status badge (color azul) con el código (`EMPTY`/`AUTH_ERROR`/`HTTP_ERROR`/`TIMEOUT`/`DISABLED`/`EXCEPTION`).
+    - Grid con `endpoint`, `http_status`, `raw_count`, `reason`.
+    - Línea con `sample_payload_keys` cuando existe.
+  - Visibility relajada: ya no oculta el strip si hay World Cup detectado (`worldCupItems.length > 0`).
+
+## Tests (zero regresiones)
+- ✅ Backend `tests/test_f94_2_world_cup_visibility.py` (**32 tests**, 100% green):
+  - 11 positivos + 10 negativos para aliases (ES/EN/PT/FR variants).
+  - `test_world_cup_aliases_set_contains_all_canonical_forms`.
+  - `test_world_cup_live_fixture_is_always_analyzable` (Iran vs New Zealand mock).
+  - `test_world_cup_live_fixture_without_league_id_marks_pending_market`.
+  - `test_world_cup_with_qualifying_name_does_NOT_trigger_bypass`.
+  - `test_compute_live_visibility_surfaces_world_cup_counters`.
+  - `test_thestatsapi_fallback_fires_when_primary_has_no_world_cup`.
+  - `test_thestatsapi_fallback_SKIPPED_when_primary_already_has_wc`.
+  - `test_world_cup_fallback_returns_diag_when_thestatsapi_disabled`.
+  - `test_diagnostics_probe_returns_full_envelope` (200 OK).
+  - `test_diagnostics_probe_reports_empty_payload` (EMPTY).
+  - `test_diagnostics_probe_reports_auth_error` (401 → AUTH_ERROR).
+
+- ✅ Frontend `__tests__/WorldCupLiveCard.test.jsx` (**6 tests**, 100% green):
+  - Iran vs New Zealand renderiza pinned con FIFA World Cup badge.
+  - Manual odds CTA captura y persiste valor en localStorage.
+  - `VISIBLE_PENDING_MARKET` surface notice.
+  - Returns null cuando no hay WC items.
+  - Contract-violation warning cuando `world_cup_hidden_by_filter > 0`.
+  - Paridad ES/EN.
+
+## Validación E2E
+- ✅ Backend live-call con mock pipeline:
+  - Iran vs New Zealand mock → `_is_world_cup=True`, `analysis_status=ANALYZABLE`, `discard_reason=None`, `secondary_reasons=[SPORTYTRADER_NOT_FOUND, VISIBLE_PENDING_MARKET]`.
+  - `live_debug`: `world_cup_live_detected=True`, `world_cup_live_count=1`, `world_cup_hidden_by_filter=0`, `world_cup_examples=['Iran vs New Zealand']`.
+- ✅ Frontend en preview real (`low-volatility-plays.preview.emergentagent.com`):
+  - Login con cuenta demo → Dashboard funciona, muestra `"10 partidos descartados — ver detalle"` (F94 anterior validado en producción).
+  - Live tab → `FootballLiveVisibilityStrip` montado correctamente.
+  - **Scroll completo (top + middle + bottom)**: **0 errores visibles** en toda la página.
+  - `WorldCupLiveCard` no se renderiza porque actualmente no hay partidos WC en vivo en el snapshot (guard correcto).
+
+## Endpoints / archivos
+- `GET /api/football/live/visibility` (extended con `world_cup_*` counters + `thestatsapi_diag`).
+- `GET /api/debug/thestatsapi/probe` *(nuevo, autenticado)*.
+- `services/football_world_cup_aliases.py` *(nuevo)*.
+- `services/football_live_visibility.py` *(modificado)*.
+- `services/external_sources/thestatsapi_diagnostics.py` *(nuevo)*.
+- `tests/test_f94_2_world_cup_visibility.py` *(nuevo, 32 tests)*.
+- `frontend/src/components/WorldCupLiveCard.jsx` *(nuevo)*.
+- `frontend/src/components/FootballLiveVisibilityStrip.jsx` *(modificado)*.
+- `frontend/src/components/__tests__/WorldCupLiveCard.test.jsx` *(nuevo, 6 tests)*.
+
+## Pre-existing test cleanup (incluido en este sprint)
+- ✅ **`backend/pytest.ini` creado** con `testpaths = tests` — fija definitivamente el problema preexistente de discovery de pytest que recogía scripts standalone del root (`backend_test.py`, `live_recommendation_history_*.py`, `mlb_under_veto_test.py`, `test_backend_api.py`, `test_phase15_*::test_api_endpoints`) que ejecutaban código top-level con `sys.exit()` y HTTP timeouts. La regla: solo `/app/backend/tests/` es el directorio de pytest. Los scripts legacy del root siguen funcionando como standalone (`python <script>.py`).
+- ✅ Esto resuelve los 1 failed + 5 errors + 4 collection errors reportados anteriormente, sin cambiar nada en el código de los scripts.
+
+---
+
+## Reglas operacionales + flags
 
 - Reglas de operación:
   - Siempre usar `yarn` (no `npm`).
@@ -324,3 +444,5 @@ Tras una refactorización previa, en la pestaña **Picks del día** los fixtures
   - ✅ **F87.1:** `DISCOVERY_DROPPED_SAMPLE_CAP` (default `3`).
   - ✅ **MLB-F93:** `MLB_MANUAL_VALUE_EDGE_THRESHOLD` (default `0.03`).
   - ✅ **MLB-F93:** `MLB_MANUAL_WATCHLIST_TOLERANCE` (default `0.02`).
+  - ✅ **F94.2:** `ENABLE_THE_STATS_API` (default `false`, requerido para fallback World Cup live).
+  - ✅ **F94.2:** `THESTATSAPI_KEY` (clave Bearer del proveedor; sin esta clave el fallback se reporta como `DISABLED`).
