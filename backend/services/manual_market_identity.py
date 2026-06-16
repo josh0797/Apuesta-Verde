@@ -167,19 +167,49 @@ def recalculate_with_manual_market(payload: dict,
         tolerance_category = "unknown"
 
     # Edge estimate (manual): if base_pick provides a model probability,
-    # use it; otherwise fall back to a heuristic per market.
+    # use it; otherwise we MUST NOT fabricate one — doing so caused the
+    # historical "every manual odd shows favorable edge" bug (even 1.01
+    # got a +5% fake edge because the prior heuristic was
+    # ``implied_prob * 1.05``, which is always positive by construction).
     implied_prob = round(1.0 / manual_odd, 4) if manual_odd > 0 else 0.0
     base_model_prob = None
+    model_prob_source: str = "missing"
     if isinstance(base_pick, dict):
         base_model_prob = (
             (base_pick.get("_market_edge") or {}).get("estimated_probability")
             or (base_pick.get("model_probability"))
         )
-    if base_model_prob is None:
-        # Heuristic baseline: assume a conservative 5% edge floor.
-        base_model_prob = round(implied_prob * 1.05, 4)
+        if base_model_prob is not None:
+            model_prob_source = "base_pick"
 
-    manual_edge_pct = round((base_model_prob - implied_prob) * 100, 2)
+    # Soft proxy: use confidence/100 ONLY when explicitly available and
+    # only as a *weak* signal (clamped to a sane range to avoid silly
+    # results when confidence is on a 0-100 scale).
+    if base_model_prob is None and isinstance(base_pick, dict):
+        mb = base_pick.get("_moneyball") or {}
+        conf_raw = (mb.get("confidence")
+                    if isinstance(mb.get("confidence"), (int, float))
+                    else None)
+        if conf_raw is not None and 0 < conf_raw <= 100:
+            base_model_prob = round(conf_raw / 100.0, 4)
+            base_model_prob = max(0.05, min(base_model_prob, 0.95))
+            model_prob_source = "confidence_weak_proxy"
+
+    # If we still have nothing, DO NOT fabricate a model. Return a
+    # neutral payload that says so clearly.
+    if base_model_prob is None:
+        manual_edge_pct = None
+        model_prob_pct = None
+        status = "MODEL_PROBABILITY_UNAVAILABLE"
+        verdict = (
+            "Cuota guardada, pero no se puede calcular edge sin "
+            "probabilidad del modelo. Se requiere análisis previo del pick."
+        )
+    else:
+        manual_edge_pct = round((base_model_prob - implied_prob) * 100, 2)
+        model_prob_pct  = round(base_model_prob * 100, 2)
+        status = None  # Will be set by verdict block below.
+        verdict = None
 
     # Fragility & confidence: take from base_pick if available, else
     # neutral.
@@ -194,16 +224,24 @@ def recalculate_with_manual_market(payload: dict,
         if isinstance(mb.get("confidence"), int):
             confidence = mb["confidence"]
 
-    # Verdict
-    if manual_edge_pct >= 3.0 and fragility <= 30:
-        verdict = "Apta para revisión manual conservadora"
-        status  = "MANUAL_VALUE_REVIEW"
-    elif manual_edge_pct >= 0:
-        verdict = "Margen ajustado; revisar contexto antes de apostar"
-        status  = "MANUAL_THIN_VALUE"
-    else:
-        verdict = "Sin valor con la cuota manual; no recomendado"
-        status  = "MANUAL_NO_VALUE"
+    # Verdict — only computed when we have a valid model probability.
+    if manual_edge_pct is not None:
+        if manual_edge_pct >= 3.0 and fragility <= 30:
+            verdict = "Apta para revisión manual conservadora"
+            status  = "MANUAL_VALUE_REVIEW"
+        elif manual_edge_pct >= 0:
+            verdict = "Margen ajustado; revisar contexto antes de apostar"
+            status  = "MANUAL_THIN_VALUE"
+        else:
+            verdict = "Sin valor con la cuota manual; no recomendado"
+            status  = "MANUAL_NO_VALUE"
+        # When using a soft proxy, downgrade the verdict honesty.
+        if model_prob_source == "confidence_weak_proxy":
+            verdict = (
+                "Edge estimado usando confianza del modelo como proxy "
+                f"débil — interpretar con cautela ({verdict.lower()})."
+            )
+            status = "MANUAL_WEAK_PROXY"
 
     recommended_market = {
         "DOUBLE_CHANCE":  f"Doble Oportunidad {selection}",
@@ -226,19 +264,26 @@ def recalculate_with_manual_market(payload: dict,
             "source":       payload.get("source") or "USER_MANUAL_INPUT",
         },
         "recalculated_pick": {
-            "recommended_market": recommended_market,
-            "manual_edge":        manual_edge_pct,
-            "implied_probability": round(implied_prob * 100, 2),
-            "model_probability":   round(base_model_prob * 100, 2),
-            "fragility_score":    fragility,
-            "confidence":         confidence,
-            "tolerance_category": tolerance_category,
-            "status":             status,
-            "verdict":            verdict,
+            "recommended_market":   recommended_market,
+            "manual_edge":          manual_edge_pct,
+            "implied_probability":  round(implied_prob * 100, 2),
+            "model_probability":    model_prob_pct,
+            "model_prob_source":    model_prob_source,
+            "fragility_score":      fragility,
+            "confidence":           confidence,
+            "tolerance_category":   tolerance_category,
+            "status":               status,
+            "verdict":              verdict,
         },
         "warnings": [
             "Cuota ingresada manualmente: validar que corresponda al mercado seleccionado.",
-            "El edge fue calculado usando identidad de mercado manual.",
+            (
+                "El edge fue calculado usando identidad de mercado manual."
+                if model_prob_source == "base_pick"
+                else "Edge basado en confianza del modelo como proxy débil — interpretar con cautela."
+                if model_prob_source == "confidence_weak_proxy"
+                else "No fue posible calcular edge: el engine no expone probabilidad estimada para este pick."
+            ),
         ],
     }
 

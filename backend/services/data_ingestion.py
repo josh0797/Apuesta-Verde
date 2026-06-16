@@ -1026,6 +1026,118 @@ async def _schedule_xg_recent_background(
         log.warning("[xg_recent_bg] crashed for fixture=%s: %s", fid, exc)
 
 
+# ─────────────────────────────────────────────────────────────────────
+# FIX-4 — Background scheduler for the pre-match Corners Profile.
+# ─────────────────────────────────────────────────────────────────────
+_CORNERS_PROFILE_BG_TIMEOUT_S = 30.0
+
+
+async def _schedule_corners_profile_background(
+    match_doc: dict, fid: Any, db, fx_raw: dict,
+) -> None:
+    """Background task — fetch each team's last-N corners and compute the
+    pre-match Corners Profile (L1/L5/L15 + momentum + expected corners).
+
+    Cache-friendly: uses ``db.team_corners_history`` 24h TTL.
+    Fail-soft: any exception is logged at DEBUG and we persist an
+    UNAVAILABLE marker so the UI can render the explainer.
+    """
+    try:
+        from .football_corners_history import fetch_team_corners_history
+        from .football_corners_profile  import build_corners_profile
+
+        home = match_doc.get("home_team") or {}
+        away = match_doc.get("away_team") or {}
+
+        ts_home = home.get("_thestatsapi_id") or home.get("thestatsapi_id")
+        ts_away = away.get("_thestatsapi_id") or away.get("thestatsapi_id")
+        as_home = home.get("id")
+        as_away = away.get("id")
+        season  = (fx_raw.get("league") or {}).get("season")
+
+        async def _one(team_label, ts_id, as_id):
+            try:
+                return await asyncio.wait_for(
+                    fetch_team_corners_history(
+                        None, db,
+                        team_id_thestatsapi=str(ts_id) if ts_id else None,
+                        team_id_apisports=as_id,
+                        season=season, n=15, min_sample=5, use_cache=True,
+                    ),
+                    timeout=_CORNERS_PROFILE_BG_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
+                log.warning("[corners_profile_bg] timeout %s fixture=%s",
+                            team_label, fid)
+                return {"history": [], "source": "none",
+                        "reason_codes": ["CORNERS_PROFILE_BG_TIMEOUT"]}
+            except Exception as exc:
+                log.debug("[corners_profile_bg] %s failed fixture=%s: %s",
+                          team_label, fid, exc)
+                return {"history": [], "source": "none",
+                        "reason_codes": [f"CORNERS_PROFILE_BG_{type(exc).__name__}"]}
+
+        home_out, away_out = await asyncio.gather(
+            _one("home", ts_home, as_home),
+            _one("away", ts_away, as_away),
+        )
+
+        # Determine pre-match flag: any non-finished status is pre-match.
+        status_short = (
+            ((fx_raw.get("fixture") or {}).get("status") or {}).get("short")
+            or match_doc.get("status_short")
+            or ""
+        ).upper()
+        is_pre_match = status_short not in ("FT", "AET", "PEN", "1H", "2H", "HT", "ET", "P", "LIVE")
+
+        # The current fixture has its own corners only when the match
+        # has been played at least partially. Pre-match this is always
+        # ``False`` and the absence MUST NOT be treated as an error.
+        current_corners = match_doc.get("corners") or {}
+        current_fixture_corners_available = bool(
+            isinstance(current_corners, dict) and current_corners.get("available")
+        )
+
+        profile = build_corners_profile(
+            home_team_id=ts_home or as_home,
+            home_team_name=home.get("name"),
+            home_history=home_out.get("history") or [],
+            away_team_id=ts_away or as_away,
+            away_team_name=away.get("name"),
+            away_history=away_out.get("history") or [],
+            is_pre_match=is_pre_match,
+            current_fixture_corners_available=current_fixture_corners_available,
+            min_sample=5,
+            provider=home_out.get("source") or away_out.get("source") or "thestatsapi",
+        )
+        # Surface provider-level reason codes too (TS_NO_RECENT_MATCH_IDS, etc.).
+        extra_rc = (home_out.get("reason_codes") or []) + (away_out.get("reason_codes") or [])
+        if extra_rc:
+            seen = set(profile["reason_codes"])
+            for code in extra_rc:
+                if code and code not in seen:
+                    profile["reason_codes"].append(code)
+                    seen.add(code)
+
+        # Persist in Mongo and mutate in-memory.
+        try:
+            await db.matches.update_one(
+                {"match_id": fid},
+                {"$set": {"corners_profile": profile}},
+            )
+        except Exception as exc:
+            log.debug("[corners_profile_bg] mongo persist failed for %s: %s",
+                      fid, exc)
+        match_doc["corners_profile"] = profile
+
+        log.info(
+            "[corners_profile_bg] fixture=%s status=%s expected=%s home_n=%d away_n=%d blocked=%s",
+            fid, profile["status"], profile["expected_corners"],
+            profile["home"]["sample_size"], profile["away"]["sample_size"],
+            profile["picks_blocked"],
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[corners_profile_bg] crashed for fixture=%s: %s", fid, exc)
 
 
 async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live: bool, deep: bool) -> dict | None:
@@ -1351,6 +1463,21 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             )
         except Exception as exc:  # noqa: BLE001
             log.debug("[xg_recent_bg] schedule failed for %s: %s", fid, exc)
+
+        # FIX-4 — Pre-match Corners Profile background task.
+        # Computes L1/L5/L15 corners-for / corners-against per team
+        # plus momentum + expected corners. Runs independently of
+        # corners_provider. NEVER blocks the ingestor.
+        try:
+            match_doc.setdefault("corners_profile", {
+                "status":       "PENDING",
+                "reason_codes": ["CORNERS_PROFILE_BACKGROUND_DEFERRED"],
+            })
+            asyncio.create_task(
+                _schedule_corners_profile_background(match_doc, fid, db, fx_raw),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[corners_profile_bg] schedule failed for %s: %s", fid, exc)
 
         # Phase F82 — corners provider (API-Sports → 365Scores → TheStatsAPI).
         # Phase F82.1 — FAST tier only (no HTTP); 365Scores opt-in via env flag.

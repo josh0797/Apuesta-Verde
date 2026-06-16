@@ -291,33 +291,104 @@ export const ManualMarketIdentityPanel = ({
           </div>
         )}
 
-        {result?.recalculated_pick && (
-          <div
-            className="border border-emerald-700/40 bg-emerald-900/10 rounded p-2 text-xs space-y-1"
-            data-testid={`${testIdPrefix}-result`}
-          >
-            <div className="flex items-center gap-2 font-semibold text-emerald-200">
-              <CheckCircle2 className="h-4 w-4" />
-              {result.recalculated_pick.recommended_market}
+        {result?.recalculated_pick && (() => {
+          const rp = result.recalculated_pick;
+          // FIX-NEW-2 — Distinct visual states based on the new contract:
+          //   • MANUAL_VALUE_REVIEW    → green (real value, real model).
+          //   • MANUAL_THIN_VALUE      → green (positive edge, thin).
+          //   • MANUAL_NO_VALUE        → rose (negative edge — be honest).
+          //   • MANUAL_WEAK_PROXY      → amber (using confidence proxy).
+          //   • MODEL_PROBABILITY_UNAVAILABLE → slate (no edge computable).
+          const status = rp.status || 'UNKNOWN';
+          const proxy  = rp.model_prob_source === 'confidence_weak_proxy';
+          const unavail = status === 'MODEL_PROBABILITY_UNAVAILABLE';
+          const noValue = status === 'MANUAL_NO_VALUE';
+          const wrapperCls = unavail
+            ? 'border border-slate-600/50 bg-slate-800/30'
+            : noValue
+            ? 'border border-rose-700/50 bg-rose-900/20'
+            : proxy
+            ? 'border border-amber-700/50 bg-amber-900/20'
+            : 'border border-emerald-700/40 bg-emerald-900/10';
+          const headerIcon = unavail ? AlertTriangle
+            : noValue ? AlertTriangle
+            : proxy ? AlertTriangle
+            : CheckCircle2;
+          const HeaderIcon = headerIcon;
+          const headerCls = unavail
+            ? 'text-slate-300'
+            : noValue ? 'text-rose-200'
+            : proxy ? 'text-amber-200'
+            : 'text-emerald-200';
+          const edgeCls = unavail
+            ? 'text-slate-400'
+            : (rp.manual_edge !== null && rp.manual_edge >= 0
+                ? 'text-emerald-200'
+                : 'text-rose-200');
+
+          return (
+            <div
+              className={`${wrapperCls} rounded p-2 text-xs space-y-1`}
+              data-testid={`${testIdPrefix}-result`}
+            >
+              <div className={`flex items-center gap-2 font-semibold ${headerCls}`}>
+                <HeaderIcon className="h-4 w-4" />
+                {rp.recommended_market}
+                <span
+                  className="ml-auto text-[9px] font-mono uppercase opacity-80"
+                  data-testid={`${testIdPrefix}-result-status`}
+                >
+                  {status}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 text-[11px] text-slate-300">
+                <span>
+                  Edge manual:{' '}
+                  <span className={edgeCls} data-testid={`${testIdPrefix}-result-edge`}>
+                    {rp.manual_edge === null || rp.manual_edge === undefined
+                      ? '—'
+                      : `${rp.manual_edge}%`}
+                  </span>
+                </span>
+                <span>
+                  Implícita:{' '}
+                  <span className="text-slate-200">
+                    {rp.implied_probability === null || rp.implied_probability === undefined
+                      ? '—'
+                      : `${rp.implied_probability}%`}
+                  </span>
+                </span>
+                <span>
+                  Modelo:{' '}
+                  <span className="text-slate-200">
+                    {rp.model_probability === null || rp.model_probability === undefined
+                      ? '—'
+                      : `${rp.model_probability}%`}
+                  </span>
+                </span>
+                <span>Fragilidad: <span className="text-slate-200">{rp.fragility_score}</span></span>
+                <span>Confianza: <span className="text-slate-200">{rp.confidence}</span></span>
+                <span>Categoría: <span className="text-slate-200">{rp.tolerance_category}</span></span>
+              </div>
+              {proxy && (
+                <div
+                  className="text-[10px] text-amber-200/90 italic pt-1 border-t border-amber-800/40 mt-1"
+                  data-testid={`${testIdPrefix}-result-proxy-notice`}
+                >
+                  Edge basado en confianza como proxy débil — interpretar con cautela.
+                </div>
+              )}
+              <div className="text-[11px] text-slate-200 italic pt-1">
+                {rp.verdict}
+              </div>
+              {Array.isArray(result.warnings) && result.warnings.length > 0 && (
+                <ul className="list-disc pl-5 text-[10px] text-amber-200/80 pt-1">
+                  {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+              )}
             </div>
-            <div className="grid grid-cols-2 gap-x-3 text-[11px] text-slate-300">
-              <span>Edge manual: <span className="text-emerald-200">{result.recalculated_pick.manual_edge}%</span></span>
-              <span>Implícita: <span className="text-slate-200">{result.recalculated_pick.implied_probability}%</span></span>
-              <span>Modelo: <span className="text-slate-200">{result.recalculated_pick.model_probability}%</span></span>
-              <span>Fragilidad: <span className="text-slate-200">{result.recalculated_pick.fragility_score}</span></span>
-              <span>Confianza: <span className="text-slate-200">{result.recalculated_pick.confidence}</span></span>
-              <span>Categoría: <span className="text-slate-200">{result.recalculated_pick.tolerance_category}</span></span>
-            </div>
-            <div className="text-[11px] text-slate-200 italic pt-1">
-              {result.recalculated_pick.verdict}
-            </div>
-            {Array.isArray(result.warnings) && result.warnings.length > 0 && (
-              <ul className="list-disc pl-5 text-[10px] text-amber-200/80 pt-1">
-                {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
-              </ul>
-            )}
-          </div>
-        )}
+          );
+        })()}
       </CardContent>
     </Card>
   );

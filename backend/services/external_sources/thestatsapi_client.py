@@ -212,6 +212,59 @@ async def fetch_match_stats(client: httpx.AsyncClient, match_id: int | str) -> d
     return data
 
 
+async def fetch_recent_matches(
+    team_id: int | str,
+    *,
+    n: int = 15,
+    client: httpx.AsyncClient | None = None,
+    status: str = "finished",
+    sport: str = "football",
+    timeout: float = DEFAULT_TIMEOUT_SEC,
+) -> list[dict]:
+    """FIX-4 — Like :func:`fetch_recent_match_ids` but returns the FULL
+    match dicts so callers can read ``home_team_id`` / ``away_team_id``
+    without an extra round-trip.
+
+    Returned dict items have at least ``id`` and (when the provider
+    exposes them) ``home_team_id`` / ``away_team_id``, plus any other
+    keys the upstream endpoint returns.
+
+    Fail-soft: returns ``[]`` on any error.
+    """
+    if not team_id or not is_enabled():
+        return []
+    sport = (sport or "football").lower()
+    base_path = f"/{sport}/matches" if sport == "football" else "/football/matches"
+    params: dict[str, Any] = {"team_id": str(team_id), "limit": int(n) if n and int(n) > 0 else 15}
+    if status:
+        params["status"] = status
+
+    owns_client = client is None
+    if owns_client:
+        client = httpx.AsyncClient(timeout=timeout)
+    try:
+        payload = await _request(client, "GET", base_path, params=params, timeout=timeout)
+    except Exception as exc:
+        log.debug("[thestatsapi] fetch_recent_matches failed team=%s: %s", team_id, exc)
+        payload = {}
+    finally:
+        if owns_client:
+            try:
+                await client.aclose()
+            except Exception:
+                pass
+    if not isinstance(payload, dict):
+        return []
+    matches = _extract_list(payload, candidate_keys=("data", "matches", "response", "results"))
+    out: list[dict] = []
+    for m in matches or []:
+        if isinstance(m, dict) and (m.get("id") or m.get("match_id")):
+            out.append(m)
+        if len(out) >= int(n):
+            break
+    return out
+
+
 async def fetch_recent_match_ids(
     team_id: int | str,
     *,

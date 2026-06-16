@@ -17,6 +17,7 @@ import { ContradictionWarnings } from './ContradictionWarnings';
 import { EngineNarrativeBlock } from './EngineNarrativeBlock';
 import { ConfidenceBreakdown } from './ConfidenceBreakdown';
 import { CornersEnrichmentButton } from './CornersEnrichmentButton';
+import { CornersProfilePanel } from './CornersProfilePanel';
 import { PublicXGPanel } from './PublicXGPanel';
 
 const ICON_MAP = { Activity, ShieldCheck, Target, Zap, Brain };
@@ -260,6 +261,16 @@ export function MatchIntelligencePanel({ pick, sport = 'football' }) {
             365Scores on demand. */}
         {sport === 'football' && (
           <CornersEnrichmentButton match={pick} lang={lang} />
+        )}
+        {/* FIX-4 — Pre-match Corners Profile (L1/L5/L15 + momentum +
+            expected corners + line projections). Always pre-match-safe:
+            absence of current-fixture corners is NOT an error. */}
+        {sport === 'football' && (pick?.match_id || pick?.id) && (
+          <CornersProfilePanel
+            matchId={pick.match_id || pick.id}
+            lang={lang}
+            initialProfile={pick.corners_profile || null}
+          />
         )}
         {/* Phase F83.2-E4 — xG L1/L5/L15 from TheStatsAPI shotmap. */}
         {sport === 'football' && (

@@ -384,11 +384,42 @@ def test_reprice_pure_module_returns_invalid_for_bad_odds():
     assert out["decision"] == "INVALID"
 
 
-def test_reprice_pure_module_manual_odds_only_when_no_prob():
-    out = reprice_mlb_pick_with_manual_odds({"confidence_score": 50}, 1.90)
+def test_reprice_pure_module_manual_odds_only_when_no_prob_AND_no_confidence():
+    """When neither model probability nor confidence are available the
+    reprice MUST fall back to MANUAL_ODDS_ONLY (no edge fabrication)."""
+    out = reprice_mlb_pick_with_manual_odds({"id": "no_signal"}, 1.90)
     assert out["decision"] == "MANUAL_ODDS_ONLY"
     assert RC_MODEL_PROB_MISSING in out["reason_codes"]
     assert RC_OVERRIDE_USED       in out["reason_codes"]
+
+
+def test_reprice_pure_module_uses_confidence_proxy_when_no_model_prob():
+    """FIX-NEW-2 — When the engine has no ``model_probability`` but a
+    confidence_score is available, the reprice computes a directional
+    edge using ``confidence/100`` as a weak proxy. The decision is
+    capped at WATCHLIST (never VALUE) and the reason codes mark the
+    soft-proxy provenance explicitly.
+    """
+    out = reprice_mlb_pick_with_manual_odds(
+        {"id": "p1"}, 1.90, confidence_before=50,
+    )
+    # With confidence=50, the proxy makes available=True.
+    assert out["available"] is True
+    assert out["model_probability"] == 0.5
+    assert "CONFIDENCE_USED_AS_WEAK_PROBABILITY_PROXY" in out["reason_codes"]
+    # Decision must NOT be VALUE under the proxy.
+    assert out["decision"] != "VALUE"
+
+
+def test_reprice_pure_module_silly_low_odd_with_confidence_does_not_lie():
+    """Cuota 1.01 (implied ≈ 99%) used to produce a fake positive edge.
+    With the proxy capped at confidence/100 = 0.5 the edge is clearly
+    negative and the decision is NO_VALUE."""
+    out = reprice_mlb_pick_with_manual_odds(
+        {"id": "p1"}, 1.01, confidence_before=50,
+    )
+    assert out["edge_pct"] < 0
+    assert out["decision"] == "NO_VALUE"
 
 
 def test_build_minimal_pick_context_from_match_doc_keeps_probability():

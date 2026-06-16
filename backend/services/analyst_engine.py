@@ -2008,6 +2008,26 @@ async def analyze_matches(
     #     / NO_BET_VALUE / MARKET_TRAP / PUBLIC_OVERREACTION)
     #   • reroutes the no-value classes to summary.discarded_market.
     from . import moneyball_layer as _mb
+    # Phase F94.4 — LLM-hallucinated odds guard (football). When the
+    # upstream pipeline has NO ``odds_snapshots`` for a match, the LLM
+    # still produces a placeholder ``recommendation.odds_range`` which
+    # then propagates as an identical "Cuota detectada" value across
+    # unrelated matches (the user-reported bug: France-Senegal and
+    # Austria-Jordan both showing 1.275). Suppress those hallucinated
+    # values BEFORE moneyball so the trace renders ``odds=None`` and the
+    # UI shows "Sin cuota detectada" instead of a misleading shared
+    # number. Football only — other sports use a different upstream
+    # contract.
+    if sport == "football":
+        try:
+            from .football_llm_odds_hallucination_guard import (
+                suppress_llm_hallucinated_odds,
+            )
+            _halluc_meta = suppress_llm_hallucinated_odds(parsed, matches_payload)
+            if _halluc_meta.get("suppressed_picks") or _halluc_meta.get("suppressed_summary"):
+                pipeline_meta["llm_odds_hallucination_guard"] = _halluc_meta
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[F94.4] hallucination guard skipped: %s", exc)
     # Phase F74-post v2.5 — enrich picks with opening→current line
     # movement (from TheStatsAPI `_opening_odds`) BEFORE moneyball so
     # the classification reads ``line_movement_favourable`` correctly.

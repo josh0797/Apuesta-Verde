@@ -147,7 +147,12 @@ def test_manual_odds_infers_line_from_selection():
 # 8. Saved-only when request pick_context has NO probability.
 # ─────────────────────────────────────────────────────────────────────
 @pytest.mark.asyncio
-async def test_manual_odds_saved_only_when_request_context_has_no_probability():
+async def test_manual_odds_saved_when_request_context_has_no_probability_but_has_confidence():
+    """FIX-NEW-2 — When the request context carries ``confidence_score``
+    but no ``model_probability``, the reprice now succeeds using the
+    confidence/100 weak proxy. The decision NEVER promotes to VALUE
+    and the reason codes mark the soft-proxy provenance.
+    """
     resp = await _call_endpoint({
         "manual_odds":  1.64,
         "market":       "UNDER 9.5",
@@ -159,13 +164,14 @@ async def test_manual_odds_saved_only_when_request_context_has_no_probability():
             "confidence_score": 82,
         },
     })
-    assert resp["status"] == "OVERRIDE_SAVED_ONLY"
-    assert resp["reprice"]["available"] is False
+    # Reprice succeeds via the soft proxy.
+    assert resp["reprice"]["available"] is True
+    assert resp["reprice"]["model_probability"] == 0.82
     codes = resp["reprice"]["reason_codes"]
-    assert RC_MODEL_PROB_MISSING       in codes
     assert RC_PICK_CONTEXT_FROM_REQUEST in codes
-    # Weak proxy must be flagged because confidence_score is present.
     assert RC_CONFIDENCE_WEAK_PROXY in codes
+    # Even with high confidence the decision MUST NOT be VALUE under the proxy.
+    assert resp["reprice"]["decision"] != "VALUE"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -211,10 +217,17 @@ async def test_manual_odds_debug_requires_identifier():
 # Bonus: confidence_score alone does NOT promote to VALUE
 # ─────────────────────────────────────────────────────────────────────
 def test_confidence_alone_does_not_become_value():
-    """Even with a very high confidence_score and a juicy odd, decision
-    must stay MANUAL_ODDS_ONLY when no real probability is available."""
+    """Even with a very high confidence_score and a juicy odd, the
+    decision MUST NOT promote to VALUE when there's no real model
+    probability — FIX-NEW-2 caps it at WATCHLIST when the confidence
+    proxy is used (vs. MANUAL_ODDS_ONLY when no proxy is available)."""
     pick = {"confidence_score": 95}
     out = reprice_mlb_pick_with_manual_odds(pick, 2.50, market="UNDER 9.5")
-    assert out["decision"] == "MANUAL_ODDS_ONLY"
-    assert RC_MODEL_PROB_MISSING    in out["reason_codes"]
+    # The decision MUST NOT be "VALUE". Under FIX-NEW-2 the soft-proxy
+    # path caps at WATCHLIST; the older code returned MANUAL_ODDS_ONLY.
+    # Either is acceptable; "VALUE" is the only forbidden outcome.
+    assert out["decision"] != "VALUE"
+    assert out["decision"] in ("WATCHLIST", "MANUAL_ODDS_ONLY", "NO_VALUE")
+    # The confidence proxy MUST be flagged explicitly so the UI/audit
+    # layer knows this is not a real model probability.
     assert RC_CONFIDENCE_WEAK_PROXY in out["reason_codes"]

@@ -436,6 +436,21 @@ def reprice_mlb_pick_with_manual_odds(
     )
     base["model_probability"] = model_prob
 
+    # FIX-NEW-2 — Soft proxy: when the engine truly has no
+    # ``model_probability`` but a confidence_score is available, fall
+    # back to ``confidence / 100`` as a *weak* proxy so the user can
+    # still see a directional reprice. The decision NEVER promotes to
+    # VALUE in this path — it caps at WATCHLIST and the reason codes
+    # mark the soft-proxy provenance loud and clear.
+    used_confidence_proxy = False
+    if model_prob is None:
+        conf = base.get("confidence_before")
+        if isinstance(conf, (int, float)) and 0 < conf <= 100:
+            proxy = max(0.05, min(conf / 100.0, 0.95))
+            model_prob = round(proxy, 4)
+            base["model_probability"] = model_prob
+            used_confidence_proxy = True
+
     if model_prob is None:
         codes = [*extra_reason_codes, RC_OVERRIDE_USED, RC_MODEL_PROB_MISSING]
         if context_from_request:
@@ -460,8 +475,16 @@ def reprice_mlb_pick_with_manual_odds(
     ev        = round(model_prob * (odd - 1.0) - (1.0 - model_prob), 6)
 
     decision, decide_codes = _decide(edge=edge, ev=ev, model_prob=model_prob)
+    # When using the confidence proxy, downgrade an over-eager VALUE
+    # decision to WATCHLIST: the proxy is too soft to claim true value.
+    if used_confidence_proxy and decision == "VALUE":
+        decision = "WATCHLIST"
+        decide_codes = [c for c in decide_codes if c != "EDGE_ABOVE_THRESHOLD"]
+        decide_codes.append("MANUAL_REPRICE_CAPPED_BY_CONFIDENCE_PROXY")
 
     codes = [*extra_reason_codes, RC_REPRICE_APPLIED, RC_OVERRIDE_USED, *decide_codes]
+    if used_confidence_proxy:
+        codes.append(RC_CONFIDENCE_WEAK_PROXY)
     if context_from_request:
         codes.append(RC_PICK_CONTEXT_FROM_REQUEST)
     elif context_reconstructed:

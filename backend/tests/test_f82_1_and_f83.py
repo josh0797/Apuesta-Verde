@@ -157,9 +157,36 @@ class TestF83_Recalculation:
         rec = result["recalculated_pick"]
         assert "Under 3.5" in rec["recommended_market"]
         assert rec["tolerance_category"] == "protected"
-        # Manual edge should be positive when model_prob > implied (heuristic).
-        assert rec["status"] in ("MANUAL_VALUE_REVIEW", "MANUAL_THIN_VALUE")
+        # FIX-NEW-2: without a base_pick exposing model probability, we
+        # MUST NOT fabricate an edge. The honest contract returns
+        # MODEL_PROBABILITY_UNAVAILABLE so the UI shows "cuota saved but
+        # no edge calculable". This replaces the historical bug where
+        # the heuristic ``implied_prob * 1.05`` always produced a fake
+        # positive edge (even 1.01 looked favorable).
+        assert rec["status"] == "MODEL_PROBABILITY_UNAVAILABLE"
+        assert rec["manual_edge"] is None
+        assert rec["model_probability"] is None
+        assert rec["model_prob_source"] == "missing"
         assert "warnings" in result and len(result["warnings"]) >= 2
+
+    def test_recalculate_total_goals_under_with_base_pick(self):
+        """When base_pick exposes a real model probability, the honest
+        edge IS computed. This is the post-FIX-NEW-2 positive path."""
+        base_pick = {
+            "_market_edge": {"estimated_probability": 0.78},
+            "_moneyball":   {"confidence": 70,
+                             "fragility": {"score": 22}},
+        }
+        result = mmi.recalculate_with_manual_market({
+            "market_type": "TOTAL_GOALS", "selection": "UNDER",
+            "manual_odd": 1.38, "line": 3.5,
+        }, base_pick=base_pick)
+        rec = result["recalculated_pick"]
+        # Implied = 1/1.38 ≈ 72.46%; model = 78% → edge ≈ +5.54%.
+        assert rec["model_prob_source"] == "base_pick"
+        assert rec["model_probability"] == 78.0
+        assert rec["manual_edge"] > 0
+        assert rec["status"] in ("MANUAL_VALUE_REVIEW", "MANUAL_THIN_VALUE")
 
     def test_recalculate_double_chance(self):
         result = mmi.recalculate_with_manual_market({

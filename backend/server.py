@@ -734,6 +734,59 @@ async def football_corners_debug(match_id: str) -> dict:
     return res
 
 
+# ── FIX-4 — Pre-match Corners Profile endpoint ──
+#
+# Returns the historical-based corners profile (L1/L5/L15 per team +
+# momentum + expected corners + line projections). Pre-match-safe:
+# the absence of current-fixture corners is NEVER a hard error.
+# When the profile is still being computed in background the response
+# includes ``status: "PENDING"``; the FE can poll once.
+@app.get("/api/football/corners/profile")
+async def football_corners_profile(match_id: str) -> dict:
+    """Return ``match_doc.corners_profile`` for the given fixture.
+
+    Shape::
+
+        {
+          "ok": true,
+          "match_id": "...",
+          "profile": {... build_corners_profile output ...} | null,
+          "status":  "OK" | "PARTIAL" | "UNAVAILABLE" | "PENDING" | "NOT_FOUND"
+        }
+
+    Always returns 200; checks ``ok`` for client-side error handling.
+    """
+    if not match_id or match_id.strip() in ("", "undefined", "null"):
+        return {
+            "ok": False, "match_id": match_id, "status": "NOT_FOUND",
+            "profile": None, "message_user": "match_id requerido.",
+        }
+    try:
+        doc = await db.matches.find_one({"match_id": match_id})
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[corners_profile] match_doc lookup failed for %s: %s", match_id, exc)
+        doc = None
+    if not isinstance(doc, dict):
+        return {
+            "ok": False, "match_id": match_id, "status": "NOT_FOUND",
+            "profile": None,
+            "message_user": "Partido no encontrado en la base.",
+        }
+    profile = doc.get("corners_profile")
+    if not isinstance(profile, dict):
+        return {
+            "ok": True, "match_id": match_id, "status": "PENDING",
+            "profile": None,
+            "message_user": "Perfil de córners aún calculándose en segundo plano.",
+        }
+    return {
+        "ok": True,
+        "match_id": match_id,
+        "status":   profile.get("status") or "UNAVAILABLE",
+        "profile":  profile,
+    }
+
+
 # ── Phase F83.2 — xG Recent Averages (L1/L5/L15) Endpoints ──
 #
 # Same architectural pattern as the corners enrichment endpoints, but
@@ -2065,6 +2118,18 @@ async def matches_live(refresh: bool = False, sport: Optional[str] = None, user:
     s = _norm_sport(sport)
     if refresh:
         async with httpx.AsyncClient() as client:
+            # FIX-NEW-1 — TheSportsDB PRIMARY for basketball + baseball.
+            # Runs BEFORE the legacy ingestion so its rows land in
+            # db.matches first; existing providers stay as fallbacks for
+            # markets TheSportsDB doesn't cover (or when its feed is empty).
+            if s in ("basketball", "baseball"):
+                try:
+                    from services.thesportsdb_live_ingest import ingest_thesportsdb_live
+                    await ingest_thesportsdb_live(db, sport=s)
+                except Exception as exc:
+                    logging.getLogger("live").warning(
+                        "thesportsdb_live_ingest failed (sport=%s): %s", s, exc,
+                    )
             await ingestion.ingest_live(client, db, sport=s)
 
     # Run the sweeper first so we never serve known-stale rows.
