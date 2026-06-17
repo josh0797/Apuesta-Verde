@@ -184,6 +184,9 @@ def compute_draw_potential(
     conservative_style_away:  bool = False,
     market_implied_draw_prob: Optional[float] = None,
     tournament_context_score: Optional[float] = None,
+    # ── Sprint D7-E threshold override (opt-in; defaults preserve legacy) ──
+    value_threshold_pp:       Optional[float] = None,
+    strong_threshold_pp:      Optional[float] = None,
 ) -> dict:
     """Compute the Draw Potential block.
 
@@ -341,15 +344,28 @@ def compute_draw_potential(
     else:
         market_pct = round(float(market_implied_draw_prob) * 100.0, 1)
         edge_pp    = round(draw_prob_pct - market_pct, 1)
-        if edge_pp >= EDGE_STRONG_THRESHOLD_PP:
+        # Sprint D7-E: thresholds can be overridden per call. Defaults
+        # preserve the module-level constants (4.0 / 8.0).
+        v_thr = (value_threshold_pp
+                  if value_threshold_pp is not None
+                  else EDGE_VALUE_THRESHOLD_PP)
+        s_thr = (strong_threshold_pp
+                  if strong_threshold_pp is not None
+                  else EDGE_STRONG_THRESHOLD_PP)
+        # Defensive: strong must be ≥ value.
+        if s_thr < v_thr:
+            s_thr = v_thr
+        if edge_pp >= s_thr:
             label = LABEL_STRONG_VALUE
-        elif edge_pp >= EDGE_VALUE_THRESHOLD_PP:
+        elif edge_pp >= v_thr:
             label = LABEL_VALUE_DRAW
         elif edge_pp >= 0:
             label = LABEL_FAIR_DRAW
         else:
             label = LABEL_NO_VALUE
             reasons.append(RC_NEGATIVE_EDGE)
+        debug["value_threshold_pp_effective"]  = v_thr
+        debug["strong_threshold_pp_effective"] = s_thr
 
     return {
         "home_team":        home_team,

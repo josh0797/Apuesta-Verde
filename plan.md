@@ -251,65 +251,123 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
 
 ---
 
-# Phase SPRINT D7 — Backtest comparativo DRAW (Ligas vs Selecciones) + Post-mortem & Remediación — EN PROGRESO 🟡 (P1)
+# Phase SPRINT D7 — Backtest comparativo DRAW (Ligas vs Selecciones) + Post-mortem & Remediación — COMPLETADO ✅ (P1)
 
 ## Contexto
 - Se ejecutó `scripts/run_backtest_d7_comparative.py` con cap estricto de créditos.
-- El sondeo histórico (WC2022, 2022-11-27) devolvió eventos (p.ej. 24), pero el reporte final resultó con 0 picks/0 matches domésticos y bloque nacional no disponible.
+- El sondeo histórico (WC2022, 2022-11-27) devolvió eventos (p.ej. 24).
+- El reporte inicial resultó con 0 picks/0 matches domésticos y bloque nacional no disponible.
 
-## Hallazgos (post-mortem)
-- **BUG #1 (crítico, confirmado):** el orquestador pasa la **ruta** del CSV a `parse_football_data_csv`, pero el parser espera el **texto del CSV**. Resultado: `n_matches=0` en todas las ligas.
-- **BUG #2 (crítico):** falta el directorio `/app/data/openfootball/` (y por ende los JSON de ground truth). Resultado: el bloque nacional gasta créditos (cobertura existe) pero no puede liquidar → `GROUND_TRUTH_MISSING`.
-- **BUG #3 (visibilidad):** el orquestador hardcodea `UNAVAILABLE_NO_COVERAGE` en lugar de propagar `reason_codes` reales, ocultando `MAX_CREDITS_REACHED` u otros.
+## Hallazgos (post-mortem) — RESUELTOS ✅
+- **BUG #1 (crítico, confirmado):** el orquestador pasaba la **ruta** del CSV a `parse_football_data_csv`, pero el parser espera el **texto del CSV**. Resultado: `n_matches=0` en todas las ligas.
+- **BUG #2 (crítico):** faltaba `/app/data/openfootball/` (y JSON de ground truth). Resultado: el bloque nacional gastaba créditos (cobertura existía) pero no podía liquidar → `GROUND_TRUTH_MISSING`.
+- **BUG #3 (visibilidad):** el orquestador hardcodeaba `UNAVAILABLE_NO_COVERAGE` en lugar de propagar `reason_codes` reales (`MAX_CREDITS_REACHED`, etc.).
 
-## Objetivo de D7 (actualizado)
-1) Reparar el pipeline D7 para que produzca métricas reales (domestic y, si hay ground truth, national) sin romper suites.
-2) Re-ejecutar bloque doméstico **dos veces** (sin créditos): `min_edge_pp=4.0` y `min_edge_pp=3.0`.
-3) Mantener `observe_only` y disciplina anti-overfitting (cohortes solo con features pre-match).
+## Fase A — Fix del orquestador (0 créditos) — COMPLETADO ✅
+- ✅ A1: leer **contenido** del CSV (`Path.read_text()`) antes del parser.
+- ✅ A2: propagar `reason_codes`/`reason_code` reales en el bloque nacional.
+- ✅ A3: logging visible por liga/torneo (n_matches, n_picks, créditos, motivo).
+- ✅ A4: tests de regresión (parser texto vs ruta; parse_empty; skip).
+- ✅ A5: flags CLI `--min-edge-pp`, `--skip-national`, `--out`.
 
-## Fase A — Fix del orquestador (0 créditos) — EN PROGRESO
-- **A1 (BUG #1):** leer el **contenido** del CSV antes de llamar a `parse_football_data_csv`.
-  - Implementación: `csv_text = Path(csv_path).read_text()`.
-- **A2 (BUG #3):** propagar `reason_codes` / `reason_code` reales del cliente histórico en el reporte por torneo.
-  - Distinguir claramente:
-    - `MAX_CREDITS_REACHED`
-    - `GROUND_TRUTH_MISSING`
-    - `UNAVAILABLE_NO_COVERAGE`
-    - `HTTP_ERROR`
-- **A3:** logging visible por liga/torneo:
-  - `n_matches`, `n_picks`, `credits_used_delta`, `aborted`, y motivo final.
-- **A4:** tests de regresión:
-  - Añadir test que verifique que el orquestador alimenta `parse_football_data_csv` con texto (no ruta) y que `n_matches > 0` usando los CSV cacheados.
-- **A5:** flags CLI para ejecuciones controladas:
-  - `--min-edge-pp` (float)
-  - `--skip-national` (bool)
-  - `--out` (path)
+## Fase B — Ground truth openfootball (0 créditos) — COMPLETADO ✅ (parcial)
+- ✅ Creado `/app/data/openfootball/`.
+- ✅ Descargados:
+  - WC 2022 → `/app/data/openfootball/wc2022.json` (64 partidos)
+  - Euro 2024 → `/app/data/openfootball/euro2024.json` (51 partidos)
+- ⏳ Copa América 2024/2021: aplazado (repo openfootball provee `copa.txt` y requeriría un parser distinto).
 
-## Fase B — Ground truth openfootball (0 créditos) — PENDIENTE
-- Crear `/app/data/openfootball/`.
-- Descargar/instalar JSONs desde **openfootball/football.json**:
-  - WC 2022 → `/app/data/openfootball/wc2022.json`
-  - Euro 2024 → `/app/data/openfootball/euro2024.json`
-  - Copa América 2024 → `/app/data/openfootball/copa2024.json`
-  - Copa América 2021 → `/app/data/openfootball/copa2021.json`
-- Sanity checks:
-  - `parse_openfootball_json(file) → n_matches > 0` por archivo.
+## Fase C — Re-ejecución doméstica (0 créditos) — COMPLETADO ✅
+- ✅ C1: corrida `min_edge_pp=4.0` → `/app/backtest_d7_domestic_edge4.json`.
+- ✅ C2: corrida `min_edge_pp=3.0` → `/app/backtest_d7_domestic_edge3.json`.
 
-## Fase C — Re-ejecución doméstica (0 créditos) — PENDIENTE (confirmado por el usuario)
-- **C1 (edge 4pp):**
-  - `python -m scripts.run_backtest_d7_comparative --skip-national --min-edge-pp 4.0 --out /app/backtest_d7_domestic_edge4.json`
-- **C2 (edge 3pp):**
-  - `python -m scripts.run_backtest_d7_comparative --skip-national --min-edge-pp 3.0 --out /app/backtest_d7_domestic_edge3.json`
-- Comparar por liga:
-  - `n_matches`, `n_picks`, `roi`, `roi_ci_low/high`, `hit_rate`, `sample_status`, `warnings`.
+**Nota:** inicialmente ambas corridas daban resultados idénticos por un gate aguas arriba (ver Sprint D7-E). Tras parametrización, el flag deja de ser inerte.
 
-## Fase D — Validación — PENDIENTE
-- **D1:** `pytest` backend completo (mantener suite verde sin regresiones).
-- **D2:** resumen ejecutivo para el usuario con comparación lado a lado (edge4 vs edge3) y recomendaciones de parámetros para una futura corrida nacional.
+## Fase D — Validación — COMPLETADO ✅
+- ✅ `pytest` backend completo (incluyendo nuevos tests) sin regresiones.
 
-## Fase E — Próximos pasos (solo con OK del usuario)
-- Re-correr bloque nacional una vez que exista ground truth.
-- Evaluar caching para reutilizar eventos/odds ya pagados (si hay artefactos persistidos), evitando re-gasto de créditos.
+---
+
+# Phase SPRINT D7-E — Threshold parametrization + honest sweep + multi-season sanity check — COMPLETADO ✅ (P1)
+
+## Contexto
+Se detectó un bug de diseño: `--min-edge-pp` del CLI era **inoperante** porque el threshold real (`EDGE_VALUE_THRESHOLD_PP=4.0`) estaba hardcodeado dentro de `football_draw_potential.py` y el motor filtraba por `label in (VALUE_DRAW, STRONG_VALUE)`, descartando picks con edge ∈ [3,4)pp “en silencio”.
+
+## Fase E1–E3 — Parametrización end-to-end (0 créditos) — COMPLETADO ✅
+- ✅ `compute_draw_potential` ahora acepta:
+  - `value_threshold_pp` (opt-in; default preserva legacy 4.0)
+  - `strong_threshold_pp` (opt-in; default preserva legacy 8.0)
+  - Auditoría en `debug`: `value_threshold_pp_effective`, `strong_threshold_pp_effective`.
+- ✅ `football_backtest_engine`:
+  - `_predict_draw` acepta thresholds.
+  - `run_backtest` propaga `min_edge_pp` como threshold del label.
+  - Deriva `_effective_strong_pp = min(12.0, 2*min_edge_pp) si min_edge_pp>8; si no, 8.0`.
+  - Elimina hardcodes 4.0/8.0 en el re-label post-calibración.
+- ✅ Tests nuevos:
+  - override cambia label
+  - bajar `min_edge_pp` aumenta picks
+  - back-compat: Premier 24/25 mantiene 149 picks a 4pp.
+
+## Fase E4 — Barrido honesto de thresholds (5 ligas, 24/25) — COMPLETADO ✅
+Script: `scripts/run_backtest_d7_threshold_sweep.py` → `/app/backtest_d7_threshold_sweep.json`
+
+Resultado (agregado 5 ligas, weighted por n_bets):
+
+| edge_pp | n_bets | w_ROI | spread inter-liga (roi_max - roi_min) |
+|---:|---:|---:|---:|
+| 2.0 | 596 | -2.9% | 61.6 pp |
+| 3.0 | 510 | -3.9% | 73.8 pp |
+| 4.0 | 419 | -1.4% | 87.3 pp |
+| 5.0 | 353 | -8.2% | 91.6 pp |
+| 6.0 | 279 | -2.5% | 81.7 pp |
+| 8.0 | 187 | -10.3% | 99.5 pp |
+
+Observaciones:
+- ROI agregado **siempre negativo** y errático (no robusto al threshold).
+- Spread inter-liga aumenta al elevar el threshold → firma de ruido.
+- Hit-rate decae con threshold (≈21.1% → ≈16.0%).
+
+## Fase E5–E6 — Multi-season Premier League (4 temporadas) — COMPLETADO ✅
+- ✅ Descargados CSV gratuitos:
+  - `/app/data/football_data_co_uk/E0_2122.csv`
+  - `/app/data/football_data_co_uk/E0_2223.csv`
+  - `/app/data/football_data_co_uk/E0_2324.csv`
+  - (ya existía) `/app/data/football_data_co_uk/E0_2425.csv`
+- ✅ Script: `scripts/run_backtest_d7_premier_multiseason.py` → `/app/backtest_d7_premier_multiseason.json`
+
+Tabla clave (edge≥4pp):
+
+| Season | edge≥4pp ROI |
+|---|---:|
+| 2021-22 | -6.69% |
+| 2022-23 | -6.76% |
+| 2023-24 | -20.97% |
+| 2024-25 | +27.96% |
+| **MEAN** | **-1.61%** |
+| **STDEV** | **20.83%** |
+
+Conclusión: el +27.96% 24/25 fue un outlier; el promedio colapsa cerca de 0 con gran varianza inter-temporada.
+
+## Fase E7 — Validación — COMPLETADO ✅
+- ✅ `pytest` backend completo: **3632 passing**, 2 skipped, 0 regresiones.
+
+## Veredicto científico (D7-E)
+**No hay evidencia de edge real** en el módulo Draw Potential para mercado DRAW en ligas domésticas bajo este horizonte. El comportamiento es consistente con ruido (ROI no robusto al threshold, alta varianza inter-liga e inter-temporada).
+
+## Artefactos (D7 + D7-E)
+- `/app/backtest_d7_domestic_edge4.json`
+- `/app/backtest_d7_domestic_edge3.json`
+- `/app/backtest_d7_threshold_sweep.json`
+- `/app/backtest_d7_premier_multiseason.json`
+- `/app/data/openfootball/{wc2022,euro2024}.json`
+
+## Próximos pasos sugeridos (pendientes de prioridad del usuario)
+1. Pivotear a otros mercados/módulos (OVER_1_5, BTTS, DC) y repetir exactamente la misma disciplina de:
+   - barrido de thresholds,
+   - checks multi-liga,
+   - checks multi-temporada,
+   antes de consumir créditos históricos.
+2. Mantener bloque nacional D7 aplazado (no gastar créditos) hasta tener una nueva tesis y/o caching de odds ya pagadas.
 
 ---
 
@@ -342,13 +400,13 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 - 🟡 **SPRINT D5** (histórico en curso): cohortes + reportes multi-competición.
 
 ### Pendientes P1
-- 🟡 **SPRINT D7 Remediación** (este documento): fixes + descarga openfootball + reruns domésticos edge4/edge3.
+- ⏳ Evaluar pivote de mercado (OVER_1_5 / BTTS / DC) con disciplina D7-E (threshold sweep + multi-season).
 - 🟡 **REFACTOR-1** (pasos 2/3 y 3/3 + ingest_upcoming).
 - ⏳ **F84.c/F84.d** Lineups + Standings.
 
 ### Pendientes P2
 - ⏳ Expandir `team_name_translations.py`.
-- ⏳ Expandir backtest framework a otros mercados (BTTS / Over 2.5 / Corners) tras validar DRAW.
+- ⏳ Expandir backtest framework a otros mercados tras validar robustez.
 
 ---
 
@@ -374,7 +432,7 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 - Flags / env (principales):
   - `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY`.
   - `THE_ODDS_API_KEY=...`.
-  - (D7) Nuevos flags previstos:
+  - (D7) Flags CLI ya implementados:
     - `--min-edge-pp`
     - `--skip-national`
     - `--out`

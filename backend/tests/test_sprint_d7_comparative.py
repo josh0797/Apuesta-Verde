@@ -408,3 +408,81 @@ def test_main_async_skip_national_flag(tmp_path):
     # El reporte debe persistirse a disco.
     persisted = json.loads(out.read_text())
     assert persisted["skip_national"] is True
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 12) Sprint D7-E · EDGE_VALUE_THRESHOLD_PP es parametrizable end-to-end
+# ════════════════════════════════════════════════════════════════════════
+def test_compute_draw_potential_threshold_override_changes_label():
+    """``compute_draw_potential`` debe respetar el override de
+    ``value_threshold_pp``: con un edge de +5pp y el default (4.0) se
+    devuelve VALUE_DRAW; con threshold=6.0 debe degradar a FAIR."""
+    from services import football_draw_potential as fdp
+    # Construir inputs que generen edge ≈ 5pp.
+    # base 0.24 + balance perfecto + low_goal_env ≈ 0.27 → 27 vs implied 22.
+    common = dict(
+        elo_home=1500, elo_away=1500,
+        xg_home_l5=1.2, xg_away_l5=1.2,
+        low_goal_environment=True,
+        market_implied_draw_prob=0.22,
+    )
+    v_default = fdp.compute_draw_potential(**common)
+    v_strict  = fdp.compute_draw_potential(**common,
+                                              value_threshold_pp=6.0)
+    # Si el edge cae entre [4, 6), el label debe cambiar de VALUE_DRAW
+    # a FAIR_DRAW al subir el umbral.
+    if v_default["edge"] is not None and 4.0 <= v_default["edge"] < 6.0:
+        assert v_default["label"] == fdp.LABEL_VALUE_DRAW
+        assert v_strict["label"]  == fdp.LABEL_FAIR_DRAW
+    # Auditoría debe registrar el threshold efectivo.
+    assert v_strict["debug"]["value_threshold_pp_effective"] == 6.0
+    assert v_default["debug"]["value_threshold_pp_effective"] == 4.0
+
+
+def test_run_backtest_min_edge_pp_actually_changes_picks(tmp_path):
+    """REGRESIÓN del bug D7-E: ``run_backtest(min_edge_pp=2.0)`` debe
+    producir MÁS picks que ``min_edge_pp=4.0`` cuando hay partidos con
+    edge en [2pp, 4pp). Antes del fix, el ``label`` del módulo
+    Draw Potential rechazaba esos picks aguas arriba aunque el engine
+    los hubiera querido aceptar."""
+    from services.football_backtest_engine import run_backtest
+    from services.football_historical_ingestor import parse_football_data_csv
+    # Usar Premier 2024/25 (380 partidos reales en cache).
+    csv_text = Path("/app/data/football_data_co_uk/E0_2425.csv").read_text()
+    matches = parse_football_data_csv(csv_text, competition="premier_league")
+    bt_strict = run_backtest(
+        matches, market="DRAW", no_market=False,
+        use_calibration=False, walk_forward=True,
+        shrinkage_K=None, min_pred_prob_pp=8.0, min_edge_pp=4.0,
+    )
+    bt_loose = run_backtest(
+        matches, market="DRAW", no_market=False,
+        use_calibration=False, walk_forward=True,
+        shrinkage_K=None, min_pred_prob_pp=8.0, min_edge_pp=2.0,
+    )
+    n_strict = len(bt_strict.get("picks", []))
+    n_loose  = len(bt_loose.get("picks", []))
+    assert n_loose > n_strict, (
+        f"Bajar min_edge_pp de 4.0 a 2.0 debe producir más picks. "
+        f"strict={n_strict}, loose={n_loose}. Si son iguales, el "
+        f"threshold del label sigue hardcodeado aguas arriba.")
+
+
+def test_default_threshold_preserves_legacy_behavior():
+    """No regresión: ejecutar ``run_backtest`` con los defaults debe
+    producir exactamente la misma cantidad de picks que la corrida
+    histórica documentada (Premier 24/25 → 149 picks @ 4pp)."""
+    from services.football_backtest_engine import run_backtest
+    from services.football_historical_ingestor import parse_football_data_csv
+    csv_text = Path("/app/data/football_data_co_uk/E0_2425.csv").read_text()
+    matches = parse_football_data_csv(csv_text, competition="premier_league")
+    bt = run_backtest(
+        matches, market="DRAW", no_market=False,
+        use_calibration=True, walk_forward=True,
+        shrinkage_K=50, min_pred_prob_pp=8.0, min_edge_pp=4.0,
+    )
+    # Si este número cambia es porque algo del pipeline se movió y
+    # debemos investigar. 149 es el valor publicado en
+    # /app/backtest_d7_domestic_edge4.json.
+    assert len(bt["picks"]) == 149
+

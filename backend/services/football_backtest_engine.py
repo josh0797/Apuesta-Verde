@@ -143,12 +143,19 @@ def _hit_ha(m: dict) -> bool:
     return int(m.get("fthg", 0)) != int(m.get("ftag", 0))
 
 
-def _predict_draw(features: dict) -> dict:
+def _predict_draw(features: dict, *,
+                    value_threshold_pp: Optional[float] = None,
+                    strong_threshold_pp: Optional[float] = None) -> dict:
     pred_kwargs = {k: v for k, v in features.items() if k != "_audit"}
     # Filter out Sprint-D3 extra keys not accepted by compute_draw_potential.
     for extra in ("goal_avg_for_home", "goal_avg_for_away",
                   "goal_avg_against_home", "goal_avg_against_away"):
         pred_kwargs.pop(extra, None)
+    # Sprint D7-E: propagate threshold overrides only if provided.
+    if value_threshold_pp is not None:
+        pred_kwargs["value_threshold_pp"] = value_threshold_pp
+    if strong_threshold_pp is not None:
+        pred_kwargs["strong_threshold_pp"] = strong_threshold_pp
     return compute_draw_potential(**pred_kwargs)
 
 
@@ -397,9 +404,28 @@ def run_backtest(
         )
 
     spec = _MARKET_SPECS[market]
-    predictor: Callable[[dict], dict] = (predictor_override
-                                          if predictor_override is not None
-                                          else spec["predictor"])
+    base_predictor: Callable[[dict], dict] = (predictor_override
+                                                if predictor_override is not None
+                                                else spec["predictor"])
+    # Sprint D7-E: derive an effective "strong" threshold so the
+    # downstream label re-derivation stays consistent.
+    # Default: keep legacy 8.0 unless caller overrode min_edge_pp above
+    # it, in which case strong = 2 × min_edge_pp (capped at 12.0).
+    if min_edge_pp > 8.0:
+        _effective_strong_pp = min(12.0, 2.0 * min_edge_pp)
+    else:
+        _effective_strong_pp = 8.0
+    # Wrap the DRAW predictor so it receives the threshold overrides
+    # only when relevant (other markets ignore them).
+    if market == "DRAW" and predictor_override is None:
+        def predictor(features: dict) -> dict:   # noqa: E306
+            return _predict_draw(
+                features,
+                value_threshold_pp=min_edge_pp,
+                strong_threshold_pp=_effective_strong_pp,
+            )
+    else:
+        predictor = base_predictor
     hit_fn:    Callable[[dict], bool] = spec["hit_fn"]
     # Default firing threshold derives from market spec when caller
     # did not override.
@@ -519,9 +545,12 @@ def run_backtest(
                     if market_pct is not None:
                         new_edge = round(calibrated_pct - market_pct, 1)
                         verdict["edge"]             = new_edge
-                        if new_edge >= 8.0:
+                        # Sprint D7-E: use the same thresholds applied
+                        # to the pre-calibration label (NOT hardcoded
+                        # 4.0/8.0).
+                        if new_edge >= _effective_strong_pp:
                             verdict["label"] = LABEL_STRONG_VALUE
-                        elif new_edge >= 4.0:
+                        elif new_edge >= min_edge_pp:
                             verdict["label"] = LABEL_VALUE_DRAW
                         elif new_edge >= 0:
                             verdict["label"] = "FAIR_DRAW_NO_EDGE"

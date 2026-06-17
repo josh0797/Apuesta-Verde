@@ -1,6 +1,6 @@
 # Learning Backtest Report — Sprint A · Football Pilot
 
-_Generated: 2026-06-17T20:59:45.395606+00:00_
+_Generated: 2026-06-17T21:19:21.053179+00:00_
 
 
 ## Scope
@@ -70,7 +70,9 @@ Retrospective validation of the Draw-Potential + simplified Over/BTTS/Corners he
         "balance_contribution": 0.0267,
         "dominant_favourite_penalty": -0.06,
         "conservative_boost": 0.015,
-        "draw_prob_clamped": 0.2217
+        "draw_prob_clamped": 0.2217,
+        "value_threshold_pp_effective": 4.0,
+        "strong_threshold_pp_effective": 8.0
       },
       "available": true
     }
@@ -133,7 +135,9 @@ Retrospective validation of the Draw-Potential + simplified Over/BTTS/Corners he
         "balance_contribution": 0.0333,
         "group_stage_mutual_boost": 0.04,
         "conservative_boost": 0.015,
-        "draw_prob_clamped": 0.3283
+        "draw_prob_clamped": 0.3283,
+        "value_threshold_pp_effective": 4.0,
+        "strong_threshold_pp_effective": 8.0
       },
       "available": true
     }
@@ -201,7 +205,9 @@ Retrospective validation of the Draw-Potential + simplified Over/BTTS/Corners he
         "group_stage_mutual_boost": 0.04,
         "low_goal_boost": 0.03,
         "conservative_boost": 0.03,
-        "draw_prob_clamped": 0.31
+        "draw_prob_clamped": 0.31,
+        "value_threshold_pp_effective": 4.0,
+        "strong_threshold_pp_effective": 8.0
       },
       "available": true
     }
@@ -361,8 +367,8 @@ Retrospective validation of the Draw-Potential + simplified Over/BTTS/Corners he
 
 - ⚠️  Engine triggered `OVER_25_WOULD_TRIGGER` but the market `over_25` was not in the user's hit list.
 - ⚠️  Engine triggered `OVER_8_CORNERS_WOULD_TRIGGER` but the market `over_8_corners` was not in the user's hit list.
-- ❌ FALSE NEGATIVE — market `over_15_1h` actually hit but engine did NOT trigger.
 - ❌ FALSE NEGATIVE — market `over_45_corners_1h` actually hit but engine did NOT trigger.
+- ❌ FALSE NEGATIVE — market `over_15_1h` actually hit but engine did NOT trigger.
 
 ## Global summary
 

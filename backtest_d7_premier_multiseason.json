@@ -1,0 +1,293 @@
+{
+  "seasons": [
+    "2021-22",
+    "2022-23",
+    "2023-24",
+    "2024-25"
+  ],
+  "thresholds": [
+    2.0,
+    3.0,
+    4.0,
+    5.0,
+    6.0
+  ],
+  "per_season_threshold": {
+    "2021-22": {
+      "2.0": {
+        "n_matches": 380,
+        "n_picks": 102,
+        "n_bets": 102,
+        "roi": 0.0983,
+        "hit_rate": 0.2157,
+        "roi_ci_low": -0.3002,
+        "roi_ci_high": 0.5481,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "3.0": {
+        "n_matches": 380,
+        "n_picks": 88,
+        "n_bets": 88,
+        "roi": -0.0756,
+        "hit_rate": 0.1705,
+        "roi_ci_low": -0.479,
+        "roi_ci_high": 0.3773,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "4.0": {
+        "n_matches": 380,
+        "n_picks": 77,
+        "n_bets": 77,
+        "roi": -0.0669,
+        "hit_rate": 0.1688,
+        "roi_ci_low": -0.5292,
+        "roi_ci_high": 0.4714,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "5.0": {
+        "n_matches": 380,
+        "n_picks": 67,
+        "n_bets": 67,
+        "roi": -0.0731,
+        "hit_rate": 0.1642,
+        "roi_ci_low": -0.5731,
+        "roi_ci_high": 0.453,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "6.0": {
+        "n_matches": 380,
+        "n_picks": 63,
+        "n_bets": 63,
+        "roi": -0.1429,
+        "hit_rate": 0.1429,
+        "roi_ci_low": -0.6429,
+        "roi_ci_high": 0.4286,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      }
+    },
+    "2022-23": {
+      "2.0": {
+        "n_matches": 380,
+        "n_picks": 109,
+        "n_bets": 109,
+        "roi": -0.1387,
+        "hit_rate": 0.1743,
+        "roi_ci_low": -0.4817,
+        "roi_ci_high": 0.2434,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "3.0": {
+        "n_matches": 380,
+        "n_picks": 101,
+        "n_bets": 101,
+        "roi": -0.1061,
+        "hit_rate": 0.1782,
+        "roi_ci_low": -0.4804,
+        "roi_ci_high": 0.3182,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "4.0": {
+        "n_matches": 380,
+        "n_picks": 89,
+        "n_bets": 89,
+        "roi": -0.0676,
+        "hit_rate": 0.1798,
+        "roi_ci_low": -0.4721,
+        "roi_ci_high": 0.3863,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "5.0": {
+        "n_matches": 380,
+        "n_picks": 80,
+        "n_bets": 80,
+        "roi": 0.0373,
+        "hit_rate": 0.2,
+        "roi_ci_low": -0.4024,
+        "roi_ci_high": 0.5262,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "6.0": {
+        "n_matches": 380,
+        "n_picks": 66,
+        "n_bets": 66,
+        "roi": 0.078,
+        "hit_rate": 0.197,
+        "roi_ci_low": -0.4121,
+        "roi_ci_high": 0.6394,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      }
+    },
+    "2023-24": {
+      "2.0": {
+        "n_matches": 380,
+        "n_picks": 161,
+        "n_bets": 161,
+        "roi": -0.1734,
+        "hit_rate": 0.1739,
+        "roi_ci_low": -0.4463,
+        "roi_ci_high": 0.1199,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "3.0": {
+        "n_matches": 380,
+        "n_picks": 131,
+        "n_bets": 131,
+        "roi": -0.1753,
+        "hit_rate": 0.1679,
+        "roi_ci_low": -0.4902,
+        "roi_ci_high": 0.1734,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "4.0": {
+        "n_matches": 380,
+        "n_picks": 97,
+        "n_bets": 97,
+        "roi": -0.2097,
+        "hit_rate": 0.1546,
+        "roi_ci_low": -0.5597,
+        "roi_ci_high": 0.1785,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "5.0": {
+        "n_matches": 380,
+        "n_picks": 82,
+        "n_bets": 82,
+        "roi": -0.3856,
+        "hit_rate": 0.122,
+        "roi_ci_low": -0.7189,
+        "roi_ci_high": 0.0093,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "6.0": {
+        "n_matches": 380,
+        "n_picks": 67,
+        "n_bets": 67,
+        "roi": -0.2481,
+        "hit_rate": 0.1493,
+        "roi_ci_low": -0.6679,
+        "roi_ci_high": 0.2233,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      }
+    },
+    "2024-25": {
+      "2.0": {
+        "n_matches": 380,
+        "n_picks": 197,
+        "n_bets": 197,
+        "roi": 0.1655,
+        "hit_rate": 0.2589,
+        "roi_ci_low": -0.1097,
+        "roi_ci_high": 0.4525,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "3.0": {
+        "n_matches": 380,
+        "n_picks": 173,
+        "n_bets": 173,
+        "roi": 0.2157,
+        "hit_rate": 0.2659,
+        "roi_ci_low": -0.0886,
+        "roi_ci_high": 0.5214,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "4.0": {
+        "n_matches": 380,
+        "n_picks": 149,
+        "n_bets": 149,
+        "roi": 0.2796,
+        "hit_rate": 0.2752,
+        "roi_ci_low": -0.0595,
+        "roi_ci_high": 0.6315,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "5.0": {
+        "n_matches": 380,
+        "n_picks": 125,
+        "n_bets": 125,
+        "roi": 0.1886,
+        "hit_rate": 0.248,
+        "roi_ci_low": -0.169,
+        "roi_ci_high": 0.5622,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      },
+      "6.0": {
+        "n_matches": 380,
+        "n_picks": 105,
+        "n_bets": 105,
+        "roi": 0.1736,
+        "hit_rate": 0.2381,
+        "roi_ci_low": -0.2216,
+        "roi_ci_high": 0.5805,
+        "sample_status": "SMALL_SAMPLE_CAUTION",
+        "is_roi_significant": false
+      }
+    }
+  },
+  "summary_per_threshold": [
+    {
+      "threshold_pp": 2.0,
+      "roi_mean_across_seasons": -0.012074999999999995,
+      "roi_stdev_across_seasons": 0.1690908705400738,
+      "roi_weighted_across_seasons": -0.0007128295254833036,
+      "hit_rate_mean": 0.2057,
+      "n_seasons_with_picks": 4,
+      "total_n_bets": 569
+    },
+    {
+      "threshold_pp": 3.0,
+      "roi_mean_across_seasons": -0.035325,
+      "roi_stdev_across_seasons": 0.17247002396551891,
+      "roi_weighted_across_seasons": -0.006119878296146058,
+      "hit_rate_mean": 0.195625,
+      "n_seasons_with_picks": 4,
+      "total_n_bets": 493
+    },
+    {
+      "threshold_pp": 4.0,
+      "roi_mean_across_seasons": -0.016149999999999994,
+      "roi_stdev_across_seasons": 0.20828852584816093,
+      "roi_weighted_across_seasons": 0.024640291262135926,
+      "hit_rate_mean": 0.1946,
+      "n_seasons_with_picks": 4,
+      "total_n_bets": 412
+    },
+    {
+      "threshold_pp": 5.0,
+      "roi_mean_across_seasons": -0.0582,
+      "roi_stdev_across_seasons": 0.24320311127395827,
+      "roi_weighted_across_seasons": -0.028129661016949147,
+      "hit_rate_mean": 0.18355,
+      "n_seasons_with_picks": 4,
+      "total_n_bets": 354
+    },
+    {
+      "threshold_pp": 6.0,
+      "roi_mean_across_seasons": -0.03484999999999999,
+      "roi_stdev_across_seasons": 0.19436811295408857,
+      "roi_weighted_across_seasons": -0.007473089700996671,
+      "hit_rate_mean": 0.18182500000000001,
+      "n_seasons_with_picks": 4,
+      "total_n_bets": 301
+    }
+  ],
+  "observe_only": true
+}
