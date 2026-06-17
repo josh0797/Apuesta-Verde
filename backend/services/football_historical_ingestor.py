@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
+import re
 from datetime import datetime
 from typing import Iterable, Optional
 
@@ -267,12 +269,254 @@ def build_point_in_time_features(
             ],
         },
     }
+    # ── Tournament context (Sprint D2) ──────────────────────────────────
+    # If this match is part of a tournament (WC / Euro / etc.), compute
+    # a point-in-time tournament_context_score using ONLY prior matches
+    # of the same tournament + same group.
+    if m.get("tournament_phase") or m.get("competition", "").lower() in (
+        "world cup 2022", "euro 2024",
+    ):
+        try:
+            from .football_tournament_context import (
+                compute_tournament_context_score,
+            )
+            standings_h, standings_a = compute_group_standings_pit(
+                matches_sorted, target_index,
+                home=home, away=away,
+                group_label=m.get("group_label"),
+                competition=m.get("competition", ""),
+            )
+            # Derive the GROUP matchday from PIT standings: the current
+            # match will be the (played + 1)-th group game for each
+            # team. We use the MAX of the two (rare to differ in WC /
+            # Euro, but defensive). For knockout matches the standings
+            # are empty so we leave matchday=None.
+            if m.get("is_group_stage"):
+                group_md = max(
+                    (standings_h.get("played") or 0),
+                    (standings_a.get("played") or 0),
+                ) + 1
+            else:
+                group_md = None
+            ctx = compute_tournament_context_score(
+                standings_home=standings_h,
+                standings_away=standings_a,
+                match_meta={
+                    "matchday":         group_md,
+                    "tournament_phase": m.get("tournament_phase"),
+                    "group_label":      m.get("group_label"),
+                    "is_group_stage":   bool(m.get("is_group_stage", False)),
+                },
+            )
+            features["tournament_context_score"] = ctx.get("score_0_1")
+            features["_audit"]["tournament_context"] = ctx
+            features["_audit"]["group_matchday"] = group_md
+        except Exception as exc:    # noqa: BLE001
+            log.debug("tournament_context_score failed: %s", exc)
+            features["tournament_context_score"] = None
     return features
+
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# openfootball JSON parser (Sprint-D2)
+# ─────────────────────────────────────────────────────────────────────────────────
+# Maps openfootball ``round`` strings to a canonical (phase, matchday).
+_GROUP_ROUND_RE = re.compile(r"matchday\s+(\d+)", re.IGNORECASE)
+
+
+def _classify_openfootball_round(round_str: str, group_str: Optional[str]) -> tuple[str, Optional[int]]:
+    """Classify an openfootball ``round`` value.
+
+    Returns (phase, matchday). ``phase`` is one of
+    ``"GROUP" | "KNOCKOUT" | "UNKNOWN"``. ``matchday`` is an integer
+    (1, 2, 3, ...) for group-stage rounds, ``None`` otherwise.
+    """
+    r = (round_str or "").strip().lower()
+    g = (group_str or "").strip().lower()
+    # Group-stage detection:
+    md_match = _GROUP_ROUND_RE.search(r)
+    if md_match:
+        return "GROUP", int(md_match.group(1))
+    if r.startswith("group ") or g.startswith("group "):
+        # Some openfootball files use "Group A · Matchday 1" or just
+        # "Group A". When we cannot extract a matchday, fall back to
+        # None.
+        return "GROUP", None
+    # Knockout-stage detection (extensible).
+    knockout_markers = (
+        "round of 16", "round of 32",
+        "quarter", "semi",
+        "third-place", "third place",
+        "final", "playoff", "play-off",
+    )
+    if any(k in r for k in knockout_markers):
+        return "KNOCKOUT", None
+    return "UNKNOWN", None
+
+
+def parse_openfootball_json(
+    data, *, competition: str = "",
+) -> list[dict]:
+    """Parse an openfootball-style JSON payload.
+
+    ``data`` may be either a ``dict``, a JSON string, or a file-like
+    object. Returns a list of canonical match rows sorted ascending by
+    date. Bad rows are silently dropped (fail-soft).
+
+    Schema additions vs ``parse_football_data_csv``:
+    * ``tournament_phase`` — ``"GROUP" | "KNOCKOUT" | "UNKNOWN"``
+    * ``matchday`` — int (group stage) or None
+    * ``group_label`` — e.g. ``"Group A"`` when available, else None
+    * ``is_group_stage`` — bool (convenience flag)
+    * ``odd_home/odd_draw/odd_away`` are always ``None`` (openfootball
+      ships no market data).
+    """
+    if isinstance(data, (bytes, bytearray)):
+        data = data.decode("utf-8")
+    if isinstance(data, str):
+        data = json.loads(data)
+    if not isinstance(data, dict):
+        return []
+    matches = data.get("matches") or []
+    name = competition or data.get("name") or ""
+    out: list[dict] = []
+    for raw in matches:
+        try:
+            date_str = (raw.get("date") or "").strip()
+            date = _parse_date(date_str)
+            if date is None:
+                continue
+            home = (raw.get("team1") or "").strip()
+            away = (raw.get("team2") or "").strip()
+            if not home or not away:
+                continue
+            score = raw.get("score") or {}
+            ft = score.get("ft")
+            if not (isinstance(ft, (list, tuple)) and len(ft) >= 2):
+                # No full-time score (e.g. cancelled / future). Drop.
+                continue
+            fthg, ftag = int(ft[0]), int(ft[1])
+            if fthg > ftag:
+                ftr = "H"
+            elif fthg < ftag:
+                ftr = "A"
+            else:
+                ftr = "D"
+            group_label = raw.get("group") or None
+            phase, matchday = _classify_openfootball_round(
+                raw.get("round") or "", group_label,
+            )
+            is_group_stage = (phase == "GROUP")
+            out.append({
+                "competition":      name,
+                "date":             date,
+                "home_team":        home,
+                "away_team":        away,
+                "fthg":             fthg,
+                "ftag":             ftag,
+                "ftr":              ftr,
+                "home_corners":     None,
+                "away_corners":     None,
+                "odd_home":         None,
+                "odd_draw":         None,
+                "odd_away":         None,
+                # Sprint D2 extensions:
+                "tournament_phase": phase,
+                "matchday":         matchday,
+                "group_label":      group_label,
+                "is_group_stage":   is_group_stage,
+            })
+        except Exception as exc:    # noqa: BLE001
+            log.debug("openfootball row drop: %s", exc)
+            continue
+    out.sort(key=lambda m: m["date"])
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# Point-in-time group standings (Sprint-D2)
+# ─────────────────────────────────────────────────────────────────────────────────
+def _empty_standings_row(team: str) -> dict:
+    return {
+        "team": team, "played": 0, "won": 0, "drawn": 0, "lost": 0,
+        "gf": 0, "ga": 0, "gd": 0, "points": 0,
+    }
+
+
+def compute_group_standings_pit(
+    matches_sorted: list[dict], target_index: int, *,
+    home: str, away: str,
+    group_label: Optional[str],
+    competition: str,
+) -> tuple[dict, dict]:
+    """Compute (home_row, away_row) point-in-time standings for the
+    group as of just before ``matches_sorted[target_index]``.
+
+    Strict no-leakage rule:
+      * Only matches with index < target_index are considered.
+      * Only matches with the SAME ``competition`` and SAME
+        ``group_label`` are considered.
+      * Same-day matches are still included (they happened earlier on
+        the calendar day). This matches FIFA / UEFA scheduling where
+        the matchday-3 fixtures are deliberately played simultaneously
+        to remove information asymmetry — but in the context of
+        STANDINGS we only care that the match completed before the
+        target match's kickoff. Since openfootball doesn't ship full
+        timestamps and our comparator is date-only, we are conservative
+        and still apply ``< target_date``.
+
+    If no group_label is provided (knockout matches), returns empty
+    standings for both teams.
+    """
+    home_row = _empty_standings_row(home)
+    away_row = _empty_standings_row(away)
+    if not group_label:
+        return home_row, away_row
+    target_date = matches_sorted[target_index]["date"]
+    comp_lc = (competition or "").lower()
+    for j in range(target_index):
+        m = matches_sorted[j]
+        if m["date"] >= target_date:
+            continue
+        if (m.get("group_label") or "") != group_label:
+            continue
+        if (m.get("competition") or "").lower() != comp_lc:
+            continue
+        for team_row, team_name in ((home_row, home), (away_row, away)):
+            if m["home_team"] == team_name:
+                team_row["played"] += 1
+                team_row["gf"] += m["fthg"]
+                team_row["ga"] += m["ftag"]
+                if m["ftr"] == "H":
+                    team_row["won"] += 1
+                    team_row["points"] += 3
+                elif m["ftr"] == "D":
+                    team_row["drawn"] += 1
+                    team_row["points"] += 1
+                else:
+                    team_row["lost"] += 1
+            elif m["away_team"] == team_name:
+                team_row["played"] += 1
+                team_row["gf"] += m["ftag"]
+                team_row["ga"] += m["fthg"]
+                if m["ftr"] == "A":
+                    team_row["won"] += 1
+                    team_row["points"] += 3
+                elif m["ftr"] == "D":
+                    team_row["drawn"] += 1
+                    team_row["points"] += 1
+                else:
+                    team_row["lost"] += 1
+    home_row["gd"] = home_row["gf"] - home_row["ga"]
+    away_row["gd"] = away_row["gf"] - away_row["ga"]
+    return home_row, away_row
 
 
 __all__ = [
     "ELO_DEFAULT", "ELO_K_FACTOR", "FORM_L5", "FORM_L15",
     "parse_football_data_csv", "fetch_football_data_csv",
+    "parse_openfootball_json", "compute_group_standings_pit",
     "build_point_in_time_features",
     "_team_history_slice", "_elo_walk_forward", "_avg",
+    "_classify_openfootball_round",
 ]

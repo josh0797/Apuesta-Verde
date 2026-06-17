@@ -25,6 +25,7 @@ from typing import Optional
 from .football_draw_potential import (
     compute_draw_potential,
     LABEL_VALUE_DRAW, LABEL_STRONG_VALUE,
+    LABEL_FAIR_DRAW, LABEL_NO_VALUE,
 )
 from .football_historical_ingestor import build_point_in_time_features
 
@@ -34,6 +35,34 @@ log = logging.getLogger("football_backtest_engine")
 # settled picks so far. The fitter sees ONLY settled past data, never
 # the current pick.
 DEFAULT_RECAL_EVERY = 25
+
+# Sprint-D2 · No-market label thresholds.
+# Without odds we cannot compute an edge, so we assign labels based on
+# the absolute predicted probability. These thresholds are calibrated
+# against the football literature baselines:
+#   * Draw league baseline ≈ 24%
+#   * "Above-average" draw signal ≈ 28%
+#   * "Strong" draw signal ≈ 32%
+NO_MARKET_STRONG_VALUE_PP = 32.0
+NO_MARKET_VALUE_PP        = 28.0
+NO_MARKET_FAIR_PP         = 24.0
+
+
+def _relabel_no_market(verdict: dict) -> dict:
+    """Sprint-D2 · Reassign the label using an absolute-probability
+    threshold when no market odds are available."""
+    pp = verdict.get("draw_probability")
+    if pp is None:
+        return verdict
+    if pp >= NO_MARKET_STRONG_VALUE_PP:
+        verdict["label"] = LABEL_STRONG_VALUE
+    elif pp >= NO_MARKET_VALUE_PP:
+        verdict["label"] = LABEL_VALUE_DRAW
+    elif pp >= NO_MARKET_FAIR_PP:
+        verdict["label"] = LABEL_FAIR_DRAW
+    else:
+        verdict["label"] = LABEL_NO_VALUE
+    return verdict
 
 
 def _isotonic_like_calibrator(history: list[tuple[float, int]]):
@@ -93,13 +122,17 @@ def run_backtest(
     stake: str = "flat",
     stake_unit: float = 1.0,
     recal_every: int = DEFAULT_RECAL_EVERY,
+    no_market: bool = False,
+    min_pred_prob_pp: float = 30.0,
+    min_history_per_team: Optional[int] = None,
 ) -> dict:
     """Run the backtest. Returns a dict with picks + summary.
 
     Parameters
     ----------
     matches_sorted
-        Output of ``parse_football_data_csv`` (sorted ascending by date).
+        Output of ``parse_football_data_csv`` or
+        ``parse_openfootball_json`` (sorted ascending by date).
     market
         Currently only ``"DRAW"`` is implemented (Sprint-D MVP).
     min_edge_pp
@@ -114,6 +147,20 @@ def run_backtest(
         When True (default), calibration uses only past picks.
     stake
         ``"flat"`` or ``"kelly_fractional"``.
+    no_market
+        Sprint-D2 mode for datasets WITHOUT odds (e.g. openfootball
+        WC2022 / Euro2024). In this mode:
+          * picks fire on ``draw_probability >= min_pred_prob_pp``
+            instead of edge-vs-market.
+          * stake/PnL/ROI are not computed (set to 0); the engine
+            focuses on calibration + hit-rate of the label.
+          * every match with sufficient history gets a *prediction*
+            row in ``predictions`` (so calibration curve covers the
+            full sample), but only those firing the threshold appear
+            in ``picks``.
+    min_pred_prob_pp
+        Minimum predicted draw probability (in pp) for a pick to fire
+        in ``no_market`` mode. Default 30pp ≈ "above league baseline".
     """
     if market != "DRAW":
         raise NotImplementedError(
@@ -122,9 +169,19 @@ def run_backtest(
         )
 
     picks: list[dict] = []
+    predictions: list[dict] = []
     calib_history: list[tuple[float, int]] = []   # (pred_prob, hit) settled so far
     calibrator = (lambda p: p)
     skipped:  list[dict] = []
+
+    # Default min_history_per_team:
+    #   * League datasets (market mode) → 3 (default, matches Sprint-D
+    #     behaviour for back-compat).
+    #   * Tournament datasets (no_market mode) → 1, because each team
+    #     plays at most 3 group games + knockouts; requiring 3 prior
+    #     would discard the entire group stage.
+    if min_history_per_team is None:
+        min_history_per_team = 1 if no_market else 3
 
     for i, m in enumerate(matches_sorted):
         try:
@@ -133,12 +190,12 @@ def run_backtest(
             skipped.append({"index": i, "reason": f"ingest_error:{exc}"})
             continue
 
-        # Need at least 3 prior matches per team for any signal.
-        if (features["_audit"]["home_hist_n"] < 3
-                or features["_audit"]["away_hist_n"] < 3):
+        # Need at least N prior matches per team for any signal.
+        if (features["_audit"]["home_hist_n"] < min_history_per_team
+                or features["_audit"]["away_hist_n"] < min_history_per_team):
             skipped.append({"index": i, "reason": "insufficient_history"})
             continue
-        if features["market_implied_draw_prob"] is None:
+        if not no_market and features["market_implied_draw_prob"] is None:
             skipped.append({"index": i, "reason": "no_draw_odd"})
             continue
 
@@ -147,6 +204,11 @@ def run_backtest(
         pred_kwargs = {k: v for k, v in features.items() if k != "_audit"}
         verdict = compute_draw_potential(**pred_kwargs)
 
+        # No-market mode: reassign label using absolute-probability
+        # thresholds (since edge-vs-market is undefined here).
+        if no_market:
+            verdict = _relabel_no_market(verdict)
+
         # Apply walk-forward calibration if enabled.
         prob_pct = verdict["draw_probability"]
         if use_calibration and prob_pct is not None and calib_history:
@@ -154,9 +216,9 @@ def run_backtest(
                 calibrated = calibrator(prob_pct / 100.0) * 100.0
                 # Recompute edge against the same market implied.
                 market_pct = verdict["market_implied"]
+                verdict["draw_probability"] = round(calibrated, 1)
                 if market_pct is not None:
                     new_edge = round(calibrated - market_pct, 1)
-                    verdict["draw_probability"] = round(calibrated, 1)
                     verdict["edge"]             = new_edge
                     if new_edge >= 8.0:
                         verdict["label"] = LABEL_STRONG_VALUE
@@ -166,48 +228,104 @@ def run_backtest(
                         verdict["label"] = "FAIR_DRAW_NO_EDGE"
                     else:
                         verdict["label"] = "NO_DRAW_VALUE"
+                elif no_market:
+                    # Re-apply absolute-probability labeling post
+                    # calibration.
+                    verdict = _relabel_no_market(verdict)
             except Exception as exc:  # noqa: BLE001
                 log.debug("calibration failed: %s", exc)
 
-        # Decision: fire a pick only on VALUE/STRONG_VALUE + edge ≥ min.
+        # Decision: fire a pick.
         label = verdict.get("label")
         edge  = verdict.get("edge")
-        fires = (label in (LABEL_VALUE_DRAW, LABEL_STRONG_VALUE)
-                  and edge is not None and edge >= min_edge_pp)
-
+        prob_pct_final = verdict.get("draw_probability")
         hit = (m["ftr"] == "D")
+        if no_market:
+            # Fire on predicted probability threshold (no odds available).
+            fires = (prob_pct_final is not None
+                     and prob_pct_final >= min_pred_prob_pp)
+        else:
+            fires = (label in (LABEL_VALUE_DRAW, LABEL_STRONG_VALUE)
+                      and edge is not None and edge >= min_edge_pp)
+
+        # Always record a "prediction" row in no_market mode so the
+        # calibration curve covers the full sample.
+        if no_market and prob_pct_final is not None:
+            predictions.append({
+                "date":           m["date"].isoformat(),
+                "competition":    m.get("competition") or "",
+                "home":           m["home_team"],
+                "away":           m["away_team"],
+                "predicted_prob": round(prob_pct_final / 100.0, 4),
+                "label":          label,
+                "tournament_phase": m.get("tournament_phase"),
+                "matchday":         m.get("matchday"),
+                "group_label":      m.get("group_label"),
+                "is_group_stage":   bool(m.get("is_group_stage", False)),
+                "hit":            hit,
+                "actual_score":   f"{m['fthg']}-{m['ftag']}",
+                "fired":          bool(fires),
+                "tournament_context_score":
+                    features.get("tournament_context_score"),
+            })
+
         if fires:
-            odd = m["odd_draw"]
-            prob_used = verdict["draw_probability"] / 100.0
-            if stake == "kelly_fractional":
-                f = _kelly_fraction(prob_used, odd)
-                stake_amt = stake_unit * f
-            else:
-                stake_amt = stake_unit
-            if stake_amt > 0:
-                pnl = (odd - 1.0) * stake_amt if hit else -stake_amt
+            if no_market:
+                # No odds → no PnL/stake/ROI. Record a "pick" row for
+                # hit-rate by label.
                 picks.append({
                     "date":           m["date"].isoformat(),
                     "competition":    m.get("competition") or "",
                     "home":           m["home_team"],
                     "away":           m["away_team"],
-                    "odd_draw":       odd,
-                    "predicted_prob": round(prob_used, 4),
-                    "market_prob":    round(verdict["market_implied"] / 100.0, 4),
-                    "edge_pp":        edge,
+                    "odd_draw":       None,
+                    "predicted_prob": round(prob_pct_final / 100.0, 4),
+                    "market_prob":    None,
+                    "edge_pp":        None,
                     "label":          label,
-                    "stake":          round(stake_amt, 4),
+                    "stake":          0.0,
                     "hit":            hit,
-                    "pnl":            round(pnl, 4),
+                    "pnl":            0.0,
                     "actual_score":   f"{m['fthg']}-{m['ftag']}",
+                    "tournament_phase": m.get("tournament_phase"),
+                    "matchday":         m.get("matchday"),
+                    "group_label":      m.get("group_label"),
+                    "is_group_stage":   bool(m.get("is_group_stage", False)),
+                    "tournament_context_score":
+                        features.get("tournament_context_score"),
                 })
+            else:
+                odd = m["odd_draw"]
+                prob_used = prob_pct_final / 100.0
+                if stake == "kelly_fractional":
+                    f = _kelly_fraction(prob_used, odd)
+                    stake_amt = stake_unit * f
+                else:
+                    stake_amt = stake_unit
+                if stake_amt > 0:
+                    pnl = (odd - 1.0) * stake_amt if hit else -stake_amt
+                    picks.append({
+                        "date":           m["date"].isoformat(),
+                        "competition":    m.get("competition") or "",
+                        "home":           m["home_team"],
+                        "away":           m["away_team"],
+                        "odd_draw":       odd,
+                        "predicted_prob": round(prob_used, 4),
+                        "market_prob":    round(verdict["market_implied"] / 100.0, 4),
+                        "edge_pp":        edge,
+                        "label":          label,
+                        "stake":          round(stake_amt, 4),
+                        "hit":            hit,
+                        "pnl":            round(pnl, 4),
+                        "actual_score":   f"{m['fthg']}-{m['ftag']}",
+                    })
 
         # Update calibrator history AFTER the pick is recorded.
         # This is the anti-leakage step: future picks may see THIS
         # pick's outcome, but the current pick used calibrator fitted
         # only on STRICTLY past picks.
-        if prob_pct is not None:
-            calib_history.append((verdict["draw_probability"] / 100.0,
+        if prob_pct_final is not None:
+            calib_history.append((prob_pct_final / 100.0,
                                    1 if hit else 0))
             if (use_calibration and walk_forward
                     and (len(calib_history) % recal_every == 0)):
@@ -219,7 +337,10 @@ def run_backtest(
         "stake_mode":       stake,
         "use_calibration":  use_calibration,
         "walk_forward":     walk_forward,
+        "no_market":        no_market,
+        "min_pred_prob_pp": min_pred_prob_pp,
         "picks":            picks,
+        "predictions":      predictions,
         "skipped":          skipped,
         "n_matches_total":  len(matches_sorted),
     }

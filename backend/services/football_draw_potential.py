@@ -183,6 +183,7 @@ def compute_draw_potential(
     conservative_style_home:  bool = False,
     conservative_style_away:  bool = False,
     market_implied_draw_prob: Optional[float] = None,
+    tournament_context_score: Optional[float] = None,
 ) -> dict:
     """Compute the Draw Potential block.
 
@@ -299,6 +300,31 @@ def compute_draw_potential(
         prob += CONSERVATIVE_STYLE_BOOST_EACH
         reasons.append(RC_CONSERVATIVE_STYLE_AWAY)
         debug["conservative_boost"] = CONSERVATIVE_STYLE_BOOST_EACH
+
+    # ── Sprint D2 · Tournament Context booster ─────────────────────────
+    # Conservative additive boost in percentage points (capped at +3pp).
+    # Activated only when score ≥ BOOST_ACTIVATION_THRESHOLD (0.60).
+    tcs = _safe_float(tournament_context_score)
+    if tcs is not None:
+        # Lazy import to avoid hard coupling (and easier patching in tests).
+        from .football_tournament_context import (
+            BOOST_ACTIVATION_THRESHOLD, BOOST_MIN_PP, BOOST_MAX_PP,
+            BOOST_CAP_PP, RC_BOOSTER_APPLIED,
+        )
+        tcs_clamped = _clamp(tcs, 0.0, 1.0)
+        debug["tournament_context_score"] = round(tcs_clamped, 3)
+        if tcs_clamped >= BOOST_ACTIVATION_THRESHOLD:
+            span_in  = 1.0 - BOOST_ACTIVATION_THRESHOLD
+            span_out = BOOST_MAX_PP - BOOST_MIN_PP
+            boost_pp = BOOST_MIN_PP + (
+                (tcs_clamped - BOOST_ACTIVATION_THRESHOLD) / span_in
+            ) * span_out if span_in > 0 else BOOST_MAX_PP
+            boost_pp = _clamp(boost_pp, 0.0, BOOST_CAP_PP)
+            # Apply as percentage-point boost (i.e. /100 to align with
+            # ``prob`` which is in 0..1).
+            prob += boost_pp / 100.0
+            reasons.append(RC_BOOSTER_APPLIED)
+            debug["tournament_context_boost_pp"] = round(boost_pp, 3)
 
     # ── Step 3. Clamp to a realistic range ─────────────────────────────
     prob = _clamp(prob, DRAW_PROB_FLOOR, DRAW_PROB_CEILING)

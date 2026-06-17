@@ -109,6 +109,10 @@ def _calibration_label(curve: list[dict]) -> str:
 
 
 def compute_backtest_metrics(backtest_result: dict) -> dict:
+    no_market = bool(backtest_result.get("no_market"))
+    if no_market:
+        return _compute_no_market_metrics(backtest_result)
+
     picks = backtest_result.get("picks") or []
     n_bets = len(picks)
     n_won  = sum(1 for p in picks if p.get("hit"))
@@ -246,4 +250,172 @@ __all__ = [
     "_max_drawdown",
     "_sharpe_like",
     "_calibration_label",
+    # Sprint D2 (no-market) exports:
+    "_compute_no_market_metrics",
+    "_brier_score",
+    "_log_loss",
+    "_hit_rate_by_label",
+    "_metrics_for_predictions_subset",
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Sprint-D2 · No-market (openfootball) metrics
+# ─────────────────────────────────────────────────────────────────────
+def _brier_score(predictions: list[dict]) -> Optional[float]:
+    """Mean of (predicted_prob - outcome)**2 over all predictions.
+
+    Lower is better. Perfect predictor = 0. Always-predicting-base-rate
+    in football (~0.24) typically lands around 0.18..0.20.
+    """
+    if not predictions:
+        return None
+    vals = []
+    for p in predictions:
+        pp = p.get("predicted_prob")
+        y = 1 if p.get("hit") else 0
+        if pp is None:
+            continue
+        vals.append((float(pp) - y) ** 2)
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals), 5)
+
+
+def _log_loss(predictions: list[dict]) -> Optional[float]:
+    """Binary cross-entropy. Lower is better. Clamps predictions to
+    [eps, 1-eps] to avoid log(0)."""
+    if not predictions:
+        return None
+    import math
+    eps = 1e-9
+    vals = []
+    for p in predictions:
+        pp = p.get("predicted_prob")
+        y = 1 if p.get("hit") else 0
+        if pp is None:
+            continue
+        pp = max(eps, min(1.0 - eps, float(pp)))
+        vals.append(-(y * math.log(pp) + (1 - y) * math.log(1 - pp)))
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals), 5)
+
+
+def _hit_rate_by_label(picks: list[dict]) -> dict[str, dict]:
+    """Hit-rate of the label (VALUE_DRAW_CANDIDATE / STRONG_VALUE_DRAW /
+    FAIR_DRAW_NO_EDGE / etc.)."""
+    out: dict[str, dict] = {}
+    for p in picks:
+        lab = p.get("label") or "UNKNOWN"
+        out.setdefault(lab, {"n": 0, "won": 0})
+        out[lab]["n"] += 1
+        out[lab]["won"] += int(bool(p.get("hit")))
+    for v in out.values():
+        v["hit_rate"] = round(v["won"] / v["n"], 4) if v["n"] else None
+    return out
+
+
+def _metrics_for_predictions_subset(preds: list[dict]) -> dict:
+    """Brier + log-loss + reliability + draw_base_rate for any subset
+    of predictions."""
+    n = len(preds)
+    n_hits = sum(1 for p in preds if p.get("hit"))
+    return {
+        "n_predictions":  n,
+        "n_draws":        n_hits,
+        "draw_base_rate": round(n_hits / n, 4) if n else None,
+        "brier_score":    _brier_score(preds),
+        "log_loss":       _log_loss(preds),
+        "reliability_curve": reliability_curve(preds, n_buckets=10),
+        "calibration_label": _calibration_label(reliability_curve(preds, n_buckets=10)),
+    }
+
+
+def _compute_no_market_metrics(backtest_result: dict) -> dict:
+    """Sprint-D2 metrics for backtests run on datasets WITHOUT odds
+    (openfootball WC2022 / Euro2024). The contract is intentionally
+    different from the market-driven metrics: no ROI, no PnL, no CI.
+
+    The user explicitly requested:
+      * Brier Score + calibration curve
+      * Hit-rate of the VALUE_DRAW_CANDIDATE label
+      * Breakdown by group_stage / knockout / combined
+    """
+    predictions = backtest_result.get("predictions") or []
+    picks       = backtest_result.get("picks") or []
+
+    # Phase splits.
+    group_preds    = [p for p in predictions if p.get("is_group_stage")]
+    knockout_preds = [p for p in predictions
+                      if (p.get("tournament_phase") == "KNOCKOUT"
+                          or (p.get("tournament_phase") not in ("GROUP", None)
+                              and not p.get("is_group_stage")))]
+    group_picks    = [p for p in picks if p.get("is_group_stage")]
+    knockout_picks = [p for p in picks
+                      if (p.get("tournament_phase") == "KNOCKOUT"
+                          or (p.get("tournament_phase") not in ("GROUP", None)
+                              and not p.get("is_group_stage")))]
+
+    # Core metrics: full sample.
+    combined_metrics  = _metrics_for_predictions_subset(predictions)
+    group_metrics     = _metrics_for_predictions_subset(group_preds)
+    knockout_metrics  = _metrics_for_predictions_subset(knockout_preds)
+
+    # Hit-rate of the label (only on FIRED picks).
+    label_hit_rate_combined = _hit_rate_by_label(picks)
+    label_hit_rate_group    = _hit_rate_by_label(group_picks)
+    label_hit_rate_knockout = _hit_rate_by_label(knockout_picks)
+
+    # Number of fires + overall hit-rate of fired picks.
+    n_picks = len(picks)
+    n_won   = sum(1 for p in picks if p.get("hit"))
+    fired_hit_rate = round(n_won / n_picks, 4) if n_picks else None
+
+    small_sample_flag = (n_picks < SMALL_SAMPLE_THRESHOLD)
+
+    return {
+        # ── Provenance ───────────────────────────────────────────────
+        "mode":             "NO_MARKET",
+        "market":           backtest_result.get("market"),
+        "min_edge_pp":      backtest_result.get("min_edge_pp"),
+        "min_pred_prob_pp": backtest_result.get("min_pred_prob_pp"),
+        "stake_mode":       backtest_result.get("stake_mode"),
+        "use_calibration":  backtest_result.get("use_calibration"),
+        "walk_forward":     backtest_result.get("walk_forward"),
+        "n_matches_total":  backtest_result.get("n_matches_total"),
+        # ── Picks summary ────────────────────────────────────────────
+        "n_predictions":    len(predictions),
+        "n_picks_fired":    n_picks,
+        "n_won":            n_won,
+        "n_lost":           n_picks - n_won,
+        "hit_rate_fired":   fired_hit_rate,
+        "small_sample_flag": small_sample_flag,
+        "small_sample_threshold": SMALL_SAMPLE_THRESHOLD,
+        "small_sample_warning":
+            "INSUFFICIENT_SAMPLE_DO_NOT_TRUST" if small_sample_flag else None,
+        # ── Quantitative metrics ─────────────────────────────────────
+        "combined_metrics":  combined_metrics,
+        "group_stage_metrics": group_metrics,
+        "knockout_metrics":  knockout_metrics,
+        # ── Label hit-rate breakdowns ────────────────────────────────
+        "label_hit_rate_combined":  label_hit_rate_combined,
+        "label_hit_rate_group_stage": label_hit_rate_group,
+        "label_hit_rate_knockout":  label_hit_rate_knockout,
+        # ── For backwards-compatible dumps ───────────────────────────
+        "no_market": True,
+        # ROI fields kept None so downstream renderers do not break.
+        "n_bets": n_picks,
+        "roi": None,
+        "yield_per_bet": None,
+        "net_pnl": 0.0,
+        "total_staked": 0.0,
+        "total_returned": 0.0,
+        "max_drawdown": 0.0,
+        "sharpe_like": None,
+        "roi_ci_lo": None,
+        "roi_ci_hi": None,
+        "is_significant": None,
+        "calibration_label": combined_metrics.get("calibration_label"),
+        "reliability_curve": combined_metrics.get("reliability_curve"),
+    }

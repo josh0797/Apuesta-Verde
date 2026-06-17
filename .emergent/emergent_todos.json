@@ -1,18 +1,30 @@
 [
   {
-    "content": "Fix 1: APScheduler jobs CREATE (30min) + REFRESH (10min) cableados (6 tests ✅)",
+    "content": "D2.1 — Parser openfootball JSON (parse_openfootball_json) en football_historical_ingestor.py con clasificación de fase",
     "status": "completed"
   },
   {
-    "content": "Fix 2: HTTP fetchers reales TheStatsAPI integrados (7 tests ✅)",
+    "content": "D2.2 — Helper point-in-time standings de grupo (sin leakage)",
     "status": "completed"
   },
   {
-    "content": "Fix 3: CONCACAF/CAF qualifier-proxy hydrator + 4to adapter en cascada (13 tests ✅)",
+    "content": "D2.3 — TOURNAMENT_CONTEXT_SCORE (escalar 0-1) + booster suave (+2pp a +3pp) en football_draw_potential.py",
     "status": "completed"
   },
   {
-    "content": "Suite completa: 3256 tests / 0 regresiones ✅",
+    "content": "D2.4 — Engine backtest modo no-market: Brier + log-loss + calibration curve + hit-rate + desglose por fase (GROUP/KNOCKOUT/COMBINED)",
+    "status": "completed"
+  },
+  {
+    "content": "D2.5 — Adaptar scripts/run_backtest.py con flag --openfootball-path y --no-market",
+    "status": "completed"
+  },
+  {
+    "content": "D2.6 — Ejecutar backtests WC2022 y Euro2024 + generar reportes (3 archivos .md + .json + summary)",
+    "status": "completed"
+  },
+  {
+    "content": "D2.7 — Tests nuevos (parser, standings PIT, context score, engine no-market) + suite global verde (3271+)",
     "status": "completed"
   }
 ]

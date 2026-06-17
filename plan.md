@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.
 > **Estado histórico:** ✅ F58–F70 completadas.
-> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade) COMPLETADA** + ✅ **F87.1 (Fixture Discovery Contract Fix + Visible Audit + Parte 1.5 upstream audit) COMPLETADA** + ✅ **MLB-F93 (Manual Odds Override Reprice + UI Refresh) COMPLETADA** + ✅ **MLB-F93.1 (Manual Odds Reprice Context Pass-through + Authenticated Debug) COMPLETADA** + ✅ **F94 (Restaurar visibilidad de fixtures, descartados y live exóticos — Live + Dashboard) COMPLETADA** + ✅ **F94.2 (FIFA World Cup Live detection + TheStatsAPI diagnostics) COMPLETADA** + ✅ **F94.3 (Live Enrichment Persistence Audit) COMPLETADA** + 🟡 **REFACTOR-1 (data_ingestion top-2) EN PROGRESO (paso 1/3 completado)** + ✅ **FIX-1 (xG TheStatsAPI normalisation) COMPLETADO** + ✅ **FIX-2 (Corners TheStatsAPI normalisation) COMPLETADO** + ✅ **FIX-3 (Tail Fragility polarity guard) COMPLETADO** + ⏳ **F84.c/F84.d (Lineups + Standings) PENDIENTE (P1)**.
+> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade) COMPLETADA** + ✅ **F87.1 (Fixture Discovery Contract Fix + Visible Audit + Parte 1.5 upstream audit) COMPLETADA** + ✅ **MLB-F93 (Manual Odds Override Reprice + UI Refresh) COMPLETADA** + ✅ **MLB-F93.1 (Manual Odds Reprice Context Pass-through + Authenticated Debug) COMPLETADA** + ✅ **F94 (Restaurar visibilidad de fixtures, descartados y live exóticos — Live + Dashboard) COMPLETADA** + ✅ **F94.2 (FIFA World Cup Live detection + TheStatsAPI diagnostics) COMPLETADA** + ✅ **F94.3 (Live Enrichment Persistence Audit) COMPLETADA** + ✅ **BUGFIX (Football “mismo momio” odds hallucination guard) COMPLETADO** + ✅ **SPRINT A (Draw Potential piloto retrospectivo) COMPLETADO** + ✅ **SPRINT B (Learning snapshots + loops + UI + scheduler) COMPLETADO** + ✅ **SPRINT D (Backtest histórico point-in-time; PL 23/24) COMPLETADO** + ✅ **SPRINT D2 (WC2022 + Euro2024 backtest nacional + Tournament Context) COMPLETADO** + 🟡 **REFACTOR-1 (data_ingestion top-2) EN PROGRESO (paso 1/3 completado)** + ⏳ **F84.c/F84.d (Lineups + Standings) PENDIENTE (P1)**.
 
 > **Idioma operativo:** Español.
 
@@ -127,52 +127,152 @@
 
 ---
 
-## Phase F87.1 — Football Fixture Discovery Contract Fix + Visible Audit (COMPLETED ✅)
-**(COMPLETADO)** — ver sección F87.1 existente para detalles (sin cambios).
+## Phase SPRINT A — Draw Potential (piloto retrospectivo) (COMPLETED ✅)
+
+### Objetivo
+Validar un módulo puro `compute_draw_potential()` (fail-soft, explicable) antes de invertir en infraestructura completa.
+
+### Implementación realizada
+- ✅ `services/football_draw_potential.py` (módulo puro, reason codes, labeler)
+- ✅ Backtest piloto retrospectivo (sin fugas de futuro)
+
+### Resultado
+- ✅ Señal inicial verificada; listo para integración en backtest framework.
 
 ---
 
-# Phase MLB-F93 — Manual Odds Override Reprice + UI Refresh (COMPLETED ✅)
-**(COMPLETADO)** — sin cambios (ver sección existente).
+## Phase SPRINT B — Football Learning Dataset + Loops + UI (COMPLETED ✅)
+
+### Objetivo
+Infraestructura para snapshots pre/post partido, cascada de scraping pre-match, loops de aprendizaje y panel UI.
+
+### Implementación realizada
+- ✅ Colección `football_match_learning_snapshots`
+- ✅ APScheduler jobs (pre-match snapshots)
+- ✅ Cascada TheStatsAPI / CONCACAF / CAF hydration
+- ✅ 4 learning loops + DC/NB calibration
+- ✅ UI: `LearningSnapshotPanel.jsx`
+
+### Estado
+- ✅ Suites verdes y sin regresiones.
 
 ---
 
-# Phase F94 — Restaurar visibilidad de fixtures, descartados y live exóticos (COMPLETED ✅)
-**(COMPLETADO)** — sin cambios (ver sección existente).
+## Phase SPRINT D — Framework Backtest Histórico Point-in-Time (COMPLETED ✅)
+
+### Objetivo
+Crear un motor de backtest riguroso con disciplina point-in-time (sin leakage) y walk-forward.
+
+### Implementación realizada
+- ✅ `services/football_historical_ingestor.py` (CSV football-data.co.uk + `build_point_in_time_features`)
+- ✅ `services/football_backtest_engine.py`
+- ✅ `services/football_backtest_metrics.py`
+- ✅ `scripts/run_backtest.py`
+- ✅ Ejecución validada en Premier League 23/24
 
 ---
 
-# Phase F94.2 — FIFA World Cup Live Detection + TheStatsAPI Diagnostics (COMPLETED ✅)
-**(COMPLETADO)** — sin cambios (ver sección existente).
+## Phase SPRINT D2 — Backtest histórico en torneos nacionales (WC2022 + Euro2024) — COMPLETADO ✅
+
+### Objetivo
+Validar si el módulo **Draw Potential** mejora en torneos nacionales (donde incentivos cooperativos y contextos de grupo son más fuertes) manteniendo disciplina point-in-time.
+
+### Decisiones confirmadas por el usuario (fijas)
+1) **`TOURNAMENT_CONTEXT_SCORE`**
+- Doble:
+  - Escalar **0.0–1.0** (auditoría)
+  - + **booster suave** conservador (máximo +2pp a +3pp)
+- Booster:
+  - Se activa cuando `score >= 0.6`
+  - Escala lineal: `0.6 → +2pp`, `1.0 → +3pp` (clamp)
+
+2) **Métricas (sin odds)**
+- Reportar:
+  - **Brier Score**
+  - **Log-loss**
+  - **Calibration curve**
+  - **Hit-rate** del label `VALUE_DRAW_CANDIDATE` (y `STRONG_VALUE_DRAW`)
+- **No** reportar ROI/yield (openfootball no incluye odds)
+
+3) **Cobertura de fases**
+- Incluir **todo el torneo** y desglosar:
+  - **Group Stage**
+  - **Knockout**
+  - **Combined**
+
+4) **Regla crítica**
+- **Point-in-time estricto**: `TOURNAMENT_CONTEXT_SCORE` usa únicamente partidos **anteriores** del mismo torneo/grupo (sin futuro; sin cruces de fixtures simultáneos).
 
 ---
 
-# Phase F94.3 — Live Enrichment Persistence Audit (LIVE_ENRICHMENT_DROPPED_FIXTURES) (COMPLETED ✅)
+### Implementación realizada (SPRINT D2)
 
-## Objetivo
-Prevenir regresiones silenciosas tipo **"Live fixture discovery != live fixture persistence"** mediante una regla explícita:
+#### D2.1 — Parser openfootball JSON → schema canónico (ingestor) ✅
+**Archivo:** `services/football_historical_ingestor.py`
+- ✅ `parse_openfootball_json(data, competition=...) -> list[dict]`
+- ✅ Clasificación de fase desde `round`:
+  - Group: `Matchday N`/`Group X`
+  - Knockout: `Round of 16`, `Quarter(-final)`, `Semi(-final)`, `Final`, etc.
+- ✅ `odd_* = None` (no market)
 
-> Si `discovery_count > 0` pero `persisted_live_count == 0` → emitir error técnico `LIVE_ENRICHMENT_DROPPED_FIXTURES`.
+#### D2.2 — Standings point-in-time por grupo ✅
+**Archivo:** `services/football_historical_ingestor.py`
+- ✅ `compute_group_standings_pit(matches_sorted, target_index, ...)` con anti-leakage estricto (`m.date < target_date`, misma `competition` y `group_label`).
+- ✅ Derivación de **group matchday real** desde PIT standings: `group_matchday = max(played_home, played_away)+1` (no depender del `Matchday` global del JSON openfootball).
 
-## Implementación realizada
-### Backend
-- ✅ Nuevo módulo `services/live_enrichment_audit.py` con función pura `evaluate_enrichment_drop`.
-- ✅ `services/football_live_visibility.py` ahora incluye en `live_debug`:
-  - `persisted_live_count`
-  - `enrichment_dropped_all_fixtures`
-  - `enrichment_error_code`
-  - `enrichment_error_message`
-- ✅ Fail-soft total: si el conteo Mongo falla, el endpoint no rompe y superficie mensaje técnico.
+#### D2.3 — `TOURNAMENT_CONTEXT_SCORE` + booster conservador ✅
+**Archivos:**
+- `services/football_tournament_context.py` (nuevo)
+- `services/football_draw_potential.py` (extendido)
 
-### Frontend
-- ✅ `FootballLiveVisibilityStrip.jsx` renderiza banner rojo de severidad alta con:
-  - code `LIVE_ENRICHMENT_DROPPED_FIXTURES`
-  - discovery vs persisted
-  - hint actionable
+- ✅ `compute_tournament_context_score()` → `{score_0_1, boost_pp, reason_codes, audit}`
+- ✅ Booster aplicado en `compute_draw_potential(tournament_context_score=...)` (+2..+3pp máx, solo si score ≥ 0.6)
 
-## Tests
-- ✅ Backend: `tests/test_f94_3_live_enrichment_audit.py` (14 tests).
-- ✅ Frontend: extensión de `FootballLiveVisibilityStrip.test.jsx` (banner + contract).
+#### D2.4 — Backtest “no-market” + métricas ✅
+**Archivos:**
+- `services/football_backtest_engine.py`
+- `services/football_backtest_metrics.py`
+
+- ✅ `run_backtest(..., no_market=True)`:
+  - genera `predictions[]` (para calibración sobre muestra completa)
+  - genera `picks[]` solo cuando `draw_probability >= min_pred_prob_pp`
+  - **re-labeling** sin odds: thresholds absolutos (FAIR ≥ 24pp, VALUE ≥ 28pp, STRONG ≥ 32pp)
+- ✅ Métricas no-market:
+  - Brier score, log-loss, curva de calibración, base-rate
+  - hit-rate por label
+  - desglose Group / Knockout / Combined
+
+#### D2.5 — CLI runner actualizado ✅
+**Archivo:** `scripts/run_backtest.py`
+- ✅ Soporta `--openfootball-path` y `--no-market`
+- ✅ Soporta `--min-pred-prob-pp`
+- ✅ Render markdown específico no-market (sin ROI)
+
+#### D2.6 — Ejecución de backtests + reportes ✅
+- ✅ World Cup 2022:
+  - `/app/backtest_worldcup2022_draw.json`
+  - `/app/backtest_worldcup2022_draw.md`
+- ✅ Euro 2024:
+  - `/app/backtest_euro2024_draw.json`
+  - `/app/backtest_euro2024_draw.md`
+- ✅ Comparativo:
+  - `/app/backtest_national_tournaments_summary.md`
+
+**Resultados clave (resumen):**
+- **WC 2022** (Group Stage): base-rate de draw **15.6%** (torneo atípicamente decisivo), `hit_rate_fired` ≈ **14.3%** (muestra pequeña)
+- **Euro 2024** (Group Stage): base-rate de draw **54.2%** (torneo excepcionalmente cooperativo), `hit_rate_fired` ≈ **41.2%**, `STRONG_VALUE_DRAW` **70% hit-rate** en grupo
+- **Combinado**: 48 picks fired, **33% hit-rate** (sobre baseline histórico ~24%)
+- **Conclusión:** hipótesis parcialmente validada (fuerte en Euro24, débil en WC22); requiere más muestra.
+- **Verdict operativo:** **NO desplegar** aún; `small_sample_flag=True`.
+
+#### D2.7 — Tests + cero regresiones ✅
+- ✅ 79 tests nuevos (Sprint D2):
+  - parser openfootball
+  - standings PIT anti-leakage
+  - tournament context score + booster
+  - engine no-market + métricas
+- ✅ Suite global: **3350 passing**, 2 skipped, 0 regresiones
+- ✅ Frontend: sin cambios (174 passing)
 
 ---
 
@@ -206,87 +306,17 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 ---
 
 # Phase FIX-3 — Tail Fragility polarity guard (COMPLETED ✅)
-
-## Problema
-Contradicción interna en MLB: la UI mostraba simultáneamente:
-- “Riesgo de cola explosiva: Alta”
-- “Tail Fragility: Bajo 15/100”
-
-**Causa raíz:**
-- `mlb_expected_runs_distribution._tail_bucket_from` clasifica con thresholds directos (ej. `p_ge_12 > 0.22` → HIGH).
-- `mlb_tail_fragility._explosive_tail_score` usa blend ponderado (W_P12/W_P14/W_P16/W_P18) → con 31%/14%/5%/2% devolvía score=15 → LOW.
-
-## Implementación
-- ✅ `services/mlb_tail_fragility.py`:
-  - Nuevo reason code: `TAIL_FRAGILITY_ESCALATED_BY_EXPLOSIVE_TAIL`.
-  - Thresholds: `p_ge_12 >= 0.25 OR p_ge_14 >= 0.10 OR external_bucket in (HIGH, EXTREME)`.
-  - Polarity guard: si se cumplen thresholds y el bucket interno es LOW → elevar a MEDIUM y `score=max(score, 40)`.
-  - Narrative ES enriquecida explicando la escalación.
-- ✅ `frontend/src/components/TailRiskPanel.jsx`:
-  - Banner ámbar visible solo cuando aparece el reason code.
-  - Mensaje: “Tail Fragility escalado porque la distribución asigna alta probabilidad a escenarios de 12+ / 14+ carreras.”
-
-## Tests
-- ✅ Backend: `tests/test_fix3_tail_fragility_polarity_guard.py` (10 tests).
-- ✅ Frontend: `src/components/__tests__/TailRiskPanel.escalation.test.jsx` (4 tests).
+**(COMPLETADO)** — sin cambios.
 
 ---
 
 # Phase FIX-1 — xG TheStatsAPI normalisation (COMPLETED ✅)
-
-## Problema
-El xG TheStatsAPI nunca se normalizaba. Causa raíz dual:
-1. `thestatsapi_client.fetch_recent_match_ids` **no existía** → `_ensure_thestatsapi_recent_match_ids` fallaba con `AttributeError` silencioso.
-2. `fetch_shotmap_xg` no leía `home_team_id`/`away_team_id` desde `payload.event` (shape real), rompiendo el sumador por equipo.
-
-## Implementación
-- ✅ `services/external_sources/thestatsapi_client.py`:
-  - Nueva función `fetch_recent_match_ids(team_id, *, n=15, status='finished', sport='football')`.
-  - Endpoint: `GET /football/matches?team_id={tm_X}&status=finished&limit={n}`.
-  - Fail-soft (devuelve `[]` en error/disabled).
-- ✅ `services/external_sources/thestatsapi_shotmap_client.py`:
-  - `fetch_shotmap_xg` ahora lee team_ids desde `payload.event.home_team_id` / `payload.event.away_team_id` como fallback adicional.
-
-## Validación E2E live
-- ✅ Iran (tm_65309) recent IDs reales: `['mt_986264843', ...]`.
-- ✅ Iran vs NZ shotmap real: `home_np_xg=1.49, away_np_xg=1.239`.
-- ✅ `compute_xg_recent_averages`: `available=True` (L1/L5 coherentes).
-
-## Tests
-- ✅ Backend: `tests/test_fix1_thestatsapi_xg_normalization.py` (11 tests).
+**(COMPLETADO)** — sin cambios.
 
 ---
 
 # Phase FIX-2 — Corners TheStatsAPI normalisation (COMPLETED ✅)
-
-## Problema
-Los córneres no se importaban en ningún partido cuando venían de TheStatsAPI.
-
-**Causa raíz:** TheStatsAPI devuelve stats con shape pivot-by-stat anidado:
-
-```json
-{"data": {"overview": {"corner_kicks": {"all": {"home": 4, "away": 1}}}}}
-```
-
-pero `normalize_match_stats` solo soportaba shape plano (`home/away`).
-
-## Implementación
-- ✅ `services/external_sources/thestatsapi_normalizer.py`:
-  - Nuevo helper `_split_overview_to_team_blobs(overview)`.
-  - `normalize_match_stats` detecta el shape `overview` (con o sin wrapper `data`) primero.
-  - Preserva back-compat con flat/team-keyed.
-- ✅ `services/football_corners_provider.py`:
-  - `_extract_thestatsapi_corners` ahora puede leer corners desde `live_stats.home_stats['Corner Kicks']` cuando `_source=='thestatsapi'` o `'thestatsapi' in _sources`.
-
-## Validación E2E live
-- ✅ `mt_986264843` Iran vs NZ → normalizer extrae:
-  - corners: 4–1
-  - xG: 1.49–1.24
-  - possession: 48%–52%
-  - shots on goal: 4
-
-## Tests
-- ✅ Backend: `tests/test_fix2_thestatsapi_corners_normalizer.py` (8 tests).
+**(COMPLETADO)** — sin cambios.
 
 ---
 
@@ -345,7 +375,11 @@ Añadir cobertura de:
 ## 3) Pendientes y siguientes pasos
 
 ### Pendientes P0 (actual)
-- Ninguno (F94.3 + FIX-1/2/3 cerrados, suites verdes).
+- ✅ **SPRINT D2** (completado). Próximos P0 derivados:
+  - ⏳ Backtest **Copa América 2024** (mismo engine no-market) para aumentar muestra.
+  - ⏳ Backtest **AFCON 2024**.
+  - ⏳ Sensitivity analysis de `min_pred_prob_pp` (28 → 30 → 32) y comparación por fase.
+  - ⏳ Conseguir odds históricas WC22/Euro24 (Pinnacle/Betfair) y re-ejecutar en modo market para ROI real.
 
 ### Pendientes P1
 - 🟡 **REFACTOR-1**: completar pasos 2/3 y 3/3 + refactor `ingest_upcoming`.
@@ -353,32 +387,21 @@ Añadir cobertura de:
 
 ### Pendientes P2
 - ⏳ Expandir `team_name_translations.py` para clubes UCL/UEL.
-- ⏳ (Futuro sprint) extender fallback TheStatsAPI a competiciones no-Mundial.
-
-### Futuras mejoras recomendadas (global)
-- Backtest de la calibración F86.1 con ≥ 30 picks reales con H2H aplicado para ajustar thresholds.
-- Implementar calibrador offline cuando exista una fuente estable.
+- ⏳ Expandir backtest framework a otros mercados (BTTS / Over 2.5 / Corners) tras validar DRAW.
 
 ---
 
 ## 6) Validación esperada (estado actual)
 
-- Suites actuales (post F94.3 + FIX-1/2/3):
-  - Backend: **3050 passed, 2 skipped**.
-    - Incremento vs baseline 3007: **+43 tests acumulados**
-      - F94.3: +14
-      - FIX-3: +10
-      - FIX-1: +11
-      - FIX-2: +8
-  - Frontend: **166 passed**.
-    - Incremento vs baseline 158: **+8 tests acumulados**
-      - F94.3: +4
-      - FIX-3: +4
+- Suites actuales (post Sprint D2):
+  - Backend: **3350 passing tests**, 2 skipped.
+  - Frontend: **174 passing tests**.
 
 - Reglas:
   - Cero regresión post-cada cambio lógico.
   - Siempre usar `yarn` (no `npm`).
   - Arquitectura fail-soft y back-compat.
+  - Point-in-time correctness: prohibido usar datos futuros en backtests.
 
 ---
 
@@ -389,9 +412,11 @@ Añadir cobertura de:
   - Arquitectura fail-soft: no levantar excepción sin convertirla a auditoría/razón.
   - Mantener back-compat en contratos de respuesta cuando el FE dependa de fields legacy.
   - `Discovery != persistence` debe surfacearse como error técnico `LIVE_ENRICHMENT_DROPPED_FIXTURES`.
+  - **Backtests:** disciplina point-in-time estricta (sin leakage); cualquier feature de contexto de torneo debe depender solo de partidos anteriores.
 
 - Flags / env relevantes:
   - ✅ **F87.1:** `DISCOVERY_DROPPED_SAMPLE_CAP` (default `3`).
   - ✅ **MLB-F93:** `MLB_MANUAL_VALUE_EDGE_THRESHOLD` (default `0.03`).
   - ✅ **MLB-F93:** `MLB_MANUAL_WATCHLIST_TOLERANCE` (default `0.02`).
   - ✅ **F94.2 / TheStatsAPI:** `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY` configurado.
+
