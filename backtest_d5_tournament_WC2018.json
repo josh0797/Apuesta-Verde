@@ -1,0 +1,1747 @@
+{
+  "mode": "NO_MARKET",
+  "market": "DRAW",
+  "min_edge_pp": 4.0,
+  "min_pred_prob_pp": 28.0,
+  "stake_mode": "flat",
+  "use_calibration": true,
+  "walk_forward": true,
+  "n_matches_total": 64,
+  "n_predictions": 48,
+  "n_candidates": 48,
+  "n_picks_fired": 15,
+  "n_won": 3,
+  "n_lost": 12,
+  "hit_rate": 0.2,
+  "hit_rate_fired": 0.2,
+  "small_sample_flag": true,
+  "small_sample_threshold": 50,
+  "small_sample_warning": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+  "sample_status": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+  "warnings": [
+    "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+    "NO_ODDS_HIT_RATE_ONLY"
+  ],
+  "combined_metrics": {
+    "n_predictions": 48,
+    "n_hits": 11,
+    "base_rate": 0.2292,
+    "n_draws": 11,
+    "draw_base_rate": 0.2292,
+    "brier_score": 0.18076,
+    "log_loss": 0.54943,
+    "reliability_curve": [
+      {
+        "bucket": "[0.00,0.10)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.10,0.20)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.20,0.30)",
+        "n": 33,
+        "predicted_avg": 0.2085,
+        "actual_avg": 0.2424,
+        "hit_rate": 0.2424
+      },
+      {
+        "bucket": "[0.30,0.40)",
+        "n": 15,
+        "predicted_avg": 0.3189,
+        "actual_avg": 0.2,
+        "hit_rate": 0.2
+      },
+      {
+        "bucket": "[0.40,0.50)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.50,0.60)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.60,0.70)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.70,0.80)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.80,0.90)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.90,1.00)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      }
+    ],
+    "reliability_by_bucket": [
+      {
+        "bucket": "[0.00,0.10)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.10,0.20)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.20,0.30)",
+        "n": 33,
+        "predicted_avg": 0.2085,
+        "actual_avg": 0.2424,
+        "hit_rate": 0.2424
+      },
+      {
+        "bucket": "[0.30,0.40)",
+        "n": 15,
+        "predicted_avg": 0.3189,
+        "actual_avg": 0.2,
+        "hit_rate": 0.2
+      },
+      {
+        "bucket": "[0.40,0.50)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.50,0.60)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.60,0.70)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.70,0.80)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.80,0.90)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.90,1.00)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      }
+    ],
+    "calibration_label": "ACCEPTABLE_CALIBRATION"
+  },
+  "group_stage_metrics": {
+    "n_predictions": 32,
+    "n_hits": 6,
+    "base_rate": 0.1875,
+    "n_draws": 6,
+    "draw_base_rate": 0.1875,
+    "brier_score": 0.1574,
+    "log_loss": 0.49596,
+    "reliability_curve": [
+      {
+        "bucket": "[0.00,0.10)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.10,0.20)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.20,0.30)",
+        "n": 17,
+        "predicted_avg": 0.2166,
+        "actual_avg": 0.1765,
+        "hit_rate": 0.1765
+      },
+      {
+        "bucket": "[0.30,0.40)",
+        "n": 15,
+        "predicted_avg": 0.3189,
+        "actual_avg": 0.2,
+        "hit_rate": 0.2
+      },
+      {
+        "bucket": "[0.40,0.50)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.50,0.60)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.60,0.70)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.70,0.80)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.80,0.90)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.90,1.00)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      }
+    ],
+    "reliability_by_bucket": [
+      {
+        "bucket": "[0.00,0.10)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.10,0.20)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.20,0.30)",
+        "n": 17,
+        "predicted_avg": 0.2166,
+        "actual_avg": 0.1765,
+        "hit_rate": 0.1765
+      },
+      {
+        "bucket": "[0.30,0.40)",
+        "n": 15,
+        "predicted_avg": 0.3189,
+        "actual_avg": 0.2,
+        "hit_rate": 0.2
+      },
+      {
+        "bucket": "[0.40,0.50)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.50,0.60)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.60,0.70)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.70,0.80)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.80,0.90)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.90,1.00)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      }
+    ],
+    "calibration_label": "ACCEPTABLE_CALIBRATION"
+  },
+  "knockout_metrics": {
+    "n_predictions": 16,
+    "n_hits": 5,
+    "base_rate": 0.3125,
+    "n_draws": 5,
+    "draw_base_rate": 0.3125,
+    "brier_score": 0.2275,
+    "log_loss": 0.65636,
+    "reliability_curve": [
+      {
+        "bucket": "[0.00,0.10)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.10,0.20)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.20,0.30)",
+        "n": 16,
+        "predicted_avg": 0.2,
+        "actual_avg": 0.3125,
+        "hit_rate": 0.3125
+      },
+      {
+        "bucket": "[0.30,0.40)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.40,0.50)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.50,0.60)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.60,0.70)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.70,0.80)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.80,0.90)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.90,1.00)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      }
+    ],
+    "reliability_by_bucket": [
+      {
+        "bucket": "[0.00,0.10)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.10,0.20)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.20,0.30)",
+        "n": 16,
+        "predicted_avg": 0.2,
+        "actual_avg": 0.3125,
+        "hit_rate": 0.3125
+      },
+      {
+        "bucket": "[0.30,0.40)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.40,0.50)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.50,0.60)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.60,0.70)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.70,0.80)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.80,0.90)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      },
+      {
+        "bucket": "[0.90,1.00)",
+        "n": 0,
+        "predicted_avg": null,
+        "actual_avg": null,
+        "hit_rate": null
+      }
+    ],
+    "calibration_label": "MISCALIBRATED"
+  },
+  "label_hit_rate_combined": {
+    "VALUE_DRAW_CANDIDATE": {
+      "n": 7,
+      "won": 0,
+      "hit_rate": 0.0
+    },
+    "STRONG_VALUE_DRAW": {
+      "n": 8,
+      "won": 3,
+      "hit_rate": 0.375
+    }
+  },
+  "label_hit_rate_group_stage": {
+    "VALUE_DRAW_CANDIDATE": {
+      "n": 7,
+      "won": 0,
+      "hit_rate": 0.0
+    },
+    "STRONG_VALUE_DRAW": {
+      "n": 8,
+      "won": 3,
+      "hit_rate": 0.375
+    }
+  },
+  "label_hit_rate_knockout": {},
+  "false_positive_examples": [
+    {
+      "date": "2018-06-25T00:00:00",
+      "home": "Saudi Arabia",
+      "away": "Egypt",
+      "predicted_prob": 0.345,
+      "label": "STRONG_VALUE_DRAW",
+      "actual_score": "2-1",
+      "tournament_phase": "GROUP",
+      "matchday": 12,
+      "group_label": "Group A",
+      "fired": true
+    },
+    {
+      "date": "2018-06-24T00:00:00",
+      "home": "Poland",
+      "away": "Colombia",
+      "predicted_prob": 0.34,
+      "label": "STRONG_VALUE_DRAW",
+      "actual_score": "0-3",
+      "tournament_phase": "GROUP",
+      "matchday": 11,
+      "group_label": "Group H",
+      "fired": true
+    },
+    {
+      "date": "2018-06-22T00:00:00",
+      "home": "Serbia",
+      "away": "Switzerland",
+      "predicted_prob": 0.338,
+      "label": "STRONG_VALUE_DRAW",
+      "actual_score": "1-2",
+      "tournament_phase": "GROUP",
+      "matchday": 9,
+      "group_label": "Group E",
+      "fired": true
+    },
+    {
+      "date": "2018-06-27T00:00:00",
+      "home": "Serbia",
+      "away": "Brazil",
+      "predicted_prob": 0.322,
+      "label": "STRONG_VALUE_DRAW",
+      "actual_score": "0-2",
+      "tournament_phase": "GROUP",
+      "matchday": 14,
+      "group_label": "Group E",
+      "fired": true
+    },
+    {
+      "date": "2018-06-26T00:00:00",
+      "home": "Nigeria",
+      "away": "Argentina",
+      "predicted_prob": 0.32,
+      "label": "STRONG_VALUE_DRAW",
+      "actual_score": "1-2",
+      "tournament_phase": "GROUP",
+      "matchday": 13,
+      "group_label": "Group D",
+      "fired": true
+    },
+    {
+      "date": "2018-06-21T00:00:00",
+      "home": "Argentina",
+      "away": "Croatia",
+      "predicted_prob": 0.304,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "actual_score": "0-3",
+      "tournament_phase": "GROUP",
+      "matchday": 8,
+      "group_label": "Group D",
+      "fired": true
+    },
+    {
+      "date": "2018-06-22T00:00:00",
+      "home": "Nigeria",
+      "away": "Iceland",
+      "predicted_prob": 0.304,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "actual_score": "2-0",
+      "tournament_phase": "GROUP",
+      "matchday": 9,
+      "group_label": "Group D",
+      "fired": true
+    },
+    {
+      "date": "2018-06-22T00:00:00",
+      "home": "Brazil",
+      "away": "Costa Rica",
+      "predicted_prob": 0.304,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "actual_score": "2-0",
+      "tournament_phase": "GROUP",
+      "matchday": 9,
+      "group_label": "Group E",
+      "fired": true
+    },
+    {
+      "date": "2018-06-26T00:00:00",
+      "home": "Australia",
+      "away": "Peru",
+      "predicted_prob": 0.303,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "actual_score": "0-2",
+      "tournament_phase": "GROUP",
+      "matchday": 13,
+      "group_label": "Group C",
+      "fired": true
+    },
+    {
+      "date": "2018-06-20T00:00:00",
+      "home": "Uruguay",
+      "away": "Saudi Arabia",
+      "predicted_prob": 0.302,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "actual_score": "1-0",
+      "tournament_phase": "GROUP",
+      "matchday": 7,
+      "group_label": "Group A",
+      "fired": true
+    }
+  ],
+  "false_negative_examples": [
+    {
+      "date": "2018-06-27T00:00:00",
+      "home": "Switzerland",
+      "away": "Costa Rica",
+      "predicted_prob": 0.2,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "2-2",
+      "tournament_phase": "GROUP",
+      "matchday": 14,
+      "group_label": "Group E",
+      "fired": false
+    },
+    {
+      "date": "2018-07-01T00:00:00",
+      "home": "Spain",
+      "away": "Russia",
+      "predicted_prob": 0.2,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "1-1",
+      "tournament_phase": "KNOCKOUT",
+      "matchday": null,
+      "group_label": null,
+      "fired": false
+    },
+    {
+      "date": "2018-07-01T00:00:00",
+      "home": "Croatia",
+      "away": "Denmark",
+      "predicted_prob": 0.2,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "1-1",
+      "tournament_phase": "KNOCKOUT",
+      "matchday": null,
+      "group_label": null,
+      "fired": false
+    },
+    {
+      "date": "2018-07-03T00:00:00",
+      "home": "Colombia",
+      "away": "England",
+      "predicted_prob": 0.2,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "1-1",
+      "tournament_phase": "KNOCKOUT",
+      "matchday": null,
+      "group_label": null,
+      "fired": false
+    },
+    {
+      "date": "2018-07-07T00:00:00",
+      "home": "Russia",
+      "away": "Croatia",
+      "predicted_prob": 0.2,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "1-1",
+      "tournament_phase": "KNOCKOUT",
+      "matchday": null,
+      "group_label": null,
+      "fired": false
+    },
+    {
+      "date": "2018-07-11T00:00:00",
+      "home": "Croatia",
+      "away": "England",
+      "predicted_prob": 0.2,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "1-1",
+      "tournament_phase": "KNOCKOUT",
+      "matchday": null,
+      "group_label": null,
+      "fired": false
+    },
+    {
+      "date": "2018-06-25T00:00:00",
+      "home": "Spain",
+      "away": "Morocco",
+      "predicted_prob": 0.222,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "2-2",
+      "tournament_phase": "GROUP",
+      "matchday": 12,
+      "group_label": "Group B",
+      "fired": false
+    },
+    {
+      "date": "2018-06-25T00:00:00",
+      "home": "Iran",
+      "away": "Portugal",
+      "predicted_prob": 0.228,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "1-1",
+      "tournament_phase": "GROUP",
+      "matchday": 12,
+      "group_label": "Group B",
+      "fired": false
+    }
+  ],
+  "false_positive_examples_group": [
+    {
+      "date": "2018-06-25T00:00:00",
+      "home": "Saudi Arabia",
+      "away": "Egypt",
+      "predicted_prob": 0.345,
+      "label": "STRONG_VALUE_DRAW",
+      "actual_score": "2-1",
+      "tournament_phase": "GROUP",
+      "matchday": 12,
+      "group_label": "Group A",
+      "fired": true
+    },
+    {
+      "date": "2018-06-24T00:00:00",
+      "home": "Poland",
+      "away": "Colombia",
+      "predicted_prob": 0.34,
+      "label": "STRONG_VALUE_DRAW",
+      "actual_score": "0-3",
+      "tournament_phase": "GROUP",
+      "matchday": 11,
+      "group_label": "Group H",
+      "fired": true
+    },
+    {
+      "date": "2018-06-22T00:00:00",
+      "home": "Serbia",
+      "away": "Switzerland",
+      "predicted_prob": 0.338,
+      "label": "STRONG_VALUE_DRAW",
+      "actual_score": "1-2",
+      "tournament_phase": "GROUP",
+      "matchday": 9,
+      "group_label": "Group E",
+      "fired": true
+    },
+    {
+      "date": "2018-06-27T00:00:00",
+      "home": "Serbia",
+      "away": "Brazil",
+      "predicted_prob": 0.322,
+      "label": "STRONG_VALUE_DRAW",
+      "actual_score": "0-2",
+      "tournament_phase": "GROUP",
+      "matchday": 14,
+      "group_label": "Group E",
+      "fired": true
+    },
+    {
+      "date": "2018-06-26T00:00:00",
+      "home": "Nigeria",
+      "away": "Argentina",
+      "predicted_prob": 0.32,
+      "label": "STRONG_VALUE_DRAW",
+      "actual_score": "1-2",
+      "tournament_phase": "GROUP",
+      "matchday": 13,
+      "group_label": "Group D",
+      "fired": true
+    }
+  ],
+  "false_negative_examples_group": [
+    {
+      "date": "2018-06-27T00:00:00",
+      "home": "Switzerland",
+      "away": "Costa Rica",
+      "predicted_prob": 0.2,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "2-2",
+      "tournament_phase": "GROUP",
+      "matchday": 14,
+      "group_label": "Group E",
+      "fired": false
+    },
+    {
+      "date": "2018-06-25T00:00:00",
+      "home": "Spain",
+      "away": "Morocco",
+      "predicted_prob": 0.222,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "2-2",
+      "tournament_phase": "GROUP",
+      "matchday": 12,
+      "group_label": "Group B",
+      "fired": false
+    },
+    {
+      "date": "2018-06-25T00:00:00",
+      "home": "Iran",
+      "away": "Portugal",
+      "predicted_prob": 0.228,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "1-1",
+      "tournament_phase": "GROUP",
+      "matchday": 12,
+      "group_label": "Group B",
+      "fired": false
+    }
+  ],
+  "false_positive_examples_knockout": [],
+  "false_negative_examples_knockout": [
+    {
+      "date": "2018-07-01T00:00:00",
+      "home": "Spain",
+      "away": "Russia",
+      "predicted_prob": 0.2,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "1-1",
+      "tournament_phase": "KNOCKOUT",
+      "matchday": null,
+      "group_label": null,
+      "fired": false
+    },
+    {
+      "date": "2018-07-01T00:00:00",
+      "home": "Croatia",
+      "away": "Denmark",
+      "predicted_prob": 0.2,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "1-1",
+      "tournament_phase": "KNOCKOUT",
+      "matchday": null,
+      "group_label": null,
+      "fired": false
+    },
+    {
+      "date": "2018-07-03T00:00:00",
+      "home": "Colombia",
+      "away": "England",
+      "predicted_prob": 0.2,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "1-1",
+      "tournament_phase": "KNOCKOUT",
+      "matchday": null,
+      "group_label": null,
+      "fired": false
+    },
+    {
+      "date": "2018-07-07T00:00:00",
+      "home": "Russia",
+      "away": "Croatia",
+      "predicted_prob": 0.2,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "1-1",
+      "tournament_phase": "KNOCKOUT",
+      "matchday": null,
+      "group_label": null,
+      "fired": false
+    },
+    {
+      "date": "2018-07-11T00:00:00",
+      "home": "Croatia",
+      "away": "England",
+      "predicted_prob": 0.2,
+      "label": "NO_DRAW_VALUE",
+      "actual_score": "1-1",
+      "tournament_phase": "KNOCKOUT",
+      "matchday": null,
+      "group_label": null,
+      "fired": false
+    }
+  ],
+  "no_market": true,
+  "n_bets": 15,
+  "roi": null,
+  "yield_per_bet": null,
+  "net_pnl": 0.0,
+  "total_staked": 0.0,
+  "total_returned": 0.0,
+  "max_drawdown": 0.0,
+  "sharpe_like": null,
+  "roi_ci_lo": null,
+  "roi_ci_hi": null,
+  "is_significant": null,
+  "calibration_label": "ACCEPTABLE_CALIBRATION",
+  "reliability_curve": [
+    {
+      "bucket": "[0.00,0.10)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null,
+      "hit_rate": null
+    },
+    {
+      "bucket": "[0.10,0.20)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null,
+      "hit_rate": null
+    },
+    {
+      "bucket": "[0.20,0.30)",
+      "n": 33,
+      "predicted_avg": 0.2085,
+      "actual_avg": 0.2424,
+      "hit_rate": 0.2424
+    },
+    {
+      "bucket": "[0.30,0.40)",
+      "n": 15,
+      "predicted_avg": 0.3189,
+      "actual_avg": 0.2,
+      "hit_rate": 0.2
+    },
+    {
+      "bucket": "[0.40,0.50)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null,
+      "hit_rate": null
+    },
+    {
+      "bucket": "[0.50,0.60)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null,
+      "hit_rate": null
+    },
+    {
+      "bucket": "[0.60,0.70)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null,
+      "hit_rate": null
+    },
+    {
+      "bucket": "[0.70,0.80)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null,
+      "hit_rate": null
+    },
+    {
+      "bucket": "[0.80,0.90)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null,
+      "hit_rate": null
+    },
+    {
+      "bucket": "[0.90,1.00)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null,
+      "hit_rate": null
+    }
+  ],
+  "cohorts": {
+    "DOMINANT_FAVORITE_DRAW_VALUE": {
+      "n": 0,
+      "won": 0,
+      "examples": [],
+      "hit_rate": null
+    },
+    "TOURNAMENT_GROUP_STAGE_DRAW_VALUE": {
+      "n": 15,
+      "won": 3,
+      "examples": [
+        {
+          "date": "2018-06-20T00:00:00",
+          "home": "Uruguay",
+          "away": "Saudi Arabia",
+          "competition": "World Cup 2018",
+          "predicted_prob": 0.302,
+          "market_prob": null,
+          "edge_pp": null,
+          "hit": false,
+          "actual_score": "1-0",
+          "label": "VALUE_DRAW_CANDIDATE",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.3
+        },
+        {
+          "date": "2018-06-21T00:00:00",
+          "home": "Denmark",
+          "away": "Australia",
+          "competition": "World Cup 2018",
+          "predicted_prob": 0.335,
+          "market_prob": null,
+          "edge_pp": null,
+          "hit": true,
+          "actual_score": "1-1",
+          "label": "STRONG_VALUE_DRAW",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.3
+        },
+        {
+          "date": "2018-06-21T00:00:00",
+          "home": "Argentina",
+          "away": "Croatia",
+          "competition": "World Cup 2018",
+          "predicted_prob": 0.304,
+          "market_prob": null,
+          "edge_pp": null,
+          "hit": false,
+          "actual_score": "0-3",
+          "label": "VALUE_DRAW_CANDIDATE",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.3
+        },
+        {
+          "date": "2018-06-22T00:00:00",
+          "home": "Nigeria",
+          "away": "Iceland",
+          "competition": "World Cup 2018",
+          "predicted_prob": 0.304,
+          "market_prob": null,
+          "edge_pp": null,
+          "hit": false,
+          "actual_score": "2-0",
+          "label": "VALUE_DRAW_CANDIDATE",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.3
+        },
+        {
+          "date": "2018-06-22T00:00:00",
+          "home": "Brazil",
+          "away": "Costa Rica",
+          "competition": "World Cup 2018",
+          "predicted_prob": 0.304,
+          "market_prob": null,
+          "edge_pp": null,
+          "hit": false,
+          "actual_score": "2-0",
+          "label": "VALUE_DRAW_CANDIDATE",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.3
+        }
+      ],
+      "hit_rate": 0.2
+    },
+    "LOW_GOAL_UNDERDOG_BLOCK": {
+      "n": 5,
+      "won": 0,
+      "examples": [
+        {
+          "date": "2018-06-22T00:00:00",
+          "home": "Brazil",
+          "away": "Costa Rica",
+          "competition": "World Cup 2018",
+          "predicted_prob": 0.304,
+          "market_prob": null,
+          "edge_pp": null,
+          "hit": false,
+          "actual_score": "2-0",
+          "label": "VALUE_DRAW_CANDIDATE",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.3
+        },
+        {
+          "date": "2018-06-22T00:00:00",
+          "home": "Serbia",
+          "away": "Switzerland",
+          "competition": "World Cup 2018",
+          "predicted_prob": 0.338,
+          "market_prob": null,
+          "edge_pp": null,
+          "hit": false,
+          "actual_score": "1-2",
+          "label": "STRONG_VALUE_DRAW",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.3
+        },
+        {
+          "date": "2018-06-23T00:00:00",
+          "home": "South Korea",
+          "away": "Mexico",
+          "competition": "World Cup 2018",
+          "predicted_prob": 0.302,
+          "market_prob": null,
+          "edge_pp": null,
+          "hit": false,
+          "actual_score": "1-2",
+          "label": "VALUE_DRAW_CANDIDATE",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.3
+        },
+        {
+          "date": "2018-06-23T00:00:00",
+          "home": "Germany",
+          "away": "Sweden",
+          "competition": "World Cup 2018",
+          "predicted_prob": 0.302,
+          "market_prob": null,
+          "edge_pp": null,
+          "hit": false,
+          "actual_score": "2-1",
+          "label": "VALUE_DRAW_CANDIDATE",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.3
+        },
+        {
+          "date": "2018-06-26T00:00:00",
+          "home": "Australia",
+          "away": "Peru",
+          "competition": "World Cup 2018",
+          "predicted_prob": 0.303,
+          "market_prob": null,
+          "edge_pp": null,
+          "hit": false,
+          "actual_score": "0-2",
+          "label": "VALUE_DRAW_CANDIDATE",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.55
+        }
+      ],
+      "hit_rate": 0.0
+    },
+    "TAIL_EDGE_OVERCONFIDENCE_15PP_PLUS": {
+      "n": 0,
+      "won": 0,
+      "examples": [],
+      "hit_rate": null
+    }
+  },
+  "_picks_sample": [
+    {
+      "date": "2018-06-20T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Uruguay",
+      "away": "Saudi Arabia",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.302,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 0.0,
+      "hit": false,
+      "pnl": 0.0,
+      "actual_score": "1-0",
+      "tournament_phase": "GROUP",
+      "matchday": 7,
+      "group_label": "Group A",
+      "is_group_stage": true,
+      "tournament_context_score": 0.3,
+      "_features": {
+        "elo_home": 1511.7099735734362,
+        "elo_away": 1491.7099735734362,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 0.0,
+        "goal_avg_against_home": 0.0,
+        "goal_avg_against_away": 5.0,
+        "tournament_context_score": 0.3
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 17,
+        "n_calib_picks_seen": 1,
+        "max_calib_date": "2018-06-19T00:00:00",
+        "target_date": "2018-06-20T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-21T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Denmark",
+      "away": "Australia",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.335,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "STRONG_VALUE_DRAW",
+      "stake": 0.0,
+      "hit": true,
+      "pnl": 0.0,
+      "actual_score": "1-1",
+      "tournament_phase": "GROUP",
+      "matchday": 8,
+      "group_label": "Group C",
+      "is_group_stage": true,
+      "tournament_context_score": 0.3,
+      "_features": {
+        "elo_home": 1511.7099735734362,
+        "elo_away": 1491.7099735734362,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 1.0,
+        "goal_avg_against_home": 0.0,
+        "goal_avg_against_away": 2.0,
+        "tournament_context_score": 0.3
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 20,
+        "n_calib_picks_seen": 4,
+        "max_calib_date": "2018-06-20T00:00:00",
+        "target_date": "2018-06-21T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-21T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Argentina",
+      "away": "Croatia",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.304,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 0.0,
+      "hit": false,
+      "pnl": 0.0,
+      "actual_score": "0-3",
+      "tournament_phase": "GROUP",
+      "matchday": 8,
+      "group_label": "Group D",
+      "is_group_stage": true,
+      "tournament_context_score": 0.3,
+      "_features": {
+        "elo_home": 1498.2900264265638,
+        "elo_away": 1508.2900264265638,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 2.0,
+        "goal_avg_against_home": 1.0,
+        "goal_avg_against_away": 0.0,
+        "tournament_context_score": 0.3
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 22,
+        "n_calib_picks_seen": 6,
+        "max_calib_date": "2018-06-20T00:00:00",
+        "target_date": "2018-06-21T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-22T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Nigeria",
+      "away": "Iceland",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.304,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 0.0,
+      "hit": false,
+      "pnl": 0.0,
+      "actual_score": "2-0",
+      "tournament_phase": "GROUP",
+      "matchday": 9,
+      "group_label": "Group D",
+      "is_group_stage": true,
+      "tournament_context_score": 0.3,
+      "_features": {
+        "elo_home": 1491.7099735734362,
+        "elo_away": 1501.7099735734362,
+        "xg_home_l5": 0.0,
+        "xg_away_l5": 1.0,
+        "goal_avg_against_home": 2.0,
+        "goal_avg_against_away": 1.0,
+        "tournament_context_score": 0.3
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 23,
+        "n_calib_picks_seen": 7,
+        "max_calib_date": "2018-06-21T00:00:00",
+        "target_date": "2018-06-22T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-22T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Brazil",
+      "away": "Costa Rica",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.304,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 0.0,
+      "hit": false,
+      "pnl": 0.0,
+      "actual_score": "2-0",
+      "tournament_phase": "GROUP",
+      "matchday": 9,
+      "group_label": "Group E",
+      "is_group_stage": true,
+      "tournament_context_score": 0.3,
+      "_features": {
+        "elo_home": 1498.2900264265638,
+        "elo_away": 1488.2900264265638,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 0.0,
+        "goal_avg_against_home": 1.0,
+        "goal_avg_against_away": 1.0,
+        "tournament_context_score": 0.3
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 24,
+        "n_calib_picks_seen": 8,
+        "max_calib_date": "2018-06-21T00:00:00",
+        "target_date": "2018-06-22T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-22T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Serbia",
+      "away": "Switzerland",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.338,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "STRONG_VALUE_DRAW",
+      "stake": 0.0,
+      "hit": false,
+      "pnl": 0.0,
+      "actual_score": "1-2",
+      "tournament_phase": "GROUP",
+      "matchday": 9,
+      "group_label": "Group E",
+      "is_group_stage": true,
+      "tournament_context_score": 0.3,
+      "_features": {
+        "elo_home": 1511.7099735734362,
+        "elo_away": 1501.7099735734362,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 1.0,
+        "goal_avg_against_home": 0.0,
+        "goal_avg_against_away": 1.0,
+        "tournament_context_score": 0.3
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 25,
+        "n_calib_picks_seen": 9,
+        "max_calib_date": "2018-06-21T00:00:00",
+        "target_date": "2018-06-22T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-23T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "South Korea",
+      "away": "Mexico",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.302,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 0.0,
+      "hit": false,
+      "pnl": 0.0,
+      "actual_score": "1-2",
+      "tournament_phase": "GROUP",
+      "matchday": 10,
+      "group_label": "Group F",
+      "is_group_stage": true,
+      "tournament_context_score": 0.3,
+      "_features": {
+        "elo_home": 1491.7099735734362,
+        "elo_away": 1511.7099735734362,
+        "xg_home_l5": 0.0,
+        "xg_away_l5": 1.0,
+        "goal_avg_against_home": 1.0,
+        "goal_avg_against_away": 0.0,
+        "tournament_context_score": 0.3
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 26,
+        "n_calib_picks_seen": 10,
+        "max_calib_date": "2018-06-22T00:00:00",
+        "target_date": "2018-06-23T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-23T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Germany",
+      "away": "Sweden",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.302,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 0.0,
+      "hit": false,
+      "pnl": 0.0,
+      "actual_score": "2-1",
+      "tournament_phase": "GROUP",
+      "matchday": 10,
+      "group_label": "Group F",
+      "is_group_stage": true,
+      "tournament_context_score": 0.3,
+      "_features": {
+        "elo_home": 1488.2900264265638,
+        "elo_away": 1508.2900264265638,
+        "xg_home_l5": 0.0,
+        "xg_away_l5": 1.0,
+        "goal_avg_against_home": 1.0,
+        "goal_avg_against_away": 0.0,
+        "tournament_context_score": 0.3
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 27,
+        "n_calib_picks_seen": 11,
+        "max_calib_date": "2018-06-22T00:00:00",
+        "target_date": "2018-06-23T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-24T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Japan",
+      "away": "Senegal",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.34,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "STRONG_VALUE_DRAW",
+      "stake": 0.0,
+      "hit": true,
+      "pnl": 0.0,
+      "actual_score": "2-2",
+      "tournament_phase": "GROUP",
+      "matchday": 11,
+      "group_label": "Group H",
+      "is_group_stage": true,
+      "tournament_context_score": 0.3,
+      "_features": {
+        "elo_home": 1511.7099735734362,
+        "elo_away": 1511.7099735734362,
+        "xg_home_l5": 2.0,
+        "xg_away_l5": 2.0,
+        "goal_avg_against_home": 1.0,
+        "goal_avg_against_away": 1.0,
+        "tournament_context_score": 0.3
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 30,
+        "n_calib_picks_seen": 14,
+        "max_calib_date": "2018-06-23T00:00:00",
+        "target_date": "2018-06-24T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-24T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Poland",
+      "away": "Colombia",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.34,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "STRONG_VALUE_DRAW",
+      "stake": 0.0,
+      "hit": false,
+      "pnl": 0.0,
+      "actual_score": "0-3",
+      "tournament_phase": "GROUP",
+      "matchday": 11,
+      "group_label": "Group H",
+      "is_group_stage": true,
+      "tournament_context_score": 0.3,
+      "_features": {
+        "elo_home": 1488.2900264265638,
+        "elo_away": 1488.2900264265638,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 1.0,
+        "goal_avg_against_home": 2.0,
+        "goal_avg_against_away": 2.0,
+        "tournament_context_score": 0.3
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 31,
+        "n_calib_picks_seen": 15,
+        "max_calib_date": "2018-06-23T00:00:00",
+        "target_date": "2018-06-24T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-25T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Saudi Arabia",
+      "away": "Egypt",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.345,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "STRONG_VALUE_DRAW",
+      "stake": 0.0,
+      "hit": false,
+      "pnl": 0.0,
+      "actual_score": "2-1",
+      "tournament_phase": "GROUP",
+      "matchday": 12,
+      "group_label": "Group A",
+      "is_group_stage": true,
+      "tournament_context_score": 0.7,
+      "_features": {
+        "elo_home": 1483.9727099764991,
+        "elo_away": 1480.5527628296268,
+        "xg_home_l5": 0.0,
+        "xg_away_l5": 0.5,
+        "goal_avg_against_home": 3.0,
+        "goal_avg_against_away": 2.0,
+        "tournament_context_score": 0.7
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 33,
+        "n_calib_picks_seen": 17,
+        "max_calib_date": "2018-06-24T00:00:00",
+        "target_date": "2018-06-25T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-26T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Denmark",
+      "away": "France",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.322,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "STRONG_VALUE_DRAW",
+      "stake": 0.0,
+      "hit": true,
+      "pnl": 0.0,
+      "actual_score": "0-0",
+      "tournament_phase": "GROUP",
+      "matchday": 13,
+      "group_label": "Group C",
+      "is_group_stage": true,
+      "tournament_context_score": 0.55,
+      "_features": {
+        "elo_home": 1509.4472371703732,
+        "elo_away": 1516.0272900235009,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 1.5,
+        "goal_avg_against_home": 0.5,
+        "goal_avg_against_away": 0.5,
+        "tournament_context_score": 0.55
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 36,
+        "n_calib_picks_seen": 20,
+        "max_calib_date": "2018-06-25T00:00:00",
+        "target_date": "2018-06-26T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-26T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Australia",
+      "away": "Peru",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.303,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 0.0,
+      "hit": false,
+      "pnl": 0.0,
+      "actual_score": "0-2",
+      "tournament_phase": "GROUP",
+      "matchday": 13,
+      "group_label": "Group C",
+      "is_group_stage": true,
+      "tournament_context_score": 0.55,
+      "_features": {
+        "elo_home": 1493.9727099764991,
+        "elo_away": 1480.5527628296268,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 0.0,
+        "goal_avg_against_home": 1.5,
+        "goal_avg_against_away": 1.0,
+        "tournament_context_score": 0.55
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 37,
+        "n_calib_picks_seen": 21,
+        "max_calib_date": "2018-06-25T00:00:00",
+        "target_date": "2018-06-26T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-26T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Nigeria",
+      "away": "Argentina",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.32,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "STRONG_VALUE_DRAW",
+      "stake": 0.0,
+      "hit": false,
+      "pnl": 0.0,
+      "actual_score": "1-2",
+      "tournament_phase": "GROUP",
+      "matchday": 13,
+      "group_label": "Group D",
+      "is_group_stage": true,
+      "tournament_context_score": 0.55,
+      "_features": {
+        "elo_home": 1500.2807112252685,
+        "elo_away": 1486.8607640783962,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 0.5,
+        "goal_avg_against_home": 1.0,
+        "goal_avg_against_away": 2.0,
+        "tournament_context_score": 0.55
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 38,
+        "n_calib_picks_seen": 22,
+        "max_calib_date": "2018-06-25T00:00:00",
+        "target_date": "2018-06-26T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2018-06-27T00:00:00",
+      "competition": "World Cup 2018",
+      "home": "Serbia",
+      "away": "Brazil",
+      "market": "DRAW",
+      "odd_draw": null,
+      "predicted_prob": 0.322,
+      "market_prob": null,
+      "edge_pp": null,
+      "label": "STRONG_VALUE_DRAW",
+      "stake": 0.0,
+      "hit": false,
+      "pnl": 0.0,
+      "actual_score": "0-2",
+      "tournament_phase": "GROUP",
+      "matchday": 14,
+      "group_label": "Group E",
+      "is_group_stage": true,
+      "tournament_context_score": 0.55,
+      "_features": {
+        "elo_home": 1499.722037639251,
+        "elo_away": 1506.3020904923787,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 1.5,
+        "goal_avg_against_home": 1.0,
+        "goal_avg_against_away": 0.5,
+        "tournament_context_score": 0.55
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 40,
+        "n_calib_picks_seen": 24,
+        "max_calib_date": "2018-06-26T00:00:00",
+        "target_date": "2018-06-27T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    }
+  ],
+  "tournament_key": "WC2018",
+  "competition": "World Cup 2018"
+}

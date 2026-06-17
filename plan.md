@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.
 > **Estado histórico:** ✅ F58–F70 completadas.
-> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade) COMPLETADA** + ✅ **F87.1 (Fixture Discovery Contract Fix + Visible Audit + Parte 1.5 upstream audit) COMPLETADA** + ✅ **MLB-F93 (Manual Odds Override Reprice + UI Refresh) COMPLETADA** + ✅ **MLB-F93.1 (Manual Odds Reprice Context Pass-through + Authenticated Debug) COMPLETADA** + ✅ **F94 (Restaurar visibilidad de fixtures, descartados y live exóticos — Live + Dashboard) COMPLETADA** + ✅ **F94.2 (FIFA World Cup Live detection + TheStatsAPI diagnostics) COMPLETADA** + ✅ **F94.3 (Live Enrichment Persistence Audit) COMPLETADA** + ✅ **BUGFIX (Football “mismo momio” odds hallucination guard) COMPLETADO** + ✅ **SPRINT A (Draw Potential piloto retrospectivo) COMPLETADO** + ✅ **SPRINT B (Learning snapshots + loops + UI + scheduler) COMPLETADO** + ✅ **SPRINT D (Backtest histórico point-in-time; PL 23/24) COMPLETADO** + ✅ **SPRINT D2 (WC2022 + Euro2024 backtest nacional + Tournament Context) COMPLETADO** + ✅ **SPRINT D3 (Protected Markets: OVER 1.5 + Double Chance) COMPLETADO (P0)** + ✅ **SPRINT D4 (ROI honesto + significancia + walk-forward auditable) COMPLETADO (P0)** + 🟡 **REFACTOR-1 (data_ingestion top-2) EN PROGRESO (paso 1/3 completado)** + ⏳ **F84.c/F84.d (Lineups + Standings) PENDIENTE (P1)**.
+> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade) COMPLETADA** + ✅ **F87.1 (Fixture Discovery Contract Fix + Visible Audit + Parte 1.5 upstream audit) COMPLETADA** + ✅ **MLB-F93 (Manual Odds Override Reprice + UI Refresh) COMPLETADA** + ✅ **MLB-F93.1 (Manual Odds Reprice Context Pass-through + Authenticated Debug) COMPLETADA** + ✅ **F94 (Restaurar visibilidad de fixtures, descartados y live exóticos — Live + Dashboard) COMPLETADA** + ✅ **F94.2 (FIFA World Cup Live detection + TheStatsAPI diagnostics) COMPLETADA** + ✅ **F94.3 (Live Enrichment Persistence Audit) COMPLETADA** + ✅ **BUGFIX (Football “mismo momio” odds hallucination guard) COMPLETADO** + ✅ **SPRINT A (Draw Potential piloto retrospectivo) COMPLETADO** + ✅ **SPRINT B (Learning snapshots + loops + UI + scheduler) COMPLETADO** + ✅ **SPRINT D (Backtest histórico point-in-time; PL 23/24) COMPLETADO** + ✅ **SPRINT D2 (WC2022 + Euro2024 backtest nacional + Tournament Context) COMPLETADO** + ✅ **SPRINT D3 (Protected Markets: OVER 1.5 + Double Chance) COMPLETADO (P0)** + ✅ **SPRINT D4 (ROI honesto + significancia + walk-forward auditable) COMPLETADO (P0)** + 🟡 **REFACTOR-1 (data_ingestion top-2) EN PROGRESO (paso 1/3 completado)** + ⏳ **F84.c/F84.d (Lineups + Standings) PENDIENTE (P1)** + 🟡 **SPRINT D5 (Multi-league + multi-tournament DRAW + cohortes) EN PROGRESO (P0)**.
 
 > **Idioma operativo:** Español.
 
@@ -211,10 +211,7 @@ Responder: **¿los mercados protegidos OVER 1.5 y DOUBLE CHANCE están mejor cal
 - ✅ `services/football_backtest_metrics.py`:
   - `reliability_by_bucket` + `false_positive_examples` + `false_negative_examples`.
 - ✅ Script runner:
-  - `scripts/run_backtest_protected_markets.py` (genera reportes automáticamente).
-
-### Exploración y thresholds (D3.5)
-- ✅ Thresholds calibrados sobre muestra combinada WC22+Euro24 (n=87 predicciones por mercado), con “sweet spots” por tasa de acierto y tamaño mínimo de fired.
+  - `scripts/run_backtest_protected_markets.py`.
 
 ### Reportes generados
 - ✅ `/app/backtest_worldcup2022_over15.md/.json`
@@ -223,81 +220,103 @@ Responder: **¿los mercados protegidos OVER 1.5 y DOUBLE CHANCE están mejor cal
 - ✅ `/app/backtest_euro2024_double_chance.md/.json`
 - ✅ `/app/backtest_protected_markets_summary.md`
 
-### Conclusión
-- ✅ **Euro 2024**: mercados protegidos (especialmente DC_HD/DC_AD) muestran calibración (Brier) **mejor que DRAW**.
-- ✅ **WC 2022**: torneo atípicamente decisivo; el edge de calibración de mercados protegidos se reduce o invierte.
-
 ### Tests
-- ✅ **93 tests nuevos** Sprint D3.
-- ✅ Suite backend (post D3): **3443 passing tests**, 2 skipped, 0 regresiones.
+- ✅ Suite backend (post D3): **3443 passing tests**, 0 regresiones.
 
 ---
 
 ## Phase SPRINT D4 — ROI honesto + significancia estadística + walk-forward verificado — COMPLETADO ✅ (P0)
 
-### Contexto (gaps detectados)
-- **GAP 1:** El modo calibration-only reporta hit-rate/Brier, pero faltaba **ROI real** cuando hay odds.
-- **GAP 2:** `walk_forward` existía pero faltaba un test/auditoría que pruebe anti-leakage de calibración.
-
 ### Objetivo
 Cerrar gaps de honestidad estadística:
 1. ROI real con odds históricas reales (no solo hit-rate)
-2. Bootstrap CI + significancia
+2. Bootstrap CI + significancia (`is_roi_significant = ci_low > 0`)
 3. Walk-forward auditable (probar que no usa el futuro)
 4. Warnings explícitos (small sample, closing odds, no odds)
 
-### Entregado (D4.1–D4.8)
+### Entregado
+- ✅ Parser football-data.co.uk: opening/closing odds + warnings.
+- ✅ Cliente The Odds API historical snapshots + caching.
+- ✅ Métricas ROI: `roi_ci_low/high`, `sample_status`, `warnings`.
+- ✅ `_calibration_audit` en engine + tests no-leakage.
+- ✅ Backtest real EPL 24/25:
+  - Opening: N=120, ROI=+18.11%, CI cruza 0 → NO significativo.
+  - Closing: ROI=+13.28% + warning closing.
+- ✅ Suite backend (post D4): **3475 passing tests**, 0 regresiones.
 
-**D4.1 — Parser football-data.co.uk con odds** ✅
-- Extendido `parse_football_data_csv`/`parse_footballdata_csv`:
-  - `odds_type`: `OPENING|CLOSING|MIXED|NONE`
-  - odds opening (`B365H/D/A`, `PSH/PSD/PSA`) y closing (`B365CH/CD/CA`, `PSCH/PSCD/PSCA`)
-  - warning por fila: `ODDS_ARE_CLOSING_BACKTEST_OPTIMISTIC` cuando aplica
-  - fail-soft: fila sin odds no se descarta
+---
 
-**D4.2 — Cliente The Odds API historical snapshots + caching** ✅
-- Nuevo: `services/external_sources/the_odds_api_client.py`
-- Cache local: `/tmp/the_odds_api_cache/`
-- Fail-soft (retorna `None` en errores)
+## Phase SPRINT D5 — Multi-league + multi-tournament DRAW + cohortes (observe_only) — EN PROGRESO 🟡 (P0)
 
-**D4.3 — Métricas ROI con CI + sample_status + warnings** ✅
-- `football_backtest_metrics.py` ahora retorna:
-  - `roi`, `yield_per_bet`, `net_pnl`, `total_staked`, `total_returned`
-  - `roi_ci_low/high` (bootstrap) + `is_roi_significant = (roi_ci_low > 0)`
-  - `sample_status`: `INSUFFICIENT_SAMPLE_DO_NOT_TRUST | SMALL_SAMPLE_CAUTION | ADEQUATE_SAMPLE`
-  - `warnings` canónica (incluye `ROI_NOT_STATISTICALLY_SIGNIFICANT`, `NO_ODDS_HIT_RATE_ONLY`, `ODDS_ARE_CLOSING_BACKTEST_OPTIMISTIC`)
+### Objetivo
+1) **Ampliar backtest DRAW** a 5 ligas europeas 2024/25 usando **opening odds** cuando existan:
+- Premier League (E0)
+- La Liga (SP1)
+- Serie A (I1)
+- Bundesliga (D1)
+- Ligue 1 (F1)
 
-**D4.4 — Walk-forward auditable** ✅
-- Engine registra por predicción:
-  - `_calibration_audit`: `{n_calib_matches, n_calib_picks_seen, max_calib_date, target_date, leakage_check_passed, ...}`
-- Invariante probada: `max_calib_date < target_date` para todas las predicciones
+2) Ejecutar backtest DRAW en torneos de selecciones:
+- **World Cup 2018**
+- **World Cup 2022**
+- **Euro 2024** (ya parseado)
 
-**D4.5 — Tests ROI + significancia** ✅
-- Nuevo: `tests/test_sprint_d4_roi_significance.py` (25 tests)
+3) Reportar separado:
+- `domestic_leagues_summary`
+- `national_tournaments_summary`
+- `combined_comparison`
 
-**D4.6 — Tests walk-forward (no leakage)** ✅
-- Nuevo: `tests/test_sprint_d4_walk_forward.py` (7 tests)
+4) Buscar patrones “España vs Cabo Verde” (arquetipo):
+- favorito dominante
+- underdog defensivo
+- empate con cuota inflada
+- fase de grupos
+- bajo ritmo esperado
+- **draw_probability_model − market_implied ≥ 8pp**
 
-**D4.7 — Backtest real EPL 2024/25 con odds reales (football-data.co.uk)** ✅
-- Dataset: 380 partidos.
-- Config: DRAW, `min_edge=4pp`, walk-forward, calibración.
-- Resultados:
-  - **Opening odds:** N=120, ROI=+18.11%, CI95%=[-19.67%, +57.13%] → **NO significativo**, `SMALL_SAMPLE_CAUTION`.
-  - **Closing odds:** N=120, ROI=+13.28% (≈5pp menos), CI95%=[-22.58%, +51.23%] → **NO significativo**, warning `ODDS_ARE_CLOSING_BACKTEST_OPTIMISTIC`.
-  - Hallazgo: edge bucket 15pp+ pierde dinero (sobreconfianza en cola).
-- Reportes:
-  - `/app/backtest_epl_2425_draw_opening.md/.json`
-  - `/app/backtest_epl_2425_draw_closing.json`
-  - `/app/backtest_d4_summary.md`
+5) Identificar cohortes:
+- `DOMINANT_FAVORITE_DRAW_VALUE`
+- `TOURNAMENT_GROUP_STAGE_DRAW_VALUE`
+- `LOW_GOAL_UNDERDOG_BLOCK`
+- `TAIL_EDGE_OVERCONFIDENCE_15PP_PLUS`
 
-**D4.8 — 0 regresiones** ✅
-- Suite backend (post D4): **3475 passing tests**, 2 skipped, 0 regresiones.
+6) Mantener **observe_only**:
+- No activar picks reales
+- No tocar producción
 
-### Conclusión D4
-El framework ahora cumple la barra de honestidad estadística:
-- Siempre reporta CI + sample_status + warnings.
-- No declara “apto” si la muestra es chica o el CI cruza 0.
-- Closing-odds warning explícito (backtest optimista).
+### Alcance/Notas de datos
+- **Ligas domésticas:** `football-data.co.uk` con odds de apertura (preferir B365H/D/A o PSH/PSD/PSA; si solo closing, marcar warning y permitir). Aquí sí se reporta **ROI + CI**.
+- **Torneos nacionales:** openfootball JSON no trae odds → modo `no_market` con **Brier + calibration + hit-rate**.
+
+### Subtareas
+- **D5.1** — Descargar y parsear los CSV 24/25 para las 5 ligas (E0/SP1/I1/D1/F1).
+- **D5.2** — Descargar y parsear openfootball: WC2018, WC2022, Euro2024.
+- **D5.3** — Implementar `services/football_cohort_detector.py`:
+  - Features: favorito dominante (ELO delta), underdog defensivo (xG proxy bajo + GA bajo), group_stage flag, low-goal environment proxy.
+  - Clasificación por cohorte (puede asignar múltiples tags).
+  - Extraer ejemplos top-N por edge (≥8pp) y por edge tail (≥15pp).
+- **D5.4** — Script runner `scripts/run_backtest_multi_league.py`:
+  - Corre DRAW en 5 ligas con opening odds.
+  - Produce por liga `.json/.md` y un `domestic_leagues_summary.md`.
+- **D5.5** — Script runner `scripts/run_backtest_tournaments_d5.py`:
+  - Corre DRAW en WC2018/WC2022/Euro2024 en modo no-market.
+  - Produce por torneo `.json/.md` y `national_tournaments_summary.md`.
+- **D5.6** — `combined_comparison.md`:
+  - Comparar domestic vs national: calibración, colas de edge, cohorts.
+  - Responder si Draw Potential funciona mejor en torneos de selecciones.
+- **D5.7** — Tests nuevos + 0 regresiones.
+
+### Criterios de aceptación
+- Reportes generados y versionados:
+  - `/app/domestic_leagues_summary.md`
+  - `/app/national_tournaments_summary.md`
+  - `/app/combined_comparison.md`
+- Cohortes detectadas con ejemplos:
+  - Top 10 por cohorte
+  - Falsos positivos/negativos por cohorte
+- Flags honestos:
+  - `sample_status` + `warnings` en ligas
+  - `INSUFFICIENT_SAMPLE_DO_NOT_TRUST` en torneos si aplica
 
 ---
 
@@ -310,105 +329,71 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 1. `_enrich_football` (≈ 458 LOC)
 2. `ingest_upcoming` (≈ 274 LOC)
 
-## Reglas estrictas
-- **Solo refactorizar estos 2 componentes**.
-- Mantener firmas públicas **exactas**: `ingest_upcoming`, `_enrich_football`.
-- Cero cambios en endpoints / contratos JSON.
-- Extraer helpers cohesivos y puros, sin alterar side-effects.
-- Ejecutar `pytest` tras cada extracción (y `yarn craco test` si hay cambios FE).
-
 ## Progreso actual
 - ✅ Paso 1/3 completado: extracción de **odds cascade** a helper:
   - `services/_ingestion_helpers/football_odds_cascade.py`
   - Integrado en `data_ingestion._enrich_football`.
-  - Validado con tests (subset + suite completa).
 
-## Pendiente (pasos restantes)
+## Pendiente
 - ⏳ Paso 2/3: extraer **deep enrichment** (team stats + h2h + injuries + recent fixtures) sin cambios de comportamiento.
 - ⏳ Paso 3/3: extraer **live stats hydration** (API-Sports fixture_statistics + merge TheStatsAPI match_stats) sin cambios de comportamiento.
-- ⏳ Refactor `ingest_upcoming` (2º componente más grande) con misma política.
+- ⏳ Refactor `ingest_upcoming`.
 
 ---
 
-# Phase FIX-3 — Tail Fragility polarity guard (COMPLETED ✅)
-**(COMPLETADO)** — sin cambios.
+# Phase F84.c / F84.d — Lineups + Standings (P1) — PENDIENTE (con cambio de arquitectura) ⏳
 
----
+## Cambio solicitado por el usuario
+- Implementar **The Odds API historical como fuente primaria** y **TheStatsAPI como fallback**.
 
-# Phase FIX-1 — xG TheStatsAPI normalisation (COMPLETED ✅)
-**(COMPLETADO)** — sin cambios.
+## Nota crítica (técnica)
+- **The Odds API solo provee ODDS** (mercados/cuotas). **NO provee lineups ni standings**.
+- Por lo tanto, el cambio solicitado aplica a la **capa de odds** (ya existe en D4 como cliente) y NO puede ser “primario” para lineups/standings.
 
----
-
-# Phase FIX-2 — Corners TheStatsAPI normalisation (COMPLETED ✅)
-**(COMPLETADO)** — sin cambios.
-
----
-
-# Phase F84.c / F84.d — Lineups + Standings (P1) — PENDIENTE ⏳
-
-## Objetivo
-Añadir cobertura de:
-- **F84.c Lineups**: XI inicial + banca (+ injuries breve si la fuente lo permite).
-- **F84.d Standings**: tabla de posiciones filtrable por liga.
-
-## Principios
-- Fail-soft: nunca bloquear el análisis/picks; devolver `AVAILABLE | PENDING | UNAVAILABLE` con razones.
-- Back-compat: no romper consumers existentes; estos endpoints son aditivos.
+## Plan actualizado (fail-soft)
+- **F84.c Lineups**:
+  - Primario: **TheStatsAPI** (si ofrece lineups en el endpoint disponible).
+  - Fallback: **API-Sports** (si está habilitado y con key).
+  - (The Odds API NO aplica).
+- **F84.d Standings**:
+  - Primario: **TheStatsAPI**.
+  - Fallback: **API-Sports**.
+  - (The Odds API NO aplica).
+- **Odds (ya existente)**:
+  - Primario para históricos (backtests): **The Odds API historical snapshots**.
+  - Fallback para live/pre-match: **TheStatsAPI odds**.
 
 ## Backend
-### Nuevos adaptadores (TheStatsAPI)
-- `services/external_sources/thestatsapi_lineups.py` (nuevo)
-- `services/external_sources/thestatsapi_standings.py` (nuevo)
-
-### Endpoints
-- `GET /api/football/match/{match_id}/lineups`
-- `GET /api/football/league/{league_id}/standings`
-
-### Contratos (borrador)
-- Lineups:
-  - `status: AVAILABLE|PENDING|UNAVAILABLE`
-  - `reason_code` + `reason_detail`
-  - `home`, `away`:
-    - `starting_xi[]`, `bench[]`, `coach` (si existe), `injuries[]` (si existe)
-  - `source: thestatsapi|api_sports|none`
-- Standings:
-  - `status: AVAILABLE|PENDING|UNAVAILABLE`
-  - `league_id`, `league_name`, `season`
-  - `table[]`: `{rank, team, played, won, draw, lost, gf, ga, gd, points, form?}`
-  - `source` + `provenance`
+- Nuevos adaptadores:
+  - `services/external_sources/thestatsapi_lineups.py`
+  - `services/external_sources/thestatsapi_standings.py`
+  - `services/external_sources/api_sports_lineups.py` (si no existe)
+  - `services/external_sources/api_sports_standings.py` (si no existe)
+- Endpoints:
+  - `GET /api/football/match/{match_id}/lineups`
+  - `GET /api/football/league/{league_id}/standings`
 
 ## Frontend
-- `LineupsPanel.jsx`:
-  - Render XI + banca
-  - Indicadores de missing data (PENDING/UNAVAILABLE)
-- `StandingsPanel.jsx`:
-  - Tabla compacta, resaltado de equipos del partido
-- Integración:
-  - `MatchDetailPage.jsx` (preferido) y/o sección expandible desde la card.
+- `LineupsPanel.jsx`
+- `StandingsPanel.jsx`
 
 ## Tests
-- Backend:
-  - unit tests de normalización del payload por adaptador
-  - endpoint tests con mocking de respuestas HTTP
-- Frontend:
-  - render states (AVAILABLE/PENDING/UNAVAILABLE)
-  - snapshot/queries para filas de tabla y secciones de XI
+- Unit tests de normalización + mocks HTTP
+- Render tests FE para AVAILABLE/PENDING/UNAVAILABLE
 
 ---
 
 ## 3) Pendientes y siguientes pasos
 
 ### Pendientes P0 (actual)
-- ⏳ **Ampliar backtest con odds reales a 5 ligas europeas (2024/25)** para alcanzar `ADEQUATE_SAMPLE` (≥200 picks) y reevaluar significancia.
-- ⏳ **Backtest WC2022 con The Odds API historical** (cuando el usuario apruebe el gasto de cuota / quota). *(El cliente ya existe + caching, falta ejecución sistemática por timestamps pre-kickoff).* 
+- 🟡 **SPRINT D5** (este): 5 ligas 24/25 + WC18/WC22/Euro24 + cohortes + 3 reports.
 
 ### Pendientes P1
-- 🟡 **REFACTOR-1**: completar pasos 2/3 y 3/3 + refactor `ingest_upcoming`.
-- ⏳ **F84.c/F84.d**: Lineups + Standings (TheStatsAPI) + UI + tests.
+- 🟡 **REFACTOR-1** pasos 2/3 y 3/3 + `ingest_upcoming`.
+- ⏳ **F84.c/F84.d** Lineups + Standings (TheStatsAPI primary, API-Sports fallback).
 
 ### Pendientes P2
-- ⏳ Expandir `team_name_translations.py` para clubes UCL/UEL.
+- ⏳ Expandir `team_name_translations.py` (UCL/UEL).
 - ⏳ Expandir backtest framework a otros mercados (BTTS / Over 2.5 / Corners) tras validar DRAW.
 
 ---
@@ -421,25 +406,19 @@ Añadir cobertura de:
 
 - Reglas:
   - Cero regresión post-cada cambio lógico.
-  - Siempre usar `yarn` (no `npm`).
   - Arquitectura fail-soft y back-compat.
   - Point-in-time correctness: prohibido usar datos futuros en backtests.
-  - SPRINT D3/D4: `observe_only` (no tocar ranking real).
+  - SPRINT D3/D4/D5: `observe_only` (no tocar ranking real).
 
 ---
 
 ## Reglas operacionales + flags
 
-- Reglas de operación:
+- Reglas:
   - Siempre usar `yarn` (no `npm`).
-  - Arquitectura fail-soft: no levantar excepción sin convertirla a auditoría/razón.
-  - Mantener back-compat en contratos de respuesta cuando el FE dependa de fields legacy.
-  - `Discovery != persistence` debe surfacearse como error técnico `LIVE_ENRICHMENT_DROPPED_FIXTURES`.
-  - **Backtests:** disciplina point-in-time estricta (sin leakage); cualquier feature de contexto de torneo depende solo de partidos anteriores.
+  - Fail-soft: no levantar excepción sin convertirla a auditoría/razón.
+  - Backtests: disciplina point-in-time estricta (sin leakage).
 
-- Flags / env relevantes:
-  - ✅ **F87.1:** `DISCOVERY_DROPPED_SAMPLE_CAP` (default `3`).
-  - ✅ **MLB-F93:** `MLB_MANUAL_VALUE_EDGE_THRESHOLD` (default `0.03`).
-  - ✅ **MLB-F93:** `MLB_MANUAL_WATCHLIST_TOLERANCE` (default `0.02`).
-  - ✅ **F94.2 / TheStatsAPI:** `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY` configurado.
-  - ✅ **Sprint D4 / The Odds API:** `THE_ODDS_API_KEY=...` (provista por el usuario; almacenar como env, no hardcode).
+- Flags / env:
+  - ✅ `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY`.
+  - ✅ `THE_ODDS_API_KEY=...` (Sprint D4; no hardcode en código).

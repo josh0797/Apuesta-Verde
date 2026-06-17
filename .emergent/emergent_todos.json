@@ -1,34 +1,26 @@
 [
   {
-    "content": "D4.1 — Parser football-data.co.uk con odds y detección opening/closing",
+    "content": "D5.1 — Descargar 5 ligas CSV + WC2018",
     "status": "completed"
   },
   {
-    "content": "D4.2 — Integración The Odds API historical snapshots con caching",
+    "content": "D5.2 — football_cohort_detector.py con 4 cohortes",
     "status": "completed"
   },
   {
-    "content": "D4.3 — Métricas ROI con bootstrap CI + significancia + sample_status + warnings",
+    "content": "D5.3+D5.4 — Script run_backtest_d5.py + 3 reportes",
     "status": "completed"
   },
   {
-    "content": "D4.4 — Walk-forward auditable: _calibration_audit en cada predicción + invariante max_calib_date < target_date",
+    "content": "D5.5 — combined_comparison.md con veredicto multi-axis",
     "status": "completed"
   },
   {
-    "content": "D4.5 — Tests test_sprint_d4_roi_significance.py (25 tests verdes)",
+    "content": "D5.6 — 23 tests cohort detector + 3498 passing (0 regresiones)",
     "status": "completed"
   },
   {
-    "content": "D4.6 — Tests test_sprint_d4_walk_forward.py (7 tests verdes)",
-    "status": "completed"
-  },
-  {
-    "content": "D4.7 — Backtest EPL 24/25 con odds opening + closing + summary D4",
-    "status": "completed"
-  },
-  {
-    "content": "D4.8 — Suite global verificada: 3475 passing, 0 regresiones",
-    "status": "completed"
+    "content": "(c) F84.c/F84.d con clarificación: TheStatsAPI primary + API-Sports fallback (preguntar al usuario)",
+    "status": "in_progress"
   }
 ]

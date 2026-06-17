@@ -1,0 +1,555 @@
+{
+  "n_bets": 10,
+  "n_won": 0,
+  "n_lost": 10,
+  "hit_rate": 0.0,
+  "total_staked": 10.0,
+  "total_returned": 0.0,
+  "net_pnl": -10.0,
+  "roi": -1.0,
+  "yield_per_bet": -1.0,
+  "max_drawdown": 9.0,
+  "sharpe_like": null,
+  "avg_edge_predicted_pp": 6.66,
+  "avg_edge_realised_pp": -19.52,
+  "roi_ci_lo": -1.0,
+  "roi_ci_hi": -1.0,
+  "roi_ci_low": -1.0,
+  "roi_ci_high": -1.0,
+  "is_significant": true,
+  "is_roi_significant": false,
+  "reliability_curve": [
+    {
+      "bucket": "[0.00,0.10)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null
+    },
+    {
+      "bucket": "[0.10,0.20)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null
+    },
+    {
+      "bucket": "[0.20,0.30)",
+      "n": 7,
+      "predicted_avg": 0.2394,
+      "actual_avg": 0.0
+    },
+    {
+      "bucket": "[0.30,0.40)",
+      "n": 3,
+      "predicted_avg": 0.314,
+      "actual_avg": 0.0
+    },
+    {
+      "bucket": "[0.40,0.50)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null
+    },
+    {
+      "bucket": "[0.50,0.60)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null
+    },
+    {
+      "bucket": "[0.60,0.70)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null
+    },
+    {
+      "bucket": "[0.70,0.80)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null
+    },
+    {
+      "bucket": "[0.80,0.90)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null
+    },
+    {
+      "bucket": "[0.90,1.00)",
+      "n": 0,
+      "predicted_avg": null,
+      "actual_avg": null
+    }
+  ],
+  "calibration_label": "MISCALIBRATED",
+  "small_sample_flag": true,
+  "small_sample_threshold": 50,
+  "small_sample_warning": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+  "sample_status": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+  "warnings": [
+    "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+    "ROI_SIGNIFICANTLY_NEGATIVE"
+  ],
+  "breakdown_by_competition": {
+    "La Liga 2024-25": {
+      "n": 10,
+      "won": 0,
+      "pnl": -10.0,
+      "staked": 10.0,
+      "roi": -1.0,
+      "hit_rate": 0.0
+    }
+  },
+  "breakdown_by_edge_bucket": {
+    "6-10pp": {
+      "n": 6,
+      "won": 0,
+      "pnl": -6.0,
+      "staked": 6.0,
+      "roi": -1.0,
+      "hit_rate": 0.0
+    },
+    "4-6pp": {
+      "n": 4,
+      "won": 0,
+      "pnl": -4.0,
+      "staked": 4.0,
+      "roi": -1.0,
+      "hit_rate": 0.0
+    }
+  },
+  "breakdown_by_tier": {
+    "VALUE_DRAW_CANDIDATE": {
+      "n": 7,
+      "won": 0,
+      "pnl": -7.0,
+      "staked": 7.0,
+      "roi": -1.0,
+      "hit_rate": 0.0
+    },
+    "STRONG_VALUE_DRAW": {
+      "n": 3,
+      "won": 0,
+      "pnl": -3.0,
+      "staked": 3.0,
+      "roi": -1.0,
+      "hit_rate": 0.0
+    }
+  },
+  "n_matches_total": 380,
+  "market": "DRAW",
+  "min_edge_pp": 4.0,
+  "stake_mode": "flat",
+  "use_calibration": true,
+  "walk_forward": true,
+  "cohorts": {
+    "DOMINANT_FAVORITE_DRAW_VALUE": {
+      "n": 0,
+      "won": 0,
+      "examples": [],
+      "hit_rate": null
+    },
+    "TOURNAMENT_GROUP_STAGE_DRAW_VALUE": {
+      "n": 0,
+      "won": 0,
+      "examples": [],
+      "hit_rate": null
+    },
+    "LOW_GOAL_UNDERDOG_BLOCK": {
+      "n": 2,
+      "won": 0,
+      "examples": [
+        {
+          "date": "2024-08-31T00:00:00",
+          "home": "Barcelona",
+          "away": "Valladolid",
+          "competition": "La Liga 2024-25",
+          "predicted_prob": 0.222,
+          "market_prob": 0.16,
+          "edge_pp": 6.2,
+          "hit": false,
+          "actual_score": "7-0",
+          "label": "VALUE_DRAW_CANDIDATE",
+          "odd_draw": 6.25,
+          "is_group_stage": null,
+          "tournament_context_score": null
+        },
+        {
+          "date": "2024-09-13T00:00:00",
+          "home": "Betis",
+          "away": "Leganes",
+          "competition": "La Liga 2024-25",
+          "predicted_prob": 0.324,
+          "market_prob": 0.27,
+          "edge_pp": 5.4,
+          "hit": false,
+          "actual_score": "2-0",
+          "label": "VALUE_DRAW_CANDIDATE",
+          "odd_draw": 3.7,
+          "is_group_stage": null,
+          "tournament_context_score": null
+        }
+      ],
+      "hit_rate": 0.0
+    },
+    "TAIL_EDGE_OVERCONFIDENCE_15PP_PLUS": {
+      "n": 0,
+      "won": 0,
+      "examples": [],
+      "hit_rate": null
+    }
+  },
+  "_picks_sample": [
+    {
+      "date": "2024-08-31T00:00:00",
+      "competition": "La Liga 2024-25",
+      "home": "Barcelona",
+      "away": "Valladolid",
+      "odd_draw": 6.25,
+      "odds_type": "MIXED",
+      "predicted_prob": 0.222,
+      "market_prob": 0.16,
+      "edge_pp": 6.2,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 1.0,
+      "hit": false,
+      "pnl": -1.0,
+      "actual_score": "7-0",
+      "warnings": [],
+      "_features": {
+        "elo_home": 1531.15580351016,
+        "elo_away": 1498.3888214080496,
+        "xg_home_l5": 2.0,
+        "xg_away_l5": 0.333,
+        "goal_avg_against_home": 1.0,
+        "goal_avg_against_away": 1.0,
+        "tournament_context_score": null
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 29,
+        "n_calib_picks_seen": 0,
+        "max_calib_date": "2024-08-29T00:00:00",
+        "target_date": "2024-08-31T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2024-09-01T00:00:00",
+      "competition": "La Liga 2024-25",
+      "home": "Sevilla",
+      "away": "Girona",
+      "odd_draw": 3.8,
+      "odds_type": "MIXED",
+      "predicted_prob": 0.315,
+      "market_prob": 0.263,
+      "edge_pp": 5.2,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 1.0,
+      "hit": false,
+      "pnl": -1.0,
+      "actual_score": "0-2",
+      "warnings": [],
+      "_features": {
+        "elo_home": 1491.617246644966,
+        "elo_away": 1502.0798954414563,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 1.667,
+        "goal_avg_against_home": 1.333,
+        "goal_avg_against_away": 1.333,
+        "tournament_context_score": null
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 36,
+        "n_calib_picks_seen": 7,
+        "max_calib_date": "2024-08-31T00:00:00",
+        "target_date": "2024-09-01T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2024-09-13T00:00:00",
+      "competition": "La Liga 2024-25",
+      "home": "Betis",
+      "away": "Leganes",
+      "odd_draw": 3.7,
+      "odds_type": "MIXED",
+      "predicted_prob": 0.324,
+      "market_prob": 0.27,
+      "edge_pp": 5.4,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 1.0,
+      "hit": false,
+      "pnl": -1.0,
+      "actual_score": "2-0",
+      "warnings": [],
+      "_features": {
+        "elo_home": 1491.8452873441825,
+        "elo_away": 1498.9856625033726,
+        "xg_home_l5": 0.333,
+        "xg_away_l5": 0.75,
+        "goal_avg_against_home": 1.0,
+        "goal_avg_against_away": 0.75,
+        "tournament_context_score": null
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 39,
+        "n_calib_picks_seen": 8,
+        "max_calib_date": "2024-09-01T00:00:00",
+        "target_date": "2024-09-13T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2024-09-14T00:00:00",
+      "competition": "La Liga 2024-25",
+      "home": "Sociedad",
+      "away": "Real Madrid",
+      "odd_draw": 3.9,
+      "odds_type": "MIXED",
+      "predicted_prob": 0.299,
+      "market_prob": 0.256,
+      "edge_pp": 4.3,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 1.0,
+      "hit": false,
+      "pnl": -1.0,
+      "actual_score": "0-2",
+      "warnings": [],
+      "_features": {
+        "elo_home": 1490.157789677058,
+        "elo_away": 1519.298416307521,
+        "xg_home_l5": 0.75,
+        "xg_away_l5": 1.75,
+        "goal_avg_against_home": 1.0,
+        "goal_avg_against_away": 0.5,
+        "tournament_context_score": null
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 43,
+        "n_calib_picks_seen": 12,
+        "max_calib_date": "2024-09-13T00:00:00",
+        "target_date": "2024-09-14T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2024-09-15T00:00:00",
+      "competition": "La Liga 2024-25",
+      "home": "Ath Madrid",
+      "away": "Valencia",
+      "odd_draw": 4.5,
+      "odds_type": "MIXED",
+      "predicted_prob": 0.303,
+      "market_prob": 0.222,
+      "edge_pp": 8.1,
+      "label": "STRONG_VALUE_DRAW",
+      "stake": 1.0,
+      "hit": false,
+      "pnl": -1.0,
+      "actual_score": "3-0",
+      "warnings": [],
+      "_features": {
+        "elo_home": 1518.9188073632351,
+        "elo_away": 1472.133432903436,
+        "xg_home_l5": 1.5,
+        "xg_away_l5": 0.75,
+        "goal_avg_against_home": 0.5,
+        "goal_avg_against_away": 1.75,
+        "tournament_context_score": null
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 47,
+        "n_calib_picks_seen": 16,
+        "max_calib_date": "2024-09-14T00:00:00",
+        "target_date": "2024-09-15T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2025-02-01T00:00:00",
+      "competition": "La Liga 2024-25",
+      "home": "Espanol",
+      "away": "Real Madrid",
+      "odd_draw": 5.75,
+      "odds_type": "MIXED",
+      "predicted_prob": 0.231,
+      "market_prob": 0.174,
+      "edge_pp": 5.7,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 1.0,
+      "hit": false,
+      "pnl": -1.0,
+      "actual_score": "1-0",
+      "warnings": [],
+      "_features": {
+        "elo_home": 1453.9291210905888,
+        "elo_away": 1602.0673291604867,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 3.2,
+        "goal_avg_against_home": 1.0,
+        "goal_avg_against_away": 1.4,
+        "tournament_context_score": null
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 214,
+        "n_calib_picks_seen": 183,
+        "max_calib_date": "2025-01-31T00:00:00",
+        "target_date": "2025-02-01T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "La Liga 2024-25",
+      "home": "Las Palmas",
+      "away": "Barcelona",
+      "odd_draw": 7.0,
+      "odds_type": "MIXED",
+      "predicted_prob": 0.231,
+      "market_prob": 0.143,
+      "edge_pp": 8.8,
+      "label": "STRONG_VALUE_DRAW",
+      "stake": 1.0,
+      "hit": false,
+      "pnl": -1.0,
+      "actual_score": "0-2",
+      "warnings": [],
+      "_features": {
+        "elo_home": 1448.5238766917316,
+        "elo_away": 1575.8123742748608,
+        "xg_home_l5": 1.0,
+        "xg_away_l5": 2.8,
+        "goal_avg_against_home": 2.4,
+        "goal_avg_against_away": 0.6,
+        "tournament_context_score": null
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 244,
+        "n_calib_picks_seen": 213,
+        "max_calib_date": "2025-02-21T00:00:00",
+        "target_date": "2025-02-22T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "La Liga 2024-25",
+      "home": "Barcelona",
+      "away": "Girona",
+      "odd_draw": 6.5,
+      "odds_type": "MIXED",
+      "predicted_prob": 0.231,
+      "market_prob": 0.154,
+      "edge_pp": 7.7,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 1.0,
+      "hit": false,
+      "pnl": -1.0,
+      "actual_score": "4-1",
+      "warnings": [],
+      "_features": {
+        "elo_home": 1606.633135106944,
+        "elo_away": 1471.340738824203,
+        "xg_home_l5": 2.8,
+        "xg_away_l5": 1.0,
+        "goal_avg_against_home": 0.4,
+        "goal_avg_against_away": 1.6,
+        "tournament_context_score": null
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 284,
+        "n_calib_picks_seen": 253,
+        "max_calib_date": "2025-03-29T00:00:00",
+        "target_date": "2025-03-30T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "La Liga 2024-25",
+      "home": "Leganes",
+      "away": "Barcelona",
+      "odd_draw": 6.0,
+      "odds_type": "MIXED",
+      "predicted_prob": 0.231,
+      "market_prob": 0.167,
+      "edge_pp": 6.4,
+      "label": "VALUE_DRAW_CANDIDATE",
+      "stake": 1.0,
+      "hit": false,
+      "pnl": -1.0,
+      "actual_score": "0-1",
+      "warnings": [],
+      "_features": {
+        "elo_home": 1441.963723738455,
+        "elo_away": 1607.9964491086391,
+        "xg_home_l5": 1.4,
+        "xg_away_l5": 3.2,
+        "goal_avg_against_home": 1.8,
+        "goal_avg_against_away": 0.8,
+        "tournament_context_score": null
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 303,
+        "n_calib_picks_seen": 272,
+        "max_calib_date": "2025-04-11T00:00:00",
+        "target_date": "2025-04-12T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    },
+    {
+      "date": "2025-04-22T00:00:00",
+      "competition": "La Liga 2024-25",
+      "home": "Barcelona",
+      "away": "Mallorca",
+      "odd_draw": 7.0,
+      "odds_type": "MIXED",
+      "predicted_prob": 0.231,
+      "market_prob": 0.143,
+      "edge_pp": 8.8,
+      "label": "STRONG_VALUE_DRAW",
+      "stake": 1.0,
+      "hit": false,
+      "pnl": -1.0,
+      "actual_score": "1-0",
+      "warnings": [],
+      "_features": {
+        "elo_home": 1620.4035371743996,
+        "elo_away": 1491.615270041141,
+        "xg_home_l5": 2.6,
+        "xg_away_l5": 1.0,
+        "goal_avg_against_home": 1.0,
+        "goal_avg_against_away": 0.8,
+        "tournament_context_score": null
+      },
+      "_calibration_audit": {
+        "n_calib_matches": 320,
+        "n_calib_picks_seen": 289,
+        "max_calib_date": "2025-04-21T00:00:00",
+        "target_date": "2025-04-22T00:00:00",
+        "walk_forward": true,
+        "use_calibration": true,
+        "leakage_check_passed": true
+      }
+    }
+  ],
+  "league_key": "LaLiga",
+  "competition": "La Liga 2024-25"
+}

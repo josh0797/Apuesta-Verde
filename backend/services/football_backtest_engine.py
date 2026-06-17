@@ -504,6 +504,15 @@ def run_backtest(
             if no_market:
                 # No odds → no PnL/stake/ROI. Record a "pick" row for
                 # hit-rate by label.
+                feat_snapshot = {
+                    "elo_home":              features.get("elo_home"),
+                    "elo_away":              features.get("elo_away"),
+                    "xg_home_l5":            features.get("xg_home_l5"),
+                    "xg_away_l5":            features.get("xg_away_l5"),
+                    "goal_avg_against_home": features.get("goal_avg_against_home"),
+                    "goal_avg_against_away": features.get("goal_avg_against_away"),
+                    "tournament_context_score": features.get("tournament_context_score"),
+                }
                 picks.append({
                     "date":           m["date"].isoformat(),
                     "competition":    m.get("competition") or "",
@@ -525,6 +534,7 @@ def run_backtest(
                     "is_group_stage":   bool(m.get("is_group_stage", False)),
                     "tournament_context_score":
                         features.get("tournament_context_score"),
+                    "_features":      feat_snapshot,
                     "_calibration_audit": calibration_audit,
                 })
             else:
@@ -540,6 +550,17 @@ def run_backtest(
                     # Sprint-D4 — propagate per-row warnings from the
                     # ingestor (e.g. ODDS_ARE_CLOSING_BACKTEST_OPTIMISTIC).
                     row_warnings = list(m.get("warnings") or [])
+                    # Sprint-D5 — attach a minimal feature snapshot for
+                    # downstream cohort detection.
+                    feat_snapshot = {
+                        "elo_home":              features.get("elo_home"),
+                        "elo_away":              features.get("elo_away"),
+                        "xg_home_l5":            features.get("xg_home_l5"),
+                        "xg_away_l5":            features.get("xg_away_l5"),
+                        "goal_avg_against_home": features.get("goal_avg_against_home"),
+                        "goal_avg_against_away": features.get("goal_avg_against_away"),
+                        "tournament_context_score": features.get("tournament_context_score"),
+                    }
                     picks.append({
                         "date":           m["date"].isoformat(),
                         "competition":    m.get("competition") or "",
@@ -556,6 +577,7 @@ def run_backtest(
                         "pnl":            round(pnl, 4),
                         "actual_score":   f"{m['fthg']}-{m['ftag']}",
                         "warnings":       row_warnings,
+                        "_features":      feat_snapshot,
                         "_calibration_audit": calibration_audit,
                     })
 
