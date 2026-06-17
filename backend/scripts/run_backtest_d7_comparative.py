@@ -105,7 +105,15 @@ def _iter_dates(start_iso: str, end_iso: str) -> list[str]:
 
 
 # ─── Domestic block ───────────────────────────────────────────────────
-def run_domestic_block() -> dict:
+def run_domestic_block(*, min_edge_pp: float = 4.0) -> dict:
+    """Procesa las 5 ligas usando los CSV cacheados.
+
+    BUGFIX (D7 post-mortem): el parser ``parse_football_data_csv``
+    espera **el contenido** del CSV, no la ruta. La versión previa le
+    pasaba ``str(csv_path)`` lo que provocaba que cada liga devolviera
+    n_matches=0 silenciosamente. Ahora se lee el archivo con
+    ``Path.read_text()`` antes de pasarlo al parser.
+    """
     per_league: dict[str, dict] = {}
     all_picks: list[dict] = []
     odds_type = "OPENING"
@@ -115,29 +123,51 @@ def run_domestic_block() -> dict:
         if csv_path is None:
             per_league[label] = {"available": False,
                                   "reason_code": "CSV_DOWNLOAD_FAILED"}
+            log.info("[domestic][%s] CSV_DOWNLOAD_FAILED", label)
             continue
         try:
+            # BUGFIX: pasar el CONTENIDO del CSV, no la ruta.
+            csv_text = Path(csv_path).read_text()
             matches = parse_football_data_csv(
-                str(csv_path), prefer_closing=False,
+                csv_text, prefer_closing=False, competition=label,
             )
         except Exception as exc:    # noqa: BLE001
             per_league[label] = {"available": False,
                                   "reason_code": f"PARSE_ERROR:{exc}"}
+            log.warning("[domestic][%s] PARSE_ERROR: %s", label, exc)
             continue
-        if any("W_CLOSING_ODDS_OPTIMISTIC" in (m.get("warnings") or [])
-                for m in matches):
+        if not matches:
+            per_league[label] = {
+                "available": False,
+                "reason_code": "PARSE_EMPTY",
+                "n_matches": 0,
+            }
+            log.warning("[domestic][%s] PARSE_EMPTY (csv_size=%d bytes)",
+                         label, len(csv_text))
+            continue
+        # Detectar si el CSV trae odds de cierre (el parser usa
+        # `ODDS_ARE_CLOSING_BACKTEST_OPTIMISTIC` cuando prefer_closing
+        # falla y solo hay cierre — aquí informativo).
+        if any("ODDS_ARE_CLOSING_BACKTEST_OPTIMISTIC"
+                  in (m.get("warnings") or []) for m in matches):
             closing_seen = True
         bt = run_backtest(
             matches, market="DRAW", no_market=False,
             use_calibration=True, walk_forward=True, shrinkage_K=50,
-            min_pred_prob_pp=8.0,
+            min_pred_prob_pp=8.0, min_edge_pp=min_edge_pp,
         )
         m = compute_backtest_metrics(bt)
+        n_picks = len(bt.get("picks", []))
         per_league[label] = {
             "available": True, "n_matches": len(matches),
-            "n_picks":   len(bt.get("picks", [])),
+            "n_picks":   n_picks,
             "metrics":   m, "odds_type": odds_type,
         }
+        log.info("[domestic][%s] n_matches=%d  n_picks=%d  edge>=%.1fpp  "
+                  "roi=%s  hit_rate=%s  sample=%s", label,
+                  len(matches), n_picks, min_edge_pp,
+                  m.get("roi"), m.get("hit_rate"),
+                  m.get("sample_status"))
         # Attach cohort tags by pre-match features only.
         for p in bt.get("picks", []):
             tags = detect_cohorts(p, p.get("features") or {})
@@ -154,52 +184,118 @@ def run_domestic_block() -> dict:
 
 
 # ─── National block ───────────────────────────────────────────────────
-async def run_national_block(*, max_credits: int) -> dict:
+async def run_national_block(*, max_credits: int,
+                              min_edge_pp: float = 4.0,
+                              skip: bool = False) -> dict:
+    """Procesa los 4 torneos nacionales con cap estricto de créditos.
+
+    BUGFIX (D7 post-mortem): propaga ``reason_codes`` reales en lugar
+    de hardcodear ``UNAVAILABLE_NO_COVERAGE``. Distingue claramente:
+      - ``MAX_CREDITS_REACHED``      (créditos agotados)
+      - ``GROUND_TRUTH_MISSING``     (no hay openfootball JSON)
+      - ``UNAVAILABLE_NO_COVERAGE``  (no hay cobertura real en el plan)
+      - ``HTTP_ERROR``               (caída de red / 5xx)
+      - ``SKIPPED_BY_USER``          (cuando ``skip=True``)
+    """
     per_tournament: dict[str, dict] = {}
     all_picks: list[dict] = []
     odds_type = "POINT_IN_TIME_PREMATCH"
     total_credits = 0
-    for label, sport_key, start, end, openfb in NATIONAL_TOURNAMENTS:
-        dates = _iter_dates(start, end)
-        odds_res = await fetch_tournament_pit_odds(
-            sport_key=sport_key, dates_iso=dates,
-            max_credits=max(0, max_credits - total_credits),
-        )
-        total_credits += odds_res.get("credits_used", 0)
-        if not odds_res.get("events"):
+    if skip:
+        for label, *_rest in NATIONAL_TOURNAMENTS:
             per_tournament[label] = {
                 "available": False,
-                "reason_code": "UNAVAILABLE_NO_COVERAGE",
-                "credits_used": odds_res.get("credits_used", 0),
-                "aborted": odds_res.get("aborted", False),
+                "reason_code": "SKIPPED_BY_USER",
             }
+        log.info("[national] SKIPPED_BY_USER (no credits consumed)")
+        return {
+            "block":         "national_tournaments_summary",
+            "odds_type":     odds_type,
+            "per_tournament": per_tournament,
+            "credits_used":  0,
+            "_picks":        all_picks,
+        }
+    for label, sport_key, start, end, openfb in NATIONAL_TOURNAMENTS:
+        dates = _iter_dates(start, end)
+        remaining = max(0, max_credits - total_credits)
+        if remaining <= 0:
+            per_tournament[label] = {
+                "available": False,
+                "reason_code": "MAX_CREDITS_REACHED",
+                "credits_used": 0,
+                "aborted": True,
+            }
+            log.info("[national][%s] skipped MAX_CREDITS_REACHED "
+                      "(remaining_cap=0)", label)
+            continue
+        odds_res = await fetch_tournament_pit_odds(
+            sport_key=sport_key, dates_iso=dates,
+            max_credits=remaining,
+        )
+        cu = odds_res.get("credits_used", 0)
+        total_credits += cu
+        reason_codes = odds_res.get("reason_codes") or []
+        aborted = bool(odds_res.get("aborted"))
+        if not odds_res.get("events"):
+            # Mapeo del primer reason_code (más específico) a un código
+            # propio del bloque nacional.
+            primary = reason_codes[0] if reason_codes else "UNAVAILABLE_NO_COVERAGE"
+            per_tournament[label] = {
+                "available": False,
+                "reason_code": primary,
+                "all_reason_codes": reason_codes,
+                "credits_used": cu,
+                "aborted": aborted,
+            }
+            log.info("[national][%s] no_events reason=%s "
+                      "credits_used=%d aborted=%s",
+                      label, primary, cu, aborted)
             continue
         # Hydrate ground truth from openfootball JSON if present.
         try:
-            matches_truth = (parse_openfootball_json(openfb)
+            matches_truth = (parse_openfootball_json(
+                                Path(openfb).read_text(),
+                                competition=label,
+                              )
                               if Path(openfb).exists() else [])
-        except Exception:    # noqa: BLE001
+        except Exception as exc:    # noqa: BLE001
+            log.warning("[national][%s] ground_truth_parse_error: %s",
+                          label, exc)
             matches_truth = []
         # Settle via openfootball (decision 7 of the prompt).
         matches = _merge_pit_odds_with_truth(odds_res["events"], matches_truth)
         if not matches:
             per_tournament[label] = {
-                "available": False, "reason_code": "GROUND_TRUTH_MISSING",
+                "available": False,
+                "reason_code": "GROUND_TRUTH_MISSING",
+                "credits_used": cu,
+                "events_fetched": len(odds_res.get("events") or []),
+                "openfootball_present": Path(openfb).exists(),
             }
+            log.warning("[national][%s] GROUND_TRUTH_MISSING "
+                         "(events_fetched=%d openfootball_path=%s exists=%s)",
+                         label, len(odds_res.get("events") or []),
+                         openfb, Path(openfb).exists())
             continue
         bt = run_backtest(
             matches, market="DRAW", no_market=False,
             use_calibration=True, walk_forward=True, shrinkage_K=50,
-            min_pred_prob_pp=8.0,
+            min_pred_prob_pp=8.0, min_edge_pp=min_edge_pp,
         )
         m = compute_backtest_metrics(bt)
+        n_picks = len(bt.get("picks", []))
         per_tournament[label] = {
             "available": True, "n_matches": len(matches),
-            "n_picks":   len(bt.get("picks", [])),
+            "n_picks":   n_picks,
             "metrics":   m,
             "odds_type": odds_type,
-            "credits_used": odds_res.get("credits_used", 0),
+            "credits_used": cu,
         }
+        log.info("[national][%s] n_matches=%d n_picks=%d edge>=%.1fpp "
+                  "roi=%s hit_rate=%s sample=%s credits_used=%d",
+                  label, len(matches), n_picks, min_edge_pp,
+                  m.get("roi"), m.get("hit_rate"),
+                  m.get("sample_status"), cu)
         for p in bt.get("picks", []):
             tags = detect_cohorts(p, p.get("features") or {})
             p["_cohort_tags"] = tags
@@ -345,15 +441,24 @@ def build_combined_comparison(domestic: dict, national: dict,
 
 
 # ─── Entry point ──────────────────────────────────────────────────────
-async def main_async(*, max_credits: int, out_path: str) -> dict:
-    domestic = run_domestic_block()
-    national = await run_national_block(max_credits=max_credits)
+async def main_async(*, max_credits: int, out_path: str,
+                       min_edge_pp: float = 4.0,
+                       skip_national: bool = False) -> dict:
+    log.info("D7 start | max_credits=%d min_edge_pp=%.2f skip_national=%s out=%s",
+              max_credits, min_edge_pp, skip_national, out_path)
+    domestic = run_domestic_block(min_edge_pp=min_edge_pp)
+    national = await run_national_block(
+        max_credits=max_credits, min_edge_pp=min_edge_pp,
+        skip=skip_national,
+    )
     all_picks = (domestic.pop("_picks", []) + national.pop("_picks", []))
     combined = build_combined_comparison(domestic, national, all_picks)
     report = {
         "generated_at":              datetime.now(timezone.utc).isoformat(),
         "max_credits_per_run":       max_credits,
         "credits_used":              national.get("credits_used", 0),
+        "min_edge_pp":               min_edge_pp,
+        "skip_national":             skip_national,
         "domestic_leagues_summary":  domestic,
         "national_tournaments_summary": national,
         "combined_comparison":       combined,
@@ -370,6 +475,10 @@ def main() -> int:
     )
     p.add_argument("--max-credits", type=int, default=DEFAULT_MAX_CREDITS)
     p.add_argument("--out", default="/app/backtest_d7_comparative.json")
+    p.add_argument("--min-edge-pp", type=float, default=4.0,
+                    help="Mínimo edge (en pp) requerido para emitir pick.")
+    p.add_argument("--skip-national", action="store_true",
+                    help="Saltea el bloque nacional (cero créditos).")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     # Load .env so THE_ODDS_API_KEY is visible to the historical client.
@@ -378,7 +487,10 @@ def main() -> int:
         load_dotenv()
     except Exception:    # noqa: BLE001
         pass
-    asyncio.run(main_async(max_credits=args.max_credits, out_path=args.out))
+    asyncio.run(main_async(
+        max_credits=args.max_credits, out_path=args.out,
+        min_edge_pp=args.min_edge_pp, skip_national=args.skip_national,
+    ))
     return 0
 
 

@@ -234,3 +234,177 @@ def test_cap_short_circuits_next_call():
     ))
     assert res["available"] is False
     assert res["reason_code"] == "MAX_CREDITS_REACHED"
+
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 9) REGRESIÓN BUG #1 — el orquestador debe pasar TEXTO del CSV al parser
+# ════════════════════════════════════════════════════════════════════════
+def test_domestic_parser_receives_csv_text_not_path(tmp_path):
+    """Regresión del bug post-mortem D7.
+
+    Antes del fix, ``run_domestic_block`` llamaba a
+    ``parse_football_data_csv(str(csv_path), ...)`` lo que provocaba
+    que el parser intentara leer la *ruta* como CSV y devolviera 0
+    matches silenciosamente. Tras el fix se lee el archivo con
+    ``Path(...).read_text()``.
+
+    El test inyecta un CSV mínimo en una ruta controlada, fuerza solo
+    una liga y verifica que ``n_matches > 0`` y ``available=True``.
+    """
+    csv_text = (
+        "Date,HomeTeam,AwayTeam,FTHG,FTAG,FTR,B365H,B365D,B365A\n"
+        "16/08/2024,Man United,Fulham,1,0,H,1.80,3.60,4.50\n"
+        "17/08/2024,Arsenal,Chelsea,2,2,D,1.95,3.50,4.00\n"
+        "18/08/2024,Liverpool,Brighton,2,0,H,1.50,4.20,6.50\n"
+    )
+    fake_csv = tmp_path / "E0_2425.csv"
+    fake_csv.write_text(csv_text)
+    # Parche directo a _ensure_league_csv: evita la descarga y nos
+    # garantiza la ruta exacta.
+    with patch.object(orch, "_ensure_league_csv",
+                       lambda code: fake_csv), \
+         patch.object(orch, "LEAGUES_2425",
+                       [("E0", "premier_league")]):
+        block = orch.run_domestic_block(min_edge_pp=4.0)
+    league = block["per_league"]["premier_league"]
+    assert league["available"] is True, (
+        "El parser debe recibir el TEXTO del CSV. Si recibe la ruta, "
+        "n_matches=0 y available=False (regresión del bug D7).")
+    assert league["n_matches"] == 3
+    # Y las métricas se calculan sobre matches reales, no sobre [].
+    assert isinstance(league["metrics"], dict)
+
+
+def test_domestic_parse_empty_marks_available_false(tmp_path):
+    """Si el CSV existe pero el parser devuelve 0 matches (CSV vacío
+    o sin filas válidas) debe marcarse como ``PARSE_EMPTY`` — no como
+    ``available=True n_matches=0`` (regresión silenciosa pre-fix)."""
+    fake_csv = tmp_path / "E0_2425.csv"
+    # Solo header, sin filas → parser devolverá [].
+    fake_csv.write_text("Date,HomeTeam,AwayTeam,FTHG,FTAG,FTR\n")
+    with patch.object(orch, "_ensure_league_csv",
+                       lambda code: fake_csv), \
+         patch.object(orch, "LEAGUES_2425",
+                       [("E0", "premier_league")]):
+        block = orch.run_domestic_block(min_edge_pp=4.0)
+    league = block["per_league"]["premier_league"]
+    assert league["available"] is False
+    assert league["reason_code"] == "PARSE_EMPTY"
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 10) BUG #3 — propagación real de reason_codes en el bloque nacional
+# ════════════════════════════════════════════════════════════════════════
+def test_national_block_propagates_real_reason_codes():
+    """Cuando ``fetch_tournament_pit_odds`` reporta
+    ``MAX_CREDITS_REACHED``, el bloque nacional debe propagarlo en
+    ``reason_code`` (no machacarlo con ``UNAVAILABLE_NO_COVERAGE``)."""
+    async def _fake_fetch(**kwargs):
+        return {
+            "available":    False,
+            "events":       [],
+            "credits_used": 42,
+            "aborted":      True,
+            "reason_codes": ["MAX_CREDITS_REACHED"],
+        }
+    with patch.object(orch, "fetch_tournament_pit_odds", _fake_fetch):
+        res = asyncio.run(orch.run_national_block(
+            max_credits=100, min_edge_pp=4.0,
+        ))
+    # Primer torneo debe llevar el reason_code real.
+    first_label = orch.NATIONAL_TOURNAMENTS[0][0]
+    entry = res["per_tournament"][first_label]
+    assert entry["available"] is False
+    assert entry["reason_code"] == "MAX_CREDITS_REACHED"
+    assert "MAX_CREDITS_REACHED" in (entry.get("all_reason_codes") or [])
+
+
+def test_national_block_marks_ground_truth_missing_distinctly():
+    """Si llegan eventos pero NO existe el JSON openfootball, el
+    bloque debe marcar ``GROUND_TRUTH_MISSING`` con auditoría
+    explícita."""
+    async def _fake_fetch(**kwargs):
+        return {
+            "available":    True,
+            "events":       [{
+                "id": "evt-1", "home_team": "Spain",
+                "away_team": "Cape Verde",
+                "commence_time": "2022-11-27T15:00:00Z",
+                "event_payload": {"bookmakers": [{
+                    "markets": [{"key": "h2h", "outcomes": [
+                        {"name": "Spain", "price": 1.30},
+                        {"name": "Cape Verde", "price": 9.0},
+                        {"name": "Draw", "price": 5.0},
+                    ]}],
+                }]},
+            }],
+            "credits_used": 11,
+            "aborted":      False,
+            "reason_codes": [],
+        }
+    # Aseguramos que la ruta openfootball del primer torneo NO existe.
+    with patch.object(orch, "fetch_tournament_pit_odds", _fake_fetch), \
+         patch.object(orch, "NATIONAL_TOURNAMENTS", [
+             ("world_cup_2022", "soccer_fifa_world_cup",
+              "2022-11-27T00:00:00Z", "2022-11-27T23:59:59Z",
+              "/tmp/__does_not_exist_d7__.json"),
+         ]):
+        res = asyncio.run(orch.run_national_block(
+            max_credits=200, min_edge_pp=4.0,
+        ))
+    entry = res["per_tournament"]["world_cup_2022"]
+    assert entry["available"] is False
+    assert entry["reason_code"] == "GROUND_TRUTH_MISSING"
+    assert entry["events_fetched"] == 1
+    assert entry["openfootball_present"] is False
+
+
+def test_national_block_skip_consumes_no_credits():
+    """``skip=True`` debe marcar todos los torneos como
+    ``SKIPPED_BY_USER`` y NO llamar al cliente histórico."""
+    called = {"n": 0}
+    async def _spy_fetch(**kwargs):
+        called["n"] += 1
+        return {"available": False, "events": [], "credits_used": 0,
+                "aborted": False, "reason_codes": []}
+    with patch.object(orch, "fetch_tournament_pit_odds", _spy_fetch):
+        res = asyncio.run(orch.run_national_block(
+            max_credits=3000, min_edge_pp=4.0, skip=True,
+        ))
+    assert called["n"] == 0
+    assert res["credits_used"] == 0
+    for label, *_ in orch.NATIONAL_TOURNAMENTS:
+        assert res["per_tournament"][label]["reason_code"] == \
+                "SKIPPED_BY_USER"
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 11) main_async respeta --skip-national y --min-edge-pp
+# ════════════════════════════════════════════════════════════════════════
+def test_main_async_skip_national_flag(tmp_path):
+    """Al invocar ``main_async`` con ``skip_national=True``, el
+    reporte resultante debe llevar ``skip_national: true`` y el
+    bloque nacional con todos los torneos en ``SKIPPED_BY_USER``."""
+    out = tmp_path / "report.json"
+    # Stub del bloque doméstico para que no descargue CSV ni corra
+    # backtest pesado.
+    def _empty_domestic(**_kwargs):
+        return {"block": "domestic_leagues_summary",
+                 "odds_type": "OPENING",
+                 "per_league": {},
+                 "_picks": []}
+    with patch.object(orch, "run_domestic_block", _empty_domestic):
+        report = asyncio.run(orch.main_async(
+            max_credits=3000, out_path=str(out),
+            min_edge_pp=3.5, skip_national=True,
+        ))
+    assert report["skip_national"] is True
+    assert report["min_edge_pp"] == 3.5
+    assert report["credits_used"] == 0
+    nat = report["national_tournaments_summary"]["per_tournament"]
+    assert all(v["reason_code"] == "SKIPPED_BY_USER"
+                 for v in nat.values())
+    # El reporte debe persistirse a disco.
+    persisted = json.loads(out.read_text())
+    assert persisted["skip_national"] is True

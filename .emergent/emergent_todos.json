@@ -1,14 +1,42 @@
 [
   {
-    "content": "D7.1-4 — Cliente + orquestador + tests (9 passed)",
+    "content": "A1: Fix BUG #1 — leer el contenido del CSV antes de pasarlo a parse_football_data_csv",
     "status": "completed"
   },
   {
-    "content": "D7.5 — Verificar dry-run con MAX_CREDITS=10 (sanity)",
-    "status": "in_progress"
+    "content": "A2: Fix BUG #3 — propagar reason_codes reales (MAX_CREDITS_REACHED, GROUND_TRUTH_MISSING, UNAVAILABLE_NO_COVERAGE)",
+    "status": "completed"
   },
   {
-    "content": "D7.6 — Confirmar con usuario antes de gastar 3000 créditos",
-    "status": "pending"
+    "content": "A3: Logging visible por liga/torneo (n_matches, n_picks, credits_delta, motivo)",
+    "status": "completed"
+  },
+  {
+    "content": "A5: Añadir flags CLI --min-edge-pp, --skip-national, --out y propagar min_edge_pp a run_backtest",
+    "status": "completed"
+  },
+  {
+    "content": "A4: Test de regresión que detecte el bug del parser (texto vs ruta)",
+    "status": "completed"
+  },
+  {
+    "content": "B: Descargar JSONs openfootball (WC2022, Euro2024) — Copa América aplazada (solo .txt en repo)",
+    "status": "completed"
+  },
+  {
+    "content": "C1: Re-ejecutar bloque doméstico con min_edge_pp=4.0 → /app/backtest_d7_domestic_edge4.json",
+    "status": "completed"
+  },
+  {
+    "content": "C2: Re-ejecutar bloque doméstico con min_edge_pp=3.0 → idem (label gate aguas arriba)",
+    "status": "completed"
+  },
+  {
+    "content": "D1: pytest backend completo → 3629 passed, 0 regresiones",
+    "status": "completed"
+  },
+  {
+    "content": "D2: Resumen ejecutivo + decisión sobre EDGE_VALUE_THRESHOLD_PP hardcoded",
+    "status": "in_progress"
   }
 ]

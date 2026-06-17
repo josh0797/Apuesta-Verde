@@ -1,0 +1,1801 @@
+{
+  "generated_at": "2026-06-17T20:55:32.768311+00:00",
+  "max_credits_per_run": 3000,
+  "credits_used": 0,
+  "min_edge_pp": 3.0,
+  "skip_national": true,
+  "domestic_leagues_summary": {
+    "block": "domestic_leagues_summary",
+    "odds_type": "OPENING",
+    "per_league": {
+      "premier_league": {
+        "available": true,
+        "n_matches": 380,
+        "n_picks": 149,
+        "metrics": {
+          "n_bets": 149,
+          "n_won": 41,
+          "n_lost": 108,
+          "hit_rate": 0.2752,
+          "total_staked": 149.0,
+          "total_returned": 190.66,
+          "net_pnl": 41.66,
+          "roi": 0.2796,
+          "yield_per_bet": 0.2796,
+          "max_drawdown": 14.99,
+          "sharpe_like": 1.592,
+          "avg_edge_predicted_pp": 9.395,
+          "avg_edge_realised_pp": 6.846,
+          "roi_ci_lo": -0.0595,
+          "roi_ci_hi": 0.6315,
+          "roi_ci_low": -0.0595,
+          "roi_ci_high": 0.6315,
+          "is_significant": false,
+          "is_roi_significant": false,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 96,
+              "predicted_avg": 0.2717,
+              "actual_avg": 0.2812
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 41,
+              "predicted_avg": 0.3295,
+              "actual_avg": 0.2439
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 12,
+              "predicted_avg": 0.4343,
+              "actual_avg": 0.3333
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "WELL_CALIBRATED",
+          "small_sample_flag": false,
+          "small_sample_threshold": 50,
+          "small_sample_warning": null,
+          "sample_status": "SMALL_SAMPLE_CAUTION",
+          "warnings": [
+            "SMALL_SAMPLE_CAUTION",
+            "ROI_NOT_STATISTICALLY_SIGNIFICANT"
+          ],
+          "breakdown_by_competition": {
+            "premier_league": {
+              "n": 149,
+              "won": 41,
+              "pnl": 41.66,
+              "staked": 149.0,
+              "roi": 0.2795973154362416,
+              "hit_rate": 0.2751677852348993
+            }
+          },
+          "breakdown_by_edge_bucket": {
+            "6-10pp": {
+              "n": 52,
+              "won": 12,
+              "pnl": 5.43,
+              "staked": 52.0,
+              "roi": 0.10442307692307692,
+              "hit_rate": 0.23076923076923078
+            },
+            "10-15pp": {
+              "n": 31,
+              "won": 8,
+              "pnl": 15.75,
+              "staked": 31.0,
+              "roi": 0.5080645161290323,
+              "hit_rate": 0.25806451612903225
+            },
+            "15pp+": {
+              "n": 22,
+              "won": 5,
+              "pnl": -2.9499999999999997,
+              "staked": 22.0,
+              "roi": -0.13409090909090907,
+              "hit_rate": 0.22727272727272727
+            },
+            "4-6pp": {
+              "n": 44,
+              "won": 16,
+              "pnl": 23.43,
+              "staked": 44.0,
+              "roi": 0.5325,
+              "hit_rate": 0.36363636363636365
+            }
+          },
+          "breakdown_by_tier": {
+            "VALUE_DRAW_CANDIDATE": {
+              "n": 79,
+              "won": 25,
+              "pnl": 29.61,
+              "staked": 79.0,
+              "roi": 0.37481012658227847,
+              "hit_rate": 0.31645569620253167
+            },
+            "STRONG_VALUE_DRAW": {
+              "n": 70,
+              "won": 16,
+              "pnl": 12.05,
+              "staked": 70.0,
+              "roi": 0.17214285714285715,
+              "hit_rate": 0.22857142857142856
+            }
+          },
+          "n_matches_total": 380,
+          "market": "DRAW",
+          "min_edge_pp": 3.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        "odds_type": "OPENING"
+      },
+      "la_liga": {
+        "available": true,
+        "n_matches": 380,
+        "n_picks": 59,
+        "metrics": {
+          "n_bets": 59,
+          "n_won": 5,
+          "n_lost": 54,
+          "hit_rate": 0.0847,
+          "total_staked": 59.0,
+          "total_returned": 24.0,
+          "net_pnl": -35.0,
+          "roi": -0.5932,
+          "yield_per_bet": -0.5932,
+          "max_drawdown": 34.0,
+          "sharpe_like": -3.367,
+          "avg_edge_predicted_pp": 8.708,
+          "avg_edge_realised_pp": -9.71,
+          "roi_ci_lo": -0.9153,
+          "roi_ci_hi": -0.2288,
+          "roi_ci_low": -0.9153,
+          "roi_ci_high": -0.2288,
+          "is_significant": true,
+          "is_roi_significant": false,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 52,
+              "predicted_avg": 0.2633,
+              "actual_avg": 0.0962
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 7,
+              "predicted_avg": 0.311,
+              "actual_avg": 0.0
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "MISCALIBRATED",
+          "small_sample_flag": false,
+          "small_sample_threshold": 50,
+          "small_sample_warning": null,
+          "sample_status": "SMALL_SAMPLE_CAUTION",
+          "warnings": [
+            "SMALL_SAMPLE_CAUTION",
+            "ROI_SIGNIFICANTLY_NEGATIVE"
+          ],
+          "breakdown_by_competition": {
+            "la_liga": {
+              "n": 59,
+              "won": 5,
+              "pnl": -35.0,
+              "staked": 59.0,
+              "roi": -0.5932203389830508,
+              "hit_rate": 0.0847457627118644
+            }
+          },
+          "breakdown_by_edge_bucket": {
+            "6-10pp": {
+              "n": 21,
+              "won": 3,
+              "pnl": -6.0,
+              "staked": 21.0,
+              "roi": -0.2857142857142857,
+              "hit_rate": 0.14285714285714285
+            },
+            "4-6pp": {
+              "n": 17,
+              "won": 2,
+              "pnl": -8.0,
+              "staked": 17.0,
+              "roi": -0.47058823529411764,
+              "hit_rate": 0.11764705882352941
+            },
+            "10-15pp": {
+              "n": 18,
+              "won": 0,
+              "pnl": -18.0,
+              "staked": 18.0,
+              "roi": -1.0,
+              "hit_rate": 0.0
+            },
+            "15pp+": {
+              "n": 3,
+              "won": 0,
+              "pnl": -3.0,
+              "staked": 3.0,
+              "roi": -1.0,
+              "hit_rate": 0.0
+            }
+          },
+          "breakdown_by_tier": {
+            "VALUE_DRAW_CANDIDATE": {
+              "n": 28,
+              "won": 4,
+              "pnl": -9.5,
+              "staked": 28.0,
+              "roi": -0.3392857142857143,
+              "hit_rate": 0.14285714285714285
+            },
+            "STRONG_VALUE_DRAW": {
+              "n": 31,
+              "won": 1,
+              "pnl": -25.5,
+              "staked": 31.0,
+              "roi": -0.8225806451612904,
+              "hit_rate": 0.03225806451612903
+            }
+          },
+          "n_matches_total": 380,
+          "market": "DRAW",
+          "min_edge_pp": 3.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        "odds_type": "OPENING"
+      },
+      "serie_a": {
+        "available": true,
+        "n_matches": 380,
+        "n_picks": 77,
+        "metrics": {
+          "n_bets": 77,
+          "n_won": 15,
+          "n_lost": 62,
+          "hit_rate": 0.1948,
+          "total_staked": 77.0,
+          "total_returned": 74.28,
+          "net_pnl": -2.72,
+          "roi": -0.0353,
+          "yield_per_bet": -0.0353,
+          "max_drawdown": 19.25,
+          "sharpe_like": -0.156,
+          "avg_edge_predicted_pp": 7.622,
+          "avg_edge_realised_pp": -1.186,
+          "roi_ci_lo": -0.45,
+          "roi_ci_hi": 0.4242,
+          "roi_ci_low": -0.45,
+          "roi_ci_high": 0.4242,
+          "is_significant": false,
+          "is_roi_significant": false,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 62,
+              "predicted_avg": 0.2741,
+              "actual_avg": 0.2258
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 15,
+              "predicted_avg": 0.3191,
+              "actual_avg": 0.0667
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "ACCEPTABLE_CALIBRATION",
+          "small_sample_flag": false,
+          "small_sample_threshold": 50,
+          "small_sample_warning": null,
+          "sample_status": "SMALL_SAMPLE_CAUTION",
+          "warnings": [
+            "SMALL_SAMPLE_CAUTION",
+            "ROI_NOT_STATISTICALLY_SIGNIFICANT"
+          ],
+          "breakdown_by_competition": {
+            "serie_a": {
+              "n": 77,
+              "won": 15,
+              "pnl": -2.7199999999999998,
+              "staked": 77.0,
+              "roi": -0.03532467532467532,
+              "hit_rate": 0.19480519480519481
+            }
+          },
+          "breakdown_by_edge_bucket": {
+            "10-15pp": {
+              "n": 13,
+              "won": 3,
+              "pnl": 4.5,
+              "staked": 13.0,
+              "roi": 0.34615384615384615,
+              "hit_rate": 0.23076923076923078
+            },
+            "4-6pp": {
+              "n": 27,
+              "won": 6,
+              "pnl": -0.46999999999999975,
+              "staked": 27.0,
+              "roi": -0.0174074074074074,
+              "hit_rate": 0.2222222222222222
+            },
+            "6-10pp": {
+              "n": 36,
+              "won": 6,
+              "pnl": -5.75,
+              "staked": 36.0,
+              "roi": -0.1597222222222222,
+              "hit_rate": 0.16666666666666666
+            },
+            "15pp+": {
+              "n": 1,
+              "won": 0,
+              "pnl": -1.0,
+              "staked": 1.0,
+              "roi": -1.0,
+              "hit_rate": 0.0
+            }
+          },
+          "breakdown_by_tier": {
+            "STRONG_VALUE_DRAW": {
+              "n": 33,
+              "won": 6,
+              "pnl": -0.25,
+              "staked": 33.0,
+              "roi": -0.007575757575757576,
+              "hit_rate": 0.18181818181818182
+            },
+            "VALUE_DRAW_CANDIDATE": {
+              "n": 44,
+              "won": 9,
+              "pnl": -2.4699999999999998,
+              "staked": 44.0,
+              "roi": -0.05613636363636363,
+              "hit_rate": 0.20454545454545456
+            }
+          },
+          "n_matches_total": 380,
+          "market": "DRAW",
+          "min_edge_pp": 3.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        "odds_type": "OPENING"
+      },
+      "bundesliga": {
+        "available": true,
+        "n_matches": 306,
+        "n_picks": 75,
+        "metrics": {
+          "n_bets": 75,
+          "n_won": 15,
+          "n_lost": 60,
+          "hit_rate": 0.2,
+          "total_staked": 75.0,
+          "total_returned": 78.72,
+          "net_pnl": 3.72,
+          "roi": 0.0496,
+          "yield_per_bet": 0.0496,
+          "max_drawdown": 15.67,
+          "sharpe_like": 0.191,
+          "avg_edge_predicted_pp": 8.563,
+          "avg_edge_realised_pp": 1.169,
+          "roi_ci_lo": -0.4092,
+          "roi_ci_hi": 0.5773,
+          "roi_ci_low": -0.4092,
+          "roi_ci_high": 0.5773,
+          "is_significant": false,
+          "is_roi_significant": false,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 59,
+              "predicted_avg": 0.2601,
+              "actual_avg": 0.1864
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 16,
+              "predicted_avg": 0.3251,
+              "actual_avg": 0.25
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "ACCEPTABLE_CALIBRATION",
+          "small_sample_flag": false,
+          "small_sample_threshold": 50,
+          "small_sample_warning": null,
+          "sample_status": "SMALL_SAMPLE_CAUTION",
+          "warnings": [
+            "SMALL_SAMPLE_CAUTION",
+            "ROI_NOT_STATISTICALLY_SIGNIFICANT"
+          ],
+          "breakdown_by_competition": {
+            "bundesliga": {
+              "n": 75,
+              "won": 15,
+              "pnl": 3.7200000000000006,
+              "staked": 75.0,
+              "roi": 0.049600000000000005,
+              "hit_rate": 0.2
+            }
+          },
+          "breakdown_by_edge_bucket": {
+            "4-6pp": {
+              "n": 29,
+              "won": 7,
+              "pnl": 1.6400000000000006,
+              "staked": 29.0,
+              "roi": 0.05655172413793105,
+              "hit_rate": 0.2413793103448276
+            },
+            "6-10pp": {
+              "n": 22,
+              "won": 4,
+              "pnl": -1.92,
+              "staked": 22.0,
+              "roi": -0.08727272727272727,
+              "hit_rate": 0.18181818181818182
+            },
+            "10-15pp": {
+              "n": 16,
+              "won": 2,
+              "pnl": -5.0,
+              "staked": 16.0,
+              "roi": -0.3125,
+              "hit_rate": 0.125
+            },
+            "15pp+": {
+              "n": 8,
+              "won": 2,
+              "pnl": 9.0,
+              "staked": 8.0,
+              "roi": 1.125,
+              "hit_rate": 0.25
+            }
+          },
+          "breakdown_by_tier": {
+            "VALUE_DRAW_CANDIDATE": {
+              "n": 43,
+              "won": 11,
+              "pnl": 7.720000000000001,
+              "staked": 43.0,
+              "roi": 0.17953488372093024,
+              "hit_rate": 0.2558139534883721
+            },
+            "STRONG_VALUE_DRAW": {
+              "n": 32,
+              "won": 4,
+              "pnl": -4.0,
+              "staked": 32.0,
+              "roi": -0.125,
+              "hit_rate": 0.125
+            }
+          },
+          "n_matches_total": 306,
+          "market": "DRAW",
+          "min_edge_pp": 3.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        "odds_type": "OPENING"
+      },
+      "ligue_1": {
+        "available": true,
+        "n_matches": 306,
+        "n_picks": 59,
+        "metrics": {
+          "n_bets": 59,
+          "n_won": 9,
+          "n_lost": 50,
+          "hit_rate": 0.1525,
+          "total_staked": 59.0,
+          "total_returned": 45.55,
+          "net_pnl": -13.45,
+          "roi": -0.228,
+          "yield_per_bet": -0.228,
+          "max_drawdown": 22.5,
+          "sharpe_like": -0.923,
+          "avg_edge_predicted_pp": 7.866,
+          "avg_edge_realised_pp": -4.736,
+          "roi_ci_lo": -0.661,
+          "roi_ci_hi": 0.2898,
+          "roi_ci_low": -0.661,
+          "roi_ci_high": 0.2898,
+          "is_significant": false,
+          "is_roi_significant": false,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 36,
+              "predicted_avg": 0.2548,
+              "actual_avg": 0.1111
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 23,
+              "predicted_avg": 0.3157,
+              "actual_avg": 0.2174
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "MISCALIBRATED",
+          "small_sample_flag": false,
+          "small_sample_threshold": 50,
+          "small_sample_warning": null,
+          "sample_status": "SMALL_SAMPLE_CAUTION",
+          "warnings": [
+            "SMALL_SAMPLE_CAUTION",
+            "ROI_NOT_STATISTICALLY_SIGNIFICANT"
+          ],
+          "breakdown_by_competition": {
+            "ligue_1": {
+              "n": 59,
+              "won": 9,
+              "pnl": -13.45,
+              "staked": 59.0,
+              "roi": -0.22796610169491524,
+              "hit_rate": 0.15254237288135594
+            }
+          },
+          "breakdown_by_edge_bucket": {
+            "4-6pp": {
+              "n": 23,
+              "won": 2,
+              "pnl": -15.45,
+              "staked": 23.0,
+              "roi": -0.6717391304347826,
+              "hit_rate": 0.08695652173913043
+            },
+            "6-10pp": {
+              "n": 19,
+              "won": 4,
+              "pnl": -0.5,
+              "staked": 19.0,
+              "roi": -0.02631578947368421,
+              "hit_rate": 0.21052631578947367
+            },
+            "10-15pp": {
+              "n": 15,
+              "won": 3,
+              "pnl": 4.5,
+              "staked": 15.0,
+              "roi": 0.3,
+              "hit_rate": 0.2
+            },
+            "15pp+": {
+              "n": 2,
+              "won": 0,
+              "pnl": -2.0,
+              "staked": 2.0,
+              "roi": -1.0,
+              "hit_rate": 0.0
+            }
+          },
+          "breakdown_by_tier": {
+            "VALUE_DRAW_CANDIDATE": {
+              "n": 38,
+              "won": 6,
+              "pnl": -11.95,
+              "staked": 38.0,
+              "roi": -0.3144736842105263,
+              "hit_rate": 0.15789473684210525
+            },
+            "STRONG_VALUE_DRAW": {
+              "n": 21,
+              "won": 3,
+              "pnl": -1.5,
+              "staked": 21.0,
+              "roi": -0.07142857142857142,
+              "hit_rate": 0.14285714285714285
+            }
+          },
+          "n_matches_total": 306,
+          "market": "DRAW",
+          "min_edge_pp": 3.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        "odds_type": "OPENING"
+      }
+    }
+  },
+  "national_tournaments_summary": {
+    "block": "national_tournaments_summary",
+    "odds_type": "POINT_IN_TIME_PREMATCH",
+    "per_tournament": {
+      "world_cup_2022": {
+        "available": false,
+        "reason_code": "SKIPPED_BY_USER"
+      },
+      "euro_2024": {
+        "available": false,
+        "reason_code": "SKIPPED_BY_USER"
+      },
+      "copa_america_2024": {
+        "available": false,
+        "reason_code": "SKIPPED_BY_USER"
+      },
+      "copa_america_2021": {
+        "available": false,
+        "reason_code": "SKIPPED_BY_USER"
+      }
+    },
+    "credits_used": 0
+  },
+  "combined_comparison": {
+    "block": "combined_comparison",
+    "warnings": [
+      "W_ODDS_TYPE_MISMATCH"
+    ],
+    "domestic_odds_type": "OPENING",
+    "national_odds_type": "POINT_IN_TIME_PREMATCH",
+    "domestic_aggregate": {
+      "available": true,
+      "n_bets": 419,
+      "weighted_roi": -0.013815035799522656,
+      "weighted_hit_rate": 0.2028620525059666,
+      "any_significant": false,
+      "rows": [
+        {
+          "n_bets": 149,
+          "n_won": 41,
+          "n_lost": 108,
+          "hit_rate": 0.2752,
+          "total_staked": 149.0,
+          "total_returned": 190.66,
+          "net_pnl": 41.66,
+          "roi": 0.2796,
+          "yield_per_bet": 0.2796,
+          "max_drawdown": 14.99,
+          "sharpe_like": 1.592,
+          "avg_edge_predicted_pp": 9.395,
+          "avg_edge_realised_pp": 6.846,
+          "roi_ci_lo": -0.0595,
+          "roi_ci_hi": 0.6315,
+          "roi_ci_low": -0.0595,
+          "roi_ci_high": 0.6315,
+          "is_significant": false,
+          "is_roi_significant": false,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 96,
+              "predicted_avg": 0.2717,
+              "actual_avg": 0.2812
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 41,
+              "predicted_avg": 0.3295,
+              "actual_avg": 0.2439
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 12,
+              "predicted_avg": 0.4343,
+              "actual_avg": 0.3333
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "WELL_CALIBRATED",
+          "small_sample_flag": false,
+          "small_sample_threshold": 50,
+          "small_sample_warning": null,
+          "sample_status": "SMALL_SAMPLE_CAUTION",
+          "warnings": [
+            "SMALL_SAMPLE_CAUTION",
+            "ROI_NOT_STATISTICALLY_SIGNIFICANT"
+          ],
+          "breakdown_by_competition": {
+            "premier_league": {
+              "n": 149,
+              "won": 41,
+              "pnl": 41.66,
+              "staked": 149.0,
+              "roi": 0.2795973154362416,
+              "hit_rate": 0.2751677852348993
+            }
+          },
+          "breakdown_by_edge_bucket": {
+            "6-10pp": {
+              "n": 52,
+              "won": 12,
+              "pnl": 5.43,
+              "staked": 52.0,
+              "roi": 0.10442307692307692,
+              "hit_rate": 0.23076923076923078
+            },
+            "10-15pp": {
+              "n": 31,
+              "won": 8,
+              "pnl": 15.75,
+              "staked": 31.0,
+              "roi": 0.5080645161290323,
+              "hit_rate": 0.25806451612903225
+            },
+            "15pp+": {
+              "n": 22,
+              "won": 5,
+              "pnl": -2.9499999999999997,
+              "staked": 22.0,
+              "roi": -0.13409090909090907,
+              "hit_rate": 0.22727272727272727
+            },
+            "4-6pp": {
+              "n": 44,
+              "won": 16,
+              "pnl": 23.43,
+              "staked": 44.0,
+              "roi": 0.5325,
+              "hit_rate": 0.36363636363636365
+            }
+          },
+          "breakdown_by_tier": {
+            "VALUE_DRAW_CANDIDATE": {
+              "n": 79,
+              "won": 25,
+              "pnl": 29.61,
+              "staked": 79.0,
+              "roi": 0.37481012658227847,
+              "hit_rate": 0.31645569620253167
+            },
+            "STRONG_VALUE_DRAW": {
+              "n": 70,
+              "won": 16,
+              "pnl": 12.05,
+              "staked": 70.0,
+              "roi": 0.17214285714285715,
+              "hit_rate": 0.22857142857142856
+            }
+          },
+          "n_matches_total": 380,
+          "market": "DRAW",
+          "min_edge_pp": 3.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        {
+          "n_bets": 59,
+          "n_won": 5,
+          "n_lost": 54,
+          "hit_rate": 0.0847,
+          "total_staked": 59.0,
+          "total_returned": 24.0,
+          "net_pnl": -35.0,
+          "roi": -0.5932,
+          "yield_per_bet": -0.5932,
+          "max_drawdown": 34.0,
+          "sharpe_like": -3.367,
+          "avg_edge_predicted_pp": 8.708,
+          "avg_edge_realised_pp": -9.71,
+          "roi_ci_lo": -0.9153,
+          "roi_ci_hi": -0.2288,
+          "roi_ci_low": -0.9153,
+          "roi_ci_high": -0.2288,
+          "is_significant": true,
+          "is_roi_significant": false,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 52,
+              "predicted_avg": 0.2633,
+              "actual_avg": 0.0962
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 7,
+              "predicted_avg": 0.311,
+              "actual_avg": 0.0
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "MISCALIBRATED",
+          "small_sample_flag": false,
+          "small_sample_threshold": 50,
+          "small_sample_warning": null,
+          "sample_status": "SMALL_SAMPLE_CAUTION",
+          "warnings": [
+            "SMALL_SAMPLE_CAUTION",
+            "ROI_SIGNIFICANTLY_NEGATIVE"
+          ],
+          "breakdown_by_competition": {
+            "la_liga": {
+              "n": 59,
+              "won": 5,
+              "pnl": -35.0,
+              "staked": 59.0,
+              "roi": -0.5932203389830508,
+              "hit_rate": 0.0847457627118644
+            }
+          },
+          "breakdown_by_edge_bucket": {
+            "6-10pp": {
+              "n": 21,
+              "won": 3,
+              "pnl": -6.0,
+              "staked": 21.0,
+              "roi": -0.2857142857142857,
+              "hit_rate": 0.14285714285714285
+            },
+            "4-6pp": {
+              "n": 17,
+              "won": 2,
+              "pnl": -8.0,
+              "staked": 17.0,
+              "roi": -0.47058823529411764,
+              "hit_rate": 0.11764705882352941
+            },
+            "10-15pp": {
+              "n": 18,
+              "won": 0,
+              "pnl": -18.0,
+              "staked": 18.0,
+              "roi": -1.0,
+              "hit_rate": 0.0
+            },
+            "15pp+": {
+              "n": 3,
+              "won": 0,
+              "pnl": -3.0,
+              "staked": 3.0,
+              "roi": -1.0,
+              "hit_rate": 0.0
+            }
+          },
+          "breakdown_by_tier": {
+            "VALUE_DRAW_CANDIDATE": {
+              "n": 28,
+              "won": 4,
+              "pnl": -9.5,
+              "staked": 28.0,
+              "roi": -0.3392857142857143,
+              "hit_rate": 0.14285714285714285
+            },
+            "STRONG_VALUE_DRAW": {
+              "n": 31,
+              "won": 1,
+              "pnl": -25.5,
+              "staked": 31.0,
+              "roi": -0.8225806451612904,
+              "hit_rate": 0.03225806451612903
+            }
+          },
+          "n_matches_total": 380,
+          "market": "DRAW",
+          "min_edge_pp": 3.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        {
+          "n_bets": 77,
+          "n_won": 15,
+          "n_lost": 62,
+          "hit_rate": 0.1948,
+          "total_staked": 77.0,
+          "total_returned": 74.28,
+          "net_pnl": -2.72,
+          "roi": -0.0353,
+          "yield_per_bet": -0.0353,
+          "max_drawdown": 19.25,
+          "sharpe_like": -0.156,
+          "avg_edge_predicted_pp": 7.622,
+          "avg_edge_realised_pp": -1.186,
+          "roi_ci_lo": -0.45,
+          "roi_ci_hi": 0.4242,
+          "roi_ci_low": -0.45,
+          "roi_ci_high": 0.4242,
+          "is_significant": false,
+          "is_roi_significant": false,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 62,
+              "predicted_avg": 0.2741,
+              "actual_avg": 0.2258
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 15,
+              "predicted_avg": 0.3191,
+              "actual_avg": 0.0667
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "ACCEPTABLE_CALIBRATION",
+          "small_sample_flag": false,
+          "small_sample_threshold": 50,
+          "small_sample_warning": null,
+          "sample_status": "SMALL_SAMPLE_CAUTION",
+          "warnings": [
+            "SMALL_SAMPLE_CAUTION",
+            "ROI_NOT_STATISTICALLY_SIGNIFICANT"
+          ],
+          "breakdown_by_competition": {
+            "serie_a": {
+              "n": 77,
+              "won": 15,
+              "pnl": -2.7199999999999998,
+              "staked": 77.0,
+              "roi": -0.03532467532467532,
+              "hit_rate": 0.19480519480519481
+            }
+          },
+          "breakdown_by_edge_bucket": {
+            "10-15pp": {
+              "n": 13,
+              "won": 3,
+              "pnl": 4.5,
+              "staked": 13.0,
+              "roi": 0.34615384615384615,
+              "hit_rate": 0.23076923076923078
+            },
+            "4-6pp": {
+              "n": 27,
+              "won": 6,
+              "pnl": -0.46999999999999975,
+              "staked": 27.0,
+              "roi": -0.0174074074074074,
+              "hit_rate": 0.2222222222222222
+            },
+            "6-10pp": {
+              "n": 36,
+              "won": 6,
+              "pnl": -5.75,
+              "staked": 36.0,
+              "roi": -0.1597222222222222,
+              "hit_rate": 0.16666666666666666
+            },
+            "15pp+": {
+              "n": 1,
+              "won": 0,
+              "pnl": -1.0,
+              "staked": 1.0,
+              "roi": -1.0,
+              "hit_rate": 0.0
+            }
+          },
+          "breakdown_by_tier": {
+            "STRONG_VALUE_DRAW": {
+              "n": 33,
+              "won": 6,
+              "pnl": -0.25,
+              "staked": 33.0,
+              "roi": -0.007575757575757576,
+              "hit_rate": 0.18181818181818182
+            },
+            "VALUE_DRAW_CANDIDATE": {
+              "n": 44,
+              "won": 9,
+              "pnl": -2.4699999999999998,
+              "staked": 44.0,
+              "roi": -0.05613636363636363,
+              "hit_rate": 0.20454545454545456
+            }
+          },
+          "n_matches_total": 380,
+          "market": "DRAW",
+          "min_edge_pp": 3.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        {
+          "n_bets": 75,
+          "n_won": 15,
+          "n_lost": 60,
+          "hit_rate": 0.2,
+          "total_staked": 75.0,
+          "total_returned": 78.72,
+          "net_pnl": 3.72,
+          "roi": 0.0496,
+          "yield_per_bet": 0.0496,
+          "max_drawdown": 15.67,
+          "sharpe_like": 0.191,
+          "avg_edge_predicted_pp": 8.563,
+          "avg_edge_realised_pp": 1.169,
+          "roi_ci_lo": -0.4092,
+          "roi_ci_hi": 0.5773,
+          "roi_ci_low": -0.4092,
+          "roi_ci_high": 0.5773,
+          "is_significant": false,
+          "is_roi_significant": false,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 59,
+              "predicted_avg": 0.2601,
+              "actual_avg": 0.1864
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 16,
+              "predicted_avg": 0.3251,
+              "actual_avg": 0.25
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "ACCEPTABLE_CALIBRATION",
+          "small_sample_flag": false,
+          "small_sample_threshold": 50,
+          "small_sample_warning": null,
+          "sample_status": "SMALL_SAMPLE_CAUTION",
+          "warnings": [
+            "SMALL_SAMPLE_CAUTION",
+            "ROI_NOT_STATISTICALLY_SIGNIFICANT"
+          ],
+          "breakdown_by_competition": {
+            "bundesliga": {
+              "n": 75,
+              "won": 15,
+              "pnl": 3.7200000000000006,
+              "staked": 75.0,
+              "roi": 0.049600000000000005,
+              "hit_rate": 0.2
+            }
+          },
+          "breakdown_by_edge_bucket": {
+            "4-6pp": {
+              "n": 29,
+              "won": 7,
+              "pnl": 1.6400000000000006,
+              "staked": 29.0,
+              "roi": 0.05655172413793105,
+              "hit_rate": 0.2413793103448276
+            },
+            "6-10pp": {
+              "n": 22,
+              "won": 4,
+              "pnl": -1.92,
+              "staked": 22.0,
+              "roi": -0.08727272727272727,
+              "hit_rate": 0.18181818181818182
+            },
+            "10-15pp": {
+              "n": 16,
+              "won": 2,
+              "pnl": -5.0,
+              "staked": 16.0,
+              "roi": -0.3125,
+              "hit_rate": 0.125
+            },
+            "15pp+": {
+              "n": 8,
+              "won": 2,
+              "pnl": 9.0,
+              "staked": 8.0,
+              "roi": 1.125,
+              "hit_rate": 0.25
+            }
+          },
+          "breakdown_by_tier": {
+            "VALUE_DRAW_CANDIDATE": {
+              "n": 43,
+              "won": 11,
+              "pnl": 7.720000000000001,
+              "staked": 43.0,
+              "roi": 0.17953488372093024,
+              "hit_rate": 0.2558139534883721
+            },
+            "STRONG_VALUE_DRAW": {
+              "n": 32,
+              "won": 4,
+              "pnl": -4.0,
+              "staked": 32.0,
+              "roi": -0.125,
+              "hit_rate": 0.125
+            }
+          },
+          "n_matches_total": 306,
+          "market": "DRAW",
+          "min_edge_pp": 3.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        {
+          "n_bets": 59,
+          "n_won": 9,
+          "n_lost": 50,
+          "hit_rate": 0.1525,
+          "total_staked": 59.0,
+          "total_returned": 45.55,
+          "net_pnl": -13.45,
+          "roi": -0.228,
+          "yield_per_bet": -0.228,
+          "max_drawdown": 22.5,
+          "sharpe_like": -0.923,
+          "avg_edge_predicted_pp": 7.866,
+          "avg_edge_realised_pp": -4.736,
+          "roi_ci_lo": -0.661,
+          "roi_ci_hi": 0.2898,
+          "roi_ci_low": -0.661,
+          "roi_ci_high": 0.2898,
+          "is_significant": false,
+          "is_roi_significant": false,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 36,
+              "predicted_avg": 0.2548,
+              "actual_avg": 0.1111
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 23,
+              "predicted_avg": 0.3157,
+              "actual_avg": 0.2174
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "MISCALIBRATED",
+          "small_sample_flag": false,
+          "small_sample_threshold": 50,
+          "small_sample_warning": null,
+          "sample_status": "SMALL_SAMPLE_CAUTION",
+          "warnings": [
+            "SMALL_SAMPLE_CAUTION",
+            "ROI_NOT_STATISTICALLY_SIGNIFICANT"
+          ],
+          "breakdown_by_competition": {
+            "ligue_1": {
+              "n": 59,
+              "won": 9,
+              "pnl": -13.45,
+              "staked": 59.0,
+              "roi": -0.22796610169491524,
+              "hit_rate": 0.15254237288135594
+            }
+          },
+          "breakdown_by_edge_bucket": {
+            "4-6pp": {
+              "n": 23,
+              "won": 2,
+              "pnl": -15.45,
+              "staked": 23.0,
+              "roi": -0.6717391304347826,
+              "hit_rate": 0.08695652173913043
+            },
+            "6-10pp": {
+              "n": 19,
+              "won": 4,
+              "pnl": -0.5,
+              "staked": 19.0,
+              "roi": -0.02631578947368421,
+              "hit_rate": 0.21052631578947367
+            },
+            "10-15pp": {
+              "n": 15,
+              "won": 3,
+              "pnl": 4.5,
+              "staked": 15.0,
+              "roi": 0.3,
+              "hit_rate": 0.2
+            },
+            "15pp+": {
+              "n": 2,
+              "won": 0,
+              "pnl": -2.0,
+              "staked": 2.0,
+              "roi": -1.0,
+              "hit_rate": 0.0
+            }
+          },
+          "breakdown_by_tier": {
+            "VALUE_DRAW_CANDIDATE": {
+              "n": 38,
+              "won": 6,
+              "pnl": -11.95,
+              "staked": 38.0,
+              "roi": -0.3144736842105263,
+              "hit_rate": 0.15789473684210525
+            },
+            "STRONG_VALUE_DRAW": {
+              "n": 21,
+              "won": 3,
+              "pnl": -1.5,
+              "staked": 21.0,
+              "roi": -0.07142857142857142,
+              "hit_rate": 0.14285714285714285
+            }
+          },
+          "n_matches_total": 306,
+          "market": "DRAW",
+          "min_edge_pp": 3.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        }
+      ]
+    },
+    "national_aggregate": {
+      "available": false
+    },
+    "cohort_summary": {
+      "DOMINANT_FAVORITE_DRAW_VALUE": {
+        "n": 0,
+        "won": 0,
+        "examples": [],
+        "hit_rate": null
+      },
+      "TOURNAMENT_GROUP_STAGE_DRAW_VALUE": {
+        "n": 0,
+        "won": 0,
+        "examples": [],
+        "hit_rate": null
+      },
+      "LOW_GOAL_UNDERDOG_BLOCK": {
+        "n": 0,
+        "won": 0,
+        "examples": [],
+        "hit_rate": null
+      },
+      "TAIL_EDGE_OVERCONFIDENCE_15PP_PLUS": {
+        "n": 36,
+        "won": 7,
+        "examples": [
+          {
+            "date": "2024-09-14T00:00:00",
+            "home": "Man City",
+            "away": "Brentford",
+            "competition": "premier_league",
+            "predicted_prob": 0.29,
+            "market_prob": 0.125,
+            "edge_pp": 16.5,
+            "hit": false,
+            "actual_score": "2-1",
+            "label": "STRONG_VALUE_DRAW",
+            "odd_draw": 8.0,
+            "is_group_stage": null,
+            "tournament_context_score": null
+          },
+          {
+            "date": "2024-09-21T00:00:00",
+            "home": "Liverpool",
+            "away": "Bournemouth",
+            "competition": "premier_league",
+            "predicted_prob": 0.318,
+            "market_prob": 0.16,
+            "edge_pp": 15.8,
+            "hit": false,
+            "actual_score": "3-0",
+            "label": "STRONG_VALUE_DRAW",
+            "odd_draw": 6.25,
+            "is_group_stage": null,
+            "tournament_context_score": null
+          },
+          {
+            "date": "2024-09-28T00:00:00",
+            "home": "Arsenal",
+            "away": "Leicester",
+            "competition": "premier_league",
+            "predicted_prob": 0.313,
+            "market_prob": 0.125,
+            "edge_pp": 18.8,
+            "hit": false,
+            "actual_score": "4-2",
+            "label": "STRONG_VALUE_DRAW",
+            "odd_draw": 8.0,
+            "is_group_stage": null,
+            "tournament_context_score": null
+          },
+          {
+            "date": "2024-09-28T00:00:00",
+            "home": "Wolves",
+            "away": "Liverpool",
+            "competition": "premier_league",
+            "predicted_prob": 0.397,
+            "market_prob": 0.174,
+            "edge_pp": 22.3,
+            "hit": false,
+            "actual_score": "1-2",
+            "label": "STRONG_VALUE_DRAW",
+            "odd_draw": 5.75,
+            "is_group_stage": null,
+            "tournament_context_score": null
+          },
+          {
+            "date": "2024-10-05T00:00:00",
+            "home": "Crystal Palace",
+            "away": "Liverpool",
+            "competition": "premier_league",
+            "predicted_prob": 0.402,
+            "market_prob": 0.222,
+            "edge_pp": 18.1,
+            "hit": false,
+            "actual_score": "0-1",
+            "label": "STRONG_VALUE_DRAW",
+            "odd_draw": 4.5,
+            "is_group_stage": null,
+            "tournament_context_score": null
+          }
+        ],
+        "hit_rate": 0.1944
+      }
+    },
+    "spain_capeverde_pattern": {
+      "n": 0,
+      "ci_low": null,
+      "status": "PATTERN_NOT_YET_PROVEN_INSUFFICIENT_SAMPLE"
+    },
+    "verdict": {
+      "hypothesis": "draw_potential_better_in_selections",
+      "status": "INSUFFICIENT_TO_AFFIRM",
+      "rationale": [
+        "No bloque alcanz\u00f3 significancia clara"
+      ]
+    }
+  },
+  "observe_only": true
+}
