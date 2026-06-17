@@ -1,14 +1,14 @@
 [
   {
-    "content": "Sprint D6 — Engine + 12 tests + criterio anti-no-op verificado + 0 regresiones",
+    "content": "D7.1-4 — Cliente + orquestador + tests (9 passed)",
     "status": "completed"
   },
   {
-    "content": "Fix 2 — MarketComparatorPanel integrado en card del match + compila limpio",
-    "status": "completed"
+    "content": "D7.5 — Verificar dry-run con MAX_CREDITS=10 (sanity)",
+    "status": "in_progress"
   },
   {
-    "content": "Suite backend 3614 passed + frontend esbuild OK + plan.md actualizado",
-    "status": "completed"
+    "content": "D7.6 — Confirmar con usuario antes de gastar 3000 créditos",
+    "status": "pending"
   }
 ]

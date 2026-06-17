@@ -1,0 +1,1104 @@
+{
+  "generated_at": "2026-06-17T20:27:08.570568+00:00",
+  "max_credits_per_run": 3000,
+  "credits_used": 3008,
+  "domestic_leagues_summary": {
+    "block": "domestic_leagues_summary",
+    "odds_type": "OPENING",
+    "per_league": {
+      "premier_league": {
+        "available": true,
+        "n_matches": 0,
+        "n_picks": 0,
+        "metrics": {
+          "n_bets": 0,
+          "n_won": 0,
+          "n_lost": 0,
+          "hit_rate": null,
+          "total_staked": 0,
+          "total_returned": 0,
+          "net_pnl": 0,
+          "roi": null,
+          "yield_per_bet": null,
+          "max_drawdown": 0.0,
+          "sharpe_like": null,
+          "avg_edge_predicted_pp": null,
+          "avg_edge_realised_pp": null,
+          "roi_ci_lo": null,
+          "roi_ci_hi": null,
+          "roi_ci_low": null,
+          "roi_ci_high": null,
+          "is_significant": null,
+          "is_roi_significant": null,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "INSUFFICIENT_CALIBRATION_DATA",
+          "small_sample_flag": true,
+          "small_sample_threshold": 50,
+          "small_sample_warning": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "sample_status": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "warnings": [
+            "INSUFFICIENT_SAMPLE_DO_NOT_TRUST"
+          ],
+          "breakdown_by_competition": {},
+          "breakdown_by_edge_bucket": {},
+          "breakdown_by_tier": {},
+          "n_matches_total": 0,
+          "market": "DRAW",
+          "min_edge_pp": 4.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        "odds_type": "OPENING"
+      },
+      "la_liga": {
+        "available": true,
+        "n_matches": 0,
+        "n_picks": 0,
+        "metrics": {
+          "n_bets": 0,
+          "n_won": 0,
+          "n_lost": 0,
+          "hit_rate": null,
+          "total_staked": 0,
+          "total_returned": 0,
+          "net_pnl": 0,
+          "roi": null,
+          "yield_per_bet": null,
+          "max_drawdown": 0.0,
+          "sharpe_like": null,
+          "avg_edge_predicted_pp": null,
+          "avg_edge_realised_pp": null,
+          "roi_ci_lo": null,
+          "roi_ci_hi": null,
+          "roi_ci_low": null,
+          "roi_ci_high": null,
+          "is_significant": null,
+          "is_roi_significant": null,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "INSUFFICIENT_CALIBRATION_DATA",
+          "small_sample_flag": true,
+          "small_sample_threshold": 50,
+          "small_sample_warning": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "sample_status": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "warnings": [
+            "INSUFFICIENT_SAMPLE_DO_NOT_TRUST"
+          ],
+          "breakdown_by_competition": {},
+          "breakdown_by_edge_bucket": {},
+          "breakdown_by_tier": {},
+          "n_matches_total": 0,
+          "market": "DRAW",
+          "min_edge_pp": 4.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        "odds_type": "OPENING"
+      },
+      "serie_a": {
+        "available": true,
+        "n_matches": 0,
+        "n_picks": 0,
+        "metrics": {
+          "n_bets": 0,
+          "n_won": 0,
+          "n_lost": 0,
+          "hit_rate": null,
+          "total_staked": 0,
+          "total_returned": 0,
+          "net_pnl": 0,
+          "roi": null,
+          "yield_per_bet": null,
+          "max_drawdown": 0.0,
+          "sharpe_like": null,
+          "avg_edge_predicted_pp": null,
+          "avg_edge_realised_pp": null,
+          "roi_ci_lo": null,
+          "roi_ci_hi": null,
+          "roi_ci_low": null,
+          "roi_ci_high": null,
+          "is_significant": null,
+          "is_roi_significant": null,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "INSUFFICIENT_CALIBRATION_DATA",
+          "small_sample_flag": true,
+          "small_sample_threshold": 50,
+          "small_sample_warning": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "sample_status": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "warnings": [
+            "INSUFFICIENT_SAMPLE_DO_NOT_TRUST"
+          ],
+          "breakdown_by_competition": {},
+          "breakdown_by_edge_bucket": {},
+          "breakdown_by_tier": {},
+          "n_matches_total": 0,
+          "market": "DRAW",
+          "min_edge_pp": 4.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        "odds_type": "OPENING"
+      },
+      "bundesliga": {
+        "available": true,
+        "n_matches": 0,
+        "n_picks": 0,
+        "metrics": {
+          "n_bets": 0,
+          "n_won": 0,
+          "n_lost": 0,
+          "hit_rate": null,
+          "total_staked": 0,
+          "total_returned": 0,
+          "net_pnl": 0,
+          "roi": null,
+          "yield_per_bet": null,
+          "max_drawdown": 0.0,
+          "sharpe_like": null,
+          "avg_edge_predicted_pp": null,
+          "avg_edge_realised_pp": null,
+          "roi_ci_lo": null,
+          "roi_ci_hi": null,
+          "roi_ci_low": null,
+          "roi_ci_high": null,
+          "is_significant": null,
+          "is_roi_significant": null,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "INSUFFICIENT_CALIBRATION_DATA",
+          "small_sample_flag": true,
+          "small_sample_threshold": 50,
+          "small_sample_warning": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "sample_status": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "warnings": [
+            "INSUFFICIENT_SAMPLE_DO_NOT_TRUST"
+          ],
+          "breakdown_by_competition": {},
+          "breakdown_by_edge_bucket": {},
+          "breakdown_by_tier": {},
+          "n_matches_total": 0,
+          "market": "DRAW",
+          "min_edge_pp": 4.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        "odds_type": "OPENING"
+      },
+      "ligue_1": {
+        "available": true,
+        "n_matches": 0,
+        "n_picks": 0,
+        "metrics": {
+          "n_bets": 0,
+          "n_won": 0,
+          "n_lost": 0,
+          "hit_rate": null,
+          "total_staked": 0,
+          "total_returned": 0,
+          "net_pnl": 0,
+          "roi": null,
+          "yield_per_bet": null,
+          "max_drawdown": 0.0,
+          "sharpe_like": null,
+          "avg_edge_predicted_pp": null,
+          "avg_edge_realised_pp": null,
+          "roi_ci_lo": null,
+          "roi_ci_hi": null,
+          "roi_ci_low": null,
+          "roi_ci_high": null,
+          "is_significant": null,
+          "is_roi_significant": null,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "INSUFFICIENT_CALIBRATION_DATA",
+          "small_sample_flag": true,
+          "small_sample_threshold": 50,
+          "small_sample_warning": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "sample_status": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "warnings": [
+            "INSUFFICIENT_SAMPLE_DO_NOT_TRUST"
+          ],
+          "breakdown_by_competition": {},
+          "breakdown_by_edge_bucket": {},
+          "breakdown_by_tier": {},
+          "n_matches_total": 0,
+          "market": "DRAW",
+          "min_edge_pp": 4.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        "odds_type": "OPENING"
+      }
+    }
+  },
+  "national_tournaments_summary": {
+    "block": "national_tournaments_summary",
+    "odds_type": "POINT_IN_TIME_PREMATCH",
+    "per_tournament": {
+      "world_cup_2022": {
+        "available": false,
+        "reason_code": "GROUND_TRUTH_MISSING"
+      },
+      "euro_2024": {
+        "available": false,
+        "reason_code": "UNAVAILABLE_NO_COVERAGE",
+        "credits_used": 0,
+        "aborted": true
+      },
+      "copa_america_2024": {
+        "available": false,
+        "reason_code": "UNAVAILABLE_NO_COVERAGE",
+        "credits_used": 0,
+        "aborted": true
+      },
+      "copa_america_2021": {
+        "available": false,
+        "reason_code": "UNAVAILABLE_NO_COVERAGE",
+        "credits_used": 0,
+        "aborted": true
+      }
+    },
+    "credits_used": 3008
+  },
+  "combined_comparison": {
+    "block": "combined_comparison",
+    "warnings": [
+      "W_ODDS_TYPE_MISMATCH"
+    ],
+    "domestic_odds_type": "OPENING",
+    "national_odds_type": "POINT_IN_TIME_PREMATCH",
+    "domestic_aggregate": {
+      "available": true,
+      "n_bets": 0,
+      "weighted_roi": null,
+      "weighted_hit_rate": null,
+      "any_significant": false,
+      "rows": [
+        {
+          "n_bets": 0,
+          "n_won": 0,
+          "n_lost": 0,
+          "hit_rate": null,
+          "total_staked": 0,
+          "total_returned": 0,
+          "net_pnl": 0,
+          "roi": null,
+          "yield_per_bet": null,
+          "max_drawdown": 0.0,
+          "sharpe_like": null,
+          "avg_edge_predicted_pp": null,
+          "avg_edge_realised_pp": null,
+          "roi_ci_lo": null,
+          "roi_ci_hi": null,
+          "roi_ci_low": null,
+          "roi_ci_high": null,
+          "is_significant": null,
+          "is_roi_significant": null,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "INSUFFICIENT_CALIBRATION_DATA",
+          "small_sample_flag": true,
+          "small_sample_threshold": 50,
+          "small_sample_warning": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "sample_status": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "warnings": [
+            "INSUFFICIENT_SAMPLE_DO_NOT_TRUST"
+          ],
+          "breakdown_by_competition": {},
+          "breakdown_by_edge_bucket": {},
+          "breakdown_by_tier": {},
+          "n_matches_total": 0,
+          "market": "DRAW",
+          "min_edge_pp": 4.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        {
+          "n_bets": 0,
+          "n_won": 0,
+          "n_lost": 0,
+          "hit_rate": null,
+          "total_staked": 0,
+          "total_returned": 0,
+          "net_pnl": 0,
+          "roi": null,
+          "yield_per_bet": null,
+          "max_drawdown": 0.0,
+          "sharpe_like": null,
+          "avg_edge_predicted_pp": null,
+          "avg_edge_realised_pp": null,
+          "roi_ci_lo": null,
+          "roi_ci_hi": null,
+          "roi_ci_low": null,
+          "roi_ci_high": null,
+          "is_significant": null,
+          "is_roi_significant": null,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "INSUFFICIENT_CALIBRATION_DATA",
+          "small_sample_flag": true,
+          "small_sample_threshold": 50,
+          "small_sample_warning": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "sample_status": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "warnings": [
+            "INSUFFICIENT_SAMPLE_DO_NOT_TRUST"
+          ],
+          "breakdown_by_competition": {},
+          "breakdown_by_edge_bucket": {},
+          "breakdown_by_tier": {},
+          "n_matches_total": 0,
+          "market": "DRAW",
+          "min_edge_pp": 4.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        {
+          "n_bets": 0,
+          "n_won": 0,
+          "n_lost": 0,
+          "hit_rate": null,
+          "total_staked": 0,
+          "total_returned": 0,
+          "net_pnl": 0,
+          "roi": null,
+          "yield_per_bet": null,
+          "max_drawdown": 0.0,
+          "sharpe_like": null,
+          "avg_edge_predicted_pp": null,
+          "avg_edge_realised_pp": null,
+          "roi_ci_lo": null,
+          "roi_ci_hi": null,
+          "roi_ci_low": null,
+          "roi_ci_high": null,
+          "is_significant": null,
+          "is_roi_significant": null,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "INSUFFICIENT_CALIBRATION_DATA",
+          "small_sample_flag": true,
+          "small_sample_threshold": 50,
+          "small_sample_warning": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "sample_status": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "warnings": [
+            "INSUFFICIENT_SAMPLE_DO_NOT_TRUST"
+          ],
+          "breakdown_by_competition": {},
+          "breakdown_by_edge_bucket": {},
+          "breakdown_by_tier": {},
+          "n_matches_total": 0,
+          "market": "DRAW",
+          "min_edge_pp": 4.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        {
+          "n_bets": 0,
+          "n_won": 0,
+          "n_lost": 0,
+          "hit_rate": null,
+          "total_staked": 0,
+          "total_returned": 0,
+          "net_pnl": 0,
+          "roi": null,
+          "yield_per_bet": null,
+          "max_drawdown": 0.0,
+          "sharpe_like": null,
+          "avg_edge_predicted_pp": null,
+          "avg_edge_realised_pp": null,
+          "roi_ci_lo": null,
+          "roi_ci_hi": null,
+          "roi_ci_low": null,
+          "roi_ci_high": null,
+          "is_significant": null,
+          "is_roi_significant": null,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "INSUFFICIENT_CALIBRATION_DATA",
+          "small_sample_flag": true,
+          "small_sample_threshold": 50,
+          "small_sample_warning": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "sample_status": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "warnings": [
+            "INSUFFICIENT_SAMPLE_DO_NOT_TRUST"
+          ],
+          "breakdown_by_competition": {},
+          "breakdown_by_edge_bucket": {},
+          "breakdown_by_tier": {},
+          "n_matches_total": 0,
+          "market": "DRAW",
+          "min_edge_pp": 4.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        },
+        {
+          "n_bets": 0,
+          "n_won": 0,
+          "n_lost": 0,
+          "hit_rate": null,
+          "total_staked": 0,
+          "total_returned": 0,
+          "net_pnl": 0,
+          "roi": null,
+          "yield_per_bet": null,
+          "max_drawdown": 0.0,
+          "sharpe_like": null,
+          "avg_edge_predicted_pp": null,
+          "avg_edge_realised_pp": null,
+          "roi_ci_lo": null,
+          "roi_ci_hi": null,
+          "roi_ci_low": null,
+          "roi_ci_high": null,
+          "is_significant": null,
+          "is_roi_significant": null,
+          "reliability_curve": [
+            {
+              "bucket": "[0.00,0.10)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.10,0.20)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.20,0.30)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.30,0.40)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.40,0.50)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.50,0.60)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.60,0.70)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.70,0.80)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.80,0.90)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            },
+            {
+              "bucket": "[0.90,1.00)",
+              "n": 0,
+              "predicted_avg": null,
+              "actual_avg": null
+            }
+          ],
+          "calibration_label": "INSUFFICIENT_CALIBRATION_DATA",
+          "small_sample_flag": true,
+          "small_sample_threshold": 50,
+          "small_sample_warning": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "sample_status": "INSUFFICIENT_SAMPLE_DO_NOT_TRUST",
+          "warnings": [
+            "INSUFFICIENT_SAMPLE_DO_NOT_TRUST"
+          ],
+          "breakdown_by_competition": {},
+          "breakdown_by_edge_bucket": {},
+          "breakdown_by_tier": {},
+          "n_matches_total": 0,
+          "market": "DRAW",
+          "min_edge_pp": 4.0,
+          "stake_mode": "flat",
+          "use_calibration": true,
+          "walk_forward": true
+        }
+      ]
+    },
+    "national_aggregate": {
+      "available": false
+    },
+    "cohort_summary": {},
+    "spain_capeverde_pattern": {
+      "n": 0,
+      "ci_low": null,
+      "status": "PATTERN_NOT_YET_PROVEN_INSUFFICIENT_SAMPLE"
+    },
+    "verdict": {
+      "hypothesis": "draw_potential_better_in_selections",
+      "status": "INSUFFICIENT_TO_AFFIRM",
+      "rationale": [
+        "No bloque alcanz\u00f3 significancia clara"
+      ]
+    }
+  },
+  "observe_only": true
+}
