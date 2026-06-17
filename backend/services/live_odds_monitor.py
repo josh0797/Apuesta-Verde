@@ -654,6 +654,25 @@ async def run_cycle(
         report["snapshots_written"] = written
         _status["snapshots_written"] = (_status.get("snapshots_written") or 0) + written
         _status["mappings_resolved"] = (_status.get("mappings_resolved") or 0) + len(resolved)
+
+        # 5.b) Sprint E.2 — run the value detector on the freshly
+        #      written snapshots. Pure analytical layer, fail-soft.
+        if snapshots_to_write:
+            try:
+                from . import odds_value_detector as ovd
+                from . import odds_alerts as oa
+                detection = ovd.detect_all_signals(
+                    snapshots=snapshots_to_write,
+                )
+                if detection["signals"]:
+                    await oa.persist_signals(db, signals=detection["signals"])
+                    report["signals_detected"] = len(detection["signals"])
+                else:
+                    report["signals_detected"] = 0
+            except Exception as exc:  # noqa: BLE001
+                log.warning("odds value detector pass failed: %s", exc)
+                report["signals_detected"] = -1
+
         report["finished_at"] = datetime.now(timezone.utc).isoformat()
         _status["last_cycle"] = report
         log.info(

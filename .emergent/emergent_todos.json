@@ -1,26 +1,18 @@
 [
   {
-    "content": "E.1.1.a — services/market_identity_resolver.py",
+    "content": "Hook automático + 365Scores Trends + reemplazo orquestrador + tests",
     "status": "completed"
   },
   {
-    "content": "E.1.1.b — Índices market_identity_resolutions",
+    "content": "Sprint E.2 backend (detector + alerts + persistencia + endpoints + scheduler wire)",
     "status": "completed"
   },
   {
-    "content": "E.1.1.c — Endpoints REST (resolve + history)",
+    "content": "UI: Botón Resolver + render AMBIGUOUS + Panel alertas + ruta /odds-alerts + tab Alertas",
     "status": "completed"
   },
   {
-    "content": "E.1.1.e — Tests (28 passed)",
-    "status": "completed"
-  },
-  {
-    "content": "E.1.1.g — Suite pytest: 3554 passed, 0 regresiones",
-    "status": "completed"
-  },
-  {
-    "content": "E.1.1.h — Plan.md actualizado",
+    "content": "Pytest 3602 passed (0 regresiones) + frontend esbuild OK + plan.md actualizado",
     "status": "completed"
   }
 ]

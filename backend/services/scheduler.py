@@ -513,6 +513,16 @@ def start_scheduler(db) -> None:
         live_odds_monitor.register_jobs(sch, db)
     except Exception as exc:  # noqa: BLE001
         log.warning("Sprint E.1 live odds monitor not wired: %s", exc)
+    # Sprint E.1.1-d — Market Identity Auto-Resolver.
+    # Every ``IDENTITY_RESOLVER_INTERVAL_SECONDS`` scans the visible
+    # universe for matches stuck in ``REQUIRES_MARKET_IDENTIFICATION``
+    # and dispatches them to ``market_identity_resolver`` via The Odds
+    # API. observe_only / fail-soft.
+    try:
+        from . import market_identity_auto_resolver as _mir_auto
+        _mir_auto.register_jobs(sch, db)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Sprint E.1.1-d auto-resolver not wired: %s", exc)
     sch.start()
     _scheduler = sch
     _status["jobs"] = {

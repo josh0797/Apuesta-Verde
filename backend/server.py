@@ -153,6 +153,21 @@ async def on_startup() -> None:
         log.info("[MARKET_IDENTITY_RESOLUTIONS] indexes ensured")
     except Exception as exc:
         log.warning("[MARKET_IDENTITY_RESOLUTIONS] index ensure failed: %s", exc)
+    # Sprint E.2 — odds_alerts indexes (audit + dedupe + filters).
+    try:
+        await db.odds_alerts.create_index(
+            [("fingerprint", 1), ("updated_at", -1)],
+        )
+        await db.odds_alerts.create_index(
+            [("match_id", 1), ("updated_at", -1)],
+        )
+        await db.odds_alerts.create_index(
+            [("signal_type", 1), ("updated_at", -1)],
+        )
+        await db.odds_alerts.create_index("alert_id", unique=True)
+        log.info("[ODDS_ALERTS] indexes ensured")
+    except Exception as exc:
+        log.warning("[ODDS_ALERTS] index ensure failed: %s", exc)
     # Phase F68 — player_id_mappings TTL (90d).
     try:
         await db.player_id_mappings.create_index(
@@ -434,10 +449,15 @@ async def odds_monitor_status() -> dict:
     """
     try:
         from services import live_odds_monitor as lom
+        from services import market_identity_auto_resolver as mir_auto
         return {
             "available": True,
             "config":    lom.get_config(),
             "status":    lom.get_status(),
+            "auto_resolver": {
+                "config": mir_auto.get_config(),
+                "status": mir_auto.get_status(),
+            },
         }
     except Exception as exc:  # noqa: BLE001
         return {"available": False, "_error": str(exc)}
@@ -549,6 +569,55 @@ async def market_identity_history_endpoint(
         out.append(d)
     return {"available": True, "match_id": match_id,
             "count": len(out), "history": out}
+
+
+# ── Sprint E.2 · Odds Alerts (observe_only, read+ack) ──────────────────
+@app.get("/api/odds/alerts")
+async def list_odds_alerts_endpoint(
+    match_id: Optional[str] = None,
+    signal_type: Optional[str] = None,
+    severity: Optional[str] = None,
+    acked: Optional[bool] = None,
+    limit: int = 50,
+    since_hours: int = 24,
+) -> dict:
+    """List recent odds alerts (Sprint E.2).
+
+    Query params:
+      * ``match_id``    — filter by fixture.
+      * ``signal_type`` — ``OUTLIER`` | ``EDGE_VS_MODEL`` | ``FAST_MOVE``
+        | ``DISPERSION``.
+      * ``severity``    — ``LOW`` | ``MEDIUM`` | ``HIGH``.
+      * ``acked``       — boolean (true → only acked; false → only open).
+      * ``limit``       — default 50, hard cap 500.
+      * ``since_hours`` — default 24 (use 0 to disable the time filter).
+    """
+    try:
+        from services.odds_alerts import list_alerts
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "_error": str(exc), "alerts": []}
+    alerts = await list_alerts(
+        db, match_id=match_id, signal_type=signal_type,
+        severity=severity, acked=acked,
+        limit=limit, since_hours=since_hours,
+    )
+    return {"available": True, "count": len(alerts), "alerts": alerts}
+
+
+class AckOddsAlertRequest(BaseModel):
+    alert_id: str
+    acked_by: Optional[str] = None
+
+
+@app.post("/api/odds/alerts/ack")
+async def ack_odds_alert_endpoint(payload: AckOddsAlertRequest) -> dict:
+    """Mark one alert as acknowledged (Sprint E.2)."""
+    try:
+        from services.odds_alerts import ack_alert
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "_error": str(exc)}
+    return await ack_alert(db, alert_id=payload.alert_id,
+                            acked_by=payload.acked_by)
 
 
 @app.get("/api/football/learning-snapshot/{match_id}")

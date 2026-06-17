@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, Settings2, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { MarketIdentityResolverPanel } from '@/components/MarketIdentityResolverPanel';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -43,6 +44,29 @@ export const ManualMarketIdentityPanel = ({
   const [submitting, setSubmitting]         = useState(false);
   const [result, setResult]                 = useState(null);
   const [error, setError]                   = useState(null);
+  // Sprint E.1.1 — auto-prefill banner shown after the resolver fills
+  // the form. Pure UX hint, never blocks submit.
+  const [autoPrefill, setAutoPrefill]       = useState(null);
+
+  // Sprint E.1.1 — callback wired into ``MarketIdentityResolverPanel``.
+  // When the operator clicks "Usar este" on a resolver candidate, we
+  // prefill the manual form WITHOUT submitting — the operator still
+  // owns the final recalculation.
+  const handleApplyCandidate = useCallback((cand) => {
+    if (!cand || !cand.market || !cand.selection) return;
+    setMarketType(cand.market);
+    setSelection(cand.selection);
+    setLine(cand.line != null ? String(cand.line) : '');
+    if (cand.apiPrice != null) {
+      setManualOdd(String(cand.apiPrice));
+    }
+    setError(null);
+    setResult(null);
+    setAutoPrefill({
+      from:      'the_odds_api_v4',
+      candidate: cand,
+    });
+  }, []);
 
   // Phase F83.1 — match-scoped state via initial-value-only.
   // To prevent the FIRST card's typed odd from leaking into the SECOND
@@ -199,6 +223,30 @@ export const ManualMarketIdentityPanel = ({
         )}
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* Sprint E.1.1 — Auto-resolver vía The Odds API. Sits ABOVE the
+            manual form so the operator can try the automatic path
+            first. observe_only — never mutates picks. */}
+        {matchId && detectedOdd != null && (
+          <MarketIdentityResolverPanel
+            matchId={matchId}
+            detectedOdd={detectedOdd}
+            homeName={homeName}
+            awayName={awayName}
+            onApplyCandidate={handleApplyCandidate}
+            testIdPrefix={`${testIdPrefix}-resolver`}
+          />
+        )}
+        {autoPrefill && (
+          <div
+            className="text-[11px] text-emerald-300 flex items-center gap-2"
+            data-testid={`${testIdPrefix}-autoprefill-banner`}
+          >
+            <CheckCircle2 className="h-3 w-3" />
+            Campos pre-cargados desde The Odds API
+            ({autoPrefill.candidate?.confidence || '—'}).
+            Revisá y pulsá <span className="font-mono">Recalcular</span> para confirmar.
+          </div>
+        )}
         {candidateMarkets.length > 0 && (
           <div className="flex flex-wrap gap-1 text-[10px] text-slate-300">
             Sugeridos:

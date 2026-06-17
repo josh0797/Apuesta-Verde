@@ -306,6 +306,54 @@ async def build_external_fallback_context(match_payload: dict,
         log.warning("[F71_ORCHESTRATOR] external provider failed: %s", exc)
         out["reason_codes"].append("EXTERNAL_PROVIDER_ERROR")
 
+    # Step 1.5 — Sprint E.1.1-f · 365Scores Top Trends.
+    # Replaces SportyTrader as the primary editorial-style fallback.
+    # SportyTrader is kept under its key but marked as deprecated +
+    # ``replaced_by="score365_trends"`` so legacy consumers that read
+    # ``ext.sportytrader`` continue to work without crashing.
+    try:
+        from services.external_sources.score365_trends_client import (
+            fetch_top_trends,
+        )
+        trends_res = await fetch_top_trends(
+            match_payload,
+            home_team=match_payload.get("home_team"),
+            away_team=match_payload.get("away_team"),
+            language="es",
+        )
+        out["top_trends"] = trends_res
+        if trends_res.get("available"):
+            out["available"] = True
+            out["sources_used"].append("score365_trends")
+            out["reason_codes"].append("TOP_TRENDS_FROM_365SCORES")
+        else:
+            # Persist a clear reason so the UI / debug endpoint can
+            # explain why trends are missing.
+            rc = trends_res.get("reason_code") or "SCORE365_TOP_TRENDS_NOT_FOUND"
+            if rc not in out["reason_codes"]:
+                out["reason_codes"].append(rc)
+
+        # Deprecate the legacy SportyTrader block now that trends are
+        # the canonical replacement. We do NOT delete the key (to keep
+        # downstream consumers fail-soft) but we annotate it.
+        legacy_sporty = out.get("sportytrader") or {}
+        out["sportytrader"] = {
+            **legacy_sporty,
+            "available":   False,
+            "deprecated":  True,
+            "replaced_by": "score365_trends",
+            "deprecation_reason": (
+                "SportyTrader queda desactivado como fuente editorial; "
+                "ahora se usan las Tendencias Top de 365Scores."
+            ),
+        }
+        # Strip the source-used marker if it was added above.
+        out["sources_used"] = [s for s in out["sources_used"]
+                                if s != "sportytrader"]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[F71_ORCHESTRATOR] score365 trends fetch failed: %s", exc)
+        out["reason_codes"].append("SCORE365_TOP_TRENDS_ERROR")
+
     # Step 2 — TheStatsAPI corners (when an upstream cache exists).
     snap = match_payload.get("thestatsapi_snapshot") or {}
     if isinstance(snap, dict) and snap.get("corners"):
