@@ -41,10 +41,10 @@ from .football_learning_snapshot_schema import (
 
 log = logging.getLogger("football_pre_match_data_aggregator")
 
-# Source labels (used in the audit trail).
-SRC_THESTATSAPI = "thestatsapi"
-SRC_API_SPORTS  = "api_sports"
-SRC_SCRAPE_DO   = "scrape_do"
+SRC_THESTATSAPI       = "thestatsapi"
+SRC_API_SPORTS        = "api_sports"
+SRC_SCRAPE_DO         = "scrape_do"
+SRC_CONCACAF_CAF_HYDR = "concacaf_caf_hydrator"
 
 # Keys aggregator considers "core" — if any of these is still missing
 # after all adapters ran, the aggregator status drops to PARTIAL.
@@ -154,36 +154,33 @@ async def gather_pre_match_data(
 # the import cost.
 # ─────────────────────────────────────────────────────────────────────
 async def _adapter_thestatsapi(home_team, away_team, match_id, **ctx):
-    """Thin wrapper around the existing thestatsapi shotmap/corners client.
-
-    Returns ``(data, status)``. Status is COMPLETE if at least one xG
-    field was filled, PARTIAL otherwise, FAILED on exception.
+    """Thin wrapper around the real TheStatsAPI pre-match summary
+    fetcher (Sprint-B Fix 2). Returns ``(data, status)``.
     """
     try:
-        from .external_sources.thestatsapi_shotmap_client import (
-            fetch_match_xg_summary,  # type: ignore
+        from .external_sources.thestatsapi_pre_match_summary import (
+            fetch_match_pre_match_summary,
         )
     except Exception:
         return {}, SCRAPE_FAILED
     try:
-        raw = await fetch_match_xg_summary(
+        raw = await fetch_match_pre_match_summary(
             home_team=home_team, away_team=away_team, match_id=match_id,
+            home_team_id=ctx.get("home_team_id"),
+            away_team_id=ctx.get("away_team_id"),
         )
     except Exception as exc:  # noqa: BLE001
         log.debug("thestatsapi adapter failed: %s", exc)
         return {}, SCRAPE_FAILED
-    if not isinstance(raw, dict):
+    if not isinstance(raw, dict) or not raw:
         return {}, SCRAPE_FAILED
-    data = {
-        "home_xg_l5":       raw.get("home_xg_l5"),
-        "away_xg_l5":       raw.get("away_xg_l5"),
-        "home_xg_l15":      raw.get("home_xg_l15"),
-        "away_xg_l15":      raw.get("away_xg_l15"),
-        "home_corners_l5":  raw.get("home_corners_l5"),
-        "away_corners_l5":  raw.get("away_corners_l5"),
-    }
-    has_data = any(v is not None for v in data.values())
-    return data, (SCRAPE_COMPLETE if has_data else SCRAPE_FAILED)
+    # Determine status from how many core fields were populated.
+    has_xg     = (raw.get("home_xg_l5") is not None
+                   and raw.get("away_xg_l5") is not None)
+    has_corners = (raw.get("home_corners_l5") is not None
+                    and raw.get("away_corners_l5") is not None)
+    status = (SCRAPE_COMPLETE if (has_xg and has_corners) else SCRAPE_PARTIAL)
+    return raw, status
 
 
 async def _adapter_api_sports(home_team, away_team, match_id, **ctx):
@@ -231,12 +228,28 @@ async def _adapter_scrape_do(home_team, away_team, match_id, **ctx):
 
 def _default_adapter_chain() -> list[tuple[str, AdapterFn]]:
     """Returns the production cascade. Test code can override by
-    passing a custom ``adapters`` list to ``gather_pre_match_data``."""
-    return [
+    passing a custom ``adapters`` list to ``gather_pre_match_data``.
+
+    Fix-3 (Sprint-B) appends the CONCACAF/CAF qualifier-proxy adapter
+    as a LAST resort so WC debutants (Cabo Verde, Curazao, Jordan)
+    receive at least confederation-median priors when every upstream
+    source has failed.
+    """
+    # Lazy import to keep tests cheap.
+    try:
+        from .football_concacaf_caf_hydrator import (
+            adapter_concacaf_caf_hydrator,
+        )
+    except Exception:
+        adapter_concacaf_caf_hydrator = None  # type: ignore[assignment]
+    chain: list[tuple[str, AdapterFn]] = [
         (SRC_THESTATSAPI, _adapter_thestatsapi),
         (SRC_API_SPORTS,  _adapter_api_sports),
         (SRC_SCRAPE_DO,   _adapter_scrape_do),
     ]
+    if adapter_concacaf_caf_hydrator is not None:
+        chain.append((SRC_CONCACAF_CAF_HYDR, adapter_concacaf_caf_hydrator))
+    return chain
 
 
 __all__ = [

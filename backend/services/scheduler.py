@@ -475,6 +475,35 @@ def start_scheduler(db) -> None:
         max_instances=1,
         coalesce=True,
     )
+    # Sprint-B Fix 1 — Learning-snapshot lifecycle jobs.
+    # CREATE: every 30 min, scans matches kicking off in the 2-6h
+    # window and ensures a pre_match snapshot exists in
+    # ``football_match_learning_snapshots``.
+    # REFRESH: every 10 min, re-runs the aggregator for matches in
+    # the 0-60min window so we capture late lineups and odds shifts.
+    try:
+        from .football_learning_snapshot_jobs import (
+            job_create_pre_match_snapshots,
+            job_refresh_pre_match_snapshots,
+        )
+        sch.add_job(
+            job_create_pre_match_snapshots, args=[db],
+            trigger=IntervalTrigger(minutes=30),
+            id="create_pre_match_snapshots",
+            next_run_time=datetime.now(timezone.utc) + timedelta(minutes=7),
+            max_instances=1,
+            coalesce=True,
+        )
+        sch.add_job(
+            job_refresh_pre_match_snapshots, args=[db],
+            trigger=IntervalTrigger(minutes=10),
+            id="refresh_pre_match_snapshots",
+            next_run_time=datetime.now(timezone.utc) + timedelta(minutes=12),
+            max_instances=1,
+            coalesce=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Sprint-B learning snapshot jobs not wired: %s", exc)
     sch.start()
     _scheduler = sch
     _status["jobs"] = {
