@@ -1,34 +1,26 @@
 [
   {
-    "content": "E.1.1 — Extender the_odds_api_client.py",
+    "content": "E.1.1.a — services/market_identity_resolver.py",
     "status": "completed"
   },
   {
-    "content": "E.1.2 — Crear services/live_odds_monitor.py",
+    "content": "E.1.1.b — Índices market_identity_resolutions",
     "status": "completed"
   },
   {
-    "content": "E.1.3 — Crear índices Mongo",
+    "content": "E.1.1.c — Endpoints REST (resolve + history)",
     "status": "completed"
   },
   {
-    "content": "E.1.4 — Wire del job en scheduler.py",
+    "content": "E.1.1.e — Tests (28 passed)",
     "status": "completed"
   },
   {
-    "content": "E.1.5 — Endpoint GET /api/odds/snapshots/{match_id}",
+    "content": "E.1.1.g — Suite pytest: 3554 passed, 0 regresiones",
     "status": "completed"
   },
   {
-    "content": "E.1.6 — Tests live_odds_monitor (28 passed)",
-    "status": "completed"
-  },
-  {
-    "content": "E.1.7 — Suite pytest completa: 3526 passed, 0 regresiones",
-    "status": "completed"
-  },
-  {
-    "content": "E.1.8 — SPRINT E.1 marcado COMPLETADO en plan.md",
+    "content": "E.1.1.h — Plan.md actualizado",
     "status": "completed"
   }
 ]

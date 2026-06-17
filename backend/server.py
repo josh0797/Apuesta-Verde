@@ -141,6 +141,18 @@ async def on_startup() -> None:
         log.info("[ODDS_EVENT_ID_MAPPINGS] indexes ensured")
     except Exception as exc:
         log.warning("[ODDS_EVENT_ID_MAPPINGS] index ensure failed: %s", exc)
+    # Sprint E.1.1 — market identity resolutions (audit + reuse cache).
+    # Per-match resolution history; primary lookup is
+    # (match_id, detected_price) sorted by resolved_at desc.
+    try:
+        await db.market_identity_resolutions.create_index(
+            [("match_id", 1), ("detected_price", 1), ("resolved_at", -1)],
+        )
+        await db.market_identity_resolutions.create_index("resolved_at")
+        await db.market_identity_resolutions.create_index("event_id")
+        log.info("[MARKET_IDENTITY_RESOLUTIONS] indexes ensured")
+    except Exception as exc:
+        log.warning("[MARKET_IDENTITY_RESOLUTIONS] index ensure failed: %s", exc)
     # Phase F68 — player_id_mappings TTL (90d).
     try:
         await db.player_id_mappings.create_index(
@@ -429,6 +441,114 @@ async def odds_monitor_status() -> dict:
         }
     except Exception as exc:  # noqa: BLE001
         return {"available": False, "_error": str(exc)}
+
+
+# ── Sprint E.1.1 · Market Identity Resolver (vía The Odds API) ─────────
+class MarketIdentityResolveRequest(BaseModel):
+    """Payload for the auto-resolve endpoint.
+
+    ``match_id`` is required so we can hit the persistent
+    ``odds_event_id_mappings`` cache. ``home_team`` / ``away_team`` /
+    ``commence_time`` enable a fresh resolution when the cache misses.
+    """
+    match_id:       Union[str, int]
+    home_team:      str
+    away_team:      str
+    detected_price: float
+    commence_time:  Optional[str] = None
+    league:         Optional[str] = None
+    sport_key_hint: Optional[str] = None
+    use_cache:      bool = True
+
+    @field_validator("match_id", mode="before")
+    @classmethod
+    def _coerce_match_id(cls, v):  # noqa: D401
+        if v is None:
+            raise ValueError("match_id is required")
+        return str(v).strip()
+
+
+@app.post("/api/football/market-identity/resolve")
+async def market_identity_resolve_endpoint(
+    payload: MarketIdentityResolveRequest,
+) -> dict:
+    """Resolve the market a detected price likely belongs to using
+    The Odds API as the primary resolver (Sprint E.1.1).
+
+    Returns a structured response with:
+      * ``resolution_status`` (RESOLVED | AMBIGUOUS | NOT_FOUND |
+        MATCH_NOT_FOUND | API_UNAVAILABLE | INVALID_INPUT | CACHED)
+      * ``best``       — top candidate or ``None``
+      * ``ambiguous``  — full list when multiple market families tie
+      * ``candidates`` — every nearby price, sorted by delta ascending
+      * ``tolerance_ladder`` — current HIGH/MEDIUM/LOW thresholds
+
+    Never raises: every failure mode is captured in the response body.
+    observe_only — does not place a bet, does not mutate any pick.
+    """
+    try:
+        from services.market_identity_resolver import resolve_market_identity
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False,
+                "resolution_status": "API_UNAVAILABLE",
+                "reason_code": "MODULE_IMPORT_FAILED",
+                "_error": str(exc)}
+
+    match = {
+        "match_id":      payload.match_id,
+        "home_team":     payload.home_team,
+        "away_team":     payload.away_team,
+        "commence_time": payload.commence_time,
+        "league":        payload.league,
+        "sport_key_hint": payload.sport_key_hint,
+    }
+    sport_keys = [payload.sport_key_hint] if payload.sport_key_hint else None
+    result = await resolve_market_identity(
+        db,
+        match=match,
+        detected_price=payload.detected_price,
+        sport_keys=sport_keys,
+        use_cache=payload.use_cache,
+    )
+    # API-friendly: avoid leaking BSON ObjectIds.
+    if isinstance(result, dict):
+        result.pop("_id", None)
+    return {"available": True, **(result or {})}
+
+
+@app.get("/api/football/market-identity/history/{match_id}")
+async def market_identity_history_endpoint(
+    match_id: str, limit: int = 20,
+) -> dict:
+    """Return the persisted market-identity resolution audit trail
+    (Sprint E.1.1). Read-only.
+    """
+    if not match_id:
+        return {"available": False, "reason_code": "MATCH_ID_REQUIRED",
+                "history": []}
+    try:
+        lim = max(1, min(int(limit or 20), 100))
+    except (TypeError, ValueError):
+        lim = 20
+    try:
+        cursor = db.market_identity_resolutions.find(
+            {"match_id": str(match_id)},
+        ).sort("resolved_at", -1).limit(lim)
+        docs = await cursor.to_list(length=lim)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[MARKET_IDENTITY_HISTORY] read failed for %s: %s",
+                    match_id, exc)
+        return {"available": False, "reason_code": "READ_FAILED",
+                "_error": str(exc), "history": []}
+    out: list[dict] = []
+    for d in docs:
+        d.pop("_id", None)
+        ra = d.get("resolved_at")
+        if hasattr(ra, "isoformat"):
+            d["resolved_at"] = ra.isoformat()
+        out.append(d)
+    return {"available": True, "match_id": match_id,
+            "count": len(out), "history": out}
 
 
 @app.get("/api/football/learning-snapshot/{match_id}")

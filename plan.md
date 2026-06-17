@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.
 > **Estado histórico:** ✅ F58–F70 completadas.
-> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade) COMPLETADA** + ✅ **F87.1 (Fixture Discovery Contract Fix + Visible Audit + Parte 1.5 upstream audit) COMPLETADA** + ✅ **MLB-F93 (Manual Odds Override Reprice + UI Refresh) COMPLETADA** + ✅ **MLB-F93.1 (Manual Odds Reprice Context Pass-through + Authenticated Debug) COMPLETADA** + ✅ **F94 (Restaurar visibilidad de fixtures, descartados y live exóticos — Live + Dashboard) COMPLETADA** + ✅ **F94.2 (FIFA World Cup Live detection + TheStatsAPI diagnostics) COMPLETADA** + ✅ **F94.3 (Live Enrichment Persistence Audit) COMPLETADA** + ✅ **BUGFIX (Football “mismo momio” odds hallucination guard) COMPLETADO** + ✅ **SPRINT A (Draw Potential piloto retrospectivo) COMPLETADO** + ✅ **SPRINT B (Learning snapshots + loops + UI + scheduler) COMPLETADO** + ✅ **SPRINT D (Backtest histórico point-in-time; PL 23/24) COMPLETADO** + ✅ **SPRINT D2 (WC2022 + Euro2024 backtest nacional + Tournament Context) COMPLETADO** + ✅ **SPRINT D3 (Protected Markets: OVER 1.5 + Double Chance) COMPLETADO (P0)** + ✅ **SPRINT D4 (ROI honesto + significancia + walk-forward auditable) COMPLETADO (P0)** + 🟡 **SPRINT D5 (Multi-league + multi-tournament DRAW + cohortes) EN PROGRESO (P0)** + ✅ **SPRINT E.1 (Live Odds Monitor Base — Observe-only) COMPLETADO (P0)** + 🟡 **REFACTOR-1 (data_ingestion top-2) EN PROGRESO (paso 1/3 completado)** + ⏳ **SPRINT E.2 (Odds Value Detector + Alerts) PENDIENTE (P0)** + ⏳ **SPRINT E.3 (UI Odds Alerts + Comparador Manual) PENDIENTE (P0)** + ⏳ **F84.c/F84.d (Lineups + Standings) PENDIENTE (P1)**.
+> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade) COMPLETADA** + ✅ **F87.1 (Fixture Discovery Contract Fix + Visible Audit + Parte 1.5 upstream audit) COMPLETADA** + ✅ **MLB-F93 (Manual Odds Override Reprice + UI Refresh) COMPLETADA** + ✅ **MLB-F93.1 (Manual Odds Reprice Context Pass-through + Authenticated Debug) COMPLETADA** + ✅ **F94 (Restaurar visibilidad de fixtures, descartados y live exóticos — Live + Dashboard) COMPLETADA** + ✅ **F94.2 (FIFA World Cup Live detection + TheStatsAPI diagnostics) COMPLETADA** + ✅ **F94.3 (Live Enrichment Persistence Audit) COMPLETADA** + ✅ **BUGFIX (Football “mismo momio” odds hallucination guard) COMPLETADO** + ✅ **SPRINT A (Draw Potential piloto retrospectivo) COMPLETADO** + ✅ **SPRINT B (Learning snapshots + loops + UI + scheduler) COMPLETADO** + ✅ **SPRINT D (Backtest histórico point-in-time; PL 23/24) COMPLETADO** + ✅ **SPRINT D2 (WC2022 + Euro2024 backtest nacional + Tournament Context) COMPLETADO** + ✅ **SPRINT D3 (Protected Markets: OVER 1.5 + Double Chance) COMPLETADO (P0)** + ✅ **SPRINT D4 (ROI honesto + significancia + walk-forward auditable) COMPLETADO (P0)** + 🟡 **SPRINT D5 (Multi-league + multi-tournament DRAW + cohortes) EN PROGRESO (P0)** + ✅ **SPRINT E.1 (Live Odds Monitor Base — Observe-only) COMPLETADO (P0)** + ✅ **SPRINT E.1.1 (Resolver identidad de mercado por The Odds API) COMPLETADO (P0)** + 🟡 **REFACTOR-1 (data_ingestion top-2) EN PROGRESO (paso 1/3 completado)** + ⏳ **SPRINT E.2 (Odds Value Detector + Alerts) PENDIENTE (P0)** + ⏳ **SPRINT E.3 (UI Odds Alerts + Comparador Manual) PENDIENTE (P0)** + ⏳ **F84.c/F84.d (Lineups + Standings) PENDIENTE (P1)**.
 
 > **Idioma operativo:** Español.
 
@@ -373,15 +373,8 @@ Cerrar gaps de honestidad estadística:
    - ✅ `GET /api/odds/monitor/status` (config + status; sin side effects).
 
 6) **Tests**
-   - ✅ `tests/test_live_odds_monitor.py` (28 tests):
-     - kill-switch
-     - universo
-     - cache hit/miss
-     - missing event_id
-     - persistencia snapshots
-     - register_jobs
-     - cliente sin API key
-   - ✅ Suite backend completa: **3526 passed, 2 skipped, 0 regresiones**.
+   - ✅ `tests/test_live_odds_monitor.py` (28 tests).
+   - ✅ Suite backend completa (post E.1): **3526 passed, 2 skipped, 0 regresiones**.
 
 ### Variables de entorno (flags)
 - `LIVE_ODDS_ENABLED=true|false`
@@ -391,7 +384,7 @@ Cerrar gaps de honestidad estadística:
 - `LIVE_ODDS_REGIONS=uk,eu`
 - `LIVE_ODDS_LOOKBACK_HOURS=24`
 - `LIVE_ODDS_MAX_MATCHES=80`
-- `LIVE_ODDS_QUOTA_MIN=50` (guard best-effort; se usará más activamente en E.2 si es necesario)
+- `LIVE_ODDS_QUOTA_MIN=50`
 
 ### Criterios de aceptación
 - ✅ Se guardan snapshots en `odds_snapshots` con `source="live_odds_monitor_v1"`.
@@ -399,6 +392,87 @@ Cerrar gaps de honestidad estadística:
 - ✅ Polling limitado al universo visible del último run.
 - ✅ Endpoints funcionan y son fail-soft.
 - ✅ Suite backend verde.
+
+---
+
+## Phase SPRINT E.1.1 — Resolver Identidad de Mercado por The Odds API (observe_only) — COMPLETADO ✅ (P0)
+
+### Problema
+Cuando el engine detecta una cuota (ej. `detected_price=1.25`) pero el pick termina como `REQUIRES_MARKET_IDENTIFICATION`, el sistema no podía mapear esa cuota a un mercado concreto (DNB, 1X2, Over/Under, BTTS, hándicap, etc.).
+
+**Nueva regla:** usar **The Odds API** como **resolver principal** de identidad de mercado. SportyTrader queda desactivado como resolver (se conserva el módulo por compatibilidad/posible reuso; su reemplazo editorial se planifica aparte).
+
+### Decisiones confirmadas (implementadas)
+- Resolver principal: **The Odds API**.
+- Ejecución: **manual retry endpoint** ya implementado; el hook automático queda para la fase E.1.1-d (pendiente).
+- Tolerancia + confianza:
+  - HIGH `<= 0.02`
+  - MEDIUM `<= 0.03`
+  - LOW `<= 0.05`
+- Markets evaluados (orden):
+  1) `h2h`
+  2) `draw_no_bet`
+  3) `totals`
+  4) `alternate_totals`
+  5) `spreads`
+  6) `alternate_spreads`
+  7) `btts`
+  8) `team_totals` (best-effort)
+- Ambigüedad: **devolver todos los candidatos**, mantener `REQUIRES_MARKET_IDENTIFICATION` y permitir selección manual en UI (parte E.3).
+- Persistencia obligatoria: `market_identity_resolutions` (auditoría + reuso cache).
+
+### Entregables (verificados)
+1) ✅ `services/market_identity_resolver.py` (nuevo)
+   - Ladder HIGH/MEDIUM/LOW con redondeo a 4 decimales (evita ruido float).
+   - Mapeo The Odds API → `MANUAL_MARKET_TYPES`:
+     - `h2h → MATCH_WINNER (HOME/DRAW/AWAY)`
+     - `draw_no_bet → DNB (HOME/AWAY)`
+     - `totals/alternate_totals → TOTAL_GOALS (OVER/UNDER, line=point)`
+     - `spreads/alternate_spreads → ASIAN_HANDICAP (HOME/AWAY, line=point)`
+     - `btts → BTTS (YES/NO)`
+     - `team_totals → TOTAL_GOALS` con `scope=team_totals` + `team_hint` (best-effort)
+   - `extract_candidates_from_event` (puro): filtra por tolerancia y ordena por `(delta asc, market_priority asc)`.
+   - `summarise_candidates` (puro): `RESOLVED | AMBIGUOUS | NOT_FOUND`.
+   - `resolve_market_identity` (async):
+     - cache en `market_identity_resolutions` (TTL por env, default 6h)
+     - reusa `odds_event_id_mappings` vía `live_odds_monitor.resolve_event_id`
+     - fail-soft total
+   - Reason codes:
+     - `MARKET_IDENTITY_RESOLVED_BY_THE_ODDS_API`
+     - `MARKET_IDENTITY_AMBIGUOUS_REQUIRES_USER_CHOICE`
+     - `ODDS_EVENT_ID_MISSING`
+     - `FETCH_CURRENT_ODDS_FAILED`
+     - `NO_CANDIDATE_WITHIN_TOLERANCE`
+     - `DETECTED_PRICE_INVALID`, etc.
+
+2) ✅ MongoDB (índices)
+   - `market_identity_resolutions`:
+     - index `(match_id, detected_price, resolved_at desc)`
+     - index `resolved_at`
+     - index `event_id`
+
+3) ✅ Endpoints REST
+   - `POST /api/football/market-identity/resolve` (manual retry)
+   - `GET  /api/football/market-identity/history/{match_id}` (audit trail)
+
+4) ✅ Validación real
+   - Probado end-to-end con un caso real (Portugal vs Congo DR):
+     - `event_id` resuelto con The Odds API
+     - respuesta fail-soft si odds no disponibles
+     - persistencia del intento en `market_identity_resolutions`
+
+5) ✅ Tests
+   - `tests/test_market_identity_resolver.py`: 28 tests (puros + async + cache + ambigüedad + fail-soft).
+
+6) ✅ Suite backend
+   - **3554 passed, 2 skipped, 0 regresiones** (antes 3526).
+
+### Pendientes (Sprint E.1.1 — fase 2)
+- ⏳ **E.1.1-d Hook automático**: integrar el resolver en `_enrich_football`/pipeline cuando aparezca `REQUIRES_MARKET_IDENTIFICATION`.
+  - Requisito: no bloquear el camino crítico; debe ser fail-soft y preferiblemente background-first.
+- ⏳ **E.1.1-f Reemplazo editorial SportyTrader → 365Scores**:
+  - Esto pertenece a `football_external_fallback_orchestrator.py` (editorial), no al market resolver.
+- ⏳ **UI (E.3)**: render de candidatos cuando `resolution_status=AMBIGUOUS` + selección por el usuario.
 
 ---
 
@@ -442,9 +516,14 @@ Usar los snapshots live para detectar oportunidades/anomalías **sin apostar**:
 - UI para listar/filtrar alertas (`odds_alerts`).
 - Panel comparador manual: user introduce cuotas y el sistema calcula implied/edge vs modelo.
 
+### Extensión por E.1.1
+- Render de `AMBIGUOUS` candidates del resolver de identidad de mercado.
+- UI para elegir candidato → setear mercado/selección/linea sugeridos.
+- Botón manual de retry: usar `POST /api/football/market-identity/resolve`.
+
 ### Entregables propuestos
-- Frontend: panel de alertas + panel comparador.
-- Backend: endpoints de consulta/ack de alertas, y endpoint de cálculo manual (sin persistencia o con persistencia opcional).
+- Frontend: panel de alertas + panel comparador + selector de candidatos.
+- Backend: endpoints de consulta/ack de alertas, y endpoint de cálculo manual.
 
 ---
 
@@ -516,7 +595,8 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 ### Pendientes P0 (actual)
 - 🟡 **SPRINT D5** (en curso): 5 ligas 24/25 + WC18/WC22/Euro24 + cohortes + 3 reports.
 - ⏳ **SPRINT E.2**: Detector de valor + alertas (usa odds_snapshots live).
-- ⏳ **SPRINT E.3**: UI de alertas + comparador manual.
+- ⏳ **SPRINT E.3**: UI de alertas + comparador manual (+ selección candidatos AMBIGUOUS).
+- ⏳ **E.1.1 fase 2**: hook automático + SportyTrader→365Scores (editorial).
 
 ### Pendientes P1
 - 🟡 **REFACTOR-1** pasos 2/3 y 3/3 + `ingest_upcoming`.
@@ -530,8 +610,8 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 
 ## 6) Validación esperada (estado actual)
 
-- Suites actuales (post Sprint E.1):
-  - Backend: **3526 passing tests**, 2 skipped.
+- Suites actuales (post Sprint E.1.1):
+  - Backend: **3554 passing tests**, 2 skipped.
   - Frontend: **174 passing tests**.
 
 - Reglas:
@@ -549,10 +629,11 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
   - Fail-soft: no levantar excepción sin convertirla a auditoría/razón.
   - Backtests: disciplina point-in-time estricta (sin leakage).
   - **E.1**: polling limitado al universo visible de UI (no global por deporte).
+  - **E.1.1**: resolver de identidad de mercado principal = The Odds API.
 
 - Flags / env:
   - ✅ `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY`.
-  - ✅ `THE_ODDS_API_KEY=...` (Sprint D4; no hardcode en código).
+  - ✅ `THE_ODDS_API_KEY=...` (no hardcode en código).
   - ✅ (Sprint E.1) `LIVE_ODDS_ENABLED=true|false`
   - ✅ (Sprint E.1) `LIVE_ODDS_REFRESH_SECONDS=240`
   - ✅ (Sprint E.1) `LIVE_ODDS_SPORTS=...`
@@ -561,3 +642,5 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
   - ✅ (Sprint E.1) `LIVE_ODDS_LOOKBACK_HOURS=24`
   - ✅ (Sprint E.1) `LIVE_ODDS_MAX_MATCHES=80`
   - ✅ (Sprint E.1) `LIVE_ODDS_QUOTA_MIN=50`
+  - ✅ (Sprint E.1.1) `MARKET_RESOLVER_REGIONS=uk,eu,us` (default)
+  - ✅ (Sprint E.1.1) `MARKET_RESOLVER_CACHE_TTL=21600` (default 6h)
