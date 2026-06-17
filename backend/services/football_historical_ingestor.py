@@ -47,9 +47,27 @@ _COL_FTAG  = ("FTAG", "AG")
 _COL_FTR   = ("FTR", "Res")
 _COL_HC    = ("HC",)
 _COL_AC    = ("AC",)
-_COL_B365D = ("B365D", "PSD", "PSCD")   # draw odd cascade
-_COL_B365H = ("B365H", "PSH")
-_COL_B365A = ("B365A", "PSA")
+# Sprint-D4 — Separate OPENING vs CLOSING cascades.
+# football-data.co.uk publishes two columns per book:
+#   * B365H / B365D / B365A     → opening (set at market open)
+#   * B365CH / B365CD / B365CA  → closing (just before kickoff)
+# Pinnacle uses PSH/PSD/PSA (opening) and PSCH/PSCD/PSCA (closing).
+_COL_B365D_OPEN = ("B365D", "PSD")
+_COL_B365H_OPEN = ("B365H", "PSH")
+_COL_B365A_OPEN = ("B365A", "PSA")
+_COL_B365D_CLOSE = ("B365CD", "PSCD")
+_COL_B365H_CLOSE = ("B365CH", "PSCH")
+_COL_B365A_CLOSE = ("B365CA", "PSCA")
+# Sprint-D back-compat (kept for older callers).
+_COL_B365D = _COL_B365D_OPEN + _COL_B365D_CLOSE
+_COL_B365H = _COL_B365H_OPEN + _COL_B365H_CLOSE
+_COL_B365A = _COL_B365A_OPEN + _COL_B365A_CLOSE
+
+# Sprint-D4 — Odds-type taxonomy.
+ODDS_TYPE_OPENING = "OPENING"
+ODDS_TYPE_CLOSING = "CLOSING"
+ODDS_TYPE_MIXED   = "MIXED"
+ODDS_TYPE_NONE    = "NONE"
 
 
 def _first(row: dict, candidates: tuple[str, ...]) -> Optional[str]:
@@ -87,11 +105,26 @@ def _parse_date(v: str) -> Optional[datetime]:
 
 def parse_football_data_csv(
     csv_text: str, *, competition: str = "",
+    prefer_closing: bool = False,
 ) -> list[dict]:
     """Parse a football-data.co.uk-style CSV.
 
     Returns rows sorted by date with the canonical schema used by the
     backtest engine. Bad rows are silently dropped (fail-soft).
+
+    Sprint-D4 enhancements
+    ----------------------
+    * Detects whether the row carries OPENING odds, CLOSING odds, or
+      both, and exposes:
+        - ``odd_home/draw/away`` (the canonical odds used by the engine)
+        - ``odds_type`` ∈ {OPENING, CLOSING, MIXED, NONE}
+        - ``warnings`` (list of strings, may include
+          ``ODDS_ARE_CLOSING_BACKTEST_OPTIMISTIC``)
+    * When both opening and closing odds exist, ``odd_*`` is set from
+      opening by default (more honest for backtests). Pass
+      ``prefer_closing=True`` to flip the default — in which case
+      ``ODDS_ARE_CLOSING_BACKTEST_OPTIMISTIC`` is appended to the row's
+      warnings.
     """
     reader = csv.DictReader(io.StringIO(csv_text))
     out: list[dict] = []
@@ -108,6 +141,36 @@ def parse_football_data_csv(
         ftr  = (_first(row, _COL_FTR) or "").upper()
         if ftr not in ("H", "D", "A") or fthg is None or ftag is None:
             continue
+
+        # Sprint-D4 · odds detection.
+        oh_open = _parse_float(_first(row, _COL_B365H_OPEN))
+        od_open = _parse_float(_first(row, _COL_B365D_OPEN))
+        oa_open = _parse_float(_first(row, _COL_B365A_OPEN))
+        oh_close = _parse_float(_first(row, _COL_B365H_CLOSE))
+        od_close = _parse_float(_first(row, _COL_B365D_CLOSE))
+        oa_close = _parse_float(_first(row, _COL_B365A_CLOSE))
+
+        has_open  = any(v is not None for v in (oh_open, od_open, oa_open))
+        has_close = any(v is not None for v in (oh_close, od_close, oa_close))
+
+        warnings: list[str] = []
+        if prefer_closing and has_close:
+            oh, od, oa = oh_close, od_close, oa_close
+            odds_type = ODDS_TYPE_CLOSING
+            warnings.append("ODDS_ARE_CLOSING_BACKTEST_OPTIMISTIC")
+        elif has_open:
+            oh, od, oa = oh_open, od_open, oa_open
+            odds_type = (
+                ODDS_TYPE_MIXED if has_close else ODDS_TYPE_OPENING
+            )
+        elif has_close:
+            oh, od, oa = oh_close, od_close, oa_close
+            odds_type = ODDS_TYPE_CLOSING
+            warnings.append("ODDS_ARE_CLOSING_BACKTEST_OPTIMISTIC")
+        else:
+            oh, od, oa = None, None, None
+            odds_type = ODDS_TYPE_NONE
+
         out.append({
             "competition":  competition or "",
             "date":         date,
@@ -118,12 +181,25 @@ def parse_football_data_csv(
             "ftr":          ftr,
             "home_corners": _parse_int(_first(row, _COL_HC)),
             "away_corners": _parse_int(_first(row, _COL_AC)),
-            "odd_home":     _parse_float(_first(row, _COL_B365H)),
-            "odd_draw":     _parse_float(_first(row, _COL_B365D)),
-            "odd_away":     _parse_float(_first(row, _COL_B365A)),
+            "odd_home":     oh,
+            "odd_draw":     od,
+            "odd_away":     oa,
+            # Sprint-D4 metadata:
+            "odd_home_open":  oh_open,
+            "odd_draw_open":  od_open,
+            "odd_away_open":  oa_open,
+            "odd_home_close": oh_close,
+            "odd_draw_close": od_close,
+            "odd_away_close": oa_close,
+            "odds_type":      odds_type,
+            "warnings":       warnings,
         })
     out.sort(key=lambda m: m["date"])
     return out
+
+
+# Sprint-D4 alias (more intuitive).
+parse_footballdata_csv = parse_football_data_csv
 
 
 async def fetch_football_data_csv(url: str) -> str:
@@ -170,6 +246,18 @@ def _team_goals_corners(history: list[dict], team: str) -> tuple[list[float], li
             if m["away_corners"] is not None:
                 cf.append(float(m["away_corners"]))
     return gf, cf
+
+
+def _team_goals_against(history: list[dict], team: str) -> list[float]:
+    """Sprint-D3 · Return goals_against newest-first for ``team`` over
+    ``history``."""
+    ga: list[float] = []
+    for m in history:
+        if m["home_team"] == team:
+            ga.append(float(m["ftag"]))
+        else:
+            ga.append(float(m["fthg"]))
+    return ga
 
 
 def _avg(values: list[float], k: int) -> Optional[float]:
@@ -232,6 +320,9 @@ def build_point_in_time_features(
 
     h_gf, h_cf = _team_goals_corners(h_hist, home)
     a_gf, a_cf = _team_goals_corners(a_hist, away)
+    # Sprint-D3 · Goals against (for Dixon-Coles / OVER 1.5 fallback).
+    h_ga = _team_goals_against(h_hist, home)
+    a_ga = _team_goals_against(a_hist, away)
 
     # We use goal averages as a xG proxy (football-data.co.uk doesn't
     # ship xG). The semantic contract for ``compute_draw_potential`` is
@@ -244,6 +335,11 @@ def build_point_in_time_features(
         "elo_away":               elo.get(away),
         "xg_home_l5":             _avg(h_gf, FORM_L5),
         "xg_away_l5":             _avg(a_gf, FORM_L5),
+        # Sprint-D3 · Goal averages (used by Dixon-Coles fallback).
+        "goal_avg_for_home":      _avg(h_gf, FORM_L5),
+        "goal_avg_for_away":      _avg(a_gf, FORM_L5),
+        "goal_avg_against_home":  _avg(h_ga, FORM_L5),
+        "goal_avg_against_away":  _avg(a_ga, FORM_L5),
         # Contextual flags (league: not group stage; WC parser sets them).
         "is_group_stage":         bool(m.get("is_group_stage", False)),
         "both_need_points":       bool(m.get("both_need_points", False)),
@@ -514,9 +610,12 @@ def compute_group_standings_pit(
 
 __all__ = [
     "ELO_DEFAULT", "ELO_K_FACTOR", "FORM_L5", "FORM_L15",
-    "parse_football_data_csv", "fetch_football_data_csv",
+    "parse_football_data_csv", "parse_footballdata_csv",
+    "fetch_football_data_csv",
     "parse_openfootball_json", "compute_group_standings_pit",
     "build_point_in_time_features",
     "_team_history_slice", "_elo_walk_forward", "_avg",
     "_classify_openfootball_round",
+    "ODDS_TYPE_OPENING", "ODDS_TYPE_CLOSING",
+    "ODDS_TYPE_MIXED", "ODDS_TYPE_NONE",
 ]

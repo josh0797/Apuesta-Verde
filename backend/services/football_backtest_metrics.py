@@ -17,7 +17,29 @@ from statistics import mean
 from typing import Optional
 
 SMALL_SAMPLE_THRESHOLD = 50
+SMALL_SAMPLE_CAUTION_THRESHOLD = 200    # Sprint-D4 · 50 ≤ n < 200
 DEFAULT_BOOTSTRAP_ITERS = 5000
+
+# Sprint-D4 · Sample-status taxonomy.
+SAMPLE_STATUS_INSUFFICIENT = "INSUFFICIENT_SAMPLE_DO_NOT_TRUST"
+SAMPLE_STATUS_CAUTION      = "SMALL_SAMPLE_CAUTION"
+SAMPLE_STATUS_ADEQUATE     = "ADEQUATE_SAMPLE"
+
+# Sprint-D4 · Warning codes (canonical).
+W_NOT_SIGNIFICANT          = "ROI_NOT_STATISTICALLY_SIGNIFICANT"
+W_CLOSING_ODDS_OPTIMISTIC  = "ODDS_ARE_CLOSING_BACKTEST_OPTIMISTIC"
+W_NO_ODDS_HITRATE_ONLY     = "NO_ODDS_HIT_RATE_ONLY"
+W_INSUFFICIENT_SAMPLE      = "INSUFFICIENT_SAMPLE_DO_NOT_TRUST"
+W_SMALL_SAMPLE_CAUTION     = "SMALL_SAMPLE_CAUTION"
+W_ROI_SIGNIFICANTLY_NEGATIVE = "ROI_SIGNIFICANTLY_NEGATIVE"
+
+
+def _resolve_sample_status(n_bets: int) -> str:
+    if n_bets < SMALL_SAMPLE_THRESHOLD:
+        return SAMPLE_STATUS_INSUFFICIENT
+    if n_bets < SMALL_SAMPLE_CAUTION_THRESHOLD:
+        return SAMPLE_STATUS_CAUTION
+    return SAMPLE_STATUS_ADEQUATE
 
 
 def _ci_bootstrap(values: list[float], *, iters: int = DEFAULT_BOOTSTRAP_ITERS,
@@ -137,9 +159,14 @@ def compute_backtest_metrics(backtest_result: dict) -> dict:
     # ROI CI via bootstrap of per-pick yields.
     ci_lo, ci_hi = (None, None)
     is_significant = None
+    is_roi_significant = None
     if per_pick_yield:
         ci_lo, ci_hi = _ci_bootstrap(per_pick_yield)
+        # Sprint-D · legacy: significant in either direction.
         is_significant = (ci_lo > 0) or (ci_hi < 0)
+        # Sprint-D4 · strict positive ROI significance (CI excludes 0
+        # from below).
+        is_roi_significant = (ci_lo > 0)
 
     # Average predicted/realised edge (in pp).
     avg_edge_pred = (mean([p["edge_pp"] for p in picks])
@@ -154,6 +181,30 @@ def compute_backtest_metrics(backtest_result: dict) -> dict:
     curve = reliability_curve(picks)
     calib_label = _calibration_label(curve)
     small_sample_flag = (n_bets < SMALL_SAMPLE_THRESHOLD)
+    sample_status = _resolve_sample_status(n_bets)
+
+    # Sprint-D4 · Warnings list (canonical codes).
+    warnings: list[str] = []
+    if sample_status == SAMPLE_STATUS_INSUFFICIENT:
+        warnings.append(W_INSUFFICIENT_SAMPLE)
+    elif sample_status == SAMPLE_STATUS_CAUTION:
+        warnings.append(W_SMALL_SAMPLE_CAUTION)
+    if is_roi_significant is False and is_significant is False:
+        warnings.append(W_NOT_SIGNIFICANT)
+    if (ci_hi is not None and not (isinstance(ci_hi, float)
+                                    and math.isnan(ci_hi))
+            and ci_hi < 0):
+        warnings.append(W_ROI_SIGNIFICANTLY_NEGATIVE)
+    # Surface any per-pick warnings (e.g. closing-odds optimism).
+    seen: set[str] = set()
+    for p in picks:
+        for w in (p.get("warnings") or []):
+            if w not in seen:
+                seen.add(w)
+                warnings.append(w)
+    # ROI undefined → degrade to no-odds informational warning.
+    if roi is None and n_bets > 0:
+        warnings.append(W_NO_ODDS_HITRATE_ONLY)
 
     # Breakdowns.
     by_competition: dict[str, dict] = {}
@@ -220,14 +271,21 @@ def compute_backtest_metrics(backtest_result: dict) -> dict:
         # CI + significance.
         "roi_ci_lo":         round(ci_lo, 4) if ci_lo is not None and not math.isnan(ci_lo) else None,
         "roi_ci_hi":         round(ci_hi, 4) if ci_hi is not None and not math.isnan(ci_hi) else None,
+        # Sprint-D4 alias keys (lo/hi → low/high for the spec).
+        "roi_ci_low":        round(ci_lo, 4) if ci_lo is not None and not math.isnan(ci_lo) else None,
+        "roi_ci_high":       round(ci_hi, 4) if ci_hi is not None and not math.isnan(ci_hi) else None,
         "is_significant":    is_significant,
+        "is_roi_significant": is_roi_significant,
         # Calibration & sample flags.
         "reliability_curve": curve,
         "calibration_label": calib_label,
         "small_sample_flag": small_sample_flag,
         "small_sample_threshold": SMALL_SAMPLE_THRESHOLD,
         "small_sample_warning":
-            "INSUFFICIENT_SAMPLE_DO_NOT_TRUST" if small_sample_flag else None,
+            W_INSUFFICIENT_SAMPLE if small_sample_flag else None,
+        # Sprint-D4 sample status + warnings.
+        "sample_status":     sample_status,
+        "warnings":          warnings,
         # Breakdowns.
         "breakdown_by_competition": by_competition,
         "breakdown_by_edge_bucket": by_edge_bucket,
@@ -246,6 +304,17 @@ __all__ = [
     "compute_backtest_metrics",
     "reliability_curve",
     "SMALL_SAMPLE_THRESHOLD",
+    "SMALL_SAMPLE_CAUTION_THRESHOLD",
+    "SAMPLE_STATUS_INSUFFICIENT",
+    "SAMPLE_STATUS_CAUTION",
+    "SAMPLE_STATUS_ADEQUATE",
+    "W_NOT_SIGNIFICANT",
+    "W_CLOSING_ODDS_OPTIMISTIC",
+    "W_NO_ODDS_HITRATE_ONLY",
+    "W_INSUFFICIENT_SAMPLE",
+    "W_SMALL_SAMPLE_CAUTION",
+    "W_ROI_SIGNIFICANTLY_NEGATIVE",
+    "_resolve_sample_status",
     "_ci_bootstrap",
     "_max_drawdown",
     "_sharpe_like",
@@ -256,6 +325,10 @@ __all__ = [
     "_log_loss",
     "_hit_rate_by_label",
     "_metrics_for_predictions_subset",
+    # Sprint D3 exports:
+    "_false_positive_examples",
+    "_false_negative_examples",
+    "_reliability_by_bucket",
 ]
 
 
@@ -316,19 +389,96 @@ def _hit_rate_by_label(picks: list[dict]) -> dict[str, dict]:
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Sprint-D3 · False positive / false negative example extraction
+# ─────────────────────────────────────────────────────────────────────
+def _false_positive_examples(predictions: list[dict],
+                              top_n: int = 10) -> list[dict]:
+    """Return up to ``top_n`` predictions where the model FIRED (or
+    would have, at high confidence) but the outcome did NOT hit.
+
+    Sorted by descending predicted_prob (the most embarrassing misses
+    first). We include both ``fired`` and ``non-fired`` high-confidence
+    predictions so the user can audit threshold sensitivity.
+    """
+    fps = [p for p in predictions
+           if not p.get("hit") and p.get("predicted_prob") is not None]
+    fps.sort(key=lambda p: -float(p.get("predicted_prob", 0)))
+    return [
+        {
+            "date":             p.get("date"),
+            "home":             p.get("home"),
+            "away":             p.get("away"),
+            "predicted_prob":   p.get("predicted_prob"),
+            "label":            p.get("label"),
+            "actual_score":     p.get("actual_score"),
+            "tournament_phase": p.get("tournament_phase"),
+            "matchday":         p.get("matchday"),
+            "group_label":      p.get("group_label"),
+            "fired":            p.get("fired"),
+        }
+        for p in fps[:top_n]
+    ]
+
+
+def _false_negative_examples(predictions: list[dict],
+                              top_n: int = 10) -> list[dict]:
+    """Return up to ``top_n`` predictions where the outcome HIT but the
+    model gave it a LOW probability (and presumably did not fire).
+
+    Sorted by ascending predicted_prob (the most embarrassing misses
+    first).
+    """
+    fns = [p for p in predictions
+           if p.get("hit") and p.get("predicted_prob") is not None]
+    fns.sort(key=lambda p: float(p.get("predicted_prob", 0)))
+    return [
+        {
+            "date":             p.get("date"),
+            "home":             p.get("home"),
+            "away":             p.get("away"),
+            "predicted_prob":   p.get("predicted_prob"),
+            "label":            p.get("label"),
+            "actual_score":     p.get("actual_score"),
+            "tournament_phase": p.get("tournament_phase"),
+            "matchday":         p.get("matchday"),
+            "group_label":      p.get("group_label"),
+            "fired":            p.get("fired"),
+        }
+        for p in fns[:top_n]
+    ]
+
+
+def _reliability_by_bucket(preds: list[dict],
+                            n_buckets: int = 10) -> list[dict]:
+    """Sprint-D3 expanded reliability table — same as ``reliability_curve``
+    but each row also includes the bucket's hit-rate (so a single table
+    can be rendered without computing it externally)."""
+    rc = reliability_curve(preds, n_buckets=n_buckets)
+    for row in rc:
+        row["hit_rate"] = row.get("actual_avg")
+    return rc
+
+
 def _metrics_for_predictions_subset(preds: list[dict]) -> dict:
-    """Brier + log-loss + reliability + draw_base_rate for any subset
-    of predictions."""
+    """Brier + log-loss + reliability + base_rate for any subset of
+    predictions. Used for both DRAW and Sprint-D3 protected markets."""
     n = len(preds)
     n_hits = sum(1 for p in preds if p.get("hit"))
+    rc = _reliability_by_bucket(preds, n_buckets=10)
     return {
-        "n_predictions":  n,
-        "n_draws":        n_hits,
-        "draw_base_rate": round(n_hits / n, 4) if n else None,
-        "brier_score":    _brier_score(preds),
-        "log_loss":       _log_loss(preds),
-        "reliability_curve": reliability_curve(preds, n_buckets=10),
-        "calibration_label": _calibration_label(reliability_curve(preds, n_buckets=10)),
+        "n_predictions":      n,
+        # Sprint-D3 generic key:
+        "n_hits":             n_hits,
+        "base_rate":          round(n_hits / n, 4) if n else None,
+        # Back-compat (Sprint-D2):
+        "n_draws":            n_hits,
+        "draw_base_rate":     round(n_hits / n, 4) if n else None,
+        "brier_score":        _brier_score(preds),
+        "log_loss":           _log_loss(preds),
+        "reliability_curve":  rc,
+        "reliability_by_bucket": rc,
+        "calibration_label":  _calibration_label(rc),
     }
 
 
@@ -373,6 +523,38 @@ def _compute_no_market_metrics(backtest_result: dict) -> dict:
     fired_hit_rate = round(n_won / n_picks, 4) if n_picks else None
 
     small_sample_flag = (n_picks < SMALL_SAMPLE_THRESHOLD)
+    sample_status = _resolve_sample_status(n_picks)
+
+    # Sprint-D4 · Warnings list (canonical codes).
+    warnings: list[str] = []
+    if sample_status == SAMPLE_STATUS_INSUFFICIENT:
+        warnings.append(W_INSUFFICIENT_SAMPLE)
+    elif sample_status == SAMPLE_STATUS_CAUTION:
+        warnings.append(W_SMALL_SAMPLE_CAUTION)
+    if n_picks > 0:
+        warnings.append(W_NO_ODDS_HITRATE_ONLY)
+
+    # Sprint-D3 · False positive / false negative auditing.
+    # Focus on FIRED picks for false positives (high confidence missed);
+    # focus on ALL predictions for false negatives (low confidence hit).
+    fp_combined = _false_positive_examples(
+        [p for p in predictions if p.get("fired")], top_n=10,
+    )
+    fn_combined = _false_negative_examples(
+        [p for p in predictions if not p.get("fired")], top_n=10,
+    )
+    fp_group = _false_positive_examples(
+        [p for p in group_preds if p.get("fired")], top_n=5,
+    )
+    fn_group = _false_negative_examples(
+        [p for p in group_preds if not p.get("fired")], top_n=5,
+    )
+    fp_knockout = _false_positive_examples(
+        [p for p in knockout_preds if p.get("fired")], top_n=5,
+    )
+    fn_knockout = _false_negative_examples(
+        [p for p in knockout_preds if not p.get("fired")], top_n=5,
+    )
 
     return {
         # ── Provenance ───────────────────────────────────────────────
@@ -386,22 +568,34 @@ def _compute_no_market_metrics(backtest_result: dict) -> dict:
         "n_matches_total":  backtest_result.get("n_matches_total"),
         # ── Picks summary ────────────────────────────────────────────
         "n_predictions":    len(predictions),
+        "n_candidates":     len(predictions),         # Sprint-D3 alias
         "n_picks_fired":    n_picks,
         "n_won":            n_won,
         "n_lost":           n_picks - n_won,
-        "hit_rate_fired":   fired_hit_rate,
+        "hit_rate":         fired_hit_rate,           # Sprint-D3 generic
+        "hit_rate_fired":   fired_hit_rate,           # back-compat
         "small_sample_flag": small_sample_flag,
         "small_sample_threshold": SMALL_SAMPLE_THRESHOLD,
         "small_sample_warning":
             "INSUFFICIENT_SAMPLE_DO_NOT_TRUST" if small_sample_flag else None,
+        # Sprint-D4 · sample status + warnings.
+        "sample_status":     sample_status,
+        "warnings":          warnings,
         # ── Quantitative metrics ─────────────────────────────────────
-        "combined_metrics":  combined_metrics,
+        "combined_metrics":   combined_metrics,
         "group_stage_metrics": group_metrics,
-        "knockout_metrics":  knockout_metrics,
+        "knockout_metrics":   knockout_metrics,
         # ── Label hit-rate breakdowns ────────────────────────────────
-        "label_hit_rate_combined":  label_hit_rate_combined,
+        "label_hit_rate_combined":    label_hit_rate_combined,
         "label_hit_rate_group_stage": label_hit_rate_group,
-        "label_hit_rate_knockout":  label_hit_rate_knockout,
+        "label_hit_rate_knockout":    label_hit_rate_knockout,
+        # ── False positive / negative examples (Sprint D3) ───────────
+        "false_positive_examples":           fp_combined,
+        "false_negative_examples":           fn_combined,
+        "false_positive_examples_group":     fp_group,
+        "false_negative_examples_group":     fn_group,
+        "false_positive_examples_knockout":  fp_knockout,
+        "false_negative_examples_knockout":  fn_knockout,
         # ── For backwards-compatible dumps ───────────────────────────
         "no_market": True,
         # ROI fields kept None so downstream renderers do not break.

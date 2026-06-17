@@ -1,30 +1,34 @@
 [
   {
-    "content": "D2.1 — Parser openfootball JSON (parse_openfootball_json) en football_historical_ingestor.py con clasificación de fase",
+    "content": "D4.1 — Parser football-data.co.uk con odds y detección opening/closing",
     "status": "completed"
   },
   {
-    "content": "D2.2 — Helper point-in-time standings de grupo (sin leakage)",
+    "content": "D4.2 — Integración The Odds API historical snapshots con caching",
     "status": "completed"
   },
   {
-    "content": "D2.3 — TOURNAMENT_CONTEXT_SCORE (escalar 0-1) + booster suave (+2pp a +3pp) en football_draw_potential.py",
+    "content": "D4.3 — Métricas ROI con bootstrap CI + significancia + sample_status + warnings",
     "status": "completed"
   },
   {
-    "content": "D2.4 — Engine backtest modo no-market: Brier + log-loss + calibration curve + hit-rate + desglose por fase (GROUP/KNOCKOUT/COMBINED)",
+    "content": "D4.4 — Walk-forward auditable: _calibration_audit en cada predicción + invariante max_calib_date < target_date",
     "status": "completed"
   },
   {
-    "content": "D2.5 — Adaptar scripts/run_backtest.py con flag --openfootball-path y --no-market",
+    "content": "D4.5 — Tests test_sprint_d4_roi_significance.py (25 tests verdes)",
     "status": "completed"
   },
   {
-    "content": "D2.6 — Ejecutar backtests WC2022 y Euro2024 + generar reportes (3 archivos .md + .json + summary)",
+    "content": "D4.6 — Tests test_sprint_d4_walk_forward.py (7 tests verdes)",
     "status": "completed"
   },
   {
-    "content": "D2.7 — Tests nuevos (parser, standings PIT, context score, engine no-market) + suite global verde (3271+)",
+    "content": "D4.7 — Backtest EPL 24/25 con odds opening + closing + summary D4",
+    "status": "completed"
+  },
+  {
+    "content": "D4.8 — Suite global verificada: 3475 passing, 0 regresiones",
     "status": "completed"
   }
 ]

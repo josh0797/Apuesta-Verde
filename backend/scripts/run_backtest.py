@@ -69,10 +69,18 @@ def _render_markdown_market(report: dict) -> str:
               "total_staked", "total_returned", "net_pnl", "roi",
               "yield_per_bet", "max_drawdown", "sharpe_like",
               "avg_edge_predicted_pp", "avg_edge_realised_pp",
-              "roi_ci_lo", "roi_ci_hi", "is_significant",
-              "calibration_label", "small_sample_flag",
+              "roi_ci_low", "roi_ci_high",
+              "is_significant", "is_roi_significant",
+              "calibration_label",
+              "sample_status", "small_sample_flag",
               "small_sample_warning"):
         add(f"- **{k}**: `{report.get(k)}`")
+    # Sprint-D4 — emit warnings block.
+    warnings = report.get("warnings") or []
+    if warnings:
+        add("\n## ⚠️  Warnings\n")
+        for w in warnings:
+            add(f"- `{w}`")
     add("\n## Reliability curve (predicted vs actual)\n")
     add("| Bucket | n | predicted_avg | actual_avg |")
     add("|---|---|---|---|")
@@ -89,11 +97,18 @@ def _render_markdown_market(report: dict) -> str:
     for k, v in (report.get("breakdown_by_tier") or {}).items():
         add(f"| {k} | {v['n']} | {v['won']} | {v['roi']} | {v['hit_rate']} |")
     add("\n## Verdict\n")
-    if report.get("small_sample_flag"):
+    sample_status = report.get("sample_status")
+    if sample_status == "INSUFFICIENT_SAMPLE_DO_NOT_TRUST":
         add("\u26a0️  **INSUFFICIENT_SAMPLE_DO_NOT_TRUST** — fewer than 50 picks.")
-    elif report.get("is_significant") is True and (report.get("roi") or 0) > 0:
-        add("✅ **APTO PARA PRODUCCIÓN (observe-only) — ROI positivo "
-            "estadísticamente significativo.**")
+    elif sample_status == "SMALL_SAMPLE_CAUTION":
+        add("🟡 **SMALL_SAMPLE_CAUTION** — between 50 and 200 picks; CI"
+            " interpretation should remain qualitative.")
+    if report.get("is_roi_significant") is True and (report.get("roi") or 0) > 0:
+        add("✅ **APTO PARA PRODUCCIÓN (observe-only) — ROI positivo"
+            " estadísticamente significativo (CI 95% excluye 0).**")
+    elif report.get("is_roi_significant") is False and (report.get("roi") or 0) > 0:
+        add("🟡 **ROI POSITIVO PERO NO SIGNIFICATIVO** — CI cruza 0;"
+            " resultado nominalmente positivo no respaldado por la muestra.")
     elif report.get("is_significant") is False:
         add("⚠️  **REQUIERE MÁS DATOS** — CI cruza 0, no significativo.")
     else:

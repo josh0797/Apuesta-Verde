@@ -16,17 +16,30 @@ Anti-leakage invariants enforced here
   available before kickoff.
 * The engine never reads ``matches[i]`` outcome fields when building
   features for prediction.
+
+Sprint-D3 — Multi-market support
+--------------------------------
+The engine now supports the following markets in ``no_market`` mode:
+  * ``"DRAW"``          (original Sprint-D / D2)
+  * ``"OVER_1_5"``      (Dixon-Coles bivariate)
+  * ``"DOUBLE_CHANCE_HD"`` (Home or Draw, ELO 1X2 + Draw Potential)
+  * ``"DOUBLE_CHANCE_AD"`` (Away or Draw)
+  * ``"DOUBLE_CHANCE_HA"`` (Home or Away, = 1 − P(Draw))
+
+The market-aware (with-odds) mode remains ``"DRAW"``-only for now.
 """
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 from .football_draw_potential import (
     compute_draw_potential,
     LABEL_VALUE_DRAW, LABEL_STRONG_VALUE,
     LABEL_FAIR_DRAW, LABEL_NO_VALUE,
 )
+from .football_over15_potential import compute_over15_potential
+from .football_double_chance_potential import compute_double_chance_potential
 from .football_historical_ingestor import build_point_in_time_features
 
 log = logging.getLogger("football_backtest_engine")
@@ -36,33 +49,211 @@ log = logging.getLogger("football_backtest_engine")
 # the current pick.
 DEFAULT_RECAL_EVERY = 25
 
-# Sprint-D2 · No-market label thresholds.
-# Without odds we cannot compute an edge, so we assign labels based on
-# the absolute predicted probability. These thresholds are calibrated
-# against the football literature baselines:
-#   * Draw league baseline ≈ 24%
-#   * "Above-average" draw signal ≈ 28%
-#   * "Strong" draw signal ≈ 32%
+# Sprint-D2 · No-market label thresholds for DRAW (back-compat).
 NO_MARKET_STRONG_VALUE_PP = 32.0
 NO_MARKET_VALUE_PP        = 28.0
 NO_MARKET_FAIR_PP         = 24.0
 
 
-def _relabel_no_market(verdict: dict) -> dict:
-    """Sprint-D2 · Reassign the label using an absolute-probability
-    threshold when no market odds are available."""
-    pp = verdict.get("draw_probability")
+# ─────────────────────────────────────────────────────────────────────
+# Sprint-D3 · Market specifications
+# ─────────────────────────────────────────────────────────────────────
+# Each spec describes how to:
+#   1) predict for the market (predictor + extractor)
+#   2) settle the ground-truth from a match row (hit_fn)
+#   3) assign no-market labels from absolute prob thresholds
+#
+# The thresholds below are **initial conservative defaults** based on
+# football literature baselines. They will be refined empirically in
+# Sprint-D3 step D3.5 using the WC22 + Euro24 data.
+
+# Default thresholds (in percentage points).
+#
+# Sprint-D3 D3.5 · Calibrated against combined WC22 + Euro24 data
+# (n=87 predictions per market). For each market we report the
+# observed base-rate / avg-pred and pick thresholds where the
+# threshold-sweep hit-rate beats base-rate **with at least 20 fires**.
+#
+# Empirical findings (combined WC22+Euro24):
+#   * OVER_1_5     : base_rate=0.747, avg_pred=0.741 — well calibrated
+#                    in aggregate. hit_rate climbs monotonically with
+#                    threshold (0.733 @ 50pp → 0.821 @ 85pp).
+#   * DC_HD        : base_rate=0.701, avg_pred=0.745 — model
+#                    **over-predicts** by ~4.4pp. Discrimination is
+#                    poor above 65pp; hit_rate FLATLINES then DROPS.
+#   * DC_AD        : base_rate=0.598, avg_pred=0.551 — model
+#                    **under-predicts** by ~4.7pp. Top of distribution
+#                    only reaches 61pp.
+#   * DC_HA        : base_rate=0.701, avg_pred=0.704 — well calibrated.
+#                    Hit-rate climbs to 0.778 @ 70pp threshold.
+NO_MARKET_THRESHOLDS: dict[str, dict[str, float]] = {
+    "DRAW": {
+        # Sprint-D2 thresholds, kept as-is for back-compat.
+        "STRONG": 32.0, "VALUE": 28.0, "FAIR": 24.0,
+        "DEFAULT_FIRING": 28.0,
+    },
+    "OVER_1_5": {
+        # Sweet spot 60→75→85 (n=68, 53, 28 fires; hit 0.75, 0.77, 0.82).
+        "STRONG": 85.0, "VALUE": 75.0, "FAIR": 60.0,
+        "DEFAULT_FIRING": 75.0,
+    },
+    "DOUBLE_CHANCE_HD": {
+        # Model is over-confident above 70pp → cap STRONG at 75.
+        "STRONG": 75.0, "VALUE": 70.0, "FAIR": 65.0,
+        "DEFAULT_FIRING": 70.0,
+    },
+    "DOUBLE_CHANCE_AD": {
+        # Model under-predicts; scale shifted ~10pp lower than other
+        # DC variants. n=49 @ thr=55pp (hit 0.612).
+        "STRONG": 60.0, "VALUE": 55.0, "FAIR": 50.0,
+        "DEFAULT_FIRING": 55.0,
+    },
+    "DOUBLE_CHANCE_HA": {
+        # Sweet spot 65→70→75 (hit 0.72, 0.78, 0.77).
+        "STRONG": 75.0, "VALUE": 70.0, "FAIR": 65.0,
+        "DEFAULT_FIRING": 70.0,
+    },
+}
+
+
+# Generic label set used for non-DRAW markets in no-market mode.
+LABEL_STRONG_VALUE_GENERIC = "STRONG_VALUE"
+LABEL_VALUE_GENERIC        = "VALUE_CANDIDATE"
+LABEL_FAIR_GENERIC         = "FAIR_NO_EDGE"
+LABEL_NO_VALUE_GENERIC     = "NO_VALUE"
+
+
+def _hit_draw(m: dict) -> bool:
+    return m.get("ftr") == "D"
+
+
+def _hit_over15(m: dict) -> bool:
+    return (int(m.get("fthg", 0)) + int(m.get("ftag", 0))) >= 2
+
+
+def _hit_hd(m: dict) -> bool:
+    return int(m.get("fthg", 0)) >= int(m.get("ftag", 0))
+
+
+def _hit_ad(m: dict) -> bool:
+    return int(m.get("ftag", 0)) >= int(m.get("fthg", 0))
+
+
+def _hit_ha(m: dict) -> bool:
+    return int(m.get("fthg", 0)) != int(m.get("ftag", 0))
+
+
+def _predict_draw(features: dict) -> dict:
+    pred_kwargs = {k: v for k, v in features.items() if k != "_audit"}
+    # Filter out Sprint-D3 extra keys not accepted by compute_draw_potential.
+    for extra in ("goal_avg_for_home", "goal_avg_for_away",
+                  "goal_avg_against_home", "goal_avg_against_away"):
+        pred_kwargs.pop(extra, None)
+    return compute_draw_potential(**pred_kwargs)
+
+
+def _predict_over15(features: dict) -> dict:
+    return compute_over15_potential(
+        xg_home_l5=features.get("xg_home_l5"),
+        xg_away_l5=features.get("xg_away_l5"),
+        goal_avg_for_home=features.get("goal_avg_for_home"),
+        goal_avg_for_away=features.get("goal_avg_for_away"),
+        goal_avg_against_home=features.get("goal_avg_against_home"),
+        goal_avg_against_away=features.get("goal_avg_against_away"),
+        is_group_stage=features.get("is_group_stage", False),
+    )
+
+
+def _predict_double_chance(features: dict) -> dict:
+    """Helper that computes a 1X2 + DC payload; the engine picks
+    the relevant DC variant downstream."""
+    draw_v = _predict_draw(features)
+    dc = compute_double_chance_potential(
+        elo_home=features.get("elo_home"),
+        elo_away=features.get("elo_away"),
+        draw_probability_pct=draw_v.get("draw_probability"),
+    )
+    # Stitch the draw-potential audit so reason codes are accessible.
+    dc["_draw_audit"] = {
+        "draw_probability":   draw_v.get("draw_probability"),
+        "draw_reason_codes":  draw_v.get("reason_codes"),
+    }
+    return dc
+
+
+def _extract_prob_pct(verdict: dict, market: str) -> Optional[float]:
+    if market == "DRAW":
+        return verdict.get("draw_probability")
+    if market == "OVER_1_5":
+        return verdict.get("over15_probability")
+    if market == "DOUBLE_CHANCE_HD":
+        return verdict.get("p_home_or_draw_pct")
+    if market == "DOUBLE_CHANCE_AD":
+        return verdict.get("p_away_or_draw_pct")
+    if market == "DOUBLE_CHANCE_HA":
+        return verdict.get("p_home_or_away_pct")
+    return None
+
+
+def _store_prob_pct(verdict: dict, market: str, pct: float) -> None:
+    """Apply a calibrated probability back into the verdict dict (the
+    same field we just read with ``_extract_prob_pct``)."""
+    if market == "DRAW":
+        verdict["draw_probability"] = round(pct, 1)
+    elif market == "OVER_1_5":
+        verdict["over15_probability"] = round(pct, 1)
+    elif market == "DOUBLE_CHANCE_HD":
+        verdict["p_home_or_draw_pct"] = round(pct, 2)
+    elif market == "DOUBLE_CHANCE_AD":
+        verdict["p_away_or_draw_pct"] = round(pct, 2)
+    elif market == "DOUBLE_CHANCE_HA":
+        verdict["p_home_or_away_pct"] = round(pct, 2)
+
+
+def _relabel_for_market(verdict: dict, market: str) -> dict:
+    """Assign label from absolute probability thresholds (no-market)."""
+    pp = _extract_prob_pct(verdict, market)
     if pp is None:
         return verdict
-    if pp >= NO_MARKET_STRONG_VALUE_PP:
-        verdict["label"] = LABEL_STRONG_VALUE
-    elif pp >= NO_MARKET_VALUE_PP:
-        verdict["label"] = LABEL_VALUE_DRAW
-    elif pp >= NO_MARKET_FAIR_PP:
-        verdict["label"] = LABEL_FAIR_DRAW
+    th = NO_MARKET_THRESHOLDS.get(market, NO_MARKET_THRESHOLDS["DRAW"])
+    if market == "DRAW":
+        # Preserve back-compat label set.
+        if pp >= th["STRONG"]:
+            verdict["label"] = LABEL_STRONG_VALUE
+        elif pp >= th["VALUE"]:
+            verdict["label"] = LABEL_VALUE_DRAW
+        elif pp >= th["FAIR"]:
+            verdict["label"] = LABEL_FAIR_DRAW
+        else:
+            verdict["label"] = LABEL_NO_VALUE
     else:
-        verdict["label"] = LABEL_NO_VALUE
+        if pp >= th["STRONG"]:
+            verdict["label"] = LABEL_STRONG_VALUE_GENERIC
+        elif pp >= th["VALUE"]:
+            verdict["label"] = LABEL_VALUE_GENERIC
+        elif pp >= th["FAIR"]:
+            verdict["label"] = LABEL_FAIR_GENERIC
+        else:
+            verdict["label"] = LABEL_NO_VALUE_GENERIC
     return verdict
+
+
+# Market specs: (predictor, hit_fn).
+_MARKET_SPECS: dict[str, dict] = {
+    "DRAW":              {"predictor": _predict_draw,          "hit_fn": _hit_draw},
+    "OVER_1_5":          {"predictor": _predict_over15,        "hit_fn": _hit_over15},
+    "DOUBLE_CHANCE_HD":  {"predictor": _predict_double_chance, "hit_fn": _hit_hd},
+    "DOUBLE_CHANCE_AD":  {"predictor": _predict_double_chance, "hit_fn": _hit_ad},
+    "DOUBLE_CHANCE_HA":  {"predictor": _predict_double_chance, "hit_fn": _hit_ha},
+}
+
+SUPPORTED_MARKETS: tuple[str, ...] = tuple(_MARKET_SPECS.keys())
+
+
+def _relabel_no_market(verdict: dict) -> dict:
+    """Sprint-D2 · Back-compat alias (DRAW market). Sprint-D3 introduces
+    ``_relabel_for_market`` for multi-market support."""
+    return _relabel_for_market(verdict, "DRAW")
 
 
 def _isotonic_like_calibrator(history: list[tuple[float, int]]):
@@ -162,11 +353,28 @@ def run_backtest(
         Minimum predicted draw probability (in pp) for a pick to fire
         in ``no_market`` mode. Default 30pp ≈ "above league baseline".
     """
-    if market != "DRAW":
+    if market not in SUPPORTED_MARKETS:
         raise NotImplementedError(
-            "Sprint-D MVP implements DRAW only. "
-            f"Got market={market!r}."
+            f"Unsupported market={market!r}. "
+            f"Supported: {SUPPORTED_MARKETS}"
         )
+    # Market-aware (with-odds) mode currently only supports DRAW.
+    if not no_market and market != "DRAW":
+        raise NotImplementedError(
+            f"Market-aware mode (no_market=False) only supports 'DRAW'. "
+            f"Got market={market!r}. Use no_market=True for "
+            f"calibration-only backtests on {market!r}."
+        )
+
+    spec = _MARKET_SPECS[market]
+    predictor: Callable[[dict], dict] = spec["predictor"]
+    hit_fn:    Callable[[dict], bool] = spec["hit_fn"]
+    # Default firing threshold derives from market spec when caller
+    # did not override.
+    if min_pred_prob_pp == 30.0 and market != "DRAW":
+        # The 30.0 sentinel means "caller used the back-compat default";
+        # switch to the market-appropriate threshold.
+        min_pred_prob_pp = NO_MARKET_THRESHOLDS[market]["DEFAULT_FIRING"]
 
     picks: list[dict] = []
     predictions: list[dict] = []
@@ -199,47 +407,68 @@ def run_backtest(
             skipped.append({"index": i, "reason": "no_draw_odd"})
             continue
 
-        # Strip the audit before passing to the predictor (its signature
-        # doesn't accept it).
-        pred_kwargs = {k: v for k, v in features.items() if k != "_audit"}
-        verdict = compute_draw_potential(**pred_kwargs)
+        # Sprint-D4 · Walk-forward calibration audit.
+        # Compute the strict-prior calibration window and the audit
+        # block PRIOR to the prediction, so it reflects exactly what
+        # the calibrator was allowed to see at decision-time.
+        target_date = m["date"]
+        max_calib_date = None
+        for j in range(i - 1, -1, -1):
+            if matches_sorted[j]["date"] < target_date:
+                max_calib_date = matches_sorted[j]["date"]
+                break
+        calibration_audit = {
+            "n_calib_matches":      i,
+            "n_calib_picks_seen":   len(calib_history),
+            "max_calib_date":       (max_calib_date.isoformat()
+                                      if max_calib_date else None),
+            "target_date":          target_date.isoformat(),
+            "walk_forward":         bool(walk_forward),
+            "use_calibration":      bool(use_calibration),
+            "leakage_check_passed": (max_calib_date is None
+                                      or max_calib_date < target_date),
+        }
+
+        # Predict for the configured market.
+        verdict = predictor(features)
 
         # No-market mode: reassign label using absolute-probability
         # thresholds (since edge-vs-market is undefined here).
         if no_market:
-            verdict = _relabel_no_market(verdict)
+            verdict = _relabel_for_market(verdict, market)
 
         # Apply walk-forward calibration if enabled.
-        prob_pct = verdict["draw_probability"]
+        prob_pct = _extract_prob_pct(verdict, market)
         if use_calibration and prob_pct is not None and calib_history:
             try:
                 calibrated = calibrator(prob_pct / 100.0) * 100.0
-                # Recompute edge against the same market implied.
-                market_pct = verdict["market_implied"]
-                verdict["draw_probability"] = round(calibrated, 1)
-                if market_pct is not None:
-                    new_edge = round(calibrated - market_pct, 1)
-                    verdict["edge"]             = new_edge
-                    if new_edge >= 8.0:
-                        verdict["label"] = LABEL_STRONG_VALUE
-                    elif new_edge >= 4.0:
-                        verdict["label"] = LABEL_VALUE_DRAW
-                    elif new_edge >= 0:
-                        verdict["label"] = "FAIR_DRAW_NO_EDGE"
-                    else:
-                        verdict["label"] = "NO_DRAW_VALUE"
+                _store_prob_pct(verdict, market, calibrated)
+                # For DRAW market we keep the legacy edge re-derivation.
+                if market == "DRAW":
+                    market_pct = verdict.get("market_implied")
+                    if market_pct is not None:
+                        new_edge = round(calibrated - market_pct, 1)
+                        verdict["edge"]             = new_edge
+                        if new_edge >= 8.0:
+                            verdict["label"] = LABEL_STRONG_VALUE
+                        elif new_edge >= 4.0:
+                            verdict["label"] = LABEL_VALUE_DRAW
+                        elif new_edge >= 0:
+                            verdict["label"] = "FAIR_DRAW_NO_EDGE"
+                        else:
+                            verdict["label"] = "NO_DRAW_VALUE"
+                    elif no_market:
+                        verdict = _relabel_for_market(verdict, market)
                 elif no_market:
-                    # Re-apply absolute-probability labeling post
-                    # calibration.
-                    verdict = _relabel_no_market(verdict)
+                    verdict = _relabel_for_market(verdict, market)
             except Exception as exc:  # noqa: BLE001
                 log.debug("calibration failed: %s", exc)
 
         # Decision: fire a pick.
         label = verdict.get("label")
         edge  = verdict.get("edge")
-        prob_pct_final = verdict.get("draw_probability")
-        hit = (m["ftr"] == "D")
+        prob_pct_final = _extract_prob_pct(verdict, market)
+        hit = hit_fn(m)
         if no_market:
             # Fire on predicted probability threshold (no odds available).
             fires = (prob_pct_final is not None
@@ -256,6 +485,7 @@ def run_backtest(
                 "competition":    m.get("competition") or "",
                 "home":           m["home_team"],
                 "away":           m["away_team"],
+                "market":         market,
                 "predicted_prob": round(prob_pct_final / 100.0, 4),
                 "label":          label,
                 "tournament_phase": m.get("tournament_phase"),
@@ -267,6 +497,7 @@ def run_backtest(
                 "fired":          bool(fires),
                 "tournament_context_score":
                     features.get("tournament_context_score"),
+                "_calibration_audit": calibration_audit,
             })
 
         if fires:
@@ -278,6 +509,7 @@ def run_backtest(
                     "competition":    m.get("competition") or "",
                     "home":           m["home_team"],
                     "away":           m["away_team"],
+                    "market":         market,
                     "odd_draw":       None,
                     "predicted_prob": round(prob_pct_final / 100.0, 4),
                     "market_prob":    None,
@@ -293,6 +525,7 @@ def run_backtest(
                     "is_group_stage":   bool(m.get("is_group_stage", False)),
                     "tournament_context_score":
                         features.get("tournament_context_score"),
+                    "_calibration_audit": calibration_audit,
                 })
             else:
                 odd = m["odd_draw"]
@@ -304,12 +537,16 @@ def run_backtest(
                     stake_amt = stake_unit
                 if stake_amt > 0:
                     pnl = (odd - 1.0) * stake_amt if hit else -stake_amt
+                    # Sprint-D4 — propagate per-row warnings from the
+                    # ingestor (e.g. ODDS_ARE_CLOSING_BACKTEST_OPTIMISTIC).
+                    row_warnings = list(m.get("warnings") or [])
                     picks.append({
                         "date":           m["date"].isoformat(),
                         "competition":    m.get("competition") or "",
                         "home":           m["home_team"],
                         "away":           m["away_team"],
                         "odd_draw":       odd,
+                        "odds_type":      m.get("odds_type"),
                         "predicted_prob": round(prob_used, 4),
                         "market_prob":    round(verdict["market_implied"] / 100.0, 4),
                         "edge_pp":        edge,
@@ -318,6 +555,8 @@ def run_backtest(
                         "hit":            hit,
                         "pnl":            round(pnl, 4),
                         "actual_score":   f"{m['fthg']}-{m['ftag']}",
+                        "warnings":       row_warnings,
+                        "_calibration_audit": calibration_audit,
                     })
 
         # Update calibrator history AFTER the pick is recorded.
@@ -350,5 +589,20 @@ __all__ = [
     "run_backtest",
     "_isotonic_like_calibrator",
     "_kelly_fraction",
+    "_relabel_no_market",
+    "_relabel_for_market",
+    "_extract_prob_pct",
+    "_store_prob_pct",
+    "_predict_draw", "_predict_over15", "_predict_double_chance",
+    "_hit_draw", "_hit_over15", "_hit_hd", "_hit_ad", "_hit_ha",
+    "SUPPORTED_MARKETS",
+    "NO_MARKET_THRESHOLDS",
+    "NO_MARKET_STRONG_VALUE_PP",
+    "NO_MARKET_VALUE_PP",
+    "NO_MARKET_FAIR_PP",
+    "LABEL_STRONG_VALUE_GENERIC",
+    "LABEL_VALUE_GENERIC",
+    "LABEL_FAIR_GENERIC",
+    "LABEL_NO_VALUE_GENERIC",
     "DEFAULT_RECAL_EVERY",
 ]
