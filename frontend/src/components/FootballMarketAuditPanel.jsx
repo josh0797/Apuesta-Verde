@@ -12,6 +12,7 @@ import {
   ListChecks,
 } from 'lucide-react';
 import { ManualMarketIdentityPanel } from '@/components/ManualMarketIdentityPanel';
+import { MarketComparatorPanel } from '@/components/MarketComparatorPanel';
 import { resolveMatchId, resolveDetectedOdd } from '@/lib/matchResolver';
 
 /**
@@ -183,6 +184,27 @@ export function FootballMarketTraceDetail({ trace, testIdPrefix, matchId, candid
             homeName={homeName}
             awayName={awayName}
             testIdPrefix={`${testIdPrefix}-manual-market`}
+          />
+        )}
+
+        {/* Sprint E.3 / Fix 2 — Manual comparator. Independent panel
+            (collapsed by default) that lets the operator paste any
+            number of bookmaker odds and see implied + edge vs the
+            model's probability. observe_only — never mutates the
+            pick. Precarga ``initialModelProbPct`` desde el trace si
+            existe, dejándolo editable. */}
+        {matchId && (
+          <MarketComparatorPanel
+            matchId={matchId}
+            homeName={homeName}
+            awayName={awayName}
+            initialModelProbPct={
+              trace?.estimated_probability != null
+                ? Number(trace.estimated_probability)
+                : null
+            }
+            initialMarketTypeFromPick={trace?.market_code || null}
+            testIdPrefix={`${testIdPrefix}-comparator`}
           />
         )}
       </div>
@@ -520,6 +542,23 @@ export function FootballMarketAuditPanel({ item, testIdPrefix = 'fmt' }) {
         marketsChecked={markets}
         testIdPrefix={testIdPrefix}
       />
+      {/* Sprint E.3 / Fix 2 — Manual comparator, always available when
+          the card carries a match_id. Collapsed by default so it does
+          not steal real estate from the trace breakdown. */}
+      {matchId && (
+        <MarketComparatorPanel
+          matchId={matchId}
+          homeName={typeof homeName === 'string' ? homeName : null}
+          awayName={typeof awayName === 'string' ? awayName : null}
+          initialModelProbPct={
+            trace?.estimated_probability != null
+              ? Number(trace.estimated_probability)
+              : null
+          }
+          initialMarketTypeFromPick={trace?.market_code || null}
+          testIdPrefix={`${testIdPrefix}-comparator`}
+        />
+      )}
     </div>
   );
 }

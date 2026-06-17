@@ -1,18 +1,14 @@
 [
   {
-    "content": "Hook automático + 365Scores Trends + reemplazo orquestrador + tests",
+    "content": "Sprint D6 — Engine + 12 tests + criterio anti-no-op verificado + 0 regresiones",
     "status": "completed"
   },
   {
-    "content": "Sprint E.2 backend (detector + alerts + persistencia + endpoints + scheduler wire)",
+    "content": "Fix 2 — MarketComparatorPanel integrado en card del match + compila limpio",
     "status": "completed"
   },
   {
-    "content": "UI: Botón Resolver + render AMBIGUOUS + Panel alertas + ruta /odds-alerts + tab Alertas",
-    "status": "completed"
-  },
-  {
-    "content": "Pytest 3602 passed (0 regresiones) + frontend esbuild OK + plan.md actualizado",
+    "content": "Suite backend 3614 passed + frontend esbuild OK + plan.md actualizado",
     "status": "completed"
   }
 ]

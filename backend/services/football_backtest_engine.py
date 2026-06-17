@@ -303,6 +303,33 @@ def _kelly_fraction(p: float, decimal_odd: float) -> float:
     return max(0.0, min(0.10, f))
 
 
+# Sprint-D6 · Probability clamps for the (post-shrinkage) calibrator.
+# Without clamps a noisy small-sample empirical rate could push the
+# calibrated probability outside ``(0, 1)`` after rounding.
+PROB_MIN: float = 0.001
+PROB_MAX: float = 0.999
+
+# Sprint-D6 · Default Bayesian shrinkage K. ``None`` = legacy behaviour
+# (pure isotonic, no shrinkage). Tests/operators pass an int K to
+# enable the additional shrinkage layer.
+DEFAULT_SHRINKAGE_K: Optional[int] = None
+
+
+def _shrinkage_weight(n: int, K: int) -> float:
+    """Bayesian shrinkage weight ``w = n / (n + K)``. Returns 0 for an
+    empty sample, monotonically growing toward 1 as ``n`` increases."""
+    if n <= 0 or K <= 0:
+        return 0.0
+    return float(n) / (float(n) + float(K))
+
+
+def _empirical_observed_rate(history: list[tuple[float, int]]) -> Optional[float]:
+    """Global empirical hit rate over the full calibration history."""
+    if not history:
+        return None
+    return sum(int(y) for _, y in history) / float(len(history))
+
+
 def run_backtest(
     matches_sorted: list[dict],
     *,
@@ -316,6 +343,9 @@ def run_backtest(
     no_market: bool = False,
     min_pred_prob_pp: float = 30.0,
     min_history_per_team: Optional[int] = None,
+    # ── Sprint-D6 additions (opt-in; defaults preserve legacy) ────────
+    shrinkage_K: Optional[int] = DEFAULT_SHRINKAGE_K,
+    predictor_override: Optional[Callable[[dict], dict]] = None,
 ) -> dict:
     """Run the backtest. Returns a dict with picks + summary.
 
@@ -367,7 +397,9 @@ def run_backtest(
         )
 
     spec = _MARKET_SPECS[market]
-    predictor: Callable[[dict], dict] = spec["predictor"]
+    predictor: Callable[[dict], dict] = (predictor_override
+                                          if predictor_override is not None
+                                          else spec["predictor"])
     hit_fn:    Callable[[dict], bool] = spec["hit_fn"]
     # Default firing threshold derives from market spec when caller
     # did not override.
@@ -441,13 +473,51 @@ def run_backtest(
         prob_pct = _extract_prob_pct(verdict, market)
         if use_calibration and prob_pct is not None and calib_history:
             try:
-                calibrated = calibrator(prob_pct / 100.0) * 100.0
-                _store_prob_pct(verdict, market, calibrated)
+                # Capa 1 (legacy): isotonic-like per-decile mean.
+                base_prob       = float(prob_pct) / 100.0
+                iso_calibrated  = float(calibrator(base_prob))
+                calibrated_prob = iso_calibrated
+
+                # Capa 2 (Sprint-D6 · opt-in): Bayesian shrinkage.
+                # Mezcla ``base`` con ``iso`` según ``w = n / (n + K)``.
+                # Con poca muestra (w≈0) la predicción se mantiene
+                # cerca del base prior; con mucha muestra (w→1) se
+                # acerca al estimador empírico isotonic.
+                shrinkage_w   = None
+                observed_rate = _empirical_observed_rate(calib_history)
+                if shrinkage_K is not None and shrinkage_K > 0:
+                    shrinkage_w = _shrinkage_weight(
+                        len(calib_history), shrinkage_K,
+                    )
+                    calibrated_prob = (shrinkage_w * iso_calibrated
+                                        + (1.0 - shrinkage_w) * base_prob)
+
+                # Clamp final probability to (PROB_MIN, PROB_MAX).
+                clamped_prob = max(PROB_MIN, min(PROB_MAX, calibrated_prob))
+
+                # Audit: surface every input/output of the calibrator
+                # so Sprint-D6 tests can prove the layer is non-trivial.
+                calibration_audit["shrinkage_K"]      = shrinkage_K
+                calibration_audit["calib_weight"]     = (
+                    round(shrinkage_w, 6) if shrinkage_w is not None else None
+                )
+                calibration_audit["base_prob"]        = round(base_prob, 6)
+                calibration_audit["iso_calibrated"]   = round(iso_calibrated, 6)
+                calibration_audit["calibrated_prob"]  = round(clamped_prob, 6)
+                calibration_audit["observed_rate"]    = (
+                    round(observed_rate, 6) if observed_rate is not None else None
+                )
+                calibration_audit["clamped"]          = (
+                    abs(clamped_prob - calibrated_prob) > 1e-12
+                )
+
+                calibrated_pct = clamped_prob * 100.0
+                _store_prob_pct(verdict, market, calibrated_pct)
                 # For DRAW market we keep the legacy edge re-derivation.
                 if market == "DRAW":
                     market_pct = verdict.get("market_implied")
                     if market_pct is not None:
-                        new_edge = round(calibrated - market_pct, 1)
+                        new_edge = round(calibrated_pct - market_pct, 1)
                         verdict["edge"]             = new_edge
                         if new_edge >= 8.0:
                             verdict["label"] = LABEL_STRONG_VALUE
