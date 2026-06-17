@@ -114,6 +114,33 @@ async def on_startup() -> None:
         log.info("[WATCHLIST_ODDS_SNAPSHOTS] indexes ensured (TTL 60d)")
     except Exception as exc:
         log.warning("[WATCHLIST_ODDS_SNAPSHOTS] index ensure failed: %s", exc)
+    # Sprint E.1 — live odds monitor indexes.
+    # NOTE: NO TTL on ``odds_snapshots`` per product decision (keep all
+    # snapshots for historical/backtesting). The existing
+    # ``(match_id, snapshot_at)`` index above already covers the primary
+    # query path; we add a secondary index by ``source`` to keep the
+    # live-monitor queries fast and decoupled from legacy docs.
+    try:
+        await db.odds_snapshots.create_index(
+            [("source", 1), ("snapshot_at", -1)],
+        )
+        await db.odds_snapshots.create_index(
+            [("match_id", 1), ("source", 1), ("snapshot_at", -1)],
+        )
+        log.info("[ODDS_SNAPSHOTS] live-monitor indexes ensured (no TTL)")
+    except Exception as exc:
+        log.warning("[ODDS_SNAPSHOTS] index ensure failed: %s", exc)
+    # Sprint E.1 — match_id → The Odds API event_id mappings.
+    # Persistent cache: unique by (match_id, sport_key); secondary
+    # lookup by event_id.
+    try:
+        await db.odds_event_id_mappings.create_index(
+            [("match_id", 1), ("sport_key", 1)], unique=True,
+        )
+        await db.odds_event_id_mappings.create_index("event_id")
+        log.info("[ODDS_EVENT_ID_MAPPINGS] indexes ensured")
+    except Exception as exc:
+        log.warning("[ODDS_EVENT_ID_MAPPINGS] index ensure failed: %s", exc)
     # Phase F68 — player_id_mappings TTL (90d).
     try:
         await db.player_id_mappings.create_index(
@@ -309,6 +336,99 @@ async def manual_market_options_endpoint() -> dict:
         "market_types":         MANUAL_MARKET_TYPES,
         "options_by_market":    MARKET_OPTIONS,
     }
+
+
+# ── Sprint E.1 · Live Odds Monitor — read-only endpoints ───────────────
+@app.get("/api/odds/snapshots/{match_id}")
+async def odds_snapshots_for_match(
+    match_id: str,
+    limit: int = 50,
+    source: str = "live_odds_monitor_v1",
+) -> dict:
+    """Return the latest live-odds snapshots for ``match_id``.
+
+    Sprint E.1 — base read-only endpoint. The Live Odds Monitor writes
+    one document per (bookmaker, market) on every poll cycle, filtered
+    to the live universe (see ``services.live_odds_monitor``).
+
+    Query params:
+      * ``limit``  — max snapshots to return (default 50, hard cap 200).
+      * ``source`` — discriminator; defaults to the live-monitor source
+                     so legacy ``odds_snapshots`` rows are never mixed
+                     into the response. Pass ``source=*`` (or any
+                     falsy value) to disable the filter for diagnostics.
+    """
+    if not match_id:
+        return {"available": False, "match_id": None,
+                "reason_code": "MATCH_ID_REQUIRED", "snapshots": []}
+    try:
+        lim = max(1, min(int(limit or 50), 200))
+    except (TypeError, ValueError):
+        lim = 50
+
+    query: dict = {"match_id": str(match_id)}
+    if source and source not in ("*", "any", "all"):
+        query["source"] = source
+
+    try:
+        cursor = db.odds_snapshots.find(query).sort("snapshot_at", -1).limit(lim)
+        docs = await cursor.to_list(length=lim)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[ODDS_SNAPSHOTS] read failed for %s: %s", match_id, exc)
+        return {"available": False, "match_id": match_id,
+                "reason_code": "READ_FAILED",
+                "_error": str(exc), "snapshots": []}
+
+    out: list[dict] = []
+    for d in docs:
+        # Strip _id (ObjectId is not JSON-friendly) and surface a
+        # normalised, UI-ready row.
+        d.pop("_id", None)
+        fa = d.get("fetched_at") or d.get("snapshot_at")
+        if hasattr(fa, "isoformat"):
+            fa = fa.isoformat()
+        d_norm = {
+            "snapshot_id":     d.get("snapshot_id"),
+            "match_id":        d.get("match_id"),
+            "sport_key":       d.get("sport_key"),
+            "event_id":        d.get("event_id"),
+            "bookmaker_key":   d.get("bookmaker_key"),
+            "bookmaker_title": d.get("bookmaker_title"),
+            "market":          d.get("market"),
+            "outcomes":        d.get("outcomes"),
+            "fetched_at":      fa,
+            "last_update":     d.get("last_update"),
+            "source":          d.get("source"),
+            "quota_remaining": d.get("quota_remaining"),
+        }
+        out.append(d_norm)
+
+    return {
+        "available":   True,
+        "match_id":    match_id,
+        "source":      source,
+        "count":       len(out),
+        "snapshots":   out,
+    }
+
+
+@app.get("/api/odds/monitor/status")
+async def odds_monitor_status() -> dict:
+    """Return the live-odds monitor runtime status (Sprint E.1).
+
+    Lightweight diagnostic endpoint — never reveals API keys and never
+    triggers a fetch. Reads in-process counters maintained by
+    ``services.live_odds_monitor``.
+    """
+    try:
+        from services import live_odds_monitor as lom
+        return {
+            "available": True,
+            "config":    lom.get_config(),
+            "status":    lom.get_status(),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "_error": str(exc)}
 
 
 @app.get("/api/football/learning-snapshot/{match_id}")

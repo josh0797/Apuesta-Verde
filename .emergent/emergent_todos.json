@@ -1,26 +1,34 @@
 [
   {
-    "content": "D5.1 — Descargar 5 ligas CSV + WC2018",
+    "content": "E.1.1 — Extender the_odds_api_client.py",
     "status": "completed"
   },
   {
-    "content": "D5.2 — football_cohort_detector.py con 4 cohortes",
+    "content": "E.1.2 — Crear services/live_odds_monitor.py",
     "status": "completed"
   },
   {
-    "content": "D5.3+D5.4 — Script run_backtest_d5.py + 3 reportes",
+    "content": "E.1.3 — Crear índices Mongo",
     "status": "completed"
   },
   {
-    "content": "D5.5 — combined_comparison.md con veredicto multi-axis",
+    "content": "E.1.4 — Wire del job en scheduler.py",
     "status": "completed"
   },
   {
-    "content": "D5.6 — 23 tests cohort detector + 3498 passing (0 regresiones)",
+    "content": "E.1.5 — Endpoint GET /api/odds/snapshots/{match_id}",
     "status": "completed"
   },
   {
-    "content": "(c) F84.c/F84.d con clarificación: TheStatsAPI primary + API-Sports fallback (preguntar al usuario)",
-    "status": "in_progress"
+    "content": "E.1.6 — Tests live_odds_monitor (28 passed)",
+    "status": "completed"
+  },
+  {
+    "content": "E.1.7 — Suite pytest completa: 3526 passed, 0 regresiones",
+    "status": "completed"
+  },
+  {
+    "content": "E.1.8 — SPRINT E.1 marcado COMPLETADO en plan.md",
+    "status": "completed"
   }
 ]

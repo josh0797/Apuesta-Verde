@@ -2,7 +2,7 @@
 
 > **Nota:** Este plan se mantiene como bitácora completa.
 > **Estado histórico:** ✅ F58–F70 completadas.
-> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade) COMPLETADA** + ✅ **F87.1 (Fixture Discovery Contract Fix + Visible Audit + Parte 1.5 upstream audit) COMPLETADA** + ✅ **MLB-F93 (Manual Odds Override Reprice + UI Refresh) COMPLETADA** + ✅ **MLB-F93.1 (Manual Odds Reprice Context Pass-through + Authenticated Debug) COMPLETADA** + ✅ **F94 (Restaurar visibilidad de fixtures, descartados y live exóticos — Live + Dashboard) COMPLETADA** + ✅ **F94.2 (FIFA World Cup Live detection + TheStatsAPI diagnostics) COMPLETADA** + ✅ **F94.3 (Live Enrichment Persistence Audit) COMPLETADA** + ✅ **BUGFIX (Football “mismo momio” odds hallucination guard) COMPLETADO** + ✅ **SPRINT A (Draw Potential piloto retrospectivo) COMPLETADO** + ✅ **SPRINT B (Learning snapshots + loops + UI + scheduler) COMPLETADO** + ✅ **SPRINT D (Backtest histórico point-in-time; PL 23/24) COMPLETADO** + ✅ **SPRINT D2 (WC2022 + Euro2024 backtest nacional + Tournament Context) COMPLETADO** + ✅ **SPRINT D3 (Protected Markets: OVER 1.5 + Double Chance) COMPLETADO (P0)** + ✅ **SPRINT D4 (ROI honesto + significancia + walk-forward auditable) COMPLETADO (P0)** + 🟡 **REFACTOR-1 (data_ingestion top-2) EN PROGRESO (paso 1/3 completado)** + ⏳ **F84.c/F84.d (Lineups + Standings) PENDIENTE (P1)** + 🟡 **SPRINT D5 (Multi-league + multi-tournament DRAW + cohortes) EN PROGRESO (P0)**.
+> **Estado actual (resumen):** ✅ F58–F70 + F74 (+post v2/v2.5) + F82/F82.1/F82.1-adjust + F83/F83.1/F83.2 + P2 + F82.2 + P4.1 + F84.a/b/e + F85 (+Phase 2) + F86/F87/F88 (Sprint F86.2) + F89 (Sprint F86.1) + F90 (Sprint F83-update) + F91 (MLB QCM Engine puro) + F92 (MLB QCM Applier + Wiring) + F93 (Corners cascade) + Bugfix Upcoming Filter + Fixture Hard Gate + Pipeline Debug Instrumentation + ✅ **F87 (Football fixture discovery cascade) COMPLETADA** + ✅ **F87.1 (Fixture Discovery Contract Fix + Visible Audit + Parte 1.5 upstream audit) COMPLETADA** + ✅ **MLB-F93 (Manual Odds Override Reprice + UI Refresh) COMPLETADA** + ✅ **MLB-F93.1 (Manual Odds Reprice Context Pass-through + Authenticated Debug) COMPLETADA** + ✅ **F94 (Restaurar visibilidad de fixtures, descartados y live exóticos — Live + Dashboard) COMPLETADA** + ✅ **F94.2 (FIFA World Cup Live detection + TheStatsAPI diagnostics) COMPLETADA** + ✅ **F94.3 (Live Enrichment Persistence Audit) COMPLETADA** + ✅ **BUGFIX (Football “mismo momio” odds hallucination guard) COMPLETADO** + ✅ **SPRINT A (Draw Potential piloto retrospectivo) COMPLETADO** + ✅ **SPRINT B (Learning snapshots + loops + UI + scheduler) COMPLETADO** + ✅ **SPRINT D (Backtest histórico point-in-time; PL 23/24) COMPLETADO** + ✅ **SPRINT D2 (WC2022 + Euro2024 backtest nacional + Tournament Context) COMPLETADO** + ✅ **SPRINT D3 (Protected Markets: OVER 1.5 + Double Chance) COMPLETADO (P0)** + ✅ **SPRINT D4 (ROI honesto + significancia + walk-forward auditable) COMPLETADO (P0)** + 🟡 **SPRINT D5 (Multi-league + multi-tournament DRAW + cohortes) EN PROGRESO (P0)** + ✅ **SPRINT E.1 (Live Odds Monitor Base — Observe-only) COMPLETADO (P0)** + 🟡 **REFACTOR-1 (data_ingestion top-2) EN PROGRESO (paso 1/3 completado)** + ⏳ **SPRINT E.2 (Odds Value Detector + Alerts) PENDIENTE (P0)** + ⏳ **SPRINT E.3 (UI Odds Alerts + Comparador Manual) PENDIENTE (P0)** + ⏳ **F84.c/F84.d (Lineups + Standings) PENDIENTE (P1)**.
 
 > **Idioma operativo:** Español.
 
@@ -320,6 +320,134 @@ Cerrar gaps de honestidad estadística:
 
 ---
 
+## Phase SPRINT E.1 — Live Odds Monitor (Base) + persistencia `odds_snapshots` (observe_only) — COMPLETADO ✅ (P0)
+
+### Contexto y restricción crítica
+- **observe_only estricto**: no se implementa ni dispara ningún flujo de apuestas.
+- **Fail-soft**: cualquier fallo de API/red/parsing → log + continuar; el scheduler no debe caerse.
+- **Rate-limit safety**: respetar cuota de The Odds API.
+- **No polling global por deporte**: el universo es **solo** los partidos **visibles/recomendados** en el último payload que llega a la UI.
+
+### Decisiones confirmadas (implementadas)
+- **TTL**: **SIN TTL** en `odds_snapshots` (conservar todo para histórico/backtesting).
+- **Deportes** (E.1): solo soccer + Mundial (scope: WC + WCQ) + Champions/Europa.
+- **Polling default**: `LIVE_ODDS_REFRESH_SECONDS=240` (configurable por ENV).
+- **Universo**: visible/recommended matches from latest pick_run payload.
+  - Fuente primaria: `db.pick_runs`.
+  - Fallback: `db.picks`.
+- **Mapeo `match_id → The Odds API event_id`**: cache persistente en `odds_event_id_mappings`.
+  - Si no hay `event_id`: reason `ODDS_EVENT_ID_MISSING`, no bloquear.
+- **Colección `odds_snapshots`**: reutilizada con discriminador `source="live_odds_monitor_v1"`.
+
+### Entregables (verificados)
+1) **Cliente The Odds API (live/current)**
+   - ✅ `services/external_sources/the_odds_api_client.py` extendido con:
+     - `fetch_events()`
+     - `fetch_current_odds()`
+     - `_extract_quota_headers()`
+   - ✅ Fail-soft (nunca levanta, devuelve `None` en fallos).
+
+2) **Servicio `services/live_odds_monitor.py`**
+   - ✅ Creado con:
+     - `extract_visible_universe` (puro)
+     - `collect_visible_universe`
+     - `find_event_in_list` (puro; fuzzy por substring + token-overlap)
+     - `resolve_event_id` (usa cache `odds_event_id_mappings`)
+     - `event_payload_to_snapshots` (puro)
+     - `persist_snapshots`, `run_cycle`, `register_jobs`
+     - `get_config`, `get_status`
+   - ✅ Restricción de universo: no se consulta global por deporte.
+
+3) **MongoDB (índices)**
+   - ✅ `server.py` startup:
+     - `odds_event_id_mappings`: unique `(match_id, sport_key)` + index `event_id`.
+     - `odds_snapshots`: index `(source, snapshot_at)` y `(match_id, source, snapshot_at)`.
+     - **Sin TTL** para `odds_snapshots`.
+
+4) **Scheduler**
+   - ✅ `services/scheduler.py`: wiring del job via `live_odds_monitor.register_jobs(...)`.
+   - ✅ Kill-switch: cuando `LIVE_ODDS_ENABLED=false`, log: *"not registering job (disabled)"*.
+
+5) **Endpoints (read-only)**
+   - ✅ `GET /api/odds/snapshots/{match_id}` (filtra por `source` por defecto).
+   - ✅ `GET /api/odds/monitor/status` (config + status; sin side effects).
+
+6) **Tests**
+   - ✅ `tests/test_live_odds_monitor.py` (28 tests):
+     - kill-switch
+     - universo
+     - cache hit/miss
+     - missing event_id
+     - persistencia snapshots
+     - register_jobs
+     - cliente sin API key
+   - ✅ Suite backend completa: **3526 passed, 2 skipped, 0 regresiones**.
+
+### Variables de entorno (flags)
+- `LIVE_ODDS_ENABLED=true|false`
+- `LIVE_ODDS_REFRESH_SECONDS=240`
+- `LIVE_ODDS_SPORTS=...` (default: 11 soccer keys)
+- `LIVE_ODDS_MARKETS=h2h,totals`
+- `LIVE_ODDS_REGIONS=uk,eu`
+- `LIVE_ODDS_LOOKBACK_HOURS=24`
+- `LIVE_ODDS_MAX_MATCHES=80`
+- `LIVE_ODDS_QUOTA_MIN=50` (guard best-effort; se usará más activamente en E.2 si es necesario)
+
+### Criterios de aceptación
+- ✅ Se guardan snapshots en `odds_snapshots` con `source="live_odds_monitor_v1"`.
+- ✅ Existe cache persistente `match_id → event_id`.
+- ✅ Polling limitado al universo visible del último run.
+- ✅ Endpoints funcionan y son fail-soft.
+- ✅ Suite backend verde.
+
+---
+
+## Phase SPRINT E.2 — Odds Value Detector + Alerts (observe_only) — PENDIENTE ⏳ (P0)
+
+### Objetivo
+Usar los snapshots live para detectar oportunidades/anomalías **sin apostar**:
+- Outliers (cuotas erróneas)
+- Edge vs probabilidad del engine
+- Movimientos rápidos de línea
+- Dispersión entre bookmakers
+
+### Entregables propuestos
+1) `services/odds_value_detector.py`
+   - Input: odds_snapshots + prob del engine
+   - Output: lista de señales por match/market/book
+   - Reglas:
+     - **Edge**: `model_prob - implied_prob >= threshold_pp`
+     - **Outlier**: comparación contra consenso (median) + z-score robusto
+     - **Fast move**: delta odds / implied en ventana corta (requiere últimas N snapshots)
+     - **Dispersion**: rango/varianza entre books para mismo market
+   - Fail-soft y explainable con reason_codes.
+
+2) `services/odds_alerts.py`
+   - Persistir en `odds_alerts` con:
+     - `match_id`, `event_id`, `market`, `bookmaker`, `signal_type`, `severity`,
+       `model_prob`, `implied_prob`, `edge_pp`, `created_at`, `snapshot_refs`, etc.
+   - Dedupe: evitar spam (ventana + fingerprint).
+
+3) Wiring scheduler (opcional en E.2)
+   - Job que corre después de cada ciclo de live odds.
+
+4) Tests
+   - Unit tests (módulos puros) + integración con FakeDB.
+
+---
+
+## Phase SPRINT E.3 — UI Odds Alerts + Comparador Manual (observe_only) — PENDIENTE ⏳ (P0)
+
+### Objetivo
+- UI para listar/filtrar alertas (`odds_alerts`).
+- Panel comparador manual: user introduce cuotas y el sistema calcula implied/edge vs modelo.
+
+### Entregables propuestos
+- Frontend: panel de alertas + panel comparador.
+- Backend: endpoints de consulta/ack de alertas, y endpoint de cálculo manual (sin persistencia o con persistencia opcional).
+
+---
+
 # Phase REFACTOR-1 — Refactor quirúrgico `data_ingestion.py` (solo top-2 componentes) — EN PROGRESO 🟡
 
 ## Objetivo
@@ -386,7 +514,9 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 ## 3) Pendientes y siguientes pasos
 
 ### Pendientes P0 (actual)
-- 🟡 **SPRINT D5** (este): 5 ligas 24/25 + WC18/WC22/Euro24 + cohortes + 3 reports.
+- 🟡 **SPRINT D5** (en curso): 5 ligas 24/25 + WC18/WC22/Euro24 + cohortes + 3 reports.
+- ⏳ **SPRINT E.2**: Detector de valor + alertas (usa odds_snapshots live).
+- ⏳ **SPRINT E.3**: UI de alertas + comparador manual.
 
 ### Pendientes P1
 - 🟡 **REFACTOR-1** pasos 2/3 y 3/3 + `ingest_upcoming`.
@@ -400,15 +530,15 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 
 ## 6) Validación esperada (estado actual)
 
-- Suites actuales (post Sprint D4):
-  - Backend: **3475 passing tests**, 2 skipped.
+- Suites actuales (post Sprint E.1):
+  - Backend: **3526 passing tests**, 2 skipped.
   - Frontend: **174 passing tests**.
 
 - Reglas:
   - Cero regresión post-cada cambio lógico.
   - Arquitectura fail-soft y back-compat.
   - Point-in-time correctness: prohibido usar datos futuros en backtests.
-  - SPRINT D3/D4/D5: `observe_only` (no tocar ranking real).
+  - SPRINT D3/D4/D5/E: `observe_only` (no tocar ranking real; no apuestas automáticas).
 
 ---
 
@@ -418,7 +548,16 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
   - Siempre usar `yarn` (no `npm`).
   - Fail-soft: no levantar excepción sin convertirla a auditoría/razón.
   - Backtests: disciplina point-in-time estricta (sin leakage).
+  - **E.1**: polling limitado al universo visible de UI (no global por deporte).
 
 - Flags / env:
   - ✅ `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY`.
   - ✅ `THE_ODDS_API_KEY=...` (Sprint D4; no hardcode en código).
+  - ✅ (Sprint E.1) `LIVE_ODDS_ENABLED=true|false`
+  - ✅ (Sprint E.1) `LIVE_ODDS_REFRESH_SECONDS=240`
+  - ✅ (Sprint E.1) `LIVE_ODDS_SPORTS=...`
+  - ✅ (Sprint E.1) `LIVE_ODDS_MARKETS=h2h,totals`
+  - ✅ (Sprint E.1) `LIVE_ODDS_REGIONS=uk,eu`
+  - ✅ (Sprint E.1) `LIVE_ODDS_LOOKBACK_HOURS=24`
+  - ✅ (Sprint E.1) `LIVE_ODDS_MAX_MATCHES=80`
+  - ✅ (Sprint E.1) `LIVE_ODDS_QUOTA_MIN=50`

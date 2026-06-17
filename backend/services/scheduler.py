@@ -504,6 +504,15 @@ def start_scheduler(db) -> None:
         )
     except Exception as exc:  # noqa: BLE001
         log.warning("Sprint-B learning snapshot jobs not wired: %s", exc)
+    # Sprint E.1 — Live Odds Monitor.
+    # Polls The Odds API every ``LIVE_ODDS_REFRESH_SECONDS`` for the
+    # current odds of every fixture visible in the latest pick_run.
+    # No-op when ``LIVE_ODDS_ENABLED!=true`` (kill switch).
+    try:
+        from . import live_odds_monitor
+        live_odds_monitor.register_jobs(sch, db)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Sprint E.1 live odds monitor not wired: %s", exc)
     sch.start()
     _scheduler = sch
     _status["jobs"] = {

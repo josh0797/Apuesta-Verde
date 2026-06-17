@@ -222,11 +222,190 @@ def extract_match_odds(
     return None
 
 
+# ════════════════════════════════════════════════════════════════════════
+# Sprint-E.1 · Live (current) odds endpoints
+# ════════════════════════════════════════════════════════════════════════
+#
+# These two helpers extend the historical-only client to also fetch the
+# **current** odds snapshot for an event. They are used by
+# ``services.live_odds_monitor`` to populate ``odds_snapshots`` with
+# fresh prices for the matches that are visible in the latest pick run.
+#
+# Strict invariants (same as the historical helper above):
+#   * Fail-soft: any error → returns ``None``; never raises.
+#   * Never blocks app startup.
+#   * Respects ``THE_ODDS_API_KEY`` from env; no hardcoded keys.
+#   * Surfaces rate-limit headers (``x-requests-remaining`` /
+#     ``x-requests-used``) so the caller can degrade gracefully.
+
+# Live polling never goes through the on-disk cache by default — we want
+# fresh prices on every cycle. The constant is kept here so tests can
+# override it if needed.
+LIVE_USE_CACHE_DEFAULT: bool = False
+
+
+def _extract_quota_headers(headers) -> dict:
+    """Return a small dict with the API quota headers, fail-soft.
+
+    The Odds API exposes ``x-requests-remaining`` and ``x-requests-used``
+    on every response. We surface them so the live odds monitor can log
+    /react when quota is low. Missing headers → ``None`` values.
+    """
+    try:
+        remaining = headers.get("x-requests-remaining")
+        used      = headers.get("x-requests-used")
+        last_cost = headers.get("x-requests-last")
+        return {
+            "remaining": int(remaining) if remaining is not None else None,
+            "used":      int(used) if used is not None else None,
+            "last_cost": int(last_cost) if last_cost is not None else None,
+        }
+    except (TypeError, ValueError, AttributeError):
+        return {"remaining": None, "used": None, "last_cost": None}
+
+
+async def fetch_events(
+    *,
+    sport: str,
+    regions: str = DEFAULT_REGIONS,
+    use_cache: bool = False,
+) -> Optional[dict]:
+    """Fetch the list of **upcoming events** for a given sport key.
+
+    Endpoint: ``GET /v4/sports/{sport}/events``.
+
+    Returns a dict::
+
+        {
+            "events": [
+                {"id": "abc123", "sport_key": "soccer_epl",
+                 "commence_time": "2026-01-15T15:00:00Z",
+                 "home_team": "Arsenal", "away_team": "Chelsea"},
+                ...
+            ],
+            "quota": {"remaining": N, "used": M, "last_cost": K}
+        }
+
+    Used to resolve our internal ``match_id`` → Odds API ``event_id``
+    mappings. Fail-soft: returns ``None`` on any failure.
+    """
+    api_key = _api_key()
+    if not api_key:
+        log.warning("THE_ODDS_API_KEY not set; cannot fetch live events")
+        return None
+
+    cache_path = _cache_path(sport, "events", regions, "events")
+    if use_cache:
+        cached = _read_cache(cache_path)
+        if cached is not None:
+            return cached
+
+    url = f"{BASE_URL}/sports/{sport}/events"
+    params = {"apiKey": api_key, "regions": regions}
+
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SEC) as client:
+            r = await client.get(url, params=params)
+            quota = _extract_quota_headers(r.headers)
+            if r.status_code != 200:
+                log.warning(
+                    "the_odds_api fetch_events returned %s for sport=%s "
+                    "(quota_remaining=%s)",
+                    r.status_code, sport, quota.get("remaining"),
+                )
+                return None
+            data = r.json() or []
+            payload = {"events": data if isinstance(data, list) else [],
+                       "quota":  quota}
+            if use_cache:
+                _write_cache(cache_path, payload)
+            return payload
+    except Exception as exc:  # noqa: BLE001
+        log.warning("the_odds_api fetch_events failed: %s", exc)
+        return None
+
+
+async def fetch_current_odds(
+    *,
+    sport: str,
+    regions: str = DEFAULT_REGIONS,
+    markets: str = DEFAULT_MARKETS,
+    event_ids: Optional[list] = None,
+    use_cache: bool = LIVE_USE_CACHE_DEFAULT,
+) -> Optional[dict]:
+    """Fetch **current (live)** odds for a sport key.
+
+    Endpoint: ``GET /v4/sports/{sport}/odds``.
+
+    If ``event_ids`` is given we forward it as the ``eventIds`` query
+    parameter so the API returns only the events we care about (saves
+    quota when polling a small universe).
+
+    Returns a dict::
+
+        {
+            "events": [ ... raw event docs (with bookmakers) ... ],
+            "quota":  {"remaining": ..., "used": ..., "last_cost": ...}
+        }
+
+    Fail-soft: returns ``None`` on any failure (network, non-2xx, parse).
+    """
+    api_key = _api_key()
+    if not api_key:
+        log.warning("THE_ODDS_API_KEY not set; cannot fetch live odds")
+        return None
+
+    cache_key_extra = "|".join(sorted(event_ids)) if event_ids else "all"
+    cache_path = _cache_path(sport, f"live|{cache_key_extra}",
+                              regions, markets)
+    if use_cache:
+        cached = _read_cache(cache_path)
+        if cached is not None:
+            return cached
+
+    url = f"{BASE_URL}/sports/{sport}/odds"
+    params = {
+        "apiKey":     api_key,
+        "regions":    regions,
+        "markets":    markets,
+        "oddsFormat": DEFAULT_ODDS_FMT,
+    }
+    if event_ids:
+        # The API supports a comma-separated `eventIds` filter.
+        params["eventIds"] = ",".join(event_ids)
+
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SEC) as client:
+            r = await client.get(url, params=params)
+            quota = _extract_quota_headers(r.headers)
+            if r.status_code != 200:
+                log.warning(
+                    "the_odds_api fetch_current_odds returned %s "
+                    "for sport=%s (quota_remaining=%s)",
+                    r.status_code, sport, quota.get("remaining"),
+                )
+                return None
+            data = r.json() or []
+            payload = {"events": data if isinstance(data, list) else [],
+                       "quota":  quota}
+            if use_cache:
+                _write_cache(cache_path, payload)
+            return payload
+    except Exception as exc:  # noqa: BLE001
+        log.warning("the_odds_api fetch_current_odds failed: %s", exc)
+        return None
+
+
 __all__ = [
     "BASE_URL", "DEFAULT_REGIONS", "DEFAULT_MARKETS",
     "DEFAULT_ODDS_FMT", "CACHE_DIR", "HTTP_TIMEOUT_SEC",
     "SPORT_KEY_EPL", "SPORT_KEY_WC2022", "SPORT_KEY_EURO24",
     "get_historical_odds_snapshot",
     "extract_match_odds",
-    "_api_key", "_cache_path",
+    "fetch_events",
+    "fetch_current_odds",
+    "_api_key", "_cache_path", "_extract_quota_headers",
+    "LIVE_USE_CACHE_DEFAULT",
 ]
