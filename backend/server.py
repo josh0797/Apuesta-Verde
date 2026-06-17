@@ -311,6 +311,69 @@ async def manual_market_options_endpoint() -> dict:
     }
 
 
+@app.get("/api/football/learning-snapshot/{match_id}")
+async def learning_snapshot_endpoint(match_id: str) -> dict:
+    """Sprint-B · B4 — Read the football_match_learning_snapshots
+    document for a given fixture, plus a tiny derived summary the UI
+    can render directly without any client-side computation.
+
+    Returns ``{"available": False, "match_id": ...}`` when the
+    snapshot has not been collected yet (or the DB is unreachable).
+    """
+    from services.football_learning_snapshot_manager import get_snapshot
+    from services.football_learning_snapshot_schema import (
+        REQUIRED_PRE_MATCH_KEYS, REQUIRED_POST_MATCH_KEYS,
+    )
+
+    # Try both string and int forms of the id (the rest of the codebase
+    # is inconsistent so we tolerate both).
+    candidates = [match_id]
+    try:
+        candidates.append(int(match_id))
+    except (TypeError, ValueError):
+        pass
+
+    snap = None
+    for mid in candidates:
+        snap = await get_snapshot(db, mid)
+        if snap:
+            break
+
+    if not snap:
+        return {"available": False, "match_id": match_id}
+
+    pre  = snap.get("pre_match_inputs") or {}
+    post = snap.get("post_match_outputs") or {}
+
+    pre_missing  = [k for k in REQUIRED_PRE_MATCH_KEYS if pre.get(k) is None]
+    post_missing = [k for k in REQUIRED_POST_MATCH_KEYS if post.get(k) is None]
+
+    summary = {
+        "pre_match_complete":     not pre_missing,
+        "pre_match_missing":      pre_missing,
+        "post_match_settled":     not post_missing,
+        "post_match_missing":     post_missing,
+        "pre_match_fields_filled":
+            sum(1 for k in REQUIRED_PRE_MATCH_KEYS if pre.get(k) is not None),
+        "pre_match_fields_total":  len(REQUIRED_PRE_MATCH_KEYS),
+        "post_match_fields_filled":
+            sum(1 for k in REQUIRED_POST_MATCH_KEYS if post.get(k) is not None),
+        "post_match_fields_total": len(REQUIRED_POST_MATCH_KEYS),
+    }
+
+    # Strip out the raw Mongo ``_id`` before returning (UUID, no leak,
+    # but consistent with the rest of the API which avoids exposing it).
+    snap.pop("_id", None)
+
+    return {
+        "available": True,
+        "snapshot":  snap,
+        "summary":   summary,
+    }
+
+
+
+
 @app.post("/api/football/manual-market-reprice")
 async def manual_market_reprice_endpoint(
     payload: ManualMarketRepriceRequest,

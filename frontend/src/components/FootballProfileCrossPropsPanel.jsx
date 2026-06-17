@@ -83,7 +83,7 @@ function fmt(v, ndigits = 2) {
   return Number(v).toFixed(ndigits);
 }
 
-function TeamLineRow({ label, l5, l15, deltaPositiveBad, testId }) {
+function TeamLineRow({ label, l5, l15, l5n, l15n, deltaPositiveBad, testId }) {
   const delta =
     (l5 !== null && l5 !== undefined && l15 !== null && l15 !== undefined)
       ? Number(l5) - Number(l15) : null;
@@ -99,32 +99,44 @@ function TeamLineRow({ label, l5, l15, deltaPositiveBad, testId }) {
       delta <= -0.3 ?
         (deltaPositiveBad ? 'text-emerald-300' : 'text-rose-300') :
         'text-slate-500');
+  // Sprint-B prereq · render sample-size subscripts when provided so
+  // the user can see when L5/L15 averaged over the same underlying
+  // fixtures (the "Goles 2.33 vs 2.33" pathology).
+  const sampleSubscript = (n) =>
+    (typeof n === 'number' && n > 0)
+      ? <sub className="text-[8px] text-slate-500 ml-0.5 tabular-nums">n={n}</sub>
+      : null;
   return (
     <div className="flex items-center justify-between gap-3 text-[11px] leading-snug" data-testid={testId}>
       <span className="text-slate-400 min-w-[68px]">{label}</span>
-      <span className="text-slate-100 font-medium tabular-nums">{fmt(l5)}</span>
+      <span className="text-slate-100 font-medium tabular-nums">
+        {fmt(l5)}{sampleSubscript(l5n)}
+      </span>
       <span className="text-slate-500">vs</span>
-      <span className="text-slate-300 font-medium tabular-nums">{fmt(l15)}</span>
+      <span className="text-slate-300 font-medium tabular-nums">
+        {fmt(l15)}{sampleSubscript(l15n)}
+      </span>
       <span className={`tabular-nums w-3 ${arrowColor}`}>{arrow}</span>
     </div>
   );
 }
 
-function TeamColumn({ title, side, deltaPositiveBad, testId }) {
+function TeamColumn({ title, side, sample, deltaPositiveBad, testId }) {
   if (!side) return null;
+  const s = sample || {};
   return (
     <div className="rounded-lg border border-slate-700/40 bg-slate-900/40 p-3 space-y-1.5" data-testid={testId}>
       <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{title}</div>
-      <TeamLineRow label="Goles+"   l5={side.goals_for_l5}     l15={side.goals_for_l15}     deltaPositiveBad={false} testId={`${testId}-gf`} />
-      <TeamLineRow label="Goles−"   l5={side.goals_against_l5} l15={side.goals_against_l15} deltaPositiveBad={true}  testId={`${testId}-ga`} />
+      <TeamLineRow label="Goles+"   l5={side.goals_for_l5}     l15={side.goals_for_l15}     l5n={s.goals_for_l5_n}     l15n={s.goals_for_l15_n}     deltaPositiveBad={false} testId={`${testId}-gf`} />
+      <TeamLineRow label="Goles−"   l5={side.goals_against_l5} l15={side.goals_against_l15} l5n={s.goals_against_l5_n} l15n={s.goals_against_l15_n} deltaPositiveBad={true}  testId={`${testId}-ga`} />
       {(side.shots_l5 !== null && side.shots_l5 !== undefined) && (
-        <TeamLineRow label="Tiros"    l5={side.shots_l5}        l15={side.shots_l15}        deltaPositiveBad={false} testId={`${testId}-shots`} />
+        <TeamLineRow label="Tiros"    l5={side.shots_l5}        l15={side.shots_l15}        l5n={s.shots_l5_n}    l15n={s.shots_l15_n}    deltaPositiveBad={false} testId={`${testId}-shots`} />
       )}
       {(side.sot_l5 !== null && side.sot_l5 !== undefined) && (
-        <TeamLineRow label="SOT"      l5={side.sot_l5}          l15={side.sot_l15}          deltaPositiveBad={false} testId={`${testId}-sot`} />
+        <TeamLineRow label="SOT"      l5={side.sot_l5}          l15={side.sot_l15}          l5n={s.sot_l5_n}      l15n={s.sot_l15_n}      deltaPositiveBad={false} testId={`${testId}-sot`} />
       )}
       {(side.corners_l5 !== null && side.corners_l5 !== undefined) && (
-        <TeamLineRow label="Corners"  l5={side.corners_l5}      l15={side.corners_l15}      deltaPositiveBad={false} testId={`${testId}-corners`} />
+        <TeamLineRow label="Corners"  l5={side.corners_l5}      l15={side.corners_l15}      l5n={s.corners_l5_n}  l15n={s.corners_l15_n}  deltaPositiveBad={false} testId={`${testId}-corners`} />
       )}
       {(side.xg_l5 !== null && side.xg_l5 !== undefined) && (
         <TeamLineRow label="xG"       l5={side.xg_l5}           l15={side.xg_l15}           deltaPositiveBad={false} testId={`${testId}-xg`} />
@@ -173,9 +185,27 @@ function CrossProfileSection({ cross, testId }) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        <TeamColumn title="Local"     side={cross?.per_team?.home} deltaPositiveBad={false} testId={`${testId}-cross-home`} />
-        <TeamColumn title="Visitante" side={cross?.per_team?.away} deltaPositiveBad={false} testId={`${testId}-cross-away`} />
+        <TeamColumn title="Local"     side={cross?.per_team?.home} sample={cross?._l5_l15_sample?.home} deltaPositiveBad={false} testId={`${testId}-cross-home`} />
+        <TeamColumn title="Visitante" side={cross?.per_team?.away} sample={cross?._l5_l15_sample?.away} deltaPositiveBad={false} testId={`${testId}-cross-away`} />
       </div>
+
+      {/* Sprint-B prereq · Thin-sample banner. Shown when EITHER team
+          has fewer than 5 fixtures (L5/L15 collapse to identical
+          averages over the same window — the user-reported "los goles
+          parecen córners" symptom). */}
+      {(cross?._l5_l15_sample?.home?.l5_eq_l15_collapsed
+        || cross?._l5_l15_sample?.away?.l5_eq_l15_collapsed
+        || cross?._l5_l15_sample?.home?.l15_thin_sample
+        || cross?._l5_l15_sample?.away?.l15_thin_sample) && (
+        <div
+          className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-2.5 py-1.5 text-[10.5px] text-amber-200/90 leading-snug"
+          data-testid={`${testId}-cross-thin-sample`}
+        >
+          <span className="font-semibold uppercase tracking-wider mr-1.5">Muestra delgada</span>
+          L5 y L15 se computan sobre la misma ventana de partidos para al menos un equipo.
+          Los promedios mostrados pueden ser idénticos (n insuficiente) — interpretar con precaución.
+        </div>
+      )}
 
       {cross.narrative_es && (
         <div

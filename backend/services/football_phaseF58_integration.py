@@ -62,6 +62,34 @@ def _slice_avg(values: list, k: int) -> Optional[float]:
     return round(sum(nums) / len(nums), 3)
 
 
+def _slice_avg_with_n(values: list, k: int) -> tuple[Optional[float], int]:
+    """Sprint-B prereq · Same as ``_slice_avg`` but ALSO returns how many
+    samples were actually used. The caller can detect the "thin sample"
+    pathology that produces visually identical L5/L15 averages (see
+    user-reported bug in INTELIGENCIA F58 · CROSS & PROPS, where 5-game
+    national teams showed *Goles+ 2.33 vs 2.33* because both windows
+    collapsed to the same data).
+    """
+    if not values:
+        return None, 0
+    nums: list[float] = []
+    for v in values[:k]:
+        try:
+            nums.append(float(v))
+        except (TypeError, ValueError):
+            continue
+    if not nums:
+        return None, 0
+    return round(sum(nums) / len(nums), 3), len(nums)
+
+
+# Sample-size thresholds for the thin-sample guard.
+# Below these we still emit the average but flag ``..._thin_sample = True``
+# so the UI can show "n=3" or downgrade L15 visually.
+L5_FULL_SAMPLE_N  = 5
+L15_FULL_SAMPLE_N = 10  # below 10 we consider L15 not statistically meaningful
+
+
 def _derive_l5_l15_from_recent(side: dict | None) -> dict:
     """Construye el dict de inputs L5/L15 que espera
     ``compute_combined_football_profile_cross``.
@@ -69,6 +97,10 @@ def _derive_l5_l15_from_recent(side: dict | None) -> dict:
     Lee de ``recent_fixtures`` (lista de matches) los arrays ``gf``/``ga``
     si vienen pre-normalizados, o calcula desde dicts individuales.
     Corners se extraen si vienen en cada fixture.
+
+    Sprint-B prereq · also emits ``_sample`` metadata per-metric so the
+    panel can display sample sizes and the user can spot the case where
+    L5 ≡ L15 because the team only has a handful of recent fixtures.
     """
     blk = _team_block(side)
     recent = blk.get("recent_fixtures") or blk.get("last_matches") or {}
@@ -107,17 +139,55 @@ def _derive_l5_l15_from_recent(side: dict | None) -> dict:
             if sot is not None:
                 sot_list.append(sot)
 
+    # Compute averages WITH sample sizes for transparency.
+    gf5,    gf5_n    = _slice_avg_with_n(gf_list,      5)
+    gf15,   gf15_n   = _slice_avg_with_n(gf_list,      15)
+    ga5,    ga5_n    = _slice_avg_with_n(ga_list,      5)
+    ga15,   ga15_n   = _slice_avg_with_n(ga_list,      15)
+    co5,    co5_n    = _slice_avg_with_n(corners_list, 5)
+    co15,   co15_n   = _slice_avg_with_n(corners_list, 15)
+    sh5,    sh5_n    = _slice_avg_with_n(shots_list,   5)
+    sh15,   sh15_n   = _slice_avg_with_n(shots_list,   15)
+    sot5,   sot5_n   = _slice_avg_with_n(sot_list,     5)
+    sot15,  sot15_n  = _slice_avg_with_n(sot_list,     15)
+
     out: dict[str, Any] = {
-        "goals_for_l5":     _slice_avg(gf_list, 5),
-        "goals_for_l15":    _slice_avg(gf_list, 15),
-        "goals_against_l5": _slice_avg(ga_list, 5),
-        "goals_against_l15": _slice_avg(ga_list, 15),
-        "corners_l5":       _slice_avg(corners_list, 5),
-        "corners_l15":      _slice_avg(corners_list, 15),
-        "shots_l5":         _slice_avg(shots_list, 5),
-        "shots_l15":        _slice_avg(shots_list, 15),
-        "sot_l5":           _slice_avg(sot_list, 5),
-        "sot_l15":          _slice_avg(sot_list, 15),
+        "goals_for_l5":      gf5,
+        "goals_for_l15":     gf15,
+        "goals_against_l5":  ga5,
+        "goals_against_l15": ga15,
+        "corners_l5":        co5,
+        "corners_l15":       co15,
+        "shots_l5":          sh5,
+        "shots_l15":         sh15,
+        "sot_l5":            sot5,
+        "sot_l15":           sot15,
+        # Sample-size transparency block. Sprint-B prereq: lets the UI
+        # render "n=3" subscripts and grey-out L15 columns when sample
+        # is too thin to be meaningful (avoids the user-perceived bug
+        # where L5 == L15 because the team only had a handful of games).
+        "_sample": {
+            "goals_for_l5_n":      gf5_n,
+            "goals_for_l15_n":     gf15_n,
+            "goals_against_l5_n":  ga5_n,
+            "goals_against_l15_n": ga15_n,
+            "corners_l5_n":        co5_n,
+            "corners_l15_n":       co15_n,
+            "shots_l5_n":          sh5_n,
+            "shots_l15_n":         sh15_n,
+            "sot_l5_n":            sot5_n,
+            "sot_l15_n":           sot15_n,
+            # Convenience flags for the UI.
+            "l5_thin_sample":      gf5_n  < L5_FULL_SAMPLE_N,
+            "l15_thin_sample":     gf15_n < L15_FULL_SAMPLE_N,
+            # ``l5_eq_l15_collapsed`` is True when L5 and L15 averaged
+            # over the SAME underlying samples (i.e. the team has ≤5
+            # fixtures so L15 is degenerate). This is the exact bug
+            # surfaced in the user's screenshot.
+            "l5_eq_l15_collapsed": (
+                gf5_n > 0 and gf5_n == gf15_n and gf15_n < L5_FULL_SAMPLE_N + 1
+            ),
+        },
     }
 
     # xG / xGA opcional desde un bloque Understat ya hidratado.
@@ -217,6 +287,14 @@ def attach_football_profile_cross_to_payload(
         return {"available": False, "_reason": "compute_failed", "error": str(exc)}
 
     pick_payload["combined_football_profile_cross"] = cross
+
+    # Sprint-B prereq · expose the L5/L15 sample-size metadata so the
+    # UI panel can render "n=3" subscripts and detect the degenerate
+    # ``L5 ≡ L15`` case (user-reported as "los goles parecen córners").
+    cross["_l5_l15_sample"] = {
+        "home": home_inputs.get("_sample") or {},
+        "away": away_inputs.get("_sample") or {},
+    }
 
     # Mirror into footballHistoricalProfile camelCase (UI convenience).
     fhp = pick_payload.get("footballHistoricalProfile") or {}

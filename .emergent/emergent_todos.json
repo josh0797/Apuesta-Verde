@@ -1,34 +1,26 @@
 [
   {
-    "content": "Validar Fix-New-1 (TheSportsDB) — 23 tests verdes ✅",
+    "content": "Prereq Sprint B: Bug L5≡L15 transparencia (15 tests ✅)",
     "status": "completed"
   },
   {
-    "content": "P0: 'Mismo momio en football' — F94.4 Hallucination Guard, 20 tests verdes ✅",
+    "content": "B1: Schema + Manager + Aggregator cascada TheStatsAPI→API-Sports→Scrape.do (23 tests ✅)",
     "status": "completed"
   },
   {
-    "content": "Sprint A — football_draw_potential.py + 26 tests unitarios ✅",
+    "content": "B2: 4 learning loops (draw/corners/btts/totals) sin confundir corners↔goles (16 tests ✅)",
     "status": "completed"
   },
   {
-    "content": "Sprint A — Script piloto retrospectivo (6 partidos WC2026) + 3 tests ✅",
+    "content": "B3: DC + NB calibration reemplazando Poisson placeholder (23 tests ✅)",
     "status": "completed"
   },
   {
-    "content": "Sprint A — learning_backtest_report.md generado (recall 71.4%, draws 3/3) ✅",
+    "content": "B4: UI Panel LearningSnapshotPanel + endpoint /api/football/learning-snapshot (10 tests ✅)",
     "status": "completed"
   },
   {
-    "content": "Sprint A — Suite completa: 3151 passed, 2 skipped, 0 regresiones ✅",
+    "content": "Suite completa: 3230 backend + 10 frontend = +89 tests / 0 regresiones ✅",
     "status": "completed"
-  },
-  {
-    "content": "Sprint B (futuro) — Infra completa: collection learning_snapshots + scraping + learning loops + UI panel",
-    "status": "pending"
-  },
-  {
-    "content": "REFACTOR-1 + F84.c/d (diferidos)",
-    "status": "pending"
   }
 ]
