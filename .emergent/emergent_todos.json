@@ -1,10 +1,22 @@
 [
   {
-    "content": "F.1 cerrado: F1_IDENTITY_RESOLVER_READY (29 tests verdes, 3706 totales sin regresión, índices Mongo OK)",
+    "content": "F.1 cerrado: F1_IDENTITY_RESOLVER_READY (32 tests, indices Mongo, alias map, validación team_id↔nombre)",
     "status": "completed"
   },
   {
-    "content": "F.2: Descubrimiento del endpoint Top Trends (1 ciclo timeboxed, fallback a reporte BLOCKED)",
-    "status": "pending"
+    "content": "F.2 cerrado: F2_TRENDS_CONTRACT_STABLE (endpoint descubierto via Playwright, fixture real, parser+cache, 26 tests)",
+    "status": "completed"
+  },
+  {
+    "content": "F.3 cerrado: F3_UI_TOP_TRENDS_INTEGRATED (endpoint /api/football/365scores/top-trends + Top365TrendsPanel.jsx reemplaza 'Revisión manual', live test OK)",
+    "status": "completed"
+  },
+  {
+    "content": "Bug fix pre-existente: MarketIdentityResolverPanel.jsx variables undefined (missing/manualPrice) — sin errores runtime",
+    "status": "completed"
+  },
+  {
+    "content": "Zero regression confirmada: 3735 backend tests passing, frontend lint clean en archivos modificados",
+    "status": "completed"
   }
 ]

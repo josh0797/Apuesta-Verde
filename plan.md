@@ -544,14 +544,14 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
   - Tests: aliases, ±6h tolerance, INVALID_TEAM_MAPPING (slot home/away invertido), AMBIGUOUS (dos candidatos), cache hit, fail-soft cuando fuente cae.
   - Criterio de salida: `F1_IDENTITY_RESOLVER_READY` (tests verdes + 3677 previos sin regresión).
 
-- ⏳ **F.2 — Descubrimiento de endpoint Top Trends** (POST F.1):
+- ✅ **F.2 — Descubrimiento + Cliente Top Trends** (COMPLETADO — criterio de salida `F2_TRENDS_CONTRACT_STABLE`):
   - Discovery timeboxed: máximo 1 ciclo técnico.
   - Estrategia híbrida: cargar página pública, interceptar `fetch/XHR` con headless, buscar requests con `4627854/5106/2383/trend/insight/pre-game/top trends`, revisar JSON embebido (`__NEXT_DATA__`/initial state), bundles, requests existentes en `score365_*_client.py`.
   - Si falla → entregar reporte de discovery (rutas/status/content-type/schema-fragment/causa de bloqueo) y marcar `BLOCKED_ENDPOINT_NOT_IDENTIFIED`. **No inventar endpoints**, no implementar parser por supuestos.
   - Si requiere autenticación privada/captcha → reason `365SCORES_TRENDS_SOURCE_RESTRICTED`.
   - Criterio de salida: `F2_TRENDS_CONTRACT_STABLE` (endpoint + método + params + schema real + fixture JSON anonimizado + parser + cache + tests sin red).
 
-- ⏳ **F.3 — UI** (POST F.2):
+- ✅ **F.3 — UI** (COMPLETADO — criterio de salida `F3_UI_TOP_TRENDS_INTEGRATED`):
   - Reemplazar `Revisión manual — alternativas posibles` por `Tendencias Top — 365Scores` en el componente correspondiente (`MarketIdentityResolverPanel.jsx` u otro consumidor de revisión manual). No mostrar ambos paneles, no fabricar tendencias simuladas cuando la fuente caiga.
   - Mantener `observe_only` siempre.
   - Criterio de salida: `F3_UI_TOP_TRENDS_INTEGRATED`.
@@ -584,3 +584,67 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 ### Próximo paso
 
 **F.2** — Descubrimiento timeboxed del endpoint Top Trends. Necesita 1 ciclo técnico con browser headless interceptando XHR/fetch y revisión de `__NEXT_DATA__`. Si falla → reporte de discovery + `BLOCKED_ENDPOINT_NOT_IDENTIFIED`.
+
+### F.2 — Resultado de cierre (2026-06-17)
+
+- **Status**: `F2_TRENDS_CONTRACT_STABLE` ✅
+- **Endpoint confirmado** (descubierto vía Playwright headless interceptando XHR):
+  `GET https://webws.365scores.com/web/trends/?appTypeId=5&langId={1|29}&timezoneName=UTC&userCountryId=333&games={game_id}&topBookmaker=103`
+  - HTTP 200, `application/json; charset=utf-8`
+  - Confirmado vía Scrape.do (transport productivo) en `scripts/run_sprint_f2_capture_fixture.py`.
+- **Schema observado**:
+  - Top-level: `trends[]`, `bookmakers[]`, `lastUpdateId`, `ttl`, `sports[]`, `countries[]`, `competitions[]`, `competitors[]`, `games[]`.
+  - Por trend: `id`, `lineTypeId`, `text`, `cause`, `betCTA`, `isTop`, `competitorIds[]`, `gameId`, `percentage`, `odds{rate, oldRate, originalRate, trend, bookmakerId}`, `confidenceTrendIds[]`.
+  - `lineTypeId` taxonomy observada: `1=ML`, `3=OU_GOALS`, `5=1H_ML`, `7=FIRST_GOAL`, `12=BTTS`. Para valores no mapeados se emite `LINE_TYPE_{id}` (nunca se descarta silenciosamente).
+- **Módulo nuevo**: `services/external_sources/three65scores_top_trends_client.py` (lint clean).
+  - `fetch_top_trends(game_id, ...)` low-level con transport inyectable y cache Mongo (TTL 30 min default).
+  - `fetch_top_trends_for_match(internal_match_id, home_team, away_team, commence_time, ...)` high-level que orquesta F.1 (identity) → F.2 (trends).
+  - `normalize_trends_payload(payload)` parser puro (testeable sin Mongo ni red).
+  - Confidence heuristic: total≥10 ∧ pct≥0.80 → HIGH; total≥5 ∧ pct≥0.70 → MEDIUM; isTop=True floor MEDIUM; resto LOW.
+  - Detección de `team_side` (home/away/both/unknown) vía `competitorIds` cruzados con `home_team_id`/`away_team_id` de F.1. Detección de `scope` (home/away/first_half/all) por texto + line_type.
+- **Cache**: colección `football_365scores_top_trends` con `ix_game_language (unique)` + TTL 6h hard ceiling en `fetched_at`. Registrado en `server.py` startup.
+- **Fixture capturado**: `tests/fixtures/365scores_top_trends_4627854.json` (10 KB, 12 trends del partido México vs Corea del Sur, incluyendo 2+ `isTop=True`).
+- **Tests nuevos**: `tests/test_sprint_f2_top_trends_client.py` — 26 tests verdes (parser puro + payload completo del fixture real + cache hit/miss/stale + force_refresh + filtro `only_top` + langId 1/29 + identity short-circuit + fail-soft).
+- **Suite total**: 3732 passed / 2 skipped (3677 base + 29 F.1 + 26 F.2), 0 regresiones.
+
+### Próximo paso — F.3 (UI)
+
+Reemplazar el bloque "Revisión manual — alternativas posibles" por "Tendencias Top — 365Scores" en el componente correspondiente (`MarketIdentityResolverPanel.jsx` u otro consumidor). Endpoint de backend a exponer:
+
+`GET /api/football/365scores/top-trends?internal_match_id=...` (o un payload POST con identity ya pre-resuelta).
+
+Reglas:
+- `observe_only`: las tendencias se muestran como evidencia contextual, no modifican picks ni edge.
+- Si la fuente cae → mostrar reason code (`F2_TRANSPORT_UNAVAILABLE` / `F2_IDENTITY_NOT_RESOLVED` / `F2_TRENDS_EMPTY`) en la UI; nunca fabricar tendencias.
+- No mostrar ambos paneles ("Revisión manual" y "Tendencias Top") a la vez.
+
+### F.3 — Resultado de cierre (2026-06-18)
+
+- **Status**: `F3_UI_TOP_TRENDS_INTEGRATED` ✅
+- **Endpoint backend nuevo**: `POST /api/football/365scores/top-trends`
+  - Body: `{internal_match_id, home_team, away_team, commence_time (ISO), competition?, competition_id?, match_url?, language?, only_top?, force_refresh?}`.
+  - Orquesta F.1 (identidad) → F.2 (trends) → cache Mongo.
+  - Marca `observe_only: True` siempre. Never raises.
+  - Live fetchers cableados vía `services/external_sources/three65scores_live_fetchers.py` (Scrape.do como transport; fail-soft con `[]`/`{}` en fallos).
+- **Componente UI nuevo**: `frontend/src/components/Top365TrendsPanel.jsx`.
+  - Lazy fetch on first expand (no carga si el usuario no abre el panel).
+  - Estados: loading (skeleton+spinner), error con `reason_code` legible (`F2_IDENTITY_REQUIRED`, `F2_TRANSPORT_UNAVAILABLE`, `F2_TOP_TRENDS_EMPTY`, etc.), success con lista.
+  - Cada trend: badge `isTop`, market chip, team_side chip, scope chip si distinto del team_side, confidence chip (HIGH=emerald / MEDIUM=amber / LOW=slate), texto raw, sample `hits/total`, barra de progreso `percentage`, link al partido en 365Scores.
+  - Footer "observe_only" + `game_id` resuelto para auditoría.
+  - `data-testid` en todos los elementos interactivos (toggle, refresh, list, row-N-market, row-N-confidence, etc.).
+  - Botón refresh fuerza `force_refresh=True`.
+- **Reemplazo en Dashboard**: `frontend/src/pages/DashboardPage.jsx` cambia `<PossibleAlternativeMarkets>` por `<Top365TrendsPanel>` cuando `possibleAlts.length > 0`. No se muestran ambos paneles a la vez. No se fabrican tendencias simuladas cuando la fuente cae.
+- **Bug pre-existente arreglado**: `MarketIdentityResolverPanel.jsx` (Sprint D10) referenciaba `missing`, `manualPrice`, `setManualPrice` sin definirlos — causaba `Uncaught runtime error` que rompía la sección de discarded rows del Dashboard. Fix: declarar `useMemo` para `missing` (derivado de las props canónicas), state `manualPrice`/`setManualPrice`, y `effectivePrice` que cae al `manualPrice` cuando no hay `detectedOdd`. Lint clean.
+- **Validación end-to-end en producción (preview)**:
+  - Backend: 3735 passed / 2 skipped (3677 base + 32 F.1 + 26 F.2), 0 regresiones.
+  - Endpoint live test (Portugal vs DR Congo, game_id=4697734): identity RESOLVED HIGH confidence, 5 trends ES, cache hit confirmado.
+  - UI render real con demo account: panel "Tendencias Top — 365Scores" se renderiza con icono Sparkles + theme cyan correcto. Caso `F2_IDENTITY_REQUIRED` mostrado limpio cuando el item descartado no expone `commence_time` (mensaje claro, no se muestra el bloque antiguo). Sin errores de runtime.
+- **Resultado**: Sprint F **COMPLETO** (F.1 + F.2 + F.3). Las tendencias de 365Scores se ingestan, normalizan, cachean y muestran en la UI como evidencia contextual `observe_only`. Sin tocar el engine ni los picks.
+
+### Próximos pasos (post Sprint F)
+
+Sin tareas P0 abiertas. Siguen en pendientes:
+- **D9.2 Block 1**: xG real (FBref/Understat) para el Residual Model (P1).
+- **REFACTOR-1**: Extraer Steps 2 y 3 fuera de `data_ingestion.py` (P2).
+- **F84.c/F84.d**: Lineups + Standings via API-Sports (P1).
+- **BTTS market backtest**: aplazado hasta sourcing de cuotas históricas.

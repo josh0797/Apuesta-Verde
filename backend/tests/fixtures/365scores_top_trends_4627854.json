@@ -1,0 +1,712 @@
+{
+  "trends": [
+    {
+      "id": 11584513,
+      "lineTypeId": 1,
+      "text": "Mexico won - 4/4 Last Matches",
+      "cause": "Mexico won",
+      "isTop": true,
+      "betCTA": "Mexico to win",
+      "divId": 11584513,
+      "competitorIds": [
+        5106
+      ],
+      "gameId": 4627854,
+      "odds": {
+        "num": 1,
+        "rate": {
+          "decimal": 2.0,
+          "fractional": "1/1",
+          "american": "+100"
+        },
+        "bookmakerId": 103,
+        "oldRate": {
+          "decimal": 1.95,
+          "fractional": "16/17",
+          "american": "-105"
+        },
+        "originalRate": {
+          "decimal": 1.75,
+          "fractional": "3/4",
+          "american": "-133"
+        },
+        "trend": 3
+      },
+      "bookmakerId": 103,
+      "confidenceTrendIds": [
+        12083667,
+        11333622
+      ],
+      "isGeneralGameBet": false,
+      "percentage": 1.0
+    },
+    {
+      "id": 12083667,
+      "lineTypeId": 1,
+      "text": "Mexico won at home - 4/4 Last Matches",
+      "cause": "Mexico won at home",
+      "betCTA": "Mexico to win",
+      "divId": 12083667,
+      "competitorIds": [
+        5106
+      ],
+      "gameId": 4627854,
+      "odds": {
+        "num": 1,
+        "rate": {
+          "decimal": 2.0,
+          "fractional": "1/1",
+          "american": "+100"
+        },
+        "bookmakerId": 103,
+        "oldRate": {
+          "decimal": 1.95,
+          "fractional": "16/17",
+          "american": "-105"
+        },
+        "originalRate": {
+          "decimal": 1.75,
+          "fractional": "3/4",
+          "american": "-133"
+        },
+        "trend": 3
+      },
+      "bookmakerId": 103,
+      "confidenceTrendIds": [
+        11584513,
+        11333622
+      ],
+      "isGeneralGameBet": false,
+      "percentage": 1.0
+    },
+    {
+      "id": 11333622,
+      "lineTypeId": 1,
+      "text": "Mexico won - 3/4 Last Matches",
+      "cause": "Mexico won",
+      "betCTA": "Mexico to win",
+      "divId": 11333622,
+      "competitorIds": [
+        5106,
+        2383
+      ],
+      "gameId": 4627854,
+      "odds": {
+        "num": 1,
+        "rate": {
+          "decimal": 2.0,
+          "fractional": "1/1",
+          "american": "+100"
+        },
+        "bookmakerId": 103,
+        "oldRate": {
+          "decimal": 1.95,
+          "fractional": "16/17",
+          "american": "-105"
+        },
+        "originalRate": {
+          "decimal": 1.75,
+          "fractional": "3/4",
+          "american": "-133"
+        },
+        "trend": 3
+      },
+      "bookmakerId": 103,
+      "confidenceTrendIds": [
+        11584513,
+        12083667
+      ],
+      "isGeneralGameBet": false,
+      "percentage": 0.75
+    },
+    {
+      "id": 11333628,
+      "lineTypeId": 3,
+      "text": "Under 2.5 Goals - 5/6 Last Matches",
+      "cause": "Under 2.5 Goals",
+      "betCTA": "Under",
+      "divId": 11333628,
+      "competitorIds": [
+        5106
+      ],
+      "gameId": 4627854,
+      "odds": {
+        "num": 1,
+        "rate": {
+          "decimal": 1.61,
+          "fractional": "8/13",
+          "american": "-164"
+        },
+        "bookmakerId": 103,
+        "oldRate": {
+          "decimal": 1.57,
+          "fractional": "4/7",
+          "american": "-175"
+        },
+        "originalRate": {
+          "decimal": 1.66,
+          "fractional": "2/3",
+          "american": "-152"
+        },
+        "trend": 3
+      },
+      "bookmakerId": 103,
+      "confidenceTrendIds": [
+        11766272
+      ],
+      "isGeneralGameBet": true,
+      "percentage": 0.8333333333333334
+    },
+    {
+      "id": 11766272,
+      "lineTypeId": 3,
+      "text": "Under 2.5 Goals Away - 7/8 Last Matches",
+      "cause": "Under 2.5 Goals Away",
+      "betCTA": "Under",
+      "divId": 11766272,
+      "competitorIds": [
+        2383
+      ],
+      "gameId": 4627854,
+      "odds": {
+        "num": 1,
+        "rate": {
+          "decimal": 1.61,
+          "fractional": "8/13",
+          "american": "-164"
+        },
+        "bookmakerId": 103,
+        "oldRate": {
+          "decimal": 1.57,
+          "fractional": "4/7",
+          "american": "-175"
+        },
+        "originalRate": {
+          "decimal": 1.66,
+          "fractional": "2/3",
+          "american": "-152"
+        },
+        "trend": 3
+      },
+      "bookmakerId": 103,
+      "confidenceTrendIds": [
+        11333628
+      ],
+      "isGeneralGameBet": true,
+      "percentage": 0.875
+    },
+    {
+      "id": 11584514,
+      "lineTypeId": 7,
+      "text": "Mexico scored first - 4/5 Last Matches",
+      "cause": "Mexico scored first",
+      "betCTA": "Mexico to score first",
+      "divId": 11584514,
+      "competitorIds": [
+        5106
+      ],
+      "gameId": 4627854,
+      "odds": {
+        "num": 1,
+        "rate": {
+          "decimal": 1.74,
+          "fractional": "3/4",
+          "american": "-135"
+        },
+        "bookmakerId": 103,
+        "oldRate": {
+          "decimal": 1.68,
+          "fractional": "11/16",
+          "american": "-147"
+        },
+        "originalRate": {
+          "decimal": 1.63,
+          "fractional": "5/8",
+          "american": "-159"
+        },
+        "trend": 3
+      },
+      "bookmakerId": 103,
+      "confidenceTrendIds": [
+        11333625
+      ],
+      "isGeneralGameBet": false,
+      "percentage": 0.8
+    },
+    {
+      "id": 11333625,
+      "lineTypeId": 7,
+      "text": "Mexico scored first - 3/4 Last Matches",
+      "cause": "Mexico scored first",
+      "betCTA": "Mexico to score first",
+      "divId": 11333625,
+      "competitorIds": [
+        5106,
+        2383
+      ],
+      "gameId": 4627854,
+      "odds": {
+        "num": 1,
+        "rate": {
+          "decimal": 1.74,
+          "fractional": "3/4",
+          "american": "-135"
+        },
+        "bookmakerId": 103,
+        "oldRate": {
+          "decimal": 1.68,
+          "fractional": "11/16",
+          "american": "-147"
+        },
+        "originalRate": {
+          "decimal": 1.63,
+          "fractional": "5/8",
+          "american": "-159"
+        },
+        "trend": 3
+      },
+      "bookmakerId": 103,
+      "confidenceTrendIds": [
+        11584514
+      ],
+      "isGeneralGameBet": false,
+      "percentage": 0.75
+    },
+    {
+      "id": 12004036,
+      "lineTypeId": 5,
+      "text": "Mexico won the first half - 6/7 Last Matches",
+      "cause": "Mexico won the first half",
+      "betCTA": "Mexico to win 1st half",
+      "divId": 12004036,
+      "competitorIds": [
+        5106
+      ],
+      "gameId": 4627854,
+      "odds": {
+        "num": 1,
+        "rate": {
+          "decimal": 2.62,
+          "fractional": "13/8",
+          "american": "+162"
+        },
+        "bookmakerId": 103,
+        "oldRate": {
+          "decimal": 2.6,
+          "fractional": "8/5",
+          "american": "+160"
+        },
+        "originalRate": {
+          "decimal": 2.4,
+          "fractional": "7/5",
+          "american": "+140"
+        },
+        "trend": 3
+      },
+      "bookmakerId": 103,
+      "isGeneralGameBet": false,
+      "percentage": 0.8571428571428571
+    },
+    {
+      "id": 11333618,
+      "lineTypeId": 1,
+      "text": "South Korea won - 3/4 Last Matches",
+      "cause": "South Korea won",
+      "betCTA": "South Korea to win",
+      "divId": 11333618,
+      "competitorIds": [
+        2383
+      ],
+      "gameId": 4627854,
+      "odds": {
+        "num": 3,
+        "rate": {
+          "decimal": 3.9,
+          "fractional": "29/10",
+          "american": "+290"
+        },
+        "bookmakerId": 103,
+        "oldRate": {
+          "decimal": 4.0,
+          "fractional": "3/1",
+          "american": "+300"
+        },
+        "originalRate": {
+          "decimal": 4.75,
+          "fractional": "7/2",
+          "american": "+375"
+        },
+        "trend": 1
+      },
+      "bookmakerId": 103,
+      "isGeneralGameBet": false,
+      "percentage": 0.75
+    },
+    {
+      "id": 11333623,
+      "lineTypeId": 3,
+      "text": "Over 2.5 Goals - 4/4 Last Matches",
+      "cause": "Over 2.5 Goals",
+      "isTop": true,
+      "betCTA": "Over",
+      "divId": 11333623,
+      "competitorIds": [
+        5106,
+        2383
+      ],
+      "gameId": 4627854,
+      "odds": {
+        "num": 2,
+        "rate": {
+          "decimal": 2.3,
+          "fractional": "13/10",
+          "american": "+130"
+        },
+        "bookmakerId": 103,
+        "oldRate": {
+          "decimal": 2.37,
+          "fractional": "11/8",
+          "american": "+137"
+        },
+        "originalRate": {
+          "decimal": 2.19,
+          "fractional": "6/5",
+          "american": "+119"
+        },
+        "trend": 1
+      },
+      "bookmakerId": 103,
+      "isGeneralGameBet": true,
+      "percentage": 1.0
+    },
+    {
+      "id": 11333624,
+      "lineTypeId": 12,
+      "text": "Both teams scored - 3/4 Last Matches",
+      "cause": "Both teams scored",
+      "betCTA": "Both Teams To Score",
+      "divId": 11333624,
+      "competitorIds": [
+        5106,
+        2383
+      ],
+      "gameId": 4627854,
+      "odds": {
+        "num": 1,
+        "rate": {
+          "decimal": 2.01,
+          "fractional": "1/1",
+          "american": "+101"
+        },
+        "bookmakerId": 103,
+        "oldRate": {
+          "decimal": 2.06,
+          "fractional": "15/14",
+          "american": "+106"
+        },
+        "originalRate": {
+          "decimal": 2.06,
+          "fractional": "15/14",
+          "american": "+106"
+        },
+        "trend": 1
+      },
+      "bookmakerId": 103,
+      "isGeneralGameBet": true,
+      "percentage": 0.75
+    },
+    {
+      "id": 11333626,
+      "lineTypeId": 5,
+      "text": "Mexico won the first half - 3/4 Last Matches",
+      "cause": "Mexico won the first half",
+      "betCTA": "Mexico to win 1st half",
+      "divId": 11333626,
+      "competitorIds": [
+        5106,
+        2383
+      ],
+      "gameId": 4627854,
+      "odds": {
+        "num": 1,
+        "rate": {
+          "decimal": 2.62,
+          "fractional": "13/8",
+          "american": "+162"
+        },
+        "bookmakerId": 103,
+        "oldRate": {
+          "decimal": 2.6,
+          "fractional": "8/5",
+          "american": "+160"
+        },
+        "originalRate": {
+          "decimal": 2.4,
+          "fractional": "7/5",
+          "american": "+140"
+        },
+        "trend": 3
+      },
+      "bookmakerId": 103,
+      "isGeneralGameBet": false,
+      "percentage": 0.75
+    }
+  ],
+  "bookmakers": [
+    {
+      "id": 103,
+      "name": "BetMGM",
+      "link": "https://mediaserver.betmgmpartners.com/renderBanner.do?zoneId=1634402&tdpeh=Context-Odds__$GUID_device-$DeviceHashedId_session-$SessionHashedId",
+      "nameForURL": "betmgm",
+      "actionButton": {
+        "link": "https://mediaserver.betmgmpartners.com/renderBanner.do?zoneId=1634402&tdpeh=Context-Odds__$GUID_device-$DeviceHashedId_session-$SessionHashedId",
+        "label": "Play Now"
+      },
+      "color": "#000000",
+      "imageVersion": 5,
+      "promotionText": "Get $100 when you bet $20"
+    }
+  ],
+  "lastUpdateId": 0,
+  "ttl": 0,
+  "sports": [
+    {
+      "id": 1,
+      "name": "Football",
+      "nameForURL": "football",
+      "drawSupport": true,
+      "imageVersion": 1
+    }
+  ],
+  "countries": [
+    {
+      "id": 31,
+      "name": "Mexico",
+      "nameForURL": "mexico",
+      "sportTypes": [
+        7,
+        1,
+        8,
+        2
+      ],
+      "imageVersion": 1,
+      "isInternational": false
+    },
+    {
+      "id": 86,
+      "name": "South Korea",
+      "nameForURL": "south-korea",
+      "sportTypes": [
+        7,
+        1,
+        2,
+        8
+      ],
+      "imageVersion": 1,
+      "isInternational": false
+    },
+    {
+      "id": 54,
+      "name": "International",
+      "nameForURL": "international",
+      "sportTypes": [
+        5,
+        11,
+        8,
+        3,
+        9,
+        1,
+        7,
+        4,
+        13,
+        2
+      ],
+      "imageVersion": 1,
+      "isInternational": true
+    }
+  ],
+  "competitions": [
+    {
+      "id": 5930,
+      "countryId": 54,
+      "sportId": 1,
+      "name": "FIFA World Cup",
+      "shortName": "World Cup",
+      "hasStandings": true,
+      "hasLiveStandings": false,
+      "hasStandingsGroups": true,
+      "hasBrackets": true,
+      "hasStats": true,
+      "nameForURL": "fifa-world-cup",
+      "popularityRank": 33614546,
+      "imageVersion": 19,
+      "currentStageType": 2,
+      "color": "#A50035",
+      "competitorsType": 2,
+      "currentPhaseNum": -1,
+      "currentSeasonNum": 25,
+      "currentStageNum": 1,
+      "isInternational": true,
+      "hasHistory": true
+    }
+  ],
+  "competitors": [
+    {
+      "id": 5106,
+      "countryId": 31,
+      "sportId": 1,
+      "name": "Mexico",
+      "symbolicName": "MEX",
+      "score": -1.0,
+      "isQualified": false,
+      "toQualify": false,
+      "isWinner": false,
+      "nameForURL": "mexico",
+      "type": 2,
+      "popularityRank": 8456,
+      "imageVersion": 15,
+      "rankings": [
+        {
+          "name": "FIFA",
+          "position": 14
+        }
+      ],
+      "color": "#006341",
+      "awayColor": "#FFFFFF",
+      "mainCompetitionId": 5930,
+      "hasSquad": true,
+      "hasTransfers": false,
+      "competitorNum": 1,
+      "hideOnSearch": false,
+      "hideOnCatalog": false
+    },
+    {
+      "id": 2383,
+      "countryId": 86,
+      "sportId": 1,
+      "name": "South Korea",
+      "longName": "Korea Republic",
+      "symbolicName": "KOR",
+      "score": -1.0,
+      "isQualified": false,
+      "toQualify": false,
+      "isWinner": false,
+      "nameForURL": "south-korea",
+      "type": 2,
+      "popularityRank": 4484,
+      "imageVersion": 2,
+      "rankings": [
+        {
+          "name": "FIFA",
+          "position": 25
+        }
+      ],
+      "color": "#F8373E",
+      "awayColor": "#000224",
+      "mainCompetitionId": 5930,
+      "hasSquad": true,
+      "hasTransfers": false,
+      "competitorNum": 2,
+      "hideOnSearch": false,
+      "hideOnCatalog": false
+    }
+  ],
+  "games": [
+    {
+      "id": 4627854,
+      "sportId": 1,
+      "competitionId": 5930,
+      "seasonNum": 25,
+      "stageNum": 1,
+      "groupNum": 1,
+      "roundNum": 2,
+      "roundName": "Round",
+      "groupName": "Group A",
+      "competitionDisplayName": "FIFA World Cup - Group A",
+      "startTime": "2026-06-19T01:00:00+00:00",
+      "statusGroup": 2,
+      "statusText": "Scheduled",
+      "shortStatusText": "Sched.",
+      "gameTimeAndStatusDisplayType": 0,
+      "justEnded": false,
+      "gameTime": -1.0,
+      "gameTimeDisplay": "",
+      "hasMissingPlayers": true,
+      "lineupsStatus": 2,
+      "lineupsStatusText": "Probable Lineups",
+      "hasTVNetworks": true,
+      "hasLiveStreaming": false,
+      "showCountdown": true,
+      "winDescription": "",
+      "homeCompetitor": {
+        "id": 5106,
+        "countryId": 31,
+        "sportId": 1,
+        "name": "Mexico",
+        "symbolicName": "MEX",
+        "score": -1.0,
+        "isQualified": false,
+        "toQualify": false,
+        "isWinner": false,
+        "nameForURL": "mexico",
+        "type": 2,
+        "popularityRank": 8456,
+        "imageVersion": 15,
+        "rankings": [
+          {
+            "name": "FIFA",
+            "position": 14
+          }
+        ],
+        "color": "#006341",
+        "awayColor": "#FFFFFF",
+        "mainCompetitionId": 5930,
+        "hasSquad": true,
+        "hasTransfers": false,
+        "competitorNum": 1,
+        "hideOnSearch": false,
+        "hideOnCatalog": false
+      },
+      "awayCompetitor": {
+        "id": 2383,
+        "countryId": 86,
+        "sportId": 1,
+        "name": "South Korea",
+        "longName": "Korea Republic",
+        "symbolicName": "KOR",
+        "score": -1.0,
+        "isQualified": false,
+        "toQualify": false,
+        "isWinner": false,
+        "nameForURL": "south-korea",
+        "type": 2,
+        "popularityRank": 4484,
+        "imageVersion": 2,
+        "rankings": [
+          {
+            "name": "FIFA",
+            "position": 25
+          }
+        ],
+        "color": "#F8373E",
+        "awayColor": "#000224",
+        "mainCompetitionId": 5930,
+        "hasSquad": true,
+        "hasTransfers": false,
+        "competitorNum": 2,
+        "hideOnSearch": false,
+        "hideOnCatalog": false
+      },
+      "isHomeAwayInverted": false,
+      "hasStandings": true,
+      "standingsName": "Groups",
+      "hasBrackets": false,
+      "hasPreviousMeetings": false,
+      "hasRecentMatches": false,
+      "winner": 0,
+      "homeAwayTeamOrder": 0,
+      "hasPointByPoint": false,
+      "hasVideo": false
+    }
+  ]
+}

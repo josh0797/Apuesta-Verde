@@ -328,6 +328,47 @@ class TestUrlPath:
         )
         assert out["status"] == resolver.STATUS_SOURCE_UNAVAILABLE
 
+    async def test_url_path_degrades_to_search_when_detail_is_empty(self):
+        # Real-world: 365Scores changed the slug format and the regex
+        # caught the competition_id (5930) instead of the game_id. The
+        # detail_fetcher then returns an empty payload. The resolver
+        # MUST NOT flag INVALID_TEAM_MAPPING — instead it should fall
+        # through to the search-by-context path which will find the
+        # real game_id via the day listing.
+        detail_calls: list[str] = []
+        search_days: list[str] = []
+
+        async def detail_fetcher(game_id: str):
+            detail_calls.append(game_id)
+            # Empty payload — simulates "wrong number caught by regex".
+            return {}
+
+        async def games_fetcher(date_iso: str):
+            search_days.append(date_iso)
+            return [_game_doc()]
+
+        bad_url = (
+            "https://www.365scores.com/football/match/"
+            "fifa-world-cup-5930/mexico-south-korea-2383-5106-5930"
+            # ends in `-{away_id}-{home_id}-{competition_id}` — the
+            # regex catches 5930 (competition) as the game_id.
+        )
+        out = await resolver.resolve_match_identity(
+            internal_match_id=FIX_INTERNAL_ID,
+            home_team="Mexico", away_team="South Korea",
+            commence_time=FIX_KICKOFF,
+            competition_id=FIX_COMPETITION_ID,
+            match_url=bad_url,
+            game_detail_fetcher=detail_fetcher,
+            games_fetcher=games_fetcher,
+            persist=False,
+        )
+        assert out["status"] == resolver.STATUS_RESOLVED
+        assert out["game_id"] == FIX_GAME_ID
+        assert out["resolved_from"] == "search"
+        assert len(detail_calls) == 1
+        assert len(search_days) == 3   # ±1 day window
+
 
 # ════════════════════════════════════════════════════════════════════════
 # Search-by-context path
@@ -604,3 +645,67 @@ class TestIsHomeFlag:
         assert out["home_team_id"] == FIX_HOME_TEAM_ID
         assert out["away_team_id"] == FIX_AWAY_TEAM_ID
         assert out["mapping_reason"] == resolver.RC_TEAM_MAPPING_OK
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Real 365Scores listing format (homeCompetitor / awayCompetitor)
+# ════════════════════════════════════════════════════════════════════════
+@pytest.mark.asyncio
+class TestHomeAwayCompetitorShape:
+    """The ``/web/games/allscores`` endpoint uses explicit
+    ``homeCompetitor`` / ``awayCompetitor`` dicts instead of the
+    ``competitors`` array. The resolver MUST honour that shape."""
+
+    def _real_listing_shape(self, *, swapped: bool = False) -> dict:
+        home = {"id": FIX_HOME_TEAM_ID, "name": FIX_HOME_NAME_SRC,
+                "symbolicName": "MEX"}
+        away = {"id": FIX_AWAY_TEAM_ID, "name": FIX_AWAY_NAME_SRC,
+                "symbolicName": "KOR"}
+        return {
+            "id":             FIX_GAME_ID,
+            "competitionId":  FIX_COMPETITION_ID,
+            "startTime":      FIX_KICKOFF.isoformat(),
+            "homeCompetitor": away if swapped else home,
+            "awayCompetitor": home if swapped else away,
+            "competitors":    [],   # listing leaves it empty
+        }
+
+    async def test_resolves_from_listing_shape(self):
+        listing_game = self._real_listing_shape()
+
+        async def games_fetcher(_date_iso: str):
+            return [listing_game]
+
+        out = await resolver.resolve_match_identity(
+            internal_match_id=FIX_INTERNAL_ID,
+            home_team="Mexico", away_team="South Korea",
+            commence_time=FIX_KICKOFF,
+            competition_id=FIX_COMPETITION_ID,
+            games_fetcher=games_fetcher,
+            persist=False,
+        )
+        assert out["status"] == resolver.STATUS_RESOLVED
+        assert out["game_id"] == FIX_GAME_ID
+        assert out["home_team_id"] == FIX_HOME_TEAM_ID
+        assert out["away_team_id"] == FIX_AWAY_TEAM_ID
+        assert out["mapping_reason"] == resolver.RC_TEAM_MAPPING_OK
+
+    async def test_listing_shape_swapped_is_detected(self):
+        listing_game = self._real_listing_shape(swapped=True)
+
+        async def games_fetcher(_date_iso: str):
+            return [listing_game]
+
+        out = await resolver.resolve_match_identity(
+            internal_match_id=FIX_INTERNAL_ID,
+            home_team="Mexico", away_team="South Korea",
+            commence_time=FIX_KICKOFF,
+            competition_id=FIX_COMPETITION_ID,
+            games_fetcher=games_fetcher,
+            persist=False,
+        )
+        assert out["status"] == resolver.STATUS_RESOLVED
+        # IDs realigned to canonical even though source had them swapped.
+        assert out["home_team_id"] == FIX_HOME_TEAM_ID
+        assert out["away_team_id"] == FIX_AWAY_TEAM_ID
+        assert out["mapping_reason"] == resolver.RC_TEAM_MAPPING_SWAPPED

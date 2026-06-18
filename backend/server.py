@@ -160,6 +160,13 @@ async def on_startup() -> None:
         log.info("[365SCORES_IDENTITIES] indexes ensured")
     except Exception as exc:
         log.warning("[365SCORES_IDENTITIES] index ensure failed: %s", exc)
+    # Sprint F.2 — 365Scores Top Trends cache indexes.
+    try:
+        from services.external_sources import three65scores_top_trends_client as _tt365
+        await _tt365.ensure_indexes(db)
+        log.info("[365SCORES_TOP_TRENDS] cache indexes ensured")
+    except Exception as exc:
+        log.warning("[365SCORES_TOP_TRENDS] index ensure failed: %s", exc)
     # Sprint E.2 — odds_alerts indexes (audit + dedupe + filters).
     try:
         await db.odds_alerts.create_index(
@@ -625,6 +632,100 @@ async def ack_odds_alert_endpoint(payload: AckOddsAlertRequest) -> dict:
         return {"ok": False, "_error": str(exc)}
     return await ack_alert(db, alert_id=payload.alert_id,
                             acked_by=payload.acked_by)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Sprint F.3 — 365Scores Top Trends endpoint (observe-only).
+# ─────────────────────────────────────────────────────────────────────
+class TopTrendsRequest(BaseModel):
+    """Canonical match context to resolve 365Scores identity (F.1) and
+    fetch Top Trends (F.2). Either ``game_id_365scores`` is provided
+    (fast path) or the rest of the fields are used to resolve identity.
+    """
+    internal_match_id: str
+    home_team:         str
+    away_team:         str
+    commence_time:     str    # ISO-8601
+    competition:       Optional[str] = None
+    competition_id:    Optional[int] = None
+    match_url:         Optional[str] = None  # Known 365Scores URL (optional)
+    language:          str = "es"
+    only_top:          bool = False
+    force_refresh:     bool = False
+
+
+@app.post("/api/football/365scores/top-trends")
+async def football_365scores_top_trends_endpoint(
+    payload: TopTrendsRequest,
+) -> dict:
+    """Sprint F.3 — return the Top Trends 365Scores publishes for the
+    given canonical match. ``observe_only``: never mutates picks, edges
+    or markets — the response is evidence only.
+
+    Cascade:
+      1. Try the Mongo cache (TTL).
+      2. Identity resolution (F.1) — URL parse if provided, else
+         search-by-context with ±6h tolerance.
+      3. Fetch ``/web/trends/?games=<game_id>`` via Scrape.do (F.2),
+         normalise to canonical rows.
+      4. Persist into ``football_365scores_top_trends`` (TTL ≤ 6h).
+
+    Returns:
+      ``{available, trends, trends_count, top_trends_count, reason_code,
+         identity, fetched_at, from_cache, source, ...}``
+
+    Never raises: every failure mode lives in ``reason_code`` /
+    ``identity_status``.
+    """
+    try:
+        from services.external_sources import (
+            three65scores_top_trends_client as _tt,
+            three65scores_live_fetchers as _lf,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False,
+                "reason_code": "MODULE_IMPORT_FAILED",
+                "trends": [], "trends_count": 0, "top_trends_count": 0,
+                "_error": str(exc)}
+
+    try:
+        commence_dt = datetime.fromisoformat(
+            payload.commence_time.replace("Z", "+00:00"),
+        )
+    except (TypeError, ValueError):
+        return {"available": False,
+                "reason_code": "INVALID_COMMENCE_TIME",
+                "message_user": ("commence_time must be an ISO-8601 "
+                                  "timestamp"),
+                "trends": [], "trends_count": 0, "top_trends_count": 0}
+    if commence_dt.tzinfo is None:
+        commence_dt = commence_dt.replace(tzinfo=timezone.utc)
+
+    try:
+        result = await _tt.fetch_top_trends_for_match(
+            internal_match_id=payload.internal_match_id,
+            home_team=payload.home_team,
+            away_team=payload.away_team,
+            commence_time=commence_dt,
+            competition=payload.competition,
+            competition_id=payload.competition_id,
+            match_url=payload.match_url,
+            language=payload.language,
+            db=db,
+            games_fetcher=_lf.fetch_games_by_date,
+            game_detail_fetcher=_lf.fetch_game_detail,
+            only_top=payload.only_top,
+            force_refresh=payload.force_refresh,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[365scores_top_trends] orchestrator raised: %s", exc)
+        return {"available": False,
+                "reason_code": "TOP_TRENDS_ORCHESTRATOR_ERROR",
+                "trends": [], "trends_count": 0, "top_trends_count": 0,
+                "_error": str(exc)}
+    # observe_only contract.
+    result["observe_only"] = True
+    return result
 
 
 @app.get("/api/football/learning-snapshot/{match_id}")

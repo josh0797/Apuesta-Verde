@@ -21,6 +21,7 @@ import { formatDateTime, tierClass } from '@/lib/format';
 import { EditorialSignalsPanel, EditorialSignalsSummary } from '@/components/EditorialSignalsPanel';
 import { Scores24ReviewBadge } from '@/components/Scores24ReviewBadge';
 import { ExternalSourceEvidencePanel, PossibleAlternativeMarkets } from '@/components/ExternalSourceEvidencePanel';
+import { Top365TrendsPanel } from '@/components/Top365TrendsPanel';
 import { SourcesConsultedPanel } from '@/components/SourcesConsultedPanel';
 import { ManualOddsReviewPanel } from '@/components/ManualOddsReviewPanel';
 import { FootballMarketAuditPanel } from '@/components/FootballMarketAuditPanel';
@@ -275,11 +276,18 @@ function DiscardedRow({ item, testId, type, sport }) {
               testIdPrefix={`${testId}-structural-review`}
             />
           )}
+          {/* Sprint F.3 — Replaces the legacy
+              "Revisión manual — alternativas posibles" block with
+              the real Top Trends scraped from 365Scores. We render
+              the new panel whenever the old trigger fired
+              (possibleAlts.length > 0). observe_only: never modifies
+              picks/edge. */}
           {possibleAlts.length > 0 && (
-            <PossibleAlternativeMarkets
-              markets={possibleAlts}
-              note={reviewNote}
-              testId={`${testId}-alts`}
+            <Top365TrendsPanel
+              item={item}
+              testId={`${testId}-top365`}
+              onlyTop={false}
+              defaultOpen={false}
             />
           )}
           {externalEvidence.length > 0 && (

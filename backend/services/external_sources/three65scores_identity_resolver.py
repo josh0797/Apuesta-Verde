@@ -278,11 +278,26 @@ def _parse_dt(value: Any) -> Optional[datetime]:
 def _extract_competitors(game: dict) -> tuple[Optional[dict], Optional[dict]]:
     """Pull ``(home_dict, away_dict)`` from a 365Scores game dict.
 
-    365Scores sometimes uses ``isHome`` flag, sometimes uses positional
-    order ``competitors[0]=home``. We honour the explicit flag first.
+    365Scores uses two payload shapes:
+
+    * Listing endpoint (``/web/games/allscores``): each game has
+      explicit ``homeCompetitor`` / ``awayCompetitor`` dicts.
+    * Detail endpoint (``/web/game``) and embedded ``__NEXT_DATA__``:
+      a ``competitors`` array with optional ``isHome`` flag or
+      positional order ``[home, away]``.
+
+    We honour the explicit fields/flags first, then fall back to
+    positional order.
     """
     if not isinstance(game, dict):
         return None, None
+    # ── Shape 1: explicit home/awayCompetitor dicts ─────────────────
+    home_doc = game.get("homeCompetitor")
+    away_doc = game.get("awayCompetitor")
+    if isinstance(home_doc, dict) or isinstance(away_doc, dict):
+        return (home_doc if isinstance(home_doc, dict) else None,
+                away_doc if isinstance(away_doc, dict) else None)
+    # ── Shape 2: competitors array ─────────────────────────────────
     comps = game.get("competitors") or game.get("teams")
     if not isinstance(comps, list) or len(comps) < 2:
         return None, None
@@ -726,64 +741,77 @@ async def resolve_match_identity(
                         if isinstance(game_doc.get("game"), dict)
                         else game_doc)
                 h_doc, a_doc = _extract_competitors(game)
-                mapping = validate_team_mapping(
-                    canonical_home=canonical_home,
-                    canonical_away=canonical_away,
-                    source_home_name=(h_doc or {}).get("name"),
-                    source_away_name=(a_doc or {}).get("name"),
-                )
-                # Build a candidate-shaped dict so we reuse _build_identity_doc.
-                cand = {
-                    "game":                  game,
-                    "home_doc":              h_doc,
-                    "away_doc":              a_doc,
-                    "kickoff":               _extract_kickoff(game),
-                    "kickoff_delta_seconds": None,
-                    "competition_id":        _safe_int(
-                        game.get("competitionId")
-                        or (game.get("competition") or {}).get("id"),
-                    ),
-                    "competition_matches":   (
-                        None if competition_id is None
-                        else (_safe_int(
+                source_home_name = (h_doc or {}).get("name")
+                source_away_name = (a_doc or {}).get("name")
+                # If neither source name is present, the URL-extracted
+                # game_id is almost certainly bogus (e.g. 365Scores
+                # changed the slug format and we caught the
+                # competition_id instead). Do NOT flag this as
+                # INVALID_TEAM_MAPPING — fall through to the search
+                # path so the canonical home/away + commence_time can
+                # disambiguate.
+                if source_home_name or source_away_name:
+                    mapping = validate_team_mapping(
+                        canonical_home=canonical_home,
+                        canonical_away=canonical_away,
+                        source_home_name=source_home_name,
+                        source_away_name=source_away_name,
+                    )
+                    # Build a candidate-shaped dict so we reuse _build_identity_doc.
+                    cand = {
+                        "game":                  game,
+                        "home_doc":              h_doc,
+                        "away_doc":              a_doc,
+                        "kickoff":               _extract_kickoff(game),
+                        "kickoff_delta_seconds": None,
+                        "competition_id":        _safe_int(
                             game.get("competitionId")
                             or (game.get("competition") or {}).get("id"),
-                        ) == competition_id)
-                    ),
-                }
-                if not mapping["valid"]:
-                    out = {
-                        "status":             STATUS_INVALID_TEAM_MAPPING,
-                        "confidence":         CONFIDENCE_LOW,
-                        "internal_match_id":  internal_match_id,
-                        "game_id":            url_game_id,
-                        "source_url":         match_url,
-                        "home_team_name_source": (h_doc or {}).get("name"),
-                        "away_team_name_source": (a_doc or {}).get("name"),
-                        "reason_code":        mapping["reason"],
-                        "resolved_from":      "url",
-                        "aliases_used":       aliases_used,
-                        "candidates":         [],
-                        "resolved_at":        _now_iso(),
-                        "source":             SOURCE_LABEL,
+                        ),
+                        "competition_matches":   (
+                            None if competition_id is None
+                            else (_safe_int(
+                                game.get("competitionId")
+                                or (game.get("competition") or {}).get("id"),
+                            ) == competition_id)
+                        ),
                     }
-                    return out
-                identity = _build_identity_doc(
-                    internal_match_id=internal_match_id,
-                    canonical_home=canonical_home,
-                    canonical_away=canonical_away,
-                    commence_time=commence_time,
-                    competition=competition,
-                    candidate=cand,
-                    resolved_from="url",
-                    source_url=match_url,
-                    aliases_used=aliases_used,
-                    mapping=mapping,
-                )
-                identity["reason_code"] = RC_FROM_URL
-                if persist:
-                    await _persist_identity(db=db, doc=identity)
-                return identity
+                    if not mapping["valid"]:
+                        return {
+                            "status":             STATUS_INVALID_TEAM_MAPPING,
+                            "confidence":         CONFIDENCE_LOW,
+                            "internal_match_id":  internal_match_id,
+                            "game_id":            url_game_id,
+                            "source_url":         match_url,
+                            "home_team_name_source": source_home_name,
+                            "away_team_name_source": source_away_name,
+                            "reason_code":        mapping["reason"],
+                            "resolved_from":      "url",
+                            "aliases_used":       aliases_used,
+                            "candidates":         [],
+                            "resolved_at":        _now_iso(),
+                            "source":             SOURCE_LABEL,
+                        }
+                    identity = _build_identity_doc(
+                        internal_match_id=internal_match_id,
+                        canonical_home=canonical_home,
+                        canonical_away=canonical_away,
+                        commence_time=commence_time,
+                        competition=competition,
+                        candidate=cand,
+                        resolved_from="url",
+                        source_url=match_url,
+                        aliases_used=aliases_used,
+                        mapping=mapping,
+                    )
+                    identity["reason_code"] = RC_FROM_URL
+                    if persist:
+                        await _persist_identity(db=db, doc=identity)
+                    return identity
+                # else: empty payload → degrade to search path below.
+                log.info("[365scores_identity] URL game_id=%s yielded "
+                         "an empty payload; degrading to search path.",
+                         url_game_id)
 
     # ── 2) Search by context ──────────────────────────────────────────
     if games_fetcher is None:

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,9 +39,32 @@ export const MarketIdentityResolverPanel = ({
   const [loading, setLoading] = useState(false);
   const [result, setResult]   = useState(null);
   const [error, setError]     = useState(null);
+  // Sprint D10 — manual price input (used when the detected price was
+  // not surfaced by the engine but the operator can still introduce one
+  // to fire the resolver).
+  const [manualPrice, setManualPrice] = useState('');
 
-  const canResolve = !!matchId && detectedOdd != null && detectedOdd > 1.0
+  // Sprint D10 — Effective price: prop detectedOdd takes precedence;
+  // otherwise the user can type a manual one.
+  const effectivePrice = useMemo(() => {
+    if (detectedOdd != null && Number(detectedOdd) > 1.0) return Number(detectedOdd);
+    const parsed = parseFloat(manualPrice);
+    return Number.isFinite(parsed) && parsed > 1.0 ? parsed : null;
+  }, [detectedOdd, manualPrice]);
+
+  const canResolve = !!matchId && effectivePrice != null
                       && !!homeName && !!awayName;
+
+  // List of canonical field codes whose absence blocks the resolver
+  // (rendered as a checklist when `canResolve === false`).
+  const missing = useMemo(() => {
+    const m = [];
+    if (!matchId)             m.push('MATCH_ID');
+    if (!homeName)            m.push('HOME_TEAM');
+    if (!awayName)            m.push('AWAY_TEAM');
+    if (effectivePrice == null) m.push('PRICE');
+    return m;
+  }, [matchId, homeName, awayName, effectivePrice]);
 
   const handleResolve = useCallback(async ({ useCache = true } = {}) => {
     if (!canResolve) {
@@ -57,7 +80,7 @@ export const MarketIdentityResolverPanel = ({
           match_id:       String(matchId),
           home_team:      homeName,
           away_team:      awayName,
-          detected_price: Number(detectedOdd),
+          detected_price: Number(effectivePrice),
           commence_time:  commenceTime || null,
           league:         leagueName || null,
           sport_key_hint: sportKeyHint || null,
@@ -70,7 +93,7 @@ export const MarketIdentityResolverPanel = ({
     } finally {
       setLoading(false);
     }
-  }, [canResolve, matchId, homeName, awayName, detectedOdd,
+  }, [canResolve, matchId, homeName, awayName, effectivePrice,
        commenceTime, leagueName, sportKeyHint]);
 
   const status   = result?.resolution_status;
