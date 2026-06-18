@@ -3286,12 +3286,28 @@ async def analyze_mlb_day(
                     pick_payload["_mlb_script_v2"] = v2_block
                     base_er = degraded["adjusted_er"]
 
-            # ── M3.5 (D9.3-B): Series total signal (observe_only) ────
+            # ── M3.5 (D9.3-B/C): Series total signal (observe_only) ──
             # Quantitative signal layered on top of the validated active
             # series context. Computes weighted runs, shrinkage-aware
             # adjusted ER, series_context_score ∈ [-10, +10] and a
-            # confidence_modifier ∈ [-5, +5]. Does NOT mutate v2_block —
-            # purely informational/audit until D9.3-C wires interactions.
+            # confidence_modifier ∈ [-5, +5].
+            #
+            # D9.3-C derivations:
+            #   * bullpen_fatigue_component (-3..+3) from `bull.score`.
+            #     `bull.score` is 0-100 where 100=FRESH and 0=FATIGUED.
+            #     Map linearly: comp = (50 - score) / 50 * 3.
+            #       score=100 → -3 (fresh ⇒ suppresses Over)
+            #       score= 50 →  0 (neutral)
+            #       score=  0 → +3 (fatigued ⇒ supports Over)
+            #   * pitching_matchup_component (-3..+3) from combined
+            #     starter quality. h_q.score + a_q.score / 2, same
+            #     mapping vs neutral 50.
+            #       elite (100) → -3 (suppresses Over)
+            #       neutral (50) → 0
+            #       awful (0)   → +3 (supports Over)
+            #   * Does NOT mutate v2_block — purely informational/audit.
+            #     (D9.3-B convention preserved.)
+            sig = None
             try:
                 from .mlb_series_total_signal import calculate_series_total_signal
                 _games = (series_ctx.get("games_detail") or []) if series_ctx else []
@@ -3303,15 +3319,78 @@ async def analyze_mlb_day(
                     and _games
                 ):
                     _line = float(v2_block.get("smartTotalsLine") or 9.5)
+                    # ── D9.3-C: derive components from scoring_ctx ──
+                    try:
+                        _bull_score = float(((locals().get("bull") or {}) or {}).get("score") or 50)
+                    except (TypeError, ValueError):
+                        _bull_score = 50.0
+                    bp_comp = (50.0 - _bull_score) / 50.0 * 3.0
+                    try:
+                        _hq = float(((locals().get("h_q") or {}) or {}).get("score") or 50)
+                        _aq = float(((locals().get("a_q") or {}) or {}).get("score") or 50)
+                    except (TypeError, ValueError):
+                        _hq, _aq = 50.0, 50.0
+                    _combined_quality = (_hq + _aq) / 2.0
+                    pm_comp = (50.0 - _combined_quality) / 50.0 * 3.0
+
                     sig = calculate_series_total_signal(
                         current_expected_runs=float(base_er) if base_er else None,
                         market_total=_line,
                         active_series_games=_games,
-                        recent_h2h_games=None,   # D9.3-C cableará H2H con anti-double-counting
+                        recent_h2h_games=None,   # H2H ingestion con scores requiere otro feed; hook reservado
+                        bullpen_fatigue_component=bp_comp,
+                        pitching_matchup_component=pm_comp,
                     )
+                    # Expose the inputs used so QA can audit them.
+                    sig["_inputs"] = {
+                        "bullpen_score":       round(_bull_score, 2),
+                        "home_pitcher_score":  round(_hq, 2),
+                        "away_pitcher_score":  round(_aq, 2),
+                        "combined_pitcher_quality": round(_combined_quality, 2),
+                    }
                     pick_payload["series_total_signal"] = sig
             except Exception as exc_sig:
                 log.debug("series_total_signal compute failed: %s", exc_sig)
+
+            # ── D9.3-C: Slope-aware degradation re-application ───────
+            # When we have BOTH the active series context AND the
+            # quantitative signal, re-apply `apply_series_degradation`
+            # using the slope_band from the signal so that contraction
+            # series get a lower upward bias and expansion series a
+            # slightly higher one. Replaces the previous degradation
+            # entry written in M3.
+            try:
+                if (
+                    sig is not None
+                    and sig.get("available") is True
+                    and series_ctx.get("games_in_series", 0) >= 1
+                    and pick_payload.get("series_degradation")
+                    and v2_block.get("expectedRunsRaw") is not None  # M3 already ran
+                ):
+                    _slope_band = sig.get("slope_band")
+                    if _slope_band and _slope_band not in (
+                        "STABLE",
+                        "INSUFFICIENT_SAMPLE_FOR_SERIES_TREND",
+                        "UNKNOWN",
+                    ):
+                        # Recompute from the RAW (pre-M3) expected runs
+                        # to avoid compounding the previous adjustment.
+                        _raw_er = float(v2_block["expectedRunsRaw"])
+                        g_next = int(series_ctx["games_in_series"]) + 1
+                        degraded2 = apply_series_degradation(
+                            expected_runs=_raw_er,
+                            game_number_in_series=g_next,
+                            starter_faced_lineup_before=series_ctx["games_in_series"] >= 1,
+                            slope_band=_slope_band,
+                        )
+                        pick_payload["series_degradation"] = degraded2
+                        if degraded2.get("adjusted_er") is not None:
+                            v2_block["expectedRuns"] = degraded2["adjusted_er"]
+                            pick_payload["_mlb_script_v2"] = v2_block
+                            base_er = degraded2["adjusted_er"]
+            except Exception as exc_slope:
+                log.debug("slope-aware degradation re-apply failed: %s", exc_slope)
+
 
             # ── M5: Dynamic park factor (informational + audit) ───────
             try:

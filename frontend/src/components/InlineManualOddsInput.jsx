@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Calculator, Loader2, RefreshCcw, RotateCw, Bug, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
 import { computeEvFromPick } from '@/lib/mlbManualOdds';
+import { FootballTotalSignalPanel } from './FootballTotalSignalPanel';
 
 /**
  * Normalize a team value that may arrive as a string or as a vendor
@@ -97,6 +98,53 @@ export function InlineManualOddsInput({
     if (!value || !pickContext) return null;
     return computeEvFromPick(value, pickContext, { market, selection });
   }, [value, pickContext, market, selection]);
+
+  // ── D10-C.2 — Football Total Signal preview ────────────────────
+  // When the pick context carries the D10 preview inputs
+  // (`football_total_signal_preview_inputs`), we call the new
+  // endpoint and render the signal panel. This is observe-only and
+  // never blocks the MLB path.
+  const [footballSignalPayload, setFootballSignalPayload] = useState(null);
+  const [footballSignalLoading, setFootballSignalLoading] = useState(false);
+
+  const footballPreviewInputs = useMemo(() => {
+    return pickContext?.football_total_signal_preview_inputs || null;
+  }, [pickContext]);
+
+  useEffect(() => {
+    // Fire the football preview whenever the user has typed a usable
+    // odds value AND we have the upstream inputs (lambdas + line).
+    if (!footballPreviewInputs) {
+      setFootballSignalPayload(null);
+      return;
+    }
+    const parsedOdds = value
+      ? Number(String(value).trim().replace(',', '.'))
+      : null;
+    let cancelled = false;
+    const fetchSignal = async () => {
+      setFootballSignalLoading(true);
+      try {
+        const body = {
+          ...footballPreviewInputs,
+          decimal_odds: parsedOdds && parsedOdds > 1.0 ? parsedOdds : null,
+          // Selection comes from the pick if not present in inputs.
+          selection: footballPreviewInputs.selection
+            || (selection || pickContext?.recommendation?.selection || null),
+        };
+        const r = await api.post('/football/manual-odds/preview', body);
+        if (!cancelled) setFootballSignalPayload(r.data || null);
+      } catch (err) {
+        if (!cancelled) {
+          setFootballSignalPayload(null);
+        }
+      } finally {
+        if (!cancelled) setFootballSignalLoading(false);
+      }
+    };
+    fetchSignal();
+    return () => { cancelled = true; };
+  }, [footballPreviewInputs, value, selection, pickContext?.recommendation?.selection]);
 
   if (!pickId) return null;
 
@@ -349,6 +397,17 @@ export function InlineManualOddsInput({
           </span>
         )}
       </div>
+
+      {/* D10-C.2 — Football Total Signal panel (observe-only).
+          Renders only when the pick context carries the D10 preview
+          inputs (football_total_signal_preview_inputs). The MLB flow
+          above remains untouched. */}
+      {footballPreviewInputs && (footballSignalLoading || footballSignalPayload) && (
+        <FootballTotalSignalPanel
+          payload={footballSignalPayload}
+          testId={`${testId || 'inline-manual-odds-input'}-football-signal`}
+        />
+      )}
 
       {/* D9.2 — Client-side EV preview (same logic as the structural
           "Lecturas estructurales que requieren cuota" panel). Shows as

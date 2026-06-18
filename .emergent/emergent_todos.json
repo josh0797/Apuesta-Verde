@@ -1,22 +1,30 @@
 [
   {
-    "content": "D9.3-B.1 — Crear móduo puro services/mlb_series_total_signal.py con calculate_series_total_signal (weighted, shrinkage, CV, edge, series_context_score con desglose)",
+    "content": "D10-A.1 — Crear football_total_signal.py módulo puro (37 tests)",
     "status": "completed"
   },
   {
-    "content": "D9.3-B.2 — Tests del módulo: weighted, shrinkage cap 30%, clamp ±1.25, CV bandas, series_context_score ±10, componentes desglosados",
+    "content": "D10-A.2 — Tests del módulo D10-A (37 tests verdes)",
     "status": "completed"
   },
   {
-    "content": "D9.3-B.3 — Cablear en mlb_day_orchestrator.py como observe_only: attach pick_payload['series_total_signal'] sin tocar pipeline existente",
+    "content": "D10-B.1 — Crear football_total_market_value.py (26 tests)",
     "status": "completed"
   },
   {
-    "content": "D9.3-B.4 — Frontend MLBScriptPanel.jsx: renderizar desglose del series_context_score + total + adjusted_expected_runs cuando esté disponible",
+    "content": "D10-B.2 — Tests market value (26 tests verdes)",
     "status": "completed"
   },
   {
-    "content": "D9.3-B.5 — Pytest backend completo + esbuild FE clean (baseline 3806 → esperado +N nuevos tests)",
+    "content": "D10-C.1 — Backend: orquestador football_manual_odds_reprice.py + endpoint POST /api/football/manual-odds/preview (curl verificado FOOTBALL_REPRICED)",
+    "status": "completed"
+  },
+  {
+    "content": "D10-C.2 — UI: FootballTotalSignalPanel.jsx (resumida + expandida) + cableado en InlineManualOddsInput.jsx con fetch al endpoint cuando pickContext trae football_total_signal_preview_inputs",
+    "status": "completed"
+  },
+  {
+    "content": "D10-final — Pytest backend completo (3915 passed, 0 regresiones) + esbuild FE clean",
     "status": "completed"
   }
 ]

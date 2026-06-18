@@ -871,6 +871,74 @@ async def manual_market_reprice_endpoint(
     return result
 
 
+
+# ──────────────────────────────────────────────────────────────────
+# Sprint D10 — Football Total Signal repricing (manual odds preview).
+#
+# POST /api/football/manual-odds/preview
+#   Computes the unified D10 contract (signal + valuation) given direct
+#   inputs (base lambdas + manual odds + line + contextual samples).
+#   The endpoint is observe-only: never persists picks, never changes
+#   pipeline state. The frontend uses it to render the
+#   "Football Total Signal" panel inside InlineManualOddsInput.jsx.
+#
+# Rules respected:
+#   * No auth required (the same UX surface as the MLB preview today).
+#   * Pure math layer — no Mongo writes, no external API calls.
+#   * Cuota nunca modifica proyección; línea sólo afecta edge/EV.
+# ──────────────────────────────────────────────────────────────────
+class FootballManualOddsPreviewRequest(BaseModel):
+    """Direct-inputs preview request. Optional fields degrade gracefully.
+
+    `base_lambda_home` + `base_lambda_away` son requeridos para que el
+    motor pueda calcular la distribución; en su ausencia el endpoint
+    devuelve `FOOTBALL_INVALID_INPUTS`.
+    """
+    model_config = {"extra": "ignore"}
+
+    selection: Optional[str] = None
+    line: Optional[float] = None
+    decimal_odds: Optional[float] = None
+    base_lambda_home: Optional[float] = None
+    base_lambda_away: Optional[float] = None
+    base_expected_goals: Optional[float] = None
+    # Contextual samples — todos opcionales.
+    recent_h2h_games: Optional[list[dict]] = None
+    home_recent_matches: Optional[list[dict]] = None
+    away_recent_matches: Optional[list[dict]] = None
+    home_xg_recent: Optional[dict] = None
+    away_xg_recent: Optional[dict] = None
+    lineup_context: Optional[dict] = None
+    competition_context: Optional[dict] = None
+    current_match_context: Optional[dict] = None
+    contextual_home_xg: Optional[float] = None
+    contextual_away_xg: Optional[float] = None
+
+
+@app.post("/api/football/manual-odds/preview")
+async def football_manual_odds_preview_endpoint(
+    payload: FootballManualOddsPreviewRequest,
+) -> dict:
+    """D10 — Unified Football Total Signal preview.
+
+    Returns the unified contract:
+      {
+        "status": FOOTBALL_REPRICED | FOOTBALL_TOTAL_SIGNAL_READY |
+                   FOOTBALL_BASE_MODEL_ONLY | FOOTBALL_MARKET_LINE_MISSING |
+                   FOOTBALL_INVALID_INPUTS,
+        "signal":    <calculate_football_total_signal output>,
+        "valuation": <calculate_football_total_market_value output>,
+        "observe_only": True
+      }
+    """
+    from services.football_manual_odds_reprice import (
+        reprice_football_total_with_manual_odds,
+    )
+    data = payload.model_dump()
+    return reprice_football_total_with_manual_odds(**data)
+
+
+
 # ── Phase F82.1-adjust — Manual/Background 365Scores Corners Enrichment ──
 #
 # 365Scores is kept OFF the inline ingest path (no gateway timeouts) but

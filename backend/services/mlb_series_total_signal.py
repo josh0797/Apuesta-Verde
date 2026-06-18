@@ -101,7 +101,8 @@ def _safe_float(v: Any) -> Optional[float]:
 def _normalise_games(games: Optional[Iterable[dict]]) -> list[dict]:
     """Filtra a games con total_runs numérico finito. Ordena por
     game_number si está disponible (1-based, ascendente); en otro caso
-    preserva el orden recibido."""
+    preserva el orden recibido. Conserva `kickoff` / `date` si están
+    presentes (útiles para anti-double-counting H2H ∩ active series)."""
     out: list[dict] = []
     if not games:
         return out
@@ -119,11 +120,70 @@ def _normalise_games(games: Optional[Iterable[dict]]) -> list[dict]:
                 gn_int = int(gn)
             except (TypeError, ValueError):
                 gn_int = None
-        out.append({"total_runs": tot, "game_number": gn_int})
+        kickoff = g.get("kickoff") or g.get("date") or g.get("gameDate")
+        out.append({
+            "total_runs": tot,
+            "game_number": gn_int,
+            "kickoff": kickoff,
+        })
     # Si todos tienen game_number, ordenar ascendente; si no, mantener.
     if out and all(g["game_number"] is not None for g in out):
         out.sort(key=lambda g: g["game_number"])
     return out
+
+
+def _normalise_kickoff_key(value: Any) -> Optional[str]:
+    """Convierte un kickoff/date a una key normalizada (YYYY-MM-DD)
+    para detectar overlap entre active_series_games y recent_h2h_games.
+    Devuelve None cuando no se puede normalizar."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        # Trim al primer "T" o " " (formatos ISO con o sin tiempo).
+        for sep in ("T", " "):
+            if sep in s:
+                s = s.split(sep, 1)[0]
+                break
+        # Validar shape mínima YYYY-MM-DD.
+        if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+            return s[:10]
+        return s
+    # Fallback: cualquier otro objeto con isoformat o similar.
+    try:
+        return str(value)[:10]
+    except Exception:
+        return None
+
+
+def _deduplicate_h2h_against_active(
+    active_games: list[dict],
+    h2h_games: list[dict],
+) -> tuple[list[dict], int]:
+    """Elimina H2H que comparten kickoff/date con la serie activa para
+    evitar double-counting (un mismo partido contado en ambos bloques).
+
+    Devuelve (h2h_deduped, n_removed).
+    """
+    if not h2h_games:
+        return ([], 0)
+    active_keys = {
+        k for g in active_games
+        if (k := _normalise_kickoff_key(g.get("kickoff"))) is not None
+    }
+    if not active_keys:
+        return (list(h2h_games), 0)
+    kept: list[dict] = []
+    removed = 0
+    for g in h2h_games:
+        k = _normalise_kickoff_key(g.get("kickoff"))
+        if k is not None and k in active_keys:
+            removed += 1
+            continue
+        kept.append(g)
+    return (kept, removed)
 
 
 def _weighted_mean(values: list[float], weights: list[float]) -> Optional[float]:
@@ -300,6 +360,11 @@ def calculate_series_total_signal(
     active = _normalise_games(active_series_games)
     h2h = _normalise_games(recent_h2h_games)
 
+    # D9.3-C — Anti-double-counting: si un H2H comparte fecha (YYYY-MM-DD)
+    # con un partido de la serie activa, se trata del MISMO partido
+    # contado por la fuente H2H — debe excluirse para no contar dos veces.
+    h2h, n_h2h_removed = _deduplicate_h2h_against_active(active, h2h)
+
     if not active and not h2h:
         return _empty_payload(mkt, "NO_SERIES_SAMPLE")
 
@@ -404,12 +469,15 @@ def calculate_series_total_signal(
         reason_codes.append("NO_BASE_EXPECTED_RUNS")
     if mkt is None:
         reason_codes.append("NO_MARKET_TOTAL")
+    if n_h2h_removed > 0:
+        reason_codes.append("H2H_OVERLAP_DEDUPED")
 
     return {
         "available":              True,
         "reason_code":            "OK",
         "n_active":               n_active,
         "n_h2h":                  n_h2h,
+        "n_h2h_removed_for_overlap": n_h2h_removed,
         "n_effective":            round(n_effective, 4),
         "weighted_series_runs":   (round(weighted, 4) if weighted is not None else None),
         "series_reliability":     round(reliability, 4),

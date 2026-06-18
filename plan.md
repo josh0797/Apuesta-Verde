@@ -621,7 +621,41 @@ Para el caso Texas Rangers @ Minnesota Twins (Joe Ryan vs Jack Leiter):
 - Slope-aware policy en el motor (escalonar `series_degradation` con la pendiente).
 - Anti-double-counting con familiaridad H2H: si `active_series_games` ∩ `recent_h2h_games` ≠ ∅ → no contar dos veces.
 
-### Sub-fase D9.3-C — Interacciones pitching/bullpen + slope + anti-double-counting (PENDIENTE)
+### Sub-fase D9.3-C — Interacciones pitching/bullpen + slope + anti-double-counting (CERRADO ✅ 2026-06-18)
+
+#### Entregables
+- ✅ **`mlb_pitcher_series_degradation.py`** ahora acepta `slope_band` opcional:
+  - Multiplica sólo `in_series_component` (no toca `starter_component` físiológico):
+    - `CONTRACTION_STRONG` → 0.50 (corta a la mitad la inflación G2/G3)
+    - `CONTRACTION_LIGHT`  → 0.75
+    - `STABLE / INSUFFICIENT / UNKNOWN` → 1.00 (back-compat)
+    - `EXPANSION_LIGHT`    → 1.10
+    - `EXPANSION_STRONG`   → 1.25
+  - Nuevas keys en el output: `in_series_component`, `starter_component`, `slope_band`, `slope_multiplier`.
+- ✅ **`mlb_series_total_signal.py`** anti-double-counting:
+  - Nuevo helper `_deduplicate_h2h_against_active(active, h2h)` que normaliza kickoff/date a `YYYY-MM-DD` y elimina H2H que comparten día con la serie activa.
+  - Surface en payload: `n_h2h_removed_for_overlap` + reason code `H2H_OVERLAP_DEDUPED`.
+  - `_normalise_games` preserva `kickoff/date/gameDate` para detectar overlap.
+- ✅ **`mlb_day_orchestrator.py` M3.5** ahora deriva los componentes desde datos reales:
+  - `bullpen_fatigue_component = (50 - bull.score) / 50 * 3` → ∈ [-3, +3]; fresh ⇒ -3 (suprime Over), fatigado ⇒ +3.
+  - `pitching_matchup_component = (50 - (h_q.score + a_q.score)/2) / 50 * 3` → élite vs élite ⇒ -3, abridores malos ⇒ +3.
+  - `sig["_inputs"]` expone los scores crudos para QA.
+  - Nuevo paso post-señal: **slope-aware degradation re-apply** — usa `expectedRunsRaw` (pre-M3) y re-calcula `apply_series_degradation(slope_band=sig.slope_band)`, propagando al `v2_block.expectedRuns` final. Sólo se activa cuando el slope es informativo (no STABLE/INSUFFICIENT/UNKNOWN).
+- ✅ **Tests nuevos** (`backend/tests/test_mlb_d9_3_c_interactions.py`, 20 tests):
+  - Back-compat sin `slope_band`.
+  - Cada banda CONTRACTION/STABLE/EXPANSION con su multiplicador exacto.
+  - `starter_component` NO se ve afectado por slope.
+  - G1 inalterado independiente del slope.
+  - Constantes `SLOPE_MULTIPLIERS` validadas.
+  - Dedup H2H con mismo día, con timestamp ISO, sin kickoff (no-op), active sin kickoff (no-op).
+  - Reason code `H2H_OVERLAP_DEDUPED` y `n_h2h_removed_for_overlap`.
+  - Fórmulas de componentes bullpen/pitching validadas en los 3 extremos (fresh/neutral/fatigado) y propagación al score_breakdown.
+
+#### Validación
+- ✅ pytest backend: **3852 passed / 2 skipped** (3832 base + 20 nuevos), 0 regresiones.
+- ✅ esbuild FE: clean.
+
+### Sub-fase D9.3-C (deprecated planning header) — DEPRECATED
 - Implementar `calculate_series_total_signal(current_expected_runs, market_total, active_series_games, recent_h2h_games, starting_pitching_projection, bullpen_projection)`.
 - Weighted runs:
   - pesos por recencia: 1.00 / 0.75 / 0.55 / 0.40 / 0.30.
@@ -634,7 +668,7 @@ Para el caso Texas Rangers @ Minnesota Twins (Joe Ryan vs Jack Leiter):
 - `series_edge_runs = adjusted_expected_runs - market_total` con bandas interpretables.
 - Métricas: mean, median, std, min, max, CV.
 
-### Sub-fase D9.3-C — Interacciones pitching/bullpen + slope + anti-double-counting (PENDIENTE)
+### Sub-fase D9.3-C (deprecated planning header 2) — DEPRECATED
 - Tendencia:
   - `series_slope = linear_regression_slope(game_number, total_runs)`.
   - Guard: `INSUFFICIENT_SAMPLE_FOR_SERIES_TREND` si n<3.
