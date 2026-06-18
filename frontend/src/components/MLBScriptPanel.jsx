@@ -76,6 +76,7 @@ export function MLBScriptPanel({
   biasPenaltyMeta = null,
   activeSeriesContext = null,
   seriesDegradation = null,
+  seriesTotalSignal = null,    // D9.3-B — quantitative signal + score breakdown
   modelVerification = null,
   activeSeriesBlock = null,
   chosenMarket = null,        // e.g. "Run Line", "Total Runs Over", etc.
@@ -397,6 +398,102 @@ export function MLBScriptPanel({
             {activeSeriesContext.override_reason && (
               <div className="text-[10.5px] italic opacity-90">{activeSeriesContext.override_reason}</div>
             )}
+
+            {/* D9.3-B — Series Context Score breakdown (observe_only).
+                Renders only when the backend attached a CONFIRMED signal
+                with available=true. Shows the 5 component contributions
+                and the final total + confidence modifier. */}
+            {seriesTotalSignal && seriesTotalSignal.available && (() => {
+              const sig = seriesTotalSignal;
+              const score = Number(sig.series_context_score ?? 0);
+              const confMod = Number(sig.confidence_modifier ?? 0);
+              const adjER = sig.adjusted_expected_runs;
+              const edge = sig.series_edge_runs;
+              const bd = sig.score_breakdown || {};
+              const isPositive = score > 0.5;
+              const isNegative = score < -0.5;
+              const verdict = isPositive ? 'Apoya Over' : isNegative ? 'Apoya Under' : 'Neutral';
+              const verdictTone = isPositive
+                ? 'bg-rose-500/15 text-rose-100 border-rose-500/35'
+                : isNegative
+                  ? 'bg-sky-500/15 text-sky-100 border-sky-500/35'
+                  : 'bg-slate-500/15 text-slate-200 border-slate-500/30';
+              const fmt = (v) => {
+                const n = Number(v);
+                if (!Number.isFinite(n)) return '0.0';
+                const sign = n > 0 ? '+' : '';
+                return `${sign}${n.toFixed(1)}`;
+              };
+              const variabilityBand = (sig.variability && sig.variability.band) || 'UNKNOWN';
+              const variabilityLabel = {
+                STABLE:   'Estable',
+                MEDIUM:   'Media',
+                VOLATILE: 'Volátil',
+                UNKNOWN:  'Sin datos',
+              }[variabilityBand];
+              return (
+                <div
+                  className="mt-1.5 pt-1.5 border-t border-current/15 space-y-1"
+                  data-testid={`${testId || 'mlb-script'}-series-signal`}
+                >
+                  <div className="text-[10.5px] flex items-center gap-1.5 flex-wrap">
+                    <span className="font-semibold uppercase tracking-wide opacity-80">Score serie</span>
+                    <span
+                      className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold tabular-nums border ${verdictTone}`}
+                      data-testid={`${testId || 'mlb-script'}-series-score`}
+                    >
+                      {fmt(score)} · {verdict}
+                    </span>
+                    {Math.abs(confMod) >= 0.5 && (
+                      <span className="opacity-80">
+                        Conf: <span className="font-semibold tabular-nums">{fmt(confMod)} pts</span>
+                      </span>
+                    )}
+                  </div>
+                  {adjER != null && (
+                    <div className="text-[10.5px] opacity-90">
+                      ER ajustado por serie:{' '}
+                      <span className="font-semibold tabular-nums" data-testid={`${testId || 'mlb-script'}-series-adjusted-er`}>
+                        {Number(adjER).toFixed(2)}
+                      </span>
+                      {edge != null && (
+                        <span className="opacity-80">
+                          {' '}· vs línea:{' '}
+                          <span className={`font-semibold tabular-nums ${edge > 0 ? 'text-rose-100' : edge < 0 ? 'text-sky-100' : ''}`}>
+                            {fmt(edge)}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <ul
+                    className="text-[10.5px] font-mono-tabular space-y-0.5 pl-1"
+                    data-testid={`${testId || 'mlb-script'}-series-score-breakdown`}
+                  >
+                    <li className="flex items-baseline gap-1">
+                      <span className="opacity-80">Promedio ajustado de serie:</span>
+                      <span className="ml-auto font-semibold">{fmt(bd.edge_runs)}</span>
+                    </li>
+                    <li className="flex items-baseline gap-1">
+                      <span className="opacity-80">Tendencia de carreras:</span>
+                      <span className="ml-auto font-semibold">{fmt(bd.slope)}</span>
+                    </li>
+                    <li className="flex items-baseline gap-1">
+                      <span className="opacity-80">Bullpen fatigado:</span>
+                      <span className="ml-auto font-semibold">{fmt(bd.bullpen_fatigue)}</span>
+                    </li>
+                    <li className="flex items-baseline gap-1">
+                      <span className="opacity-80">Abridores de hoy:</span>
+                      <span className="ml-auto font-semibold">{fmt(bd.pitching_matchup)}</span>
+                    </li>
+                    <li className="flex items-baseline gap-1">
+                      <span className="opacity-80">Variabilidad ({variabilityLabel}):</span>
+                      <span className="ml-auto font-semibold">{fmt(bd.variance)}</span>
+                    </li>
+                  </ul>
+                </div>
+              );
+            })()}
           </div>
         );
       })() : null}

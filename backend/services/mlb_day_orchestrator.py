@@ -3286,6 +3286,33 @@ async def analyze_mlb_day(
                     pick_payload["_mlb_script_v2"] = v2_block
                     base_er = degraded["adjusted_er"]
 
+            # ── M3.5 (D9.3-B): Series total signal (observe_only) ────
+            # Quantitative signal layered on top of the validated active
+            # series context. Computes weighted runs, shrinkage-aware
+            # adjusted ER, series_context_score ∈ [-10, +10] and a
+            # confidence_modifier ∈ [-5, +5]. Does NOT mutate v2_block —
+            # purely informational/audit until D9.3-C wires interactions.
+            try:
+                from .mlb_series_total_signal import calculate_series_total_signal
+                _games = (series_ctx.get("games_detail") or []) if series_ctx else []
+                # Only feed the signal when active context is CONFIRMED
+                # (avoids the phantom 0-0 bug class).
+                if (
+                    series_ctx
+                    and series_ctx.get("series_state") == "ACTIVE_SERIES_CONFIRMED"
+                    and _games
+                ):
+                    _line = float(v2_block.get("smartTotalsLine") or 9.5)
+                    sig = calculate_series_total_signal(
+                        current_expected_runs=float(base_er) if base_er else None,
+                        market_total=_line,
+                        active_series_games=_games,
+                        recent_h2h_games=None,   # D9.3-C cableará H2H con anti-double-counting
+                    )
+                    pick_payload["series_total_signal"] = sig
+            except Exception as exc_sig:
+                log.debug("series_total_signal compute failed: %s", exc_sig)
+
             # ── M5: Dynamic park factor (informational + audit) ───────
             try:
                 home_rpg_15 = (

@@ -1,22 +1,22 @@
 [
   {
-    "content": "D9.3-A.1 — Refactor _extract_runs y _extract_per_team_runs en mlb_active_series_analyzer.py (no defaults a 0; validar status final; guard MLB 0-0)",
+    "content": "D9.3-B.1 — Crear móduo puro services/mlb_series_total_signal.py con calculate_series_total_signal (weighted, shrinkage, CV, edge, series_context_score con desglose)",
     "status": "completed"
   },
   {
-    "content": "D9.3-A.2 — Añadir estados series_state (CONFIRMED/NO_COMPLETED_GAMES/SCORE_MISSING/UNRESOLVED) en payload de get_active_series_context",
+    "content": "D9.3-B.2 — Tests del módulo: weighted, shrinkage cap 30%, clamp ±1.25, CV bandas, series_context_score ±10, componentes desglosados",
     "status": "completed"
   },
   {
-    "content": "D9.3-A.3 — Frontend MLBScriptPanel.jsx: no renderizar 0.0 carreras/Over rate cuando games_in_series==0; over/under line-aware (X de N); badge muestra limitada cuando <3",
+    "content": "D9.3-B.3 — Cablear en mlb_day_orchestrator.py como observe_only: attach pick_payload['series_total_signal'] sin tocar pipeline existente",
     "status": "completed"
   },
   {
-    "content": "D9.3-A.4 — Crear backend/tests/test_mlb_active_series_analyzer.py con casos: missing keys, 0-0 MLB sospechoso, status no-final, happy path",
+    "content": "D9.3-B.4 — Frontend MLBScriptPanel.jsx: renderizar desglose del series_context_score + total + adjusted_expected_runs cuando esté disponible",
     "status": "completed"
   },
   {
-    "content": "D9.3-A.5 — Validar pytest backend completo sin regresiones (baseline 3791) + esbuild FE clean",
+    "content": "D9.3-B.5 — Pytest backend completo + esbuild FE clean (baseline 3806 → esperado +N nuevos tests)",
     "status": "completed"
   }
 ]

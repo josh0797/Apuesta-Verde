@@ -718,6 +718,7 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           biasPenaltyMeta={m.bias_penalty_applied ? (m.bias_penalty_meta || { triggered: true }) : null}
           activeSeriesContext={m.active_series_context || null}
           seriesDegradation={m.series_degradation || null}
+          seriesTotalSignal={m.series_total_signal || null}
           modelVerification={m.model_verification || null}
           activeSeriesBlock={m.active_series_block || null}
           chosenMarket={m.recommendation?.market || null}

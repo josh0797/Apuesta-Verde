@@ -567,7 +567,61 @@ Para el caso Texas Rangers @ Minnesota Twins (Joe Ryan vs Jack Leiter):
 - Ahora: el doc con `final_score={}` (o sin scores válidos) cae en `SCORE_MISSING` → `games_in_series=0` → guard `if base_er and series_ctx.get("games_in_series", 0) >= 1` en `mlb_day_orchestrator.py:3273` no activa la degradación → ER permanece intacta.
 - UI: muestra "La serie actual todavía no tiene partidos finalizados." en vez de "G1: 0-0, Promedio 0.0, Over rate 0%".
 
-### Sub-fase D9.3-B — Señal matemática weighted + shrinkage + CV (PENDIENTE)
+### Sub-fase D9.3-B — Señal matemática weighted + shrinkage + CV (CERRADO ✅ 2026-06-18)
+
+#### Implementación entregada
+- ✅ Nuevo módulo puro: **`backend/services/mlb_series_total_signal.py`** con `calculate_series_total_signal(...)`.
+  - Pesos por recencia: `(1.00, 0.75, 0.55, 0.40, 0.30)` — el más reciente recibe 1.0.
+  - Pesos por bloque: `ACTIVE_SERIES_WEIGHT=1.0` vs `PREVIOUS_SERIES_H2H_WEIGHT=0.45`.
+  - Shrinkage: `reliability = n_effective / (n_effective + 3)` donde `n_effective = n_active * 1.0 + n_h2h * 0.45`.
+  - Cap de influencia sobre proyección base: **30 %**. Clamp final del ajuste a **±1.25 carreras**.
+  - `series_edge_runs = adjusted_expected_runs - market_total`, con bandas `STRONG_UNDER / MODERATE_UNDER / NEUTRAL / MODERATE_OVER / STRONG_OVER`.
+  - Variabilidad: `mean / median / std / min / max / cv` + bandas `STABLE (<0.20) / MEDIUM (0.20–0.35) / VOLATILE (>0.35)`.
+  - `series_slope`: regresión lineal por mínimos cuadrados sólo con la serie activa; guard `INSUFFICIENT_SAMPLE_FOR_SERIES_TREND` si n<3.
+  - **`series_context_score ∈ [-10, +10]`** con desglose por componente:
+    - `edge_runs = clamp(series_edge_runs * 2.5, -4, +4)`
+    - `slope = clamp(series_slope, -2, +2)` (0 si n<3)
+    - `bullpen_fatigue` (input opt-in, clamp ±3)
+    - `pitching_matchup` (input opt-in, clamp ±3)
+    - `variance` (atenuación según CV: STABLE→×0.80, MEDIUM→×0.60, VOLATILE→×0.30; clamp ±2)
+    - score final clampado a ±10.
+  - `confidence_modifier = clamp(score * 0.5, -5, +5)` — respeta el cap explícito del usuario.
+  - Reason codes: `LIMITED_SAMPLE_SERIES_SIGNAL`, `INSUFFICIENT_SAMPLE_FOR_SERIES_TREND`, `NO_BASE_EXPECTED_RUNS`, `NO_MARKET_TOTAL`, `NO_SERIES_SAMPLE`.
+  - `observe_only: True` siempre.
+- ✅ Cableado en `mlb_day_orchestrator.py` como observe_only:
+  - Sub-bloque **M3.5** después de M3 (`series_degradation`).
+  - Sólo se computa cuando `series_ctx.series_state == "ACTIVE_SERIES_CONFIRMED"` (evita la clase de bug del 0-0 fantasma).
+  - **NO** mutamos `_mlb_script_v2.expectedRuns` con la señal: el adjusted_er viaja sólo en `pick_payload["series_total_signal"]` como audit/info. Las interacciones con el pipeline final llegan en D9.3-C.
+- ✅ Frontend `MLBScriptPanel.jsx` extendido:
+  - Nuevo prop `seriesTotalSignal`.
+  - Sub-bloque visual dentro del card "Contexto de serie activa" con:
+    - Badge `Score serie: <signo>N.N · {Apoya Over | Apoya Under | Neutral}` (tone rose/sky/slate).
+    - "ER ajustado por serie: X.XX · vs línea: ±Y.Y" con color según signo.
+    - Lista desglose: "Promedio ajustado de serie / Tendencia de carreras / Bullpen fatigado / Abridores de hoy / Variabilidad (Estable|Media|Volátil)".
+    - Si `|confidence_modifier| ≥ 0.5` → muestra "Conf: ±N pts".
+  - `data-testid`: `-series-signal`, `-series-score`, `-series-adjusted-er`, `-series-score-breakdown`.
+- ✅ Wiring desde `MatchCard.jsx` y `MatchDetailPage.jsx` con prop `seriesTotalSignal={m.series_total_signal || null}`.
+- ✅ Tests: **26 tests nuevos** en `backend/tests/test_mlb_series_total_signal.py`:
+  - Fail-soft: inputs vacíos / None / inválidos.
+  - Pesos por recencia + pesos por bloque (active vs H2H).
+  - Shrinkage: `1/(1+3)=0.25`, crecimiento con n, clamp ±1.25 al extremo.
+  - Edge bands: NEUTRAL, STRONG_UNDER; None cuando falta market_total.
+  - Slope: INSUFFICIENT_SAMPLE_FOR_SERIES_TREND con n<3, EXPANSION_STRONG con tendencia +, CONTRACTION_STRONG con tendencia −.
+  - CV bandas: STABLE, VOLATILE.
+  - Score: desglose con todas las keys, clamp a ±10 con bullpen+pitching saturados, score negativo cuando edge negativo + contracción + bullpen negativo, confidence_modifier = score/2 en rango lineal, capeado a ±5.
+  - Reason codes: LIMITED_SAMPLE_SERIES_SIGNAL, NO_BASE_EXPECTED_RUNS, observe_only siempre.
+
+#### Validación
+- ✅ pytest backend completo: **3832 passed / 2 skipped** (3806 base + 26 nuevos), 0 regresiones.
+- ✅ esbuild MLBScriptPanel.jsx, MatchCard.jsx, MatchDetailPage.jsx: clean.
+- ✅ Supervisor: backend + frontend + mongodb RUNNING.
+
+#### Pendiente para D9.3-C
+- Computar `bullpen_fatigue_component` y `pitching_matchup_component` a partir de datos reales (no defaults a 0).
+- Slope-aware policy en el motor (escalonar `series_degradation` con la pendiente).
+- Anti-double-counting con familiaridad H2H: si `active_series_games` ∩ `recent_h2h_games` ≠ ∅ → no contar dos veces.
+
+### Sub-fase D9.3-C — Interacciones pitching/bullpen + slope + anti-double-counting (PENDIENTE)
 - Implementar `calculate_series_total_signal(current_expected_runs, market_total, active_series_games, recent_h2h_games, starting_pitching_projection, bullpen_projection)`.
 - Weighted runs:
   - pesos por recencia: 1.00 / 0.75 / 0.55 / 0.40 / 0.30.
