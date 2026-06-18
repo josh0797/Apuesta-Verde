@@ -523,3 +523,64 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
   - (D7-E/F scripts):
     - `scripts/run_backtest_d7_threshold_sweep.py --market {DRAW,OVER_2_5,UNDER_2_5}`
     - `scripts/run_backtest_d7_premier_multiseason.py --market {DRAW,OVER_2_5,UNDER_2_5}`
+
+---
+
+## SPRINT F — Ingesta de Tendencias Top desde 365Scores (NUEVO)
+
+**Objetivo**: ingestar las "Tendencias Top" de 365Scores vía Scrape.do para los partidos visibles en la UI que pasaron filtros del engine, y **reemplazar** el bloque UI "Revisión manual — alternativas posibles" por "Tendencias Top — 365Scores". Las tendencias son evidencia contextual `observe_only`: no se convierten en picks automáticos ni modifican el edge.
+
+### Sub-fases
+
+- ✅ **F.1 — Identity Resolver** (COMPLETADO — criterio de salida `F1_IDENTITY_RESOLVER_READY`):
+  - Nuevo módulo: `services/external_sources/three65scores_identity_resolver.py`.
+  - Cascada: (1) cache Mongo `football_365scores_identities`; (2) parsing URL conocida (`game_id`/`matchup_id`); (3) búsqueda por equipos + competición + commence_time (±6h configurable).
+  - **Validación crítica**: cada `team_id` recibido debe validarse contra el nombre del equipo que devuelve el payload de 365Scores. No asumir que el orden home/away del slug es correcto.
+  - Aliases extendidos: Mexico↔México, South Korea↔Corea del Sur↔Korea Republic, Congo DR↔RD Congo↔DR Congo, Ivory Coast↔Côte d'Ivoire↔Costa de Marfil, USA↔EEUU, North Macedonia↔Macedonia del Norte, Bosnia & Herzegovina↔Bosnia y Herzegovina.
+  - Estados: `RESOLVED` | `AMBIGUOUS` | `NOT_FOUND` | `SOURCE_UNAVAILABLE` | `INVALID_TEAM_MAPPING`.
+  - Confidence: `HIGH` | `MEDIUM` | `LOW`.
+  - Persistencia: colección `football_365scores_identities` con índices `unique(internal_match_id)`, `unique(game_id)`, `(home_team_id, away_team_id, commence_time)`.
+  - Fixture de pruebas: México vs Corea del Sur, `game_id=4627854`, `competition_id=5930`, `home_team_id=5106`, `away_team_id=2383`, kickoff 2026-06-17.
+  - Tests: aliases, ±6h tolerance, INVALID_TEAM_MAPPING (slot home/away invertido), AMBIGUOUS (dos candidatos), cache hit, fail-soft cuando fuente cae.
+  - Criterio de salida: `F1_IDENTITY_RESOLVER_READY` (tests verdes + 3677 previos sin regresión).
+
+- ⏳ **F.2 — Descubrimiento de endpoint Top Trends** (POST F.1):
+  - Discovery timeboxed: máximo 1 ciclo técnico.
+  - Estrategia híbrida: cargar página pública, interceptar `fetch/XHR` con headless, buscar requests con `4627854/5106/2383/trend/insight/pre-game/top trends`, revisar JSON embebido (`__NEXT_DATA__`/initial state), bundles, requests existentes en `score365_*_client.py`.
+  - Si falla → entregar reporte de discovery (rutas/status/content-type/schema-fragment/causa de bloqueo) y marcar `BLOCKED_ENDPOINT_NOT_IDENTIFIED`. **No inventar endpoints**, no implementar parser por supuestos.
+  - Si requiere autenticación privada/captcha → reason `365SCORES_TRENDS_SOURCE_RESTRICTED`.
+  - Criterio de salida: `F2_TRENDS_CONTRACT_STABLE` (endpoint + método + params + schema real + fixture JSON anonimizado + parser + cache + tests sin red).
+
+- ⏳ **F.3 — UI** (POST F.2):
+  - Reemplazar `Revisión manual — alternativas posibles` por `Tendencias Top — 365Scores` en el componente correspondiente (`MarketIdentityResolverPanel.jsx` u otro consumidor de revisión manual). No mostrar ambos paneles, no fabricar tendencias simuladas cuando la fuente caiga.
+  - Mantener `observe_only` siempre.
+  - Criterio de salida: `F3_UI_TOP_TRENDS_INTEGRATED`.
+
+### Reglas operacionales del Sprint F
+- Cero regresión: 3677 tests pre-Sprint F deben seguir pasando.
+- Resolver es fail-soft: nunca raise, siempre dict con `status`/`confidence`/`reason_code`.
+- Los IDs del caso de prueba (5106/2383/4627854/5930) sólo aparecen en fixtures, **nunca hardcodeados** en lógica productiva.
+- Si Scrape.do/365Scores responde con bloqueo → marcar `SOURCE_UNAVAILABLE` y degradar limpio.
+
+### F.1 — Resultado de cierre (2026-06-17)
+
+- **Status**: `F1_IDENTITY_RESOLVER_READY` ✅
+- **Módulo nuevo**: `services/external_sources/three65scores_identity_resolver.py` (lint clean).
+- **Tests nuevos**: `tests/test_sprint_f1_three65scores_identity_resolver.py` — 29 tests verdes.
+- **Suite total**: 3706 passed / 2 skipped (3677 previos + 29 nuevos), 0 regresiones.
+- **Persistencia**: índices `ix_internal_match_id (unique)`, `ix_game_id (unique partial $gt:0)`, `ix_teams_commence` confirmados creados al startup.
+- **Resolver expone**:
+  - `resolve_match_identity(internal_match_id, home_team, away_team, commence_time, competition_id?, match_url?, tolerance_hours=6, db?, persist=True, games_fetcher?, game_detail_fetcher?, force_refresh=False)`.
+  - Helpers públicos: `normalize_team_name`, `build_team_alias_set`, `validate_team_mapping`, `ensure_indexes`.
+- **Garantías clave**:
+  - Validación obligatoria `team_id ↔ nombre`. Si 365Scores devuelve [home, away] invertido, el resolver detecta el swap y persiste los IDs ALINEADOS al canónico (con `mapping_reason=F1_TEAM_MAPPING_SWAPPED` para auditoría). Si ninguno coincide → `INVALID_TEAM_MAPPING`.
+  - `competition_id` actúa como guard duro: descarta candidatos con otra competición conocida.
+  - Tolerancia `±6h` configurable.
+  - Cache Mongo: cache-hit → `RC_FROM_MONGO_CACHE` y no llama a la fuente.
+  - `force_refresh=True` salta la cache (útil para re-resoluciones).
+  - Fail-soft: nunca lanza excepción.
+- **Lo que NO incluye F.1** (queda para F.2): la lógica de scraping vía Scrape.do. F.1 sólo expone los hooks (`games_fetcher`/`game_detail_fetcher`) y el contrato; los adaptadores reales a HTTP se cablearán en F.2 una vez se identifique el endpoint estable.
+
+### Próximo paso
+
+**F.2** — Descubrimiento timeboxed del endpoint Top Trends. Necesita 1 ciclo técnico con browser headless interceptando XHR/fetch y revisión de `__NEXT_DATA__`. Si falla → reporte de discovery + `BLOCKED_ENDPOINT_NOT_IDENTIFIED`.

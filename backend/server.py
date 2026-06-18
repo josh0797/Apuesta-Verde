@@ -153,6 +153,13 @@ async def on_startup() -> None:
         log.info("[MARKET_IDENTITY_RESOLUTIONS] indexes ensured")
     except Exception as exc:
         log.warning("[MARKET_IDENTITY_RESOLUTIONS] index ensure failed: %s", exc)
+    # Sprint F.1 — 365Scores Identity Resolver indexes.
+    try:
+        from services.external_sources import three65scores_identity_resolver as _id365
+        await _id365.ensure_indexes(db)
+        log.info("[365SCORES_IDENTITIES] indexes ensured")
+    except Exception as exc:
+        log.warning("[365SCORES_IDENTITIES] index ensure failed: %s", exc)
     # Sprint E.2 — odds_alerts indexes (audit + dedupe + filters).
     try:
         await db.odds_alerts.create_index(
