@@ -1,0 +1,148 @@
+{
+  "market": "OVER_3_5",
+  "n_records": 1704,
+  "base_rate": 0.3204,
+  "auc_model": 0.5523,
+  "brier_model": 0.22808,
+  "log_loss_model": 0.66311,
+  "sharpness": 0.33,
+  "reliability_curve": [
+    {
+      "bucket": [
+        0.0,
+        0.1
+      ],
+      "n": 66,
+      "mean_pred": 0.0649,
+      "hit_rate": 0.3333,
+      "ci": [
+        0.2316,
+        0.4534
+      ]
+    },
+    {
+      "bucket": [
+        0.1,
+        0.2
+      ],
+      "n": 162,
+      "mean_pred": 0.1627,
+      "hit_rate": 0.3148,
+      "ci": [
+        0.2483,
+        0.3899
+      ]
+    },
+    {
+      "bucket": [
+        0.2,
+        0.3
+      ],
+      "n": 601,
+      "mean_pred": 0.2465,
+      "hit_rate": 0.2829,
+      "ci": [
+        0.2483,
+        0.3202
+      ]
+    },
+    {
+      "bucket": [
+        0.3,
+        0.4
+      ],
+      "n": 455,
+      "mean_pred": 0.3445,
+      "hit_rate": 0.2769,
+      "ci": [
+        0.2378,
+        0.3198
+      ]
+    },
+    {
+      "bucket": [
+        0.4,
+        0.5
+      ],
+      "n": 215,
+      "mean_pred": 0.4496,
+      "hit_rate": 0.4279,
+      "ci": [
+        0.3636,
+        0.4947
+      ]
+    },
+    {
+      "bucket": [
+        0.5,
+        0.6
+      ],
+      "n": 95,
+      "mean_pred": 0.5546,
+      "hit_rate": 0.3789,
+      "ci": [
+        0.2879,
+        0.4794
+      ]
+    },
+    {
+      "bucket": [
+        0.6,
+        0.7
+      ],
+      "n": 73,
+      "mean_pred": 0.6445,
+      "hit_rate": 0.4384,
+      "ci": [
+        0.3305,
+        0.5524
+      ]
+    },
+    {
+      "bucket": [
+        0.7,
+        0.8
+      ],
+      "n": 16,
+      "mean_pred": 0.7429,
+      "hit_rate": 0.5625,
+      "ci": [
+        0.3318,
+        0.769
+      ]
+    },
+    {
+      "bucket": [
+        0.8,
+        0.9
+      ],
+      "n": 11,
+      "mean_pred": 0.853,
+      "hit_rate": 0.4545,
+      "ci": [
+        0.2127,
+        0.7199
+      ]
+    },
+    {
+      "bucket": [
+        0.9,
+        1.0
+      ],
+      "n": 10,
+      "mean_pred": 0.9214,
+      "hit_rate": 0.3,
+      "ci": [
+        0.1078,
+        0.6032
+      ]
+    }
+  ],
+  "verdict_tags": [
+    "MODEL_DISCRIMINATES_MODEST",
+    "MODEL_ONLY_INSUFFICIENT_FOR_EDGE_CHECK"
+  ],
+  "market_data_available": false,
+  "constraint_reason": "football-data.co.uk does not publish 3.5 over/under odds in the cached season CSVs. Model-only diagnostics shown.",
+  "scope": "top5_2425"
+}

@@ -110,6 +110,18 @@ NO_MARKET_THRESHOLDS: dict[str, dict[str, float]] = {
         "STRONG": 60.0, "VALUE": 50.0, "FAIR": 40.0,
         "DEFAULT_FIRING": 50.0,
     },
+    "OVER_3_5": {
+        # Base rate in top-5 leagues ≈ 0.30. Defensive defaults; the
+        # engine uses min_edge_pp gating in market-aware mode.
+        "STRONG": 55.0, "VALUE": 45.0, "FAIR": 35.0,
+        "DEFAULT_FIRING": 45.0,
+    },
+    "UNDER_3_5": {
+        # Base rate ≈ 0.70 in top-5 leagues. Thresholds reflect the
+        # "model believes the match will be tight" zone (low-scoring).
+        "STRONG": 80.0, "VALUE": 70.0, "FAIR": 60.0,
+        "DEFAULT_FIRING": 70.0,
+    },
     "DOUBLE_CHANCE_HD": {
         # Model is over-confident above 70pp → cap STRONG at 75.
         "STRONG": 75.0, "VALUE": 70.0, "FAIR": 65.0,
@@ -150,6 +162,14 @@ def _hit_over25(m: dict) -> bool:
 
 def _hit_under25(m: dict) -> bool:
     return (int(m.get("fthg", 0)) + int(m.get("ftag", 0))) <= 2
+
+
+def _hit_over35(m: dict) -> bool:
+    return (int(m.get("fthg", 0)) + int(m.get("ftag", 0))) >= 4
+
+
+def _hit_under35(m: dict) -> bool:
+    return (int(m.get("fthg", 0)) + int(m.get("ftag", 0))) <= 3
 
 
 def _hit_hd(m: dict) -> bool:
@@ -226,6 +246,18 @@ def _predict_under25(features: dict) -> dict:
     return _predict_score_grid(features)
 
 
+def _predict_over35(features: dict) -> dict:
+    """Sprint-D8 Fase 1 · OVER 3.5 — same grid as OVER/UNDER 2.5, reads
+    its OWN cells (i+j ≥ 4) from the verdict."""
+    return _predict_score_grid(features)
+
+
+def _predict_under35(features: dict) -> dict:
+    """Sprint-D8 Fase 1 · UNDER 3.5 — same grid as OVER/UNDER 2.5, reads
+    its OWN cells (i+j ≤ 3) from the verdict. NOT 1 - over35."""
+    return _predict_score_grid(features)
+
+
 def _predict_double_chance(features: dict) -> dict:
     """Helper that computes a 1X2 + DC payload; the engine picks
     the relevant DC variant downstream."""
@@ -252,6 +284,10 @@ def _extract_prob_pct(verdict: dict, market: str) -> Optional[float]:
         return verdict.get("over25_probability")
     if market == "UNDER_2_5":
         return verdict.get("under25_probability")
+    if market == "OVER_3_5":
+        return verdict.get("over35_probability")
+    if market == "UNDER_3_5":
+        return verdict.get("under35_probability")
     if market == "DOUBLE_CHANCE_HD":
         return verdict.get("p_home_or_draw_pct")
     if market == "DOUBLE_CHANCE_AD":
@@ -272,6 +308,10 @@ def _store_prob_pct(verdict: dict, market: str, pct: float) -> None:
         verdict["over25_probability"] = round(pct, 2)
     elif market == "UNDER_2_5":
         verdict["under25_probability"] = round(pct, 2)
+    elif market == "OVER_3_5":
+        verdict["over35_probability"] = round(pct, 2)
+    elif market == "UNDER_3_5":
+        verdict["under35_probability"] = round(pct, 2)
     elif market == "DOUBLE_CHANCE_HD":
         verdict["p_home_or_draw_pct"] = round(pct, 2)
     elif market == "DOUBLE_CHANCE_AD":
@@ -287,13 +327,19 @@ _MARKET_ODD_FIELD: dict[str, str] = {
     "DRAW":      "odd_draw",
     "OVER_2_5":  "odd_over25",
     "UNDER_2_5": "odd_under25",
+    "OVER_3_5":  "odd_over35",
+    "UNDER_3_5": "odd_under35",
 }
 _MARKET_IMPLIED_FEATURE: dict[str, str] = {
     "DRAW":      "market_implied_draw_prob",
     "OVER_2_5":  "market_implied_over25_prob",
     "UNDER_2_5": "market_implied_under25_prob",
+    "OVER_3_5":  "market_implied_over35_prob",
+    "UNDER_3_5": "market_implied_under35_prob",
 }
-MARKET_AWARE_SUPPORTED: tuple[str, ...] = ("DRAW", "OVER_2_5", "UNDER_2_5")
+MARKET_AWARE_SUPPORTED: tuple[str, ...] = (
+    "DRAW", "OVER_2_5", "UNDER_2_5", "OVER_3_5", "UNDER_3_5",
+)
 
 
 def _relabel_for_market(verdict: dict, market: str) -> dict:
@@ -330,6 +376,8 @@ _MARKET_SPECS: dict[str, dict] = {
     "OVER_1_5":          {"predictor": _predict_over15,        "hit_fn": _hit_over15},
     "OVER_2_5":          {"predictor": _predict_over25,        "hit_fn": _hit_over25},
     "UNDER_2_5":         {"predictor": _predict_under25,       "hit_fn": _hit_under25},
+    "OVER_3_5":          {"predictor": _predict_over35,        "hit_fn": _hit_over35},
+    "UNDER_3_5":         {"predictor": _predict_under35,       "hit_fn": _hit_under35},
     "DOUBLE_CHANCE_HD":  {"predictor": _predict_double_chance, "hit_fn": _hit_hd},
     "DOUBLE_CHANCE_AD":  {"predictor": _predict_double_chance, "hit_fn": _hit_ad},
     "DOUBLE_CHANCE_HA":  {"predictor": _predict_double_chance, "hit_fn": _hit_ha},

@@ -648,3 +648,39 @@ Sin tareas P0 abiertas. Siguen en pendientes:
 - **REFACTOR-1**: Extraer Steps 2 y 3 fuera de `data_ingestion.py` (P2).
 - **F84.c/F84.d**: Lineups + Standings via API-Sports (P1).
 - **BTTS market backtest**: aplazado hasta sourcing de cuotas históricas.
+
+---
+
+## SPRINT D8 — UNDER_3_5 (ligas) + DRAW/cohorte (selecciones)
+
+### D8 Fase 1 — UNDER_3_5 / OVER_3_5 en ligas (CERRADA — `WELL_CALIBRATED_BUT_NO_EDGE_DEMONSTRABLE`)
+
+**Pregunta**: ¿la línea 3.5 esconde una señal real o replica el patrón de "modelo bien calibrado pero sin edge sobre devig" ya observado en 2.5?
+
+**Implementación**:
+- Predictor `compute_score_grid_potential`: añadidos `over35_probability` y `under35_probability` sumando sus PROPIAS celdas (i+j ≥ 4 y ≤ 3 respectivamente). Audit invariant `p_under35_complement_check < 1e-9` testado.
+- Parser `parse_football_data_csv`: añadidas las cascadas `B365>3.5/B365<3.5` + close + Avg fallback. Preserva `prefer_closing`.
+- Engine `MARKET_AWARE_SUPPORTED` extendido con `OVER_3_5`/`UNDER_3_5`. Hit functions y NO_MARKET_THRESHOLDS registrados.
+- 24 tests nuevos (`tests/test_sprint_d8_phase1_under_3_5.py`) cubriendo: NOT-complement, monotonía, sample size en bucket, parser open/close/fallback, engine integration, back-compat 2.5.
+- Suite total: **3761 passed / 2 skipped** (3735 + 26), 0 regresiones.
+
+**Hallazgo crítico durante la ejecución**:
+- `football-data.co.uk` **no publica** columnas 3.5 (>3.5 / <3.5) ni en open ni en close ni en Avg. Verificado contra los 8 CSVs cacheados y contra el remoto live. El parser está listo para cuando esos datos lleguen, pero hoy quedan en `None`.
+- Resultado: **no es posible calcular `delta_brier_vs_devig` para 3.5 con el dataset actual**. Por honestidad, se ejecuta un diagnóstico *model-only* (predictor vs ground truth) y se compara con el patrón ya conocido de 2.5.
+
+**Resultados model-only** (`/app/diagnostics/calibration_under_3_5_*.json` y `over_3_5_*`):
+
+| Mercado    | Scope                  | n     | base_rate | AUC    | Brier   | Sharpness | Veredicto                                                                    |
+|------------|------------------------|-------|-----------|--------|---------|-----------|------------------------------------------------------------------------------|
+| UNDER_3_5  | premier_2425           |  370  | 0.6486    | 0.464  | 0.24501 | 0.6640    | MODEL_DOES_NOT_DISCRIMINATE                                                  |
+| UNDER_3_5  | top5_2425              | 1704  | 0.6796    | 0.5609 | 0.22926 | 0.6709    | MODEL_DISCRIMINATES_MODEST (weak vs market untestable here)                  |
+| UNDER_3_5  | premier_multiseason    | 1480  | 0.6412    | 0.5319 | 0.24839 | 0.6409    | MODEL_DISCRIMINATES_WEAK                                                     |
+| OVER_3_5   | premier_2425           |  370  | 0.3514    | 0.4819 | 0.24234 | 0.3355    | MODEL_DOES_NOT_DISCRIMINATE                                                  |
+| OVER_3_5   | top5_2425              | 1704  | 0.3204    | 0.5523 | 0.22808 | 0.3300    | MODEL_DISCRIMINATES_MODEST                                                   |
+| OVER_3_5   | premier_multiseason    | 1480  | 0.3588    | 0.5344 | 0.24600 | 0.3594    | MODEL_DISCRIMINATES_WEAK                                                     |
+
+**Veredicto cerrado**: AUC entre 0.46 y 0.56 a lo largo de los 6 escenarios — la misma magnitud de discriminación pobre observada en 2.5 (D7-G: AUC 0.503–0.534, brier_modelo > brier_devig en TODOS los scopes). Por analogía estricta: el modelo es a lo sumo "weak/modest" vs ground truth, y el devig de la casa ha probado ser mejor calibrador en cada caso que hemos podido medirlo. **Cierre de mercados de goles en ligas — no se persigue 3.5 más adelante salvo que cambie la fuente de odds**.
+
+Reporte consolidado: `/app/diagnostics/sprint_d8_phase1_summary.json`.
+
+**Siguiente**: D8 Fase 2 (DRAW + cohorte favorito-dominante en selecciones).

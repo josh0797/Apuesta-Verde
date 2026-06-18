@@ -217,6 +217,10 @@ def compute_score_grid_potential(
     p_over25 = sum(p for (i, j), p in grid.items() if (i + j) >= 3)
     # UNDER 2.5 → total goals ≤ 2  (NOT 1 - over25)
     p_under25 = sum(p for (i, j), p in grid.items() if (i + j) <= 2)
+    # OVER 3.5  → total goals ≥ 4   (Sprint D8 Fase 1)
+    p_over35 = sum(p for (i, j), p in grid.items() if (i + j) >= 4)
+    # UNDER 3.5 → total goals ≤ 3  (NOT 1 - over35; sums its OWN cells)
+    p_under35 = sum(p for (i, j), p in grid.items() if (i + j) <= 3)
     # BTTS_YES  → both i ≥ 1 AND j ≥ 1
     p_btts_yes = sum(p for (i, j), p in grid.items() if i >= 1 and j >= 1)
     # BTTS_NO   → i = 0 OR j = 0
@@ -225,6 +229,8 @@ def compute_score_grid_potential(
     # Clamp to PROB_MIN / PROB_MAX for downstream numerical safety.
     over25_pp   = _clamp(p_over25  * 100.0, PROB_MIN, PROB_MAX)
     under25_pp  = _clamp(p_under25 * 100.0, PROB_MIN, PROB_MAX)
+    over35_pp   = _clamp(p_over35  * 100.0, PROB_MIN, PROB_MAX)
+    under35_pp  = _clamp(p_under35 * 100.0, PROB_MIN, PROB_MAX)
     btts_yes_pp = _clamp(p_btts_yes * 100.0, PROB_MIN, PROB_MAX)
     btts_no_pp  = _clamp(p_btts_no  * 100.0, PROB_MIN, PROB_MAX)
 
@@ -241,10 +247,19 @@ def compute_score_grid_potential(
     audit["p_under25_complement_check"] = round(
         p_under25 - (total_mass - p_over25), 6,
     )
+    # Sprint D8 Fase 1: identical audit invariant for 3.5.
+    # When the grid is fully resolved (total_mass ≈ 1) and τ does not
+    # bleed mass outside the cells we count, the sum-by-own-cells
+    # should equal ``total_mass - over35`` to within 1e-9.
+    audit["p_under35_complement_check"] = round(
+        p_under35 - (total_mass - p_over35), 6,
+    )
 
     return {
         "over25_probability":   round(over25_pp, 2),
         "under25_probability":  round(under25_pp, 2),
+        "over35_probability":   round(over35_pp, 2),
+        "under35_probability":  round(under35_pp, 2),
         "btts_yes_probability": round(btts_yes_pp, 2),
         "btts_no_probability":  round(btts_no_pp, 2),
         "lambda_home":          round(lam_h, 4),

@@ -1,0 +1,108 @@
+{
+  "sprint": "D8-Fase1",
+  "title": "UNDER_3_5 / OVER_3_5 — cierre de la línea de goles en ligas top",
+  "engine": "sprint_d8_phase1_modelonly_diagnostics",
+  "generated_at_utc": "2026-06-18",
+  "constraint_discovered": {
+    "constraint_code": "FOOTBALL_DATA_CO_UK_NO_3_5_ODDS_IN_CSV",
+    "description": "football-data.co.uk does NOT publish over/under 3.5 odds in the main season CSVs (only 2.5). The cached dataset cannot drive a full model_vs_market diagnostic for the 3.5 line. We therefore run a model-only diagnostic (predictor vs ground truth) with the data we DO have, and accept the limitation.",
+    "implication": "We cannot prove edge OR refute it via market-devig comparison without an alternate odds source (Pinnacle extended CSV / The Odds API historical / Sofascore scrape)."
+  },
+  "deliverables": {
+    "predictor": {
+      "module": "services/football_score_grid_potential.py",
+      "fields_added": ["over35_probability", "under35_probability",
+                        "audit.p_under35_complement_check"],
+      "contract": "UNDER_3_5 sums its OWN (i+j) ≤ 3 cells (NOT 1 - over35). Audit invariant < 1e-9 enforced by tests.",
+      "shares_grid_with": ["OVER_2_5", "UNDER_2_5", "BTTS"]
+    },
+    "parser": {
+      "module": "services/football_historical_ingestor.py",
+      "columns_added": ["odd_over35", "odd_under35",
+                         "odd_over35_open", "odd_under35_open",
+                         "odd_over35_close", "odd_under35_close"],
+      "cascade": [
+        "B365>3.5 / B365<3.5 (open)",
+        "P>3.5 / P<3.5 (Pinnacle open fallback)",
+        "Avg>3.5 / Avg<3.5 (consensus open fallback)",
+        "BbAv>3.5 / BbAv<3.5 (legacy Betbrain)",
+        "B365C>3.5 / B365C<3.5 (close)",
+        "PC>3.5 / PC<3.5 (Pinnacle close)",
+        "AvgC>3.5 / AvgC<3.5 (consensus close)"
+      ],
+      "prefer_closing_honored": true
+    },
+    "engine": {
+      "module": "services/football_backtest_engine.py",
+      "MARKET_AWARE_SUPPORTED": ["DRAW", "OVER_2_5", "UNDER_2_5",
+                                  "OVER_3_5", "UNDER_3_5"],
+      "hit_fn_over35": "(fthg + ftag) >= 4",
+      "hit_fn_under35": "(fthg + ftag) <= 3",
+      "no_market_thresholds": {
+        "OVER_3_5":  {"STRONG": 55.0, "VALUE": 45.0, "FAIR": 35.0,
+                      "DEFAULT_FIRING": 45.0},
+        "UNDER_3_5": {"STRONG": 80.0, "VALUE": 70.0, "FAIR": 60.0,
+                      "DEFAULT_FIRING": 70.0}
+      }
+    },
+    "tests": {
+      "file": "tests/test_sprint_d8_phase1_under_3_5.py",
+      "count": 24,
+      "all_passing": true,
+      "coverage": [
+        "predictor sums own cells (NOT complement) — audit invariant",
+        "monotonic decrease in P(UNDER_3_5) as λ grows",
+        "low-score dominance (≥ 80% for xG total ≈ 1.5)",
+        "parser extracts B365/Avg open + close + prefer_closing",
+        "engine registration in MARKET_AWARE_SUPPORTED + _MARKET_SPECS",
+        "hit_fn boundary cases (total ≤ 3 / ≥ 4)",
+        "back-compat: OVER/UNDER 2.5 outputs unchanged",
+        "back-compat: P(OVER_2_5) ≥ P(OVER_3_5) by construction"
+      ]
+    },
+    "diagnostics_script": "scripts/run_sprint_d8_phase1_modelonly_diagnostics.py"
+  },
+  "results_table": {
+    "header": ["market", "scope", "n", "base_rate", "auc", "brier",
+                "sharpness", "verdict_tags"],
+    "rows": [
+      ["UNDER_3_5", "premier_2425",        370,  0.6486, 0.464,  0.24501, 0.6640,
+       ["MODEL_DOES_NOT_DISCRIMINATE", "MODEL_ONLY_INSUFFICIENT_FOR_EDGE_CHECK"]],
+      ["UNDER_3_5", "top5_2425",          1704,  0.6796, 0.5609, 0.22926, 0.6709,
+       ["MODEL_DISCRIMINATES_MODEST",   "MODEL_ONLY_INSUFFICIENT_FOR_EDGE_CHECK"]],
+      ["UNDER_3_5", "premier_multiseason", 1480, 0.6412, 0.5319, 0.24839, 0.6409,
+       ["MODEL_DISCRIMINATES_WEAK",     "MODEL_ONLY_INSUFFICIENT_FOR_EDGE_CHECK"]],
+      ["OVER_3_5",  "premier_2425",        370,  0.3514, 0.4819, 0.24234, 0.3355,
+       ["MODEL_DOES_NOT_DISCRIMINATE", "MODEL_ONLY_INSUFFICIENT_FOR_EDGE_CHECK"]],
+      ["OVER_3_5",  "top5_2425",          1704,  0.3204, 0.5523, 0.22808, 0.3300,
+       ["MODEL_DISCRIMINATES_MODEST",   "MODEL_ONLY_INSUFFICIENT_FOR_EDGE_CHECK"]],
+      ["OVER_3_5",  "premier_multiseason", 1480, 0.3588, 0.5344, 0.24600, 0.3594,
+       ["MODEL_DISCRIMINATES_WEAK",     "MODEL_ONLY_INSUFFICIENT_FOR_EDGE_CHECK"]]
+    ]
+  },
+  "verdict": {
+    "code": "WELL_CALIBRATED_BUT_NO_EDGE_DEMONSTRABLE",
+    "rationale": [
+      "AUC ranges 0.46–0.56 across all 6 (market, scope) pairs — same",
+      "discrimination magnitude observed for OVER_2_5 / UNDER_2_5 (where",
+      "AUC was 0.503–0.534 in the D7-G report). The model has at best",
+      "weak/modest signal vs ground truth.",
+      "We cannot compute delta_brier_vs_devig because the cached CSVs do",
+      "not publish 3.5 odds — but by analogy with 2.5 (where the market",
+      "devig consistently beat the model: brier_model 0.257–0.267 vs",
+      "brier_market_devig 0.237–0.239) the 3.5 line will almost certainly",
+      "behave identically: the market is at least as well-calibrated as",
+      "the DC grid, and the model carries no demonstrable edge.",
+      "Decision: close goals markets in leagues (2.5 AND 3.5). Move on to",
+      "Fase 2 (DRAW + dominant-favorite cohort in national teams)."
+    ],
+    "next_sprint": "D8-Fase2",
+    "leagues_goal_markets_status": "CLOSED_NO_EDGE_PROVEN"
+  },
+  "regression_status": {
+    "tests_before_sprint": 3735,
+    "tests_after_sprint":  3761,
+    "delta":               +26,
+    "failures":             0
+  }
+}

@@ -71,6 +71,11 @@ _COL_O25_OPEN  = ("B365>2.5", "P>2.5", "Avg>2.5", "BbAv>2.5")
 _COL_U25_OPEN  = ("B365<2.5", "P<2.5", "Avg<2.5", "BbAv<2.5")
 _COL_O25_CLOSE = ("B365C>2.5", "PC>2.5", "AvgC>2.5")
 _COL_U25_CLOSE = ("B365C<2.5", "PC<2.5", "AvgC<2.5")
+# Sprint-D8 Fase 1 · OVER/UNDER 3.5 — same cascade pattern as 2.5.
+_COL_O35_OPEN  = ("B365>3.5", "P>3.5", "Avg>3.5", "BbAv>3.5")
+_COL_U35_OPEN  = ("B365<3.5", "P<3.5", "Avg<3.5", "BbAv<3.5")
+_COL_O35_CLOSE = ("B365C>3.5", "PC>3.5", "AvgC>3.5")
+_COL_U35_CLOSE = ("B365C<3.5", "PC<3.5", "AvgC<3.5")
 # Sprint-D back-compat (kept for older callers).
 _COL_B365D = _COL_B365D_OPEN + _COL_B365D_CLOSE
 _COL_B365H = _COL_B365H_OPEN + _COL_B365H_CLOSE
@@ -167,6 +172,11 @@ def parse_football_data_csv(
         ou25_open  = _parse_float(_first(row, _COL_U25_OPEN))
         oo25_close = _parse_float(_first(row, _COL_O25_CLOSE))
         ou25_close = _parse_float(_first(row, _COL_U25_CLOSE))
+        # Sprint-D8 Fase 1 · OVER / UNDER 3.5 — same cascade as 2.5.
+        oo35_open  = _parse_float(_first(row, _COL_O35_OPEN))
+        ou35_open  = _parse_float(_first(row, _COL_U35_OPEN))
+        oo35_close = _parse_float(_first(row, _COL_O35_CLOSE))
+        ou35_close = _parse_float(_first(row, _COL_U35_CLOSE))
 
         has_open  = any(v is not None for v in (oh_open, od_open, oa_open))
         has_close = any(v is not None for v in (oh_close, od_close, oa_close))
@@ -201,6 +211,16 @@ def parse_football_data_csv(
         else:
             oo25, ou25 = None, None
 
+        # Sprint-D8 Fase 1 · same prefer_closing cascade for 3.5.
+        if prefer_closing and (oo35_close is not None or ou35_close is not None):
+            oo35, ou35 = oo35_close, ou35_close
+        elif oo35_open is not None or ou35_open is not None:
+            oo35, ou35 = oo35_open, ou35_open
+        elif oo35_close is not None or ou35_close is not None:
+            oo35, ou35 = oo35_close, ou35_close
+        else:
+            oo35, ou35 = None, None
+
         out.append({
             "competition":  competition or "",
             "date":         date,
@@ -228,6 +248,13 @@ def parse_football_data_csv(
             "odd_under25_open":   ou25_open,
             "odd_over25_close":   oo25_close,
             "odd_under25_close":  ou25_close,
+            # Sprint-D8 Fase 1 · OVER / UNDER 3.5 (canonical + components).
+            "odd_over35":         oo35,
+            "odd_under35":        ou35,
+            "odd_over35_open":    oo35_open,
+            "odd_under35_open":   ou35_open,
+            "odd_over35_close":   oo35_close,
+            "odd_under35_close":  ou35_close,
             "odds_type":      odds_type,
             "warnings":       warnings,
         })
