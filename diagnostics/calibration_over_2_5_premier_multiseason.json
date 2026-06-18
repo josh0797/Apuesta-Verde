@@ -1,0 +1,218 @@
+{
+  "market": "OVER_2_5",
+  "meta": {
+    "n_records": 1399,
+    "n_buckets": 10,
+    "audit": {
+      "n_records_total": 1399,
+      "n_with_market_implied": 1399,
+      "n_with_market_devig": 1399,
+      "n_with_close": 1399
+    },
+    "base_rate_hit": 0.5718
+  },
+  "reliability_curve": [
+    {
+      "bucket": "[0.0, 0.1]",
+      "lo": 0.0,
+      "hi": 0.1,
+      "n": 18,
+      "mean_p_pred": 0.0441,
+      "hit_rate": 0.4444,
+      "hit_rate_ci95": [
+        0.2456,
+        0.6628
+      ],
+      "mean_p_market_devig": 0.4595,
+      "realized_edge_pp": -1.51
+    },
+    {
+      "bucket": "[0.1, 0.2]",
+      "lo": 0.1,
+      "hi": 0.2,
+      "n": 16,
+      "mean_p_pred": 0.1594,
+      "hit_rate": 0.5,
+      "hit_rate_ci95": [
+        0.28,
+        0.72
+      ],
+      "mean_p_market_devig": 0.4651,
+      "realized_edge_pp": 3.49
+    },
+    {
+      "bucket": "[0.2, 0.3]",
+      "lo": 0.2,
+      "hi": 0.3,
+      "n": 23,
+      "mean_p_pred": 0.2545,
+      "hit_rate": 0.6087,
+      "hit_rate_ci95": [
+        0.4079,
+        0.7784
+      ],
+      "mean_p_market_devig": 0.4908,
+      "realized_edge_pp": 11.79
+    },
+    {
+      "bucket": "[0.3, 0.4]",
+      "lo": 0.3,
+      "hi": 0.4,
+      "n": 65,
+      "mean_p_pred": 0.373,
+      "hit_rate": 0.6462,
+      "hit_rate_ci95": [
+        0.5247,
+        0.7512
+      ],
+      "mean_p_market_devig": 0.5381,
+      "realized_edge_pp": 10.8
+    },
+    {
+      "bucket": "[0.4, 0.5]",
+      "lo": 0.4,
+      "hi": 0.5,
+      "n": 206,
+      "mean_p_pred": 0.4571,
+      "hit_rate": 0.5437,
+      "hit_rate_ci95": [
+        0.4755,
+        0.6103
+      ],
+      "mean_p_market_devig": 0.5382,
+      "realized_edge_pp": 0.55
+    },
+    {
+      "bucket": "[0.5, 0.6]",
+      "lo": 0.5,
+      "hi": 0.6,
+      "n": 498,
+      "mean_p_pred": 0.5497,
+      "hit_rate": 0.5382,
+      "hit_rate_ci95": [
+        0.4942,
+        0.5815
+      ],
+      "mean_p_market_devig": 0.5513,
+      "realized_edge_pp": -1.31
+    },
+    {
+      "bucket": "[0.6, 0.7]",
+      "lo": 0.6,
+      "hi": 0.7,
+      "n": 321,
+      "mean_p_pred": 0.6442,
+      "hit_rate": 0.595,
+      "hit_rate_ci95": [
+        0.5405,
+        0.6473
+      ],
+      "mean_p_market_devig": 0.581,
+      "realized_edge_pp": 1.4
+    },
+    {
+      "bucket": "[0.7, 0.8]",
+      "lo": 0.7,
+      "hi": 0.8,
+      "n": 128,
+      "mean_p_pred": 0.7504,
+      "hit_rate": 0.6094,
+      "hit_rate_ci95": [
+        0.5228,
+        0.6895
+      ],
+      "mean_p_market_devig": 0.6073,
+      "realized_edge_pp": 0.21
+    },
+    {
+      "bucket": "[0.8, 0.9]",
+      "lo": 0.8,
+      "hi": 0.9,
+      "n": 98,
+      "mean_p_pred": 0.8508,
+      "hit_rate": 0.5714,
+      "hit_rate_ci95": [
+        0.4726,
+        0.6649
+      ],
+      "mean_p_market_devig": 0.5662,
+      "realized_edge_pp": 0.53
+    },
+    {
+      "bucket": "[0.9, 1.0]",
+      "lo": 0.9,
+      "hi": 1.0,
+      "n": 26,
+      "mean_p_pred": 0.9405,
+      "hit_rate": 0.8846,
+      "hit_rate_ci95": [
+        0.7102,
+        0.96
+      ],
+      "mean_p_market_devig": 0.6308,
+      "realized_edge_pp": 25.38
+    }
+  ],
+  "calibration": {
+    "intercept": 0.4665,
+    "slope": 0.1815,
+    "r_squared": 0.0032,
+    "interpretation": "Well-calibrated \u21d2 intercept \u2248 0, slope \u2248 1."
+  },
+  "model_vs_market": {
+    "brier_model": 0.26009,
+    "brier_market_raw": 0.238333,
+    "brier_market_devig": 0.238094,
+    "logloss_model": 0.727573,
+    "logloss_market_raw": 0.669263,
+    "logloss_market_devig": 0.668768,
+    "delta_brier_vs_devig": 0.021995,
+    "delta_logloss_vs_devig": 0.058805,
+    "interpretation": "Negative delta_brier_vs_devig OR delta_logloss_vs_devig \u21d2 model beats the de-vigged market on that metric."
+  },
+  "discrimination": {
+    "auc_model": 0.5305,
+    "auc_market_devig": 0.5957,
+    "sharpness_stdev_model": 0.1544,
+    "sharpness_dist_model": 0.1325,
+    "sharpness_stdev_market_devig": 0.0804,
+    "sharpness_dist_market_devig": 0.0794,
+    "interpretation": "AUC \u2248 0.50 \u21d2 no discrimination; higher = better ordering. Sharpness too high vs market \u21d2 overconfident; too low \u21d2 flat."
+  },
+  "clv": {
+    "all_predictions": {
+      "n_with_close": 1398,
+      "n_picks_with_close": 697,
+      "clv_pp_mean": -0.3724,
+      "clv_pp_median": 0.0,
+      "clv_pp_stdev": 2.7884,
+      "clv_log_odds_mean": -0.009102,
+      "clv_log_odds_median": 0.0,
+      "clv_log_odds_stdev": 0.052661
+    },
+    "picks_only": {
+      "n_with_close": 697,
+      "n_picks_with_close": 697,
+      "clv_pp_mean": -0.3219,
+      "clv_pp_median": 0.0,
+      "clv_pp_stdev": 2.7666,
+      "clv_log_odds_mean": -0.008011,
+      "clv_log_odds_median": 0.0,
+      "clv_log_odds_stdev": 0.052615
+    },
+    "interpretation": "clv_pp_mean < 0 (or clv_log_odds_mean > 0) \u21d2 model side beat the closing line on average."
+  },
+  "scope": "premier_multiseason",
+  "verdict": {
+    "tags": [
+      "LOW_DISCRIMINATION_AUC_NEAR_0_50"
+    ],
+    "explanations": {
+      "WELL_CALIBRATED_AND_BEATS_MARKET": "Modelo bien calibrado y mejor que mercado.",
+      "WELL_CALIBRATED_BUT_NO_EDGE_OR_WORSE": "Modelo bien calibrado pero igual o peor que mercado.",
+      "MIS_CALIBRATED_BUT_DISCRIMINATIVE": "Modelo descalibrado pero discriminativo (rescatable).",
+      "LOW_DISCRIMINATION_AUC_NEAR_0_50": "Discriminaci\u00f3n pobre (AUC \u2248 0.50): no rescatable solo con calibraci\u00f3n.",
+      "INCONCLUSIVE_OR_MIXED": "Resultado mixto; revisar m\u00e9tricas individualmente."
+    }
+  }
+}

@@ -689,17 +689,70 @@ def run_backtest(
                 and edge is not None and edge >= min_edge_pp
             )
 
-        # Always record a "prediction" row in no_market mode so the
-        # calibration curve covers the full sample.
-        if no_market and prob_pct_final is not None:
+        # Always record a "prediction" row so the calibration curve
+        # covers the full sample. Sprint-D7-G: emit in BOTH no_market
+        # and market-aware modes (previously only no_market). Records
+        # carry all the fields required by the calibration diagnostics
+        # module (model prob, raw and de-vigged market implied for the
+        # ACTIVE side, plus opening / closing odds for CLV).
+        if prob_pct_final is not None:
+            # Resolve the canonical odd field for this market and
+            # extract opening / closing odds when available.
+            odd_field = _MARKET_ODD_FIELD.get(market)
+            odd_open = odd_close = odd_canonical = None
+            if odd_field:
+                odd_canonical = m.get(odd_field)
+                odd_open      = m.get(odd_field + "_open") or m.get(odd_field)
+                odd_close     = m.get(odd_field + "_close")
+            # Raw market implied for this side (1 / odd_open).
+            mk_raw_open   = (1.0 / odd_open)  if (odd_open  and odd_open  > 1.0) else None
+            mk_raw_close  = (1.0 / odd_close) if (odd_close and odd_close > 1.0) else None
+            # 2-way de-vig for OVER/UNDER markets.
+            mk_devig_open  = None
+            mk_devig_close = None
+            if market in ("OVER_2_5", "UNDER_2_5"):
+                # The opposite-side odd to compute the 2-way overround.
+                opp_field = ("odd_under25" if market == "OVER_2_5"
+                              else "odd_over25")
+                oo_open  = m.get(opp_field + "_open") or m.get(opp_field)
+                oo_close = m.get(opp_field + "_close")
+                if (odd_open and odd_open > 1.0
+                        and oo_open and oo_open > 1.0):
+                    p_self  = 1.0 / odd_open
+                    p_other = 1.0 / oo_open
+                    mk_devig_open = p_self / (p_self + p_other)
+                if (odd_close and odd_close > 1.0
+                        and oo_close and oo_close > 1.0):
+                    p_self  = 1.0 / odd_close
+                    p_other = 1.0 / oo_close
+                    mk_devig_close = p_self / (p_self + p_other)
+            elif market == "DRAW":
+                # 3-way de-vig using home / draw / away odds.
+                oh_o = m.get("odd_home_open") or m.get("odd_home")
+                od_o = m.get("odd_draw_open") or m.get("odd_draw")
+                oa_o = m.get("odd_away_open") or m.get("odd_away")
+                if (oh_o and od_o and oa_o
+                        and min(oh_o, od_o, oa_o) > 1.0):
+                    p_h = 1.0 / oh_o; p_d = 1.0 / od_o; p_a = 1.0 / oa_o
+                    ovr = p_h + p_d + p_a
+                    mk_devig_open = p_d / ovr if ovr > 0 else None
+                oh_c = m.get("odd_home_close")
+                od_c = m.get("odd_draw_close")
+                oa_c = m.get("odd_away_close")
+                if (oh_c and od_c and oa_c
+                        and min(oh_c, od_c, oa_c) > 1.0):
+                    p_h = 1.0 / oh_c; p_d = 1.0 / od_c; p_a = 1.0 / oa_c
+                    ovr = p_h + p_d + p_a
+                    mk_devig_close = p_d / ovr if ovr > 0 else None
             predictions.append({
                 "date":           m["date"].isoformat(),
                 "competition":    m.get("competition") or "",
                 "home":           m["home_team"],
                 "away":           m["away_team"],
                 "market":         market,
-                "predicted_prob": round(prob_pct_final / 100.0, 4),
+                "predicted_prob": round(prob_pct_final / 100.0, 6),
                 "label":          label,
+                "edge_pp":        edge,
                 "tournament_phase": m.get("tournament_phase"),
                 "matchday":         m.get("matchday"),
                 "group_label":      m.get("group_label"),
@@ -707,6 +760,18 @@ def run_backtest(
                 "hit":            hit,
                 "actual_score":   f"{m['fthg']}-{m['ftag']}",
                 "fired":          bool(fires),
+                # Sprint-D7-G fields used by calibration diagnostics.
+                "odd":            odd_canonical,
+                "odd_open":       odd_open,
+                "odd_close":      odd_close,
+                "market_implied_raw":         (round(mk_raw_open, 6)
+                                                  if mk_raw_open is not None else None),
+                "market_implied_raw_close":   (round(mk_raw_close, 6)
+                                                  if mk_raw_close is not None else None),
+                "market_implied_devig":       (round(mk_devig_open, 6)
+                                                  if mk_devig_open is not None else None),
+                "market_implied_devig_close": (round(mk_devig_close, 6)
+                                                  if mk_devig_close is not None else None),
                 "tournament_context_score":
                     features.get("tournament_context_score"),
                 "_calibration_audit": calibration_audit,

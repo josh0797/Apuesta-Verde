@@ -9723,6 +9723,55 @@ async def calibration_divergences(
     }
 
 
+# ─── Sprint-D7-G · Calibration Diagnostics endpoints ─────────────────────────
+@app.get("/api/football/diagnostics/calibration/index")
+async def get_calibration_diagnostics_index():
+    """Lists all pre-computed calibration diagnostics reports."""
+    from pathlib import Path
+    import json as _json
+    idx_path = Path("/app/diagnostics/_index.json")
+    if not idx_path.exists():
+        return {"available": False,
+                 "reason": "DIAGNOSTICS_NOT_GENERATED",
+                 "hint": ("Run `python -m scripts.run_d7_calibration_"
+                          "diagnostics` to pre-compute reports.")}
+    try:
+        index = _json.loads(idx_path.read_text())
+    except Exception as exc:    # noqa: BLE001
+        return {"available": False, "reason": f"PARSE_ERROR:{exc}"}
+    return {"available": True, "index": index,
+             "scopes":  sorted({r["scope"]  for r in index}),
+             "markets": sorted({r["market"] for r in index})}
+
+
+@app.get("/api/football/diagnostics/calibration")
+async def get_calibration_diagnostics_report(market: str, scope: str):
+    """Returns the pre-computed calibration report for (market, scope)."""
+    from pathlib import Path
+    import json as _json
+    market = market.upper()
+    scope  = scope.lower()
+    fn = f"calibration_{market.lower()}_{scope}.json"
+    path = Path("/app/diagnostics") / fn
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "reason": "REPORT_NOT_FOUND",
+                "file":   fn,
+                "hint":   ("Run `python -m scripts.run_d7_calibration_"
+                            "diagnostics` to pre-compute it."),
+            },
+        )
+    try:
+        return _json.loads(path.read_text())
+    except Exception as exc:    # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={"reason": f"PARSE_ERROR:{exc}", "file": fn},
+        )
+
+
 # ── App registration ─────────────────────────────────────────────────────────
 app.include_router(api)
 app.add_middleware(

@@ -1,0 +1,116 @@
+[
+  {
+    "market": "OVER_2_5",
+    "scope": "premier_2425",
+    "n_records": 350,
+    "auc": 0.5058,
+    "brier_model": 0.258047,
+    "brier_market_devig": 0.239136,
+    "verdict": [
+      "LOW_DISCRIMINATION_AUC_NEAR_0_50"
+    ],
+    "file": "calibration_over_2_5_premier_2425.json"
+  },
+  {
+    "market": "OVER_2_5",
+    "scope": "top5_2425",
+    "n_records": 1607,
+    "auc": 0.5262,
+    "brier_model": 0.266888,
+    "brier_market_devig": 0.23752,
+    "verdict": [
+      "LOW_DISCRIMINATION_AUC_NEAR_0_50"
+    ],
+    "file": "calibration_over_2_5_top5_2425.json"
+  },
+  {
+    "market": "OVER_2_5",
+    "scope": "premier_multiseason",
+    "n_records": 1399,
+    "auc": 0.5305,
+    "brier_model": 0.26009,
+    "brier_market_devig": 0.238094,
+    "verdict": [
+      "LOW_DISCRIMINATION_AUC_NEAR_0_50"
+    ],
+    "file": "calibration_over_2_5_premier_multiseason.json"
+  },
+  {
+    "market": "UNDER_2_5",
+    "scope": "premier_2425",
+    "n_records": 350,
+    "auc": 0.5062,
+    "brier_model": 0.257985,
+    "brier_market_devig": 0.239136,
+    "verdict": [
+      "WELL_CALIBRATED_BUT_NO_EDGE_OR_WORSE",
+      "LOW_DISCRIMINATION_AUC_NEAR_0_50"
+    ],
+    "file": "calibration_under_2_5_premier_2425.json"
+  },
+  {
+    "market": "UNDER_2_5",
+    "scope": "top5_2425",
+    "n_records": 1607,
+    "auc": 0.5218,
+    "brier_model": 0.267009,
+    "brier_market_devig": 0.23752,
+    "verdict": [
+      "WELL_CALIBRATED_BUT_NO_EDGE_OR_WORSE",
+      "LOW_DISCRIMINATION_AUC_NEAR_0_50"
+    ],
+    "file": "calibration_under_2_5_top5_2425.json"
+  },
+  {
+    "market": "UNDER_2_5",
+    "scope": "premier_multiseason",
+    "n_records": 1399,
+    "auc": 0.5292,
+    "brier_model": 0.261239,
+    "brier_market_devig": 0.238094,
+    "verdict": [
+      "WELL_CALIBRATED_BUT_NO_EDGE_OR_WORSE",
+      "LOW_DISCRIMINATION_AUC_NEAR_0_50"
+    ],
+    "file": "calibration_under_2_5_premier_multiseason.json"
+  },
+  {
+    "market": "DRAW",
+    "scope": "premier_2425",
+    "n_records": 350,
+    "auc": 0.5337,
+    "brier_model": 0.186126,
+    "brier_market_devig": 0.184843,
+    "verdict": [
+      "WELL_CALIBRATED_BUT_NO_EDGE_OR_WORSE",
+      "LOW_DISCRIMINATION_AUC_NEAR_0_50"
+    ],
+    "file": "calibration_draw_premier_2425.json"
+  },
+  {
+    "market": "DRAW",
+    "scope": "top5_2425",
+    "n_records": 1607,
+    "auc": 0.5028,
+    "brier_model": 0.18831,
+    "brier_market_devig": 0.182429,
+    "verdict": [
+      "WELL_CALIBRATED_BUT_NO_EDGE_OR_WORSE",
+      "LOW_DISCRIMINATION_AUC_NEAR_0_50"
+    ],
+    "file": "calibration_draw_top5_2425.json"
+  },
+  {
+    "market": "DRAW",
+    "scope": "premier_multiseason",
+    "n_records": 1399,
+    "auc": 0.5125,
+    "brier_model": 0.178575,
+    "brier_market_devig": 0.174963,
+    "verdict": [
+      "WELL_CALIBRATED_BUT_NO_EDGE_OR_WORSE",
+      "LOW_DISCRIMINATION_AUC_NEAR_0_50"
+    ],
+    "file": "calibration_draw_premier_multiseason.json"
+  }
+]

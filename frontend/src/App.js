@@ -12,6 +12,7 @@ import HistoryPage from '@/pages/HistoryPage';
 import ProfilePage from '@/pages/ProfilePage';
 import LineLearningDashboard from '@/components/LineLearningDashboard';
 import CalibrationPage from '@/pages/CalibrationPage';
+import CalibrationDiagnosticsPage from '@/pages/CalibrationDiagnosticsPage';
 import OddsAlertsPage from '@/pages/OddsAlertsPage';
 import { useEffect } from 'react';
 import './App.css';
@@ -52,6 +53,7 @@ function AppShell() {
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/learning" element={<LineLearningDashboard />} />
           <Route path="/dashboard/calibration" element={<CalibrationPage />} />
+          <Route path="/diagnostics/calibration" element={<CalibrationDiagnosticsPage />} />
           <Route path="/odds-alerts" element={<OddsAlertsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
         </Route>

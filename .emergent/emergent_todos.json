@@ -1,34 +1,38 @@
 [
   {
-    "content": "F1: Crear football_score_grid_potential.py (DC bivariate 9x9) con predictores independientes OVER_2_5 y UNDER_2_5",
+    "content": "G1: Inspeccionar el output de run_backtest",
     "status": "completed"
   },
   {
-    "content": "F2: Extender parse_football_data_csv para extraer odd_over25 / odd_under25 (prefer_closing aware)",
+    "content": "G2: Crear services/football_calibration_diagnostics.py",
     "status": "completed"
   },
   {
-    "content": "F3: Generalizar engine market-aware para non-DRAW — nuevos predictors + hit_fns + label generic + gate generalizado",
+    "content": "G3: Extender engine — predictions[] en modo with-odds + campos market_implied_raw/devig + odd_open/close",
     "status": "completed"
   },
   {
-    "content": "F4: Scripts threshold_sweep y multiseason aceptan --market",
+    "content": "G4: Script run_d7_calibration_diagnostics.py + 9 reportes generados",
     "status": "completed"
   },
   {
-    "content": "F5: Tests — 16/16 verde incluyendo regresión NO-complement y back-compat DRAW",
+    "content": "G5: Endpoints GET /api/football/diagnostics/calibration[/index]",
     "status": "completed"
   },
   {
-    "content": "F6: Threshold sweep + multi-season OVER_2_5 y UNDER_2_5 ejecutados (BTTS aplazado)",
+    "content": "G6: Panel UI CalibrationDiagnosticsPanel.jsx + página /diagnostics/calibration",
     "status": "completed"
   },
   {
-    "content": "F7: pytest backend completo → 3650 passing, 0 regresiones",
+    "content": "G7: 16 tests verde (incluyen los 4 escenarios de la rúbrica + endpoints)",
     "status": "completed"
   },
   {
-    "content": "F8: Resumen ejecutivo final entregado",
+    "content": "G8: pytest backend completo → 3666 passing, 0 regresiones",
     "status": "completed"
+  },
+  {
+    "content": "G9: Entregar diagnóstico al usuario + interpretación usando su rúbrica",
+    "status": "in_progress"
   }
 ]
