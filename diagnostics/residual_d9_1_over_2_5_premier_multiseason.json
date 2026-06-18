@@ -1,0 +1,4179 @@
+{
+  "scope": "premier_multiseason",
+  "market": "OVER_2_5",
+  "n_holdout": 350,
+  "lambda_l2": 2.0,
+  "feature_names": [
+    "elo_home",
+    "elo_away",
+    "xg_home_l5",
+    "xg_away_l5",
+    "goal_avg_against_home",
+    "goal_avg_against_away",
+    "goal_minus_xg_home_l15",
+    "goal_minus_xg_away_l15"
+  ],
+  "train_audit": {
+    "pooled": {
+      "holdout_season": "24-25",
+      "n_train": 1049,
+      "n_holdout": 350,
+      "reason_code": "CONVERGED",
+      "n_iter_used": 44,
+      "final_loss": 0.66719,
+      "weights": [
+        -0.0009,
+        -0.0044,
+        0.0011,
+        0.0011,
+        -0.0041,
+        0.0014,
+        -0.0058,
+        -0.0073
+      ],
+      "bias": 0.0561,
+      "train_brier_model": 0.237255,
+      "train_brier_market": 0.237747,
+      "delta_train_brier": -0.000492
+    }
+  },
+  "diag_residual": {
+    "market": "p_residual_final",
+    "meta": {
+      "n_records": 350,
+      "n_buckets": 10,
+      "audit": {
+        "n_records_total": 350,
+        "n_with_market_implied": 350,
+        "n_with_market_devig": 350,
+        "n_with_close": 350
+      },
+      "base_rate_hit": 0.5743
+    },
+    "reliability_curve": [
+      {
+        "bucket": "[0.0, 0.1]",
+        "lo": 0.0,
+        "hi": 0.1,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.1, 0.2]",
+        "lo": 0.1,
+        "hi": 0.2,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.2, 0.3]",
+        "lo": 0.2,
+        "hi": 0.3,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.3, 0.4]",
+        "lo": 0.3,
+        "hi": 0.4,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.4, 0.5]",
+        "lo": 0.4,
+        "hi": 0.5,
+        "n": 27,
+        "mean_p_pred": 0.4669,
+        "hit_rate": 0.4815,
+        "hit_rate_ci95": [
+          0.3074,
+          0.6601
+        ],
+        "mean_p_market_devig": 0.4533,
+        "realized_edge_pp": 2.82
+      },
+      {
+        "bucket": "[0.5, 0.6]",
+        "lo": 0.5,
+        "hi": 0.6,
+        "n": 152,
+        "mean_p_pred": 0.5589,
+        "hit_rate": 0.5329,
+        "hit_rate_ci95": [
+          0.4537,
+          0.6104
+        ],
+        "mean_p_market_devig": 0.5455,
+        "realized_edge_pp": -1.26
+      },
+      {
+        "bucket": "[0.6, 0.7]",
+        "lo": 0.6,
+        "hi": 0.7,
+        "n": 138,
+        "mean_p_pred": 0.6447,
+        "hit_rate": 0.6014,
+        "hit_rate_ci95": [
+          0.5181,
+          0.6793
+        ],
+        "mean_p_market_devig": 0.6316,
+        "realized_edge_pp": -3.01
+      },
+      {
+        "bucket": "[0.7, 0.8]",
+        "lo": 0.7,
+        "hi": 0.8,
+        "n": 33,
+        "mean_p_pred": 0.7299,
+        "hit_rate": 0.7273,
+        "hit_rate_ci95": [
+          0.5578,
+          0.8493
+        ],
+        "mean_p_market_devig": 0.718,
+        "realized_edge_pp": 0.92
+      },
+      {
+        "bucket": "[0.8, 0.9]",
+        "lo": 0.8,
+        "hi": 0.9,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.9, 1.0]",
+        "lo": 0.9,
+        "hi": 1.0,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      }
+    ],
+    "calibration": {
+      "intercept": -0.0581,
+      "slope": 1.0508,
+      "r_squared": 0.023,
+      "interpretation": "Well-calibrated \u21d2 intercept \u2248 0, slope \u2248 1."
+    },
+    "model_vs_market": {
+      "brier_model": 0.239616,
+      "brier_market_raw": 0.241294,
+      "brier_market_devig": 0.239136,
+      "logloss_model": 0.671781,
+      "logloss_market_raw": 0.67535,
+      "logloss_market_devig": 0.670779,
+      "delta_brier_vs_devig": 0.000481,
+      "delta_logloss_vs_devig": 0.001002,
+      "interpretation": "Negative delta_brier_vs_devig OR delta_logloss_vs_devig \u21d2 model beats the de-vigged market on that metric."
+    },
+    "discrimination": {
+      "auc_model": 0.5816,
+      "auc_market_devig": 0.5796,
+      "sharpness_stdev_model": 0.0715,
+      "sharpness_dist_model": 0.1069,
+      "sharpness_stdev_market_devig": 0.072,
+      "sharpness_dist_market_devig": 0.0959,
+      "interpretation": "AUC \u2248 0.50 \u21d2 no discrimination; higher = better ordering. Sharpness too high vs market \u21d2 overconfident; too low \u21d2 flat."
+    },
+    "clv": {
+      "all_predictions": {
+        "n_with_close": 350,
+        "n_picks_with_close": 0,
+        "clv_pp_mean": -0.3589,
+        "clv_pp_median": 0.0,
+        "clv_pp_stdev": 2.8241,
+        "clv_log_odds_mean": -0.009538,
+        "clv_log_odds_median": 0.0,
+        "clv_log_odds_stdev": 0.053015
+      },
+      "picks_only": {
+        "n_with_close": 0,
+        "n_picks_with_close": 0,
+        "clv_pp_mean": null,
+        "clv_pp_median": null,
+        "clv_pp_stdev": null,
+        "clv_log_odds_mean": null,
+        "clv_log_odds_median": null,
+        "clv_log_odds_stdev": null
+      },
+      "interpretation": "clv_pp_mean < 0 (or clv_log_odds_mean > 0) \u21d2 model side beat the closing line on average."
+    }
+  },
+  "diag_market_devig": {
+    "market": "p_market_devig",
+    "meta": {
+      "n_records": 350,
+      "n_buckets": 10,
+      "audit": {
+        "n_records_total": 350,
+        "n_with_market_implied": 350,
+        "n_with_market_devig": 350,
+        "n_with_close": 350
+      },
+      "base_rate_hit": 0.5743
+    },
+    "reliability_curve": [
+      {
+        "bucket": "[0.0, 0.1]",
+        "lo": 0.0,
+        "hi": 0.1,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.1, 0.2]",
+        "lo": 0.1,
+        "hi": 0.2,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.2, 0.3]",
+        "lo": 0.2,
+        "hi": 0.3,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.3, 0.4]",
+        "lo": 0.3,
+        "hi": 0.4,
+        "n": 1,
+        "mean_p_pred": 0.3975,
+        "hit_rate": 0.0,
+        "hit_rate_ci95": [
+          0.0,
+          0.7935
+        ],
+        "mean_p_market_devig": 0.3975,
+        "realized_edge_pp": -39.75
+      },
+      {
+        "bucket": "[0.4, 0.5]",
+        "lo": 0.4,
+        "hi": 0.5,
+        "n": 29,
+        "mean_p_pred": 0.4594,
+        "hit_rate": 0.5172,
+        "hit_rate_ci95": [
+          0.3443,
+          0.6861
+        ],
+        "mean_p_market_devig": 0.4594,
+        "realized_edge_pp": 5.78
+      },
+      {
+        "bucket": "[0.5, 0.6]",
+        "lo": 0.5,
+        "hi": 0.6,
+        "n": 155,
+        "mean_p_pred": 0.5481,
+        "hit_rate": 0.5419,
+        "hit_rate_ci95": [
+          0.4634,
+          0.6184
+        ],
+        "mean_p_market_devig": 0.5481,
+        "realized_edge_pp": -0.62
+      },
+      {
+        "bucket": "[0.6, 0.7]",
+        "lo": 0.6,
+        "hi": 0.7,
+        "n": 133,
+        "mean_p_pred": 0.634,
+        "hit_rate": 0.594,
+        "hit_rate_ci95": [
+          0.509,
+          0.6737
+        ],
+        "mean_p_market_devig": 0.634,
+        "realized_edge_pp": -4.0
+      },
+      {
+        "bucket": "[0.7, 0.8]",
+        "lo": 0.7,
+        "hi": 0.8,
+        "n": 32,
+        "mean_p_pred": 0.719,
+        "hit_rate": 0.7188,
+        "hit_rate_ci95": [
+          0.5463,
+          0.8444
+        ],
+        "mean_p_market_devig": 0.719,
+        "realized_edge_pp": -0.03
+      },
+      {
+        "bucket": "[0.8, 0.9]",
+        "lo": 0.8,
+        "hi": 0.9,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.9, 1.0]",
+        "lo": 0.9,
+        "hi": 1.0,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      }
+    ],
+    "calibration": {
+      "intercept": -0.0362,
+      "slope": 1.0372,
+      "r_squared": 0.0227,
+      "interpretation": "Well-calibrated \u21d2 intercept \u2248 0, slope \u2248 1."
+    },
+    "model_vs_market": {
+      "brier_model": 0.239136,
+      "brier_market_raw": 0.241294,
+      "brier_market_devig": 0.239136,
+      "logloss_model": 0.670779,
+      "logloss_market_raw": 0.67535,
+      "logloss_market_devig": 0.670779,
+      "delta_brier_vs_devig": 0.0,
+      "delta_logloss_vs_devig": 0.0,
+      "interpretation": "Negative delta_brier_vs_devig OR delta_logloss_vs_devig \u21d2 model beats the de-vigged market on that metric."
+    },
+    "discrimination": {
+      "auc_model": 0.5796,
+      "auc_market_devig": 0.5796,
+      "sharpness_stdev_model": 0.072,
+      "sharpness_dist_model": 0.0959,
+      "sharpness_stdev_market_devig": 0.072,
+      "sharpness_dist_market_devig": 0.0959,
+      "interpretation": "AUC \u2248 0.50 \u21d2 no discrimination; higher = better ordering. Sharpness too high vs market \u21d2 overconfident; too low \u21d2 flat."
+    },
+    "clv": {
+      "all_predictions": {
+        "n_with_close": 350,
+        "n_picks_with_close": 0,
+        "clv_pp_mean": -0.3589,
+        "clv_pp_median": 0.0,
+        "clv_pp_stdev": 2.8241,
+        "clv_log_odds_mean": -0.009538,
+        "clv_log_odds_median": 0.0,
+        "clv_log_odds_stdev": 0.053015
+      },
+      "picks_only": {
+        "n_with_close": 0,
+        "n_picks_with_close": 0,
+        "clv_pp_mean": null,
+        "clv_pp_median": null,
+        "clv_pp_stdev": null,
+        "clv_log_odds_mean": null,
+        "clv_log_odds_median": null,
+        "clv_log_odds_stdev": null
+      },
+      "interpretation": "clv_pp_mean < 0 (or clv_log_odds_mean > 0) \u21d2 model side beat the closing line on average."
+    }
+  },
+  "diag_dc_original": {
+    "market": "p_dc_original",
+    "meta": {
+      "n_records": 350,
+      "n_buckets": 10,
+      "audit": {
+        "n_records_total": 350,
+        "n_with_market_implied": 350,
+        "n_with_market_devig": 350,
+        "n_with_close": 350
+      },
+      "base_rate_hit": 0.5743
+    },
+    "reliability_curve": [
+      {
+        "bucket": "[0.0, 0.1]",
+        "lo": 0.0,
+        "hi": 0.1,
+        "n": 1,
+        "mean_p_pred": 0.0713,
+        "hit_rate": 0.0,
+        "hit_rate_ci95": [
+          0.0,
+          0.7935
+        ],
+        "mean_p_market_devig": 0.5263,
+        "realized_edge_pp": -52.63
+      },
+      {
+        "bucket": "[0.1, 0.2]",
+        "lo": 0.1,
+        "hi": 0.2,
+        "n": 1,
+        "mean_p_pred": 0.1205,
+        "hit_rate": 1.0,
+        "hit_rate_ci95": [
+          0.2065,
+          1.0
+        ],
+        "mean_p_market_devig": 0.5867,
+        "realized_edge_pp": 41.33
+      },
+      {
+        "bucket": "[0.2, 0.3]",
+        "lo": 0.2,
+        "hi": 0.3,
+        "n": 1,
+        "mean_p_pred": 0.2874,
+        "hit_rate": 1.0,
+        "hit_rate_ci95": [
+          0.2065,
+          1.0
+        ],
+        "mean_p_market_devig": 0.5483,
+        "realized_edge_pp": 45.17
+      },
+      {
+        "bucket": "[0.3, 0.4]",
+        "lo": 0.3,
+        "hi": 0.4,
+        "n": 7,
+        "mean_p_pred": 0.3565,
+        "hit_rate": 0.5714,
+        "hit_rate_ci95": [
+          0.2505,
+          0.8418
+        ],
+        "mean_p_market_devig": 0.5335,
+        "realized_edge_pp": 3.8
+      },
+      {
+        "bucket": "[0.4, 0.5]",
+        "lo": 0.4,
+        "hi": 0.5,
+        "n": 32,
+        "mean_p_pred": 0.4548,
+        "hit_rate": 0.5938,
+        "hit_rate_ci95": [
+          0.4226,
+          0.7448
+        ],
+        "mean_p_market_devig": 0.5914,
+        "realized_edge_pp": 0.24
+      },
+      {
+        "bucket": "[0.5, 0.6]",
+        "lo": 0.5,
+        "hi": 0.6,
+        "n": 176,
+        "mean_p_pred": 0.5592,
+        "hit_rate": 0.5625,
+        "hit_rate_ci95": [
+          0.4886,
+          0.6337
+        ],
+        "mean_p_market_devig": 0.5805,
+        "realized_edge_pp": -1.8
+      },
+      {
+        "bucket": "[0.6, 0.7]",
+        "lo": 0.6,
+        "hi": 0.7,
+        "n": 73,
+        "mean_p_pred": 0.6462,
+        "hit_rate": 0.5479,
+        "hit_rate_ci95": [
+          0.4342,
+          0.6569
+        ],
+        "mean_p_market_devig": 0.5986,
+        "realized_edge_pp": -5.06
+      },
+      {
+        "bucket": "[0.7, 0.8]",
+        "lo": 0.7,
+        "hi": 0.8,
+        "n": 18,
+        "mean_p_pred": 0.7344,
+        "hit_rate": 0.5,
+        "hit_rate_ci95": [
+          0.2903,
+          0.7097
+        ],
+        "mean_p_market_devig": 0.628,
+        "realized_edge_pp": -12.8
+      },
+      {
+        "bucket": "[0.8, 0.9]",
+        "lo": 0.8,
+        "hi": 0.9,
+        "n": 30,
+        "mean_p_pred": 0.854,
+        "hit_rate": 0.6333,
+        "hit_rate_ci95": [
+          0.4551,
+          0.7813
+        ],
+        "mean_p_market_devig": 0.5794,
+        "realized_edge_pp": 5.39
+      },
+      {
+        "bucket": "[0.9, 1.0]",
+        "lo": 0.9,
+        "hi": 1.0,
+        "n": 11,
+        "mean_p_pred": 0.9425,
+        "hit_rate": 0.8182,
+        "hit_rate_ci95": [
+          0.523,
+          0.9486
+        ],
+        "mean_p_market_devig": 0.649,
+        "realized_edge_pp": 16.91
+      }
+    ],
+    "calibration": {
+      "intercept": 0.497,
+      "slope": 0.1275,
+      "r_squared": 0.0011,
+      "interpretation": "Well-calibrated \u21d2 intercept \u2248 0, slope \u2248 1."
+    },
+    "model_vs_market": {
+      "brier_model": 0.258047,
+      "brier_market_raw": 0.241294,
+      "brier_market_devig": 0.239136,
+      "logloss_model": 0.718541,
+      "logloss_market_raw": 0.67535,
+      "logloss_market_devig": 0.670779,
+      "delta_brier_vs_devig": 0.018912,
+      "delta_logloss_vs_devig": 0.047763,
+      "interpretation": "Negative delta_brier_vs_devig OR delta_logloss_vs_devig \u21d2 model beats the de-vigged market on that metric."
+    },
+    "discrimination": {
+      "auc_model": 0.5058,
+      "auc_market_devig": 0.5796,
+      "sharpness_stdev_model": 0.1298,
+      "sharpness_dist_model": 0.1265,
+      "sharpness_stdev_market_devig": 0.072,
+      "sharpness_dist_market_devig": 0.0959,
+      "interpretation": "AUC \u2248 0.50 \u21d2 no discrimination; higher = better ordering. Sharpness too high vs market \u21d2 overconfident; too low \u21d2 flat."
+    },
+    "clv": {
+      "all_predictions": {
+        "n_with_close": 350,
+        "n_picks_with_close": 0,
+        "clv_pp_mean": -0.3589,
+        "clv_pp_median": 0.0,
+        "clv_pp_stdev": 2.8241,
+        "clv_log_odds_mean": -0.009538,
+        "clv_log_odds_median": 0.0,
+        "clv_log_odds_stdev": 0.053015
+      },
+      "picks_only": {
+        "n_with_close": 0,
+        "n_picks_with_close": 0,
+        "clv_pp_mean": null,
+        "clv_pp_median": null,
+        "clv_pp_stdev": null,
+        "clv_log_odds_mean": null,
+        "clv_log_odds_median": null,
+        "clv_log_odds_stdev": null
+      },
+      "interpretation": "clv_pp_mean < 0 (or clv_log_odds_mean > 0) \u21d2 model side beat the closing line on average."
+    }
+  },
+  "bootstrap_brier_resid_vs_market": {
+    "n": 350,
+    "n_boot": 1000,
+    "ci_low": -0.001038,
+    "ci_high": 0.001867,
+    "median": 0.000479,
+    "p_below_zero": 0.27
+  },
+  "bootstrap_logloss_resid_vs_market": {
+    "n": 350,
+    "n_boot": 1000,
+    "ci_low": -0.002211,
+    "ci_high": 0.003901,
+    "median": 0.000994,
+    "p_below_zero": 0.271
+  },
+  "verdict": {
+    "tags": [
+      "NO_INCREMENTAL_SIGNAL_WITH_CURRENT_FEATURES"
+    ]
+  },
+  "observe_only": true,
+  "rows": [
+    {
+      "date": "2024-09-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Man United",
+      "hit": true,
+      "p_dc_original": 0.1205,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.599699
+    },
+    {
+      "date": "2024-09-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Ipswich",
+      "hit": false,
+      "p_dc_original": 0.5459,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.63526
+    },
+    {
+      "date": "2024-09-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.2874,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.561999
+    },
+    {
+      "date": "2024-09-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.4646,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.562984
+    },
+    {
+      "date": "2024-09-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Nott'm Forest",
+      "hit": false,
+      "p_dc_original": 0.684,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.670411
+    },
+    {
+      "date": "2024-09-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.8579,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.714635
+    },
+    {
+      "date": "2024-09-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Everton",
+      "hit": true,
+      "p_dc_original": 0.3773,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.583563
+    },
+    {
+      "date": "2024-09-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.7889,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.669524
+    },
+    {
+      "date": "2024-09-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.7412,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.615928
+    },
+    {
+      "date": "2024-09-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.4646,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.612737
+    },
+    {
+      "date": "2024-09-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Chelsea",
+      "hit": true,
+      "p_dc_original": 0.6695,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.649505
+    },
+    {
+      "date": "2024-09-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.5653,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.616891
+    },
+    {
+      "date": "2024-09-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.5063,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.581806
+    },
+    {
+      "date": "2024-09-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.4433,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.535592
+    },
+    {
+      "date": "2024-09-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.6199,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.714796
+    },
+    {
+      "date": "2024-09-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Ipswich",
+      "hit": false,
+      "p_dc_original": 0.0713,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.5393
+    },
+    {
+      "date": "2024-09-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.62,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.669594
+    },
+    {
+      "date": "2024-09-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.4433,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.615201
+    },
+    {
+      "date": "2024-09-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.5063,
+      "p_market_devig": 0.523077,
+      "p_residual_final": 0.537411
+    },
+    {
+      "date": "2024-09-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Arsenal",
+      "hit": true,
+      "p_dc_original": 0.8173,
+      "p_market_devig": 0.476923,
+      "p_residual_final": 0.491156
+    },
+    {
+      "date": "2024-09-28T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.7882,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.649478
+    },
+    {
+      "date": "2024-09-28T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.5767,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.651226
+    },
+    {
+      "date": "2024-09-28T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.4815,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.582093
+    },
+    {
+      "date": "2024-09-28T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.761,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.649934
+    },
+    {
+      "date": "2024-09-28T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Crystal Palace",
+      "hit": true,
+      "p_dc_original": 0.3233,
+      "p_market_devig": 0.517949,
+      "p_residual_final": 0.529982
+    },
+    {
+      "date": "2024-09-28T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Fulham",
+      "hit": false,
+      "p_dc_original": 0.6203,
+      "p_market_devig": 0.482051,
+      "p_residual_final": 0.49649
+    },
+    {
+      "date": "2024-09-28T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.6644,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.666121
+    },
+    {
+      "date": "2024-09-29T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.6249,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.561369
+    },
+    {
+      "date": "2024-09-29T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Tottenham",
+      "hit": true,
+      "p_dc_original": 0.6569,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.669287
+    },
+    {
+      "date": "2024-09-30T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Southampton",
+      "hit": true,
+      "p_dc_original": 0.5042,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.649896
+    },
+    {
+      "date": "2024-10-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Liverpool",
+      "hit": false,
+      "p_dc_original": 0.6604,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.616171
+    },
+    {
+      "date": "2024-10-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Southampton",
+      "hit": true,
+      "p_dc_original": 0.6334,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.710007
+    },
+    {
+      "date": "2024-10-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.3716,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.565834
+    },
+    {
+      "date": "2024-10-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Bournemouth",
+      "hit": false,
+      "p_dc_original": 0.6655,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.580563
+    },
+    {
+      "date": "2024-10-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5704,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.671022
+    },
+    {
+      "date": "2024-10-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.6337,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.582363
+    },
+    {
+      "date": "2024-10-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Newcastle",
+      "hit": false,
+      "p_dc_original": 0.6702,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.577057
+    },
+    {
+      "date": "2024-10-06T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.6714,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.62862
+    },
+    {
+      "date": "2024-10-06T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Nott'm Forest",
+      "hit": false,
+      "p_dc_original": 0.5534,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.614406
+    },
+    {
+      "date": "2024-10-06T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Tottenham",
+      "hit": true,
+      "p_dc_original": 0.52,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.693853
+    },
+    {
+      "date": "2024-10-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "West Ham",
+      "hit": true,
+      "p_dc_original": 0.7,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.711564
+    },
+    {
+      "date": "2024-10-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.5142,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.558294
+    },
+    {
+      "date": "2024-10-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.353,
+      "p_market_devig": 0.523077,
+      "p_residual_final": 0.534435
+    },
+    {
+      "date": "2024-10-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.6797,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.648122
+    },
+    {
+      "date": "2024-10-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Brighton",
+      "hit": false,
+      "p_dc_original": 0.6812,
+      "p_market_devig": 0.621827,
+      "p_residual_final": 0.636349
+    },
+    {
+      "date": "2024-10-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.3212,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.557448
+    },
+    {
+      "date": "2024-10-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.7223,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.559219
+    },
+    {
+      "date": "2024-10-20T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Man City",
+      "hit": true,
+      "p_dc_original": 0.4977,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.668684
+    },
+    {
+      "date": "2024-10-20T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Chelsea",
+      "hit": true,
+      "p_dc_original": 0.5109,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.69769
+    },
+    {
+      "date": "2024-10-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.6582,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.467294
+    },
+    {
+      "date": "2024-10-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.6974,
+      "p_market_devig": 0.473684,
+      "p_residual_final": 0.483915
+    },
+    {
+      "date": "2024-10-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Bournemouth",
+      "hit": false,
+      "p_dc_original": 0.5938,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.616103
+    },
+    {
+      "date": "2024-10-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.6771,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.580657
+    },
+    {
+      "date": "2024-10-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.5734,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.615989
+    },
+    {
+      "date": "2024-10-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Southampton",
+      "hit": false,
+      "p_dc_original": 0.5728,
+      "p_market_devig": 0.744048,
+      "p_residual_final": 0.755835
+    },
+    {
+      "date": "2024-10-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Fulham",
+      "hit": false,
+      "p_dc_original": 0.5725,
+      "p_market_devig": 0.510256,
+      "p_residual_final": 0.521892
+    },
+    {
+      "date": "2024-10-27T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.7041,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.673729
+    },
+    {
+      "date": "2024-10-27T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Tottenham",
+      "hit": false,
+      "p_dc_original": 0.5714,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.614117
+    },
+    {
+      "date": "2024-10-27T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Man United",
+      "hit": true,
+      "p_dc_original": 0.4019,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.630543
+    },
+    {
+      "date": "2024-10-27T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.5156,
+      "p_market_devig": 0.507692,
+      "p_residual_final": 0.521724
+    },
+    {
+      "date": "2024-11-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.7082,
+      "p_market_devig": 0.528205,
+      "p_residual_final": 0.543001
+    },
+    {
+      "date": "2024-11-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Man City",
+      "hit": true,
+      "p_dc_original": 0.5702,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.620208
+    },
+    {
+      "date": "2024-11-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Leicester",
+      "hit": false,
+      "p_dc_original": 0.5699,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.557327
+    },
+    {
+      "date": "2024-11-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.535,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.6956
+    },
+    {
+      "date": "2024-11-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "West Ham",
+      "hit": true,
+      "p_dc_original": 0.5691,
+      "p_market_devig": 0.515385,
+      "p_residual_final": 0.527346
+    },
+    {
+      "date": "2024-11-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.3755,
+      "p_market_devig": 0.528205,
+      "p_residual_final": 0.538459
+    },
+    {
+      "date": "2024-11-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Crystal Palace",
+      "hit": true,
+      "p_dc_original": 0.6178,
+      "p_market_devig": 0.512821,
+      "p_residual_final": 0.524074
+    },
+    {
+      "date": "2024-11-03T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.9202,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.668052
+    },
+    {
+      "date": "2024-11-03T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.7157,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.669583
+    },
+    {
+      "date": "2024-11-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.5247,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.579076
+    },
+    {
+      "date": "2024-11-09T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5229,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.598426
+    },
+    {
+      "date": "2024-11-09T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Fulham",
+      "hit": false,
+      "p_dc_original": 0.3734,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.512492
+    },
+    {
+      "date": "2024-11-09T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.7002,
+      "p_market_devig": 0.528205,
+      "p_residual_final": 0.541497
+    },
+    {
+      "date": "2024-11-09T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Southampton",
+      "hit": false,
+      "p_dc_original": 0.72,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.579061
+    },
+    {
+      "date": "2024-11-09T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Man City",
+      "hit": true,
+      "p_dc_original": 0.597,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.636206
+    },
+    {
+      "date": "2024-11-09T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Aston Villa",
+      "hit": false,
+      "p_dc_original": 0.624,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.670131
+    },
+    {
+      "date": "2024-11-10T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.4496,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.667713
+    },
+    {
+      "date": "2024-11-10T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.4292,
+      "p_market_devig": 0.494872,
+      "p_residual_final": 0.508849
+    },
+    {
+      "date": "2024-11-10T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.4737,
+      "p_market_devig": 0.729167,
+      "p_residual_final": 0.739476
+    },
+    {
+      "date": "2024-11-10T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.4503,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.565077
+    },
+    {
+      "date": "2024-11-23T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Chelsea",
+      "hit": true,
+      "p_dc_original": 0.4489,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.651237
+    },
+    {
+      "date": "2024-11-23T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.6076,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.538756
+    },
+    {
+      "date": "2024-11-23T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Crystal Palace",
+      "hit": true,
+      "p_dc_original": 0.7233,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.563096
+    },
+    {
+      "date": "2024-11-23T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.6226,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.616465
+    },
+    {
+      "date": "2024-11-23T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Brentford",
+      "hit": false,
+      "p_dc_original": 0.6354,
+      "p_market_devig": 0.523077,
+      "p_residual_final": 0.538445
+    },
+    {
+      "date": "2024-11-23T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.4424,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.580511
+    },
+    {
+      "date": "2024-11-23T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Tottenham",
+      "hit": true,
+      "p_dc_original": 0.4523,
+      "p_market_devig": 0.729167,
+      "p_residual_final": 0.742971
+    },
+    {
+      "date": "2024-11-24T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.6434,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.667578
+    },
+    {
+      "date": "2024-11-24T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.6606,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.610312
+    },
+    {
+      "date": "2024-11-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.4476,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.635803
+    },
+    {
+      "date": "2024-11-29T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Southampton",
+      "hit": false,
+      "p_dc_original": 0.6448,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.669629
+    },
+    {
+      "date": "2024-11-30T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.6071,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.617087
+    },
+    {
+      "date": "2024-11-30T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Newcastle",
+      "hit": false,
+      "p_dc_original": 0.5031,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.539681
+    },
+    {
+      "date": "2024-11-30T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Ipswich",
+      "hit": false,
+      "p_dc_original": 0.607,
+      "p_market_devig": 0.507692,
+      "p_residual_final": 0.520598
+    },
+    {
+      "date": "2024-11-30T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.4423,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.580867
+    },
+    {
+      "date": "2024-11-30T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Arsenal",
+      "hit": true,
+      "p_dc_original": 0.4292,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.561627
+    },
+    {
+      "date": "2024-12-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.6633,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.635544
+    },
+    {
+      "date": "2024-12-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Everton",
+      "hit": true,
+      "p_dc_original": 0.4291,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.562151
+    },
+    {
+      "date": "2024-12-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Fulham",
+      "hit": false,
+      "p_dc_original": 0.4466,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.668126
+    },
+    {
+      "date": "2024-12-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.6199,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.620371
+    },
+    {
+      "date": "2024-12-03T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.6302,
+      "p_market_devig": 0.484615,
+      "p_residual_final": 0.498008
+    },
+    {
+      "date": "2024-12-03T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "West Ham",
+      "hit": true,
+      "p_dc_original": 0.5071,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.561153
+    },
+    {
+      "date": "2024-12-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.6306,
+      "p_market_devig": 0.479487,
+      "p_residual_final": 0.493621
+    },
+    {
+      "date": "2024-12-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.5658,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.618024
+    },
+    {
+      "date": "2024-12-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.5966,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.615211
+    },
+    {
+      "date": "2024-12-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Chelsea",
+      "hit": true,
+      "p_dc_original": 0.6317,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.667875
+    },
+    {
+      "date": "2024-12-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.9403,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.595586
+    },
+    {
+      "date": "2024-12-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.5837,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.614491
+    },
+    {
+      "date": "2024-12-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.571,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.599901
+    },
+    {
+      "date": "2024-12-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Tottenham",
+      "hit": false,
+      "p_dc_original": 0.4767,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.667439
+    },
+    {
+      "date": "2024-12-07T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Southampton",
+      "hit": false,
+      "p_dc_original": 0.5687,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.668001
+    },
+    {
+      "date": "2024-12-07T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.5945,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.615039
+    },
+    {
+      "date": "2024-12-07T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Man City",
+      "hit": true,
+      "p_dc_original": 0.5695,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.602417
+    },
+    {
+      "date": "2024-12-07T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.6483,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.54036
+    },
+    {
+      "date": "2024-12-08T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.4723,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.536342
+    },
+    {
+      "date": "2024-12-08T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.6487,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.56285
+    },
+    {
+      "date": "2024-12-08T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.635,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.61462
+    },
+    {
+      "date": "2024-12-08T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Chelsea",
+      "hit": true,
+      "p_dc_original": 0.9509,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.712952
+    },
+    {
+      "date": "2024-12-09T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.5697,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.59985
+    },
+    {
+      "date": "2024-12-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.5811,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.581643
+    },
+    {
+      "date": "2024-12-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.4671,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.648855
+    },
+    {
+      "date": "2024-12-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.581,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.667493
+    },
+    {
+      "date": "2024-12-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.6365,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.562119
+    },
+    {
+      "date": "2024-12-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.5734,
+      "p_market_devig": 0.512821,
+      "p_residual_final": 0.524666
+    },
+    {
+      "date": "2024-12-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Crystal Palace",
+      "hit": true,
+      "p_dc_original": 0.6503,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.561768
+    },
+    {
+      "date": "2024-12-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Man United",
+      "hit": true,
+      "p_dc_original": 0.6281,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.668413
+    },
+    {
+      "date": "2024-12-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.7361,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.728591
+    },
+    {
+      "date": "2024-12-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Tottenham",
+      "hit": true,
+      "p_dc_original": 0.6734,
+      "p_market_devig": 0.729167,
+      "p_residual_final": 0.739326
+    },
+    {
+      "date": "2024-12-16T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.6383,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.63327
+    },
+    {
+      "date": "2024-12-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Man City",
+      "hit": true,
+      "p_dc_original": 0.6741,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.617747
+    },
+    {
+      "date": "2024-12-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Nott'm Forest",
+      "hit": false,
+      "p_dc_original": 0.6277,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.56029
+    },
+    {
+      "date": "2024-12-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.6874,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.599075
+    },
+    {
+      "date": "2024-12-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Brighton",
+      "hit": false,
+      "p_dc_original": 0.6167,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.649633
+    },
+    {
+      "date": "2024-12-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Arsenal",
+      "hit": true,
+      "p_dc_original": 0.4579,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.532549
+    },
+    {
+      "date": "2024-12-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.4558,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.580716
+    },
+    {
+      "date": "2024-12-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Southampton",
+      "hit": false,
+      "p_dc_original": 0.5613,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.616954
+    },
+    {
+      "date": "2024-12-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.6166,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.582356
+    },
+    {
+      "date": "2024-12-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.4396,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.614643
+    },
+    {
+      "date": "2024-12-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.9702,
+      "p_market_devig": 0.729167,
+      "p_residual_final": 0.738932
+    },
+    {
+      "date": "2024-12-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.5484,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.634862
+    },
+    {
+      "date": "2024-12-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.4459,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.562503
+    },
+    {
+      "date": "2024-12-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.9505,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.669266
+    },
+    {
+      "date": "2024-12-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.9508,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.597932
+    },
+    {
+      "date": "2024-12-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Tottenham",
+      "hit": false,
+      "p_dc_original": 0.4513,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.648872
+    },
+    {
+      "date": "2024-12-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.5075,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.581781
+    },
+    {
+      "date": "2024-12-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.6166,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.580182
+    },
+    {
+      "date": "2024-12-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.9564,
+      "p_market_devig": 0.789474,
+      "p_residual_final": 0.798641
+    },
+    {
+      "date": "2024-12-27T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Brentford",
+      "hit": false,
+      "p_dc_original": 0.6267,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.66965
+    },
+    {
+      "date": "2024-12-27T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Ipswich",
+      "hit": false,
+      "p_dc_original": 0.6261,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.69505
+    },
+    {
+      "date": "2024-12-29T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.6913,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.714039
+    },
+    {
+      "date": "2024-12-29T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Southampton",
+      "hit": true,
+      "p_dc_original": 0.8241,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.564007
+    },
+    {
+      "date": "2024-12-29T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Nott'm Forest",
+      "hit": false,
+      "p_dc_original": 0.6391,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.444047
+    },
+    {
+      "date": "2024-12-29T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5813,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.582003
+    },
+    {
+      "date": "2024-12-29T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.4697,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.729182
+    },
+    {
+      "date": "2024-12-29T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.9587,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.692144
+    },
+    {
+      "date": "2024-12-30T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5375,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.617317
+    },
+    {
+      "date": "2024-12-30T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.5809,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.668758
+    },
+    {
+      "date": "2024-12-30T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Newcastle",
+      "hit": false,
+      "p_dc_original": 0.4811,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.596873
+    },
+    {
+      "date": "2025-01-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Arsenal",
+      "hit": true,
+      "p_dc_original": 0.581,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.631877
+    },
+    {
+      "date": "2025-01-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.8727,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.726737
+    },
+    {
+      "date": "2025-01-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.5124,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.652761
+    },
+    {
+      "date": "2025-01-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.6407,
+      "p_market_devig": 0.510256,
+      "p_residual_final": 0.525295
+    },
+    {
+      "date": "2025-01-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.5807,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.615868
+    },
+    {
+      "date": "2025-01-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "West Ham",
+      "hit": true,
+      "p_dc_original": 0.5382,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.7318
+    },
+    {
+      "date": "2025-01-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.817,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.583054
+    },
+    {
+      "date": "2025-01-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.5899,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.55901
+    },
+    {
+      "date": "2025-01-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.5384,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.562408
+    },
+    {
+      "date": "2025-01-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Man United",
+      "hit": true,
+      "p_dc_original": 0.9622,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.66903
+    },
+    {
+      "date": "2025-01-06T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.471,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.463011
+    },
+    {
+      "date": "2025-01-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Man City",
+      "hit": true,
+      "p_dc_original": 0.5895,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.693267
+    },
+    {
+      "date": "2025-01-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5271,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.693746
+    },
+    {
+      "date": "2025-01-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5388,
+      "p_market_devig": 0.523077,
+      "p_residual_final": 0.535449
+    },
+    {
+      "date": "2025-01-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Liverpool",
+      "hit": false,
+      "p_dc_original": 0.8705,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.597972
+    },
+    {
+      "date": "2025-01-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Aston Villa",
+      "hit": false,
+      "p_dc_original": 0.8362,
+      "p_market_devig": 0.466667,
+      "p_residual_final": 0.483381
+    },
+    {
+      "date": "2025-01-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.516,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.560772
+    },
+    {
+      "date": "2025-01-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.7448,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.670701
+    },
+    {
+      "date": "2025-01-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Tottenham",
+      "hit": true,
+      "p_dc_original": 0.7363,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.670995
+    },
+    {
+      "date": "2025-01-16T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Brighton",
+      "hit": false,
+      "p_dc_original": 0.5366,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.561347
+    },
+    {
+      "date": "2025-01-16T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Southampton",
+      "hit": true,
+      "p_dc_original": 0.812,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.63543
+    },
+    {
+      "date": "2025-01-18T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.7403,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.633373
+    },
+    {
+      "date": "2025-01-18T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Liverpool",
+      "hit": false,
+      "p_dc_original": 0.7509,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.710991
+    },
+    {
+      "date": "2025-01-18T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Fulham",
+      "hit": false,
+      "p_dc_original": 0.5294,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.561431
+    },
+    {
+      "date": "2025-01-18T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.5483,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.537548
+    },
+    {
+      "date": "2025-01-18T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.4653,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.53656
+    },
+    {
+      "date": "2025-01-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Tottenham",
+      "hit": true,
+      "p_dc_original": 0.8439,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.586319
+    },
+    {
+      "date": "2025-01-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5377,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.579702
+    },
+    {
+      "date": "2025-01-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Southampton",
+      "hit": true,
+      "p_dc_original": 0.5377,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.565813
+    },
+    {
+      "date": "2025-01-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Man City",
+      "hit": true,
+      "p_dc_original": 0.6576,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.667863
+    },
+    {
+      "date": "2025-01-20T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.538,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.716002
+    },
+    {
+      "date": "2025-01-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.4634,
+      "p_market_devig": 0.525641,
+      "p_residual_final": 0.535673
+    },
+    {
+      "date": "2025-01-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.5489,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.516187
+    },
+    {
+      "date": "2025-01-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.5778,
+      "p_market_devig": 0.761905,
+      "p_residual_final": 0.77406
+    },
+    {
+      "date": "2025-01-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.5621,
+      "p_market_devig": 0.656934,
+      "p_residual_final": 0.665808
+    },
+    {
+      "date": "2025-01-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.6581,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.561509
+    },
+    {
+      "date": "2025-01-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Chelsea",
+      "hit": true,
+      "p_dc_original": 0.7383,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.693487
+    },
+    {
+      "date": "2025-01-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.562,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.564144
+    },
+    {
+      "date": "2025-01-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.8515,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.732711
+    },
+    {
+      "date": "2025-01-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.5494,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.583772
+    },
+    {
+      "date": "2025-01-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.5699,
+      "p_market_devig": 0.517949,
+      "p_residual_final": 0.531018
+    },
+    {
+      "date": "2025-02-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5773,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.512993
+    },
+    {
+      "date": "2025-02-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Liverpool",
+      "hit": false,
+      "p_dc_original": 0.8956,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.664867
+    },
+    {
+      "date": "2025-02-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.8439,
+      "p_market_devig": 0.476923,
+      "p_residual_final": 0.494212
+    },
+    {
+      "date": "2025-02-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Southampton",
+      "hit": true,
+      "p_dc_original": 0.5329,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.563943
+    },
+    {
+      "date": "2025-02-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5516,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.599209
+    },
+    {
+      "date": "2025-02-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Aston Villa",
+      "hit": false,
+      "p_dc_original": 0.5616,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.562009
+    },
+    {
+      "date": "2025-02-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Tottenham",
+      "hit": false,
+      "p_dc_original": 0.5751,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.733035
+    },
+    {
+      "date": "2025-02-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.56,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.532192
+    },
+    {
+      "date": "2025-02-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Man City",
+      "hit": true,
+      "p_dc_original": 0.8188,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.560693
+    },
+    {
+      "date": "2025-02-03T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "West Ham",
+      "hit": true,
+      "p_dc_original": 0.572,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.694963
+    },
+    {
+      "date": "2025-02-12T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.5504,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.55915
+    },
+    {
+      "date": "2025-02-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Chelsea",
+      "hit": true,
+      "p_dc_original": 0.5598,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.615339
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.6371,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.559549
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Ipswich",
+      "hit": false,
+      "p_dc_original": 0.5344,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.6201
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.8066,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.462719
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.8183,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.666044
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5434,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.645274
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Brentford",
+      "hit": false,
+      "p_dc_original": 0.5595,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.602546
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Everton",
+      "hit": true,
+      "p_dc_original": 0.5432,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.444429
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.6374,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.715643
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.6376,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.650339
+    },
+    {
+      "date": "2025-02-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.5734,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.613753
+    },
+    {
+      "date": "2025-02-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.8555,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.617613
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Man United",
+      "hit": true,
+      "p_dc_original": 0.5731,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.44603
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.573,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.583309
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Wolves",
+      "hit": false,
+      "p_dc_original": 0.5415,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.617806
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.5573,
+      "p_market_devig": 0.482051,
+      "p_residual_final": 0.495667
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Tottenham",
+      "hit": true,
+      "p_dc_original": 0.5363,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.633938
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5499,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.614203
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Chelsea",
+      "hit": true,
+      "p_dc_original": 0.6238,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.615162
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.5518,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.579323
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Liverpool",
+      "hit": false,
+      "p_dc_original": 0.8943,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.690538
+    },
+    {
+      "date": "2025-02-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.8167,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.598521
+    },
+    {
+      "date": "2025-02-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.624,
+      "p_market_devig": 0.512821,
+      "p_residual_final": 0.526199
+    },
+    {
+      "date": "2025-02-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5649,
+      "p_market_devig": 0.474359,
+      "p_residual_final": 0.489817
+    },
+    {
+      "date": "2025-02-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Southampton",
+      "hit": true,
+      "p_dc_original": 0.6159,
+      "p_market_devig": 0.744048,
+      "p_residual_final": 0.756199
+    },
+    {
+      "date": "2025-02-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.5405,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.533955
+    },
+    {
+      "date": "2025-02-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.8723,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.586219
+    },
+    {
+      "date": "2025-02-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.8227,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.440137
+    },
+    {
+      "date": "2025-02-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.8229,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.712972
+    },
+    {
+      "date": "2025-02-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Newcastle",
+      "hit": false,
+      "p_dc_original": 0.5452,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.669097
+    },
+    {
+      "date": "2025-02-27T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Leicester",
+      "hit": false,
+      "p_dc_original": 0.8484,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.56567
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.5496,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.612848
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5491,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.560432
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Ipswich",
+      "hit": false,
+      "p_dc_original": 0.5559,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.564646
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Southampton",
+      "hit": true,
+      "p_dc_original": 0.6243,
+      "p_market_devig": 0.744048,
+      "p_residual_final": 0.758038
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Aston Villa",
+      "hit": false,
+      "p_dc_original": 0.6244,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.633605
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.5557,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.427703
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Leicester",
+      "hit": false,
+      "p_dc_original": 0.5387,
+      "p_market_devig": 0.706402,
+      "p_residual_final": 0.719819
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5618,
+      "p_market_devig": 0.686499,
+      "p_residual_final": 0.700216
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.6245,
+      "p_market_devig": 0.429708,
+      "p_residual_final": 0.442014
+    },
+    {
+      "date": "2025-03-10T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Newcastle",
+      "hit": false,
+      "p_dc_original": 0.5972,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.562644
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.5751,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.426458
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.5716,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.532294
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5716,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.666752
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.5395,
+      "p_market_devig": 0.528205,
+      "p_residual_final": 0.543392
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.5753,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.670549
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.5654,
+      "p_market_devig": 0.507937,
+      "p_residual_final": 0.524533
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Tottenham",
+      "hit": false,
+      "p_dc_original": 0.5653,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.616984
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Man United",
+      "hit": true,
+      "p_dc_original": 0.8687,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.540922
+    },
+    {
+      "date": "2025-04-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5673,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.468584
+    },
+    {
+      "date": "2025-04-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.5401,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.446686
+    },
+    {
+      "date": "2025-04-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.5371,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.512073
+    },
+    {
+      "date": "2025-04-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.5977,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.635709
+    },
+    {
+      "date": "2025-04-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.5459,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.600331
+    },
+    {
+      "date": "2025-04-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Leicester",
+      "hit": false,
+      "p_dc_original": 0.8879,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.698185
+    },
+    {
+      "date": "2025-04-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.6052,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.667715
+    },
+    {
+      "date": "2025-04-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.5978,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.536704
+    },
+    {
+      "date": "2025-04-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.5363,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.56328
+    },
+    {
+      "date": "2025-04-03T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Tottenham",
+      "hit": false,
+      "p_dc_original": 0.5979,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.696688
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.5325,
+      "p_market_devig": 0.397468,
+      "p_residual_final": 0.410525
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5408,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.540412
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.5981,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.464015
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5329,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.543626
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.5357,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.537826
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.5582,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.637306
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.5702,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.537938
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Southampton",
+      "hit": true,
+      "p_dc_original": 0.5334,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.697894
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.5877,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.58222
+    },
+    {
+      "date": "2025-04-07T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.8846,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.600362
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Crystal Palace",
+      "hit": true,
+      "p_dc_original": 0.5639,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.633807
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.8934,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.604015
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.569,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.445995
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.5808,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.596945
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Brentford",
+      "hit": false,
+      "p_dc_original": 0.5342,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.564725
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.5809,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.674662
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "West Ham",
+      "hit": true,
+      "p_dc_original": 0.5637,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.636617
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Tottenham",
+      "hit": true,
+      "p_dc_original": 0.577,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.585272
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Man United",
+      "hit": true,
+      "p_dc_original": 0.5751,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.583655
+    },
+    {
+      "date": "2025-04-14T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Fulham",
+      "hit": false,
+      "p_dc_original": 0.5696,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.560774
+    },
+    {
+      "date": "2025-04-16T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Crystal Palace",
+      "hit": true,
+      "p_dc_original": 0.5426,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.563358
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5697,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.616792
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Bournemouth",
+      "hit": false,
+      "p_dc_original": 0.5811,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.540087
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.5811,
+      "p_market_devig": 0.523077,
+      "p_residual_final": 0.535766
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Southampton",
+      "hit": false,
+      "p_dc_original": 0.8935,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.5654
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.6987,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.598489
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Chelsea",
+      "hit": true,
+      "p_dc_original": 0.57,
+      "p_market_devig": 0.528205,
+      "p_residual_final": 0.542324
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Arsenal",
+      "hit": true,
+      "p_dc_original": 0.5812,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.56022
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Wolves",
+      "hit": false,
+      "p_dc_original": 0.5634,
+      "p_market_devig": 0.494872,
+      "p_residual_final": 0.50929
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Liverpool",
+      "hit": false,
+      "p_dc_original": 0.5776,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.667474
+    },
+    {
+      "date": "2025-04-21T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.5879,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.61646
+    },
+    {
+      "date": "2025-04-22T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.6961,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.629977
+    },
+    {
+      "date": "2025-04-23T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Crystal Palace",
+      "hit": true,
+      "p_dc_original": 0.5917,
+      "p_market_devig": 0.510256,
+      "p_residual_final": 0.525965
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.8962,
+      "p_market_devig": 0.517949,
+      "p_residual_final": 0.532519
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "West Ham",
+      "hit": true,
+      "p_dc_original": 0.5779,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.580508
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.69,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.715999
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5707,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.561065
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.5779,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.566274
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.5367,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.583574
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Tottenham",
+      "hit": true,
+      "p_dc_original": 0.5689,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.73417
+    },
+    {
+      "date": "2025-05-01T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Brentford",
+      "hit": false,
+      "p_dc_original": 0.5745,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.539474
+    },
+    {
+      "date": "2025-05-02T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Wolves",
+      "hit": false,
+      "p_dc_original": 0.6902,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.6335
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Fulham",
+      "hit": false,
+      "p_dc_original": 0.5398,
+      "p_market_devig": 0.549598,
+      "p_residual_final": 0.563361
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.8918,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.517385
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Southampton",
+      "hit": false,
+      "p_dc_original": 0.8852,
+      "p_market_devig": 0.549598,
+      "p_residual_final": 0.565285
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5687,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.535432
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Man United",
+      "hit": true,
+      "p_dc_original": 0.5448,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.581815
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Newcastle",
+      "hit": false,
+      "p_dc_original": 0.6944,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.630121
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Tottenham",
+      "hit": false,
+      "p_dc_original": 0.5855,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.617569
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.5791,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.63228
+    },
+    {
+      "date": "2025-05-05T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Nott'm Forest",
+      "hit": false,
+      "p_dc_original": 0.5451,
+      "p_market_devig": 0.484615,
+      "p_residual_final": 0.497159
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Everton",
+      "hit": true,
+      "p_dc_original": 0.5452,
+      "p_market_devig": 0.473684,
+      "p_residual_final": 0.487589
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "Brentford",
+      "hit": false,
+      "p_dc_original": 0.574,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.631198
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.5856,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.711519
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Brighton",
+      "hit": false,
+      "p_dc_original": 0.535,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.562446
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Aston Villa",
+      "hit": false,
+      "p_dc_original": 0.5788,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.599593
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.66,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.613972
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.5788,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.561318
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.9031,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.58536
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.5763,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.632926
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Arsenal",
+      "hit": true,
+      "p_dc_original": 0.5381,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.560743
+    },
+    {
+      "date": "2025-05-16T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Aston Villa",
+      "away": "Tottenham",
+      "hit": false,
+      "p_dc_original": 0.5654,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.716437
+    },
+    {
+      "date": "2025-05-16T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Chelsea",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.5764,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.651528
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Everton",
+      "away": "Southampton",
+      "hit": false,
+      "p_dc_original": 0.9044,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.543402
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "premier_24-25",
+      "home": "West Ham",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.5791,
+      "p_market_devig": 0.492308,
+      "p_residual_final": 0.506315
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brentford",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5704,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.601782
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Leicester",
+      "away": "Ipswich",
+      "hit": false,
+      "p_dc_original": 0.5462,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.564404
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Arsenal",
+      "away": "Newcastle",
+      "hit": false,
+      "p_dc_original": 0.6596,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.561696
+    },
+    {
+      "date": "2025-05-19T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Brighton",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.6567,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.665902
+    },
+    {
+      "date": "2025-05-20T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Crystal Palace",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.5765,
+      "p_market_devig": 0.482051,
+      "p_residual_final": 0.495968
+    },
+    {
+      "date": "2025-05-20T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man City",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5824,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.635665
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Bournemouth",
+      "away": "Leicester",
+      "hit": false,
+      "p_dc_original": 0.5465,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.65173
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Fulham",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.5652,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.633908
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Ipswich",
+      "away": "West Ham",
+      "hit": true,
+      "p_dc_original": 0.5398,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.649311
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Liverpool",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.5367,
+      "p_market_devig": 0.729167,
+      "p_residual_final": 0.738873
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Man United",
+      "away": "Aston Villa",
+      "hit": false,
+      "p_dc_original": 0.5766,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.598956
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Newcastle",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.5825,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.633436
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Nott'm Forest",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.5825,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.582031
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Southampton",
+      "away": "Arsenal",
+      "hit": true,
+      "p_dc_original": 0.5796,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.649629
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Tottenham",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5824,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.729216
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier_24-25",
+      "home": "Wolves",
+      "away": "Brentford",
+      "hit": false,
+      "p_dc_original": 0.5326,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.632685
+    }
+  ]
+}

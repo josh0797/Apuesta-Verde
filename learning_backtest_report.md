@@ -1,6 +1,6 @@
 # Learning Backtest Report — Sprint A · Football Pilot
 
-_Generated: 2026-06-18T02:55:14.239673+00:00_
+_Generated: 2026-06-18T04:17:46.326504+00:00_
 
 
 ## Scope

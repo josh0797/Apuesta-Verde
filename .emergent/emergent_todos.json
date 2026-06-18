@@ -1,38 +1,50 @@
 [
   {
-    "content": "G1: Inspeccionar el output de run_backtest",
+    "content": "H1: Eliminar segunda instancia duplicada de MarketComparatorPanel",
     "status": "completed"
   },
   {
-    "content": "G2: Crear services/football_calibration_diagnostics.py",
+    "content": "H2: Auto-fill + input editable para detected_price cuando no viene del pick",
     "status": "completed"
   },
   {
-    "content": "G3: Extender engine — predictions[] en modo with-odds + campos market_implied_raw/devig + odd_open/close",
+    "content": "H3: Vista readonly del payload + MISSING_* específicos",
     "status": "completed"
   },
   {
-    "content": "G4: Script run_d7_calibration_diagnostics.py + 9 reportes generados",
+    "content": "H4/H5: Screenshot UI + discovery 365Scores game_id documentado",
     "status": "completed"
   },
   {
-    "content": "G5: Endpoints GET /api/football/diagnostics/calibration[/index]",
+    "content": "I1: services/football_goal_xg_overperformance.py (PIT-safe, fail-soft)",
     "status": "completed"
   },
   {
-    "content": "G6: Panel UI CalibrationDiagnosticsPanel.jsx + página /diagnostics/calibration",
+    "content": "I2: services/football_residual_model.py (offset logistic regression, L2)",
     "status": "completed"
   },
   {
-    "content": "G7: 16 tests verde (incluyen los 4 escenarios de la rúbrica + endpoints)",
+    "content": "I3: Integración con engine + 3 series persistidas (p_dc_original/p_market_devig/p_residual_final)",
     "status": "completed"
   },
   {
-    "content": "G8: pytest backend completo → 3666 passing, 0 regresiones",
+    "content": "I4: Script run_d9_residual_backtest.py con walk-forward + bootstrap delta",
     "status": "completed"
   },
   {
-    "content": "G9: Entregar diagnóstico al usuario + interpretación usando su rúbrica",
+    "content": "I5: 11 tests verde — PIT discipline + signal learning + identity fallback + serialisation",
+    "status": "completed"
+  },
+  {
+    "content": "I6: Reportes generados (top5_2425 + premier_multiseason)",
+    "status": "completed"
+  },
+  {
+    "content": "I7: pytest backend → 3677 passing, 0 regresiones",
+    "status": "completed"
+  },
+  {
+    "content": "I8: Veredicto entregado",
     "status": "in_progress"
   }
 ]

@@ -187,26 +187,12 @@ export function FootballMarketTraceDetail({ trace, testIdPrefix, matchId, candid
           />
         )}
 
-        {/* Sprint E.3 / Fix 2 — Manual comparator. Independent panel
-            (collapsed by default) that lets the operator paste any
-            number of bookmaker odds and see implied + edge vs the
-            model's probability. observe_only — never mutates the
-            pick. Precarga ``initialModelProbPct`` desde el trace si
-            existe, dejándolo editable. */}
-        {matchId && (
-          <MarketComparatorPanel
-            matchId={matchId}
-            homeName={homeName}
-            awayName={awayName}
-            initialModelProbPct={
-              trace?.estimated_probability != null
-                ? Number(trace.estimated_probability)
-                : null
-            }
-            initialMarketTypeFromPick={trace?.market_code || null}
-            testIdPrefix={`${testIdPrefix}-comparator`}
-          />
-        )}
+        {/* Sprint E.3 / Fix 2 — REMOVED duplicate MarketComparatorPanel
+            here (D10 fix). The canonical comparator instance lives in
+            FootballMarketAuditPanel (the outer wrapper) and is always
+            rendered when matchId is present, including in the
+            AMBIGUOUS branch. Rendering it twice caused the visual
+            duplication reported by the user. */}
       </div>
     );
   }

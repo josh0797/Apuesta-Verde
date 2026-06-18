@@ -1,0 +1,7202 @@
+{
+  "scope": "top5_2425",
+  "market": "OVER_2_5",
+  "n_holdout": 644,
+  "lambda_l2": 2.0,
+  "feature_names": [
+    "elo_home",
+    "elo_away",
+    "xg_home_l5",
+    "xg_away_l5",
+    "goal_avg_against_home",
+    "goal_avg_against_away",
+    "goal_minus_xg_home_l15",
+    "goal_minus_xg_away_l15"
+  ],
+  "train_audit": {
+    "la_liga": {
+      "n_train": 209,
+      "n_holdout": 140,
+      "reason_code": "CONVERGED",
+      "n_iter_used": 50,
+      "final_loss": 0.658888,
+      "weights": [
+        -0.0091,
+        -0.0015,
+        -0.0188,
+        -0.0046,
+        0.0074,
+        0.0036,
+        -0.0099,
+        -0.0044
+      ],
+      "bias": 0.0681,
+      "train_brier_model": 0.232936,
+      "train_brier_market": 0.234163,
+      "delta_train_brier": -0.001228
+    },
+    "ligue_1": {
+      "n_train": 167,
+      "n_holdout": 112,
+      "reason_code": "CONVERGED",
+      "n_iter_used": 19,
+      "final_loss": 0.667607,
+      "weights": [
+        -0.0074,
+        0.0084,
+        -0.0173,
+        -0.0267,
+        0.0077,
+        0.009,
+        -0.0112,
+        -0.0124
+      ],
+      "bias": 0.0152,
+      "train_brier_model": 0.236729,
+      "train_brier_market": 0.238426,
+      "delta_train_brier": -0.001697
+    },
+    "premier": {
+      "n_train": 210,
+      "n_holdout": 140,
+      "reason_code": "CONVERGED",
+      "n_iter_used": 39,
+      "final_loss": 0.648818,
+      "weights": [
+        0.0113,
+        -0.0051,
+        0.0069,
+        -0.0134,
+        -0.0017,
+        -0.0066,
+        -0.0093,
+        -0.0189
+      ],
+      "bias": 0.0451,
+      "train_brier_model": 0.228225,
+      "train_brier_market": 0.229349,
+      "delta_train_brier": -0.001124
+    },
+    "serie_a": {
+      "n_train": 210,
+      "n_holdout": 140,
+      "reason_code": "CONVERGED",
+      "n_iter_used": 73,
+      "final_loss": 0.674321,
+      "weights": [
+        -0.0006,
+        -0.0003,
+        0.0174,
+        -0.0303,
+        0.0019,
+        -0.0169,
+        -0.0034,
+        -0.0215
+      ],
+      "bias": 0.1453,
+      "train_brier_model": 0.239756,
+      "train_brier_market": 0.243595,
+      "delta_train_brier": -0.003838
+    },
+    "bundesliga": {
+      "n_train": 167,
+      "n_holdout": 112,
+      "reason_code": "CONVERGED",
+      "n_iter_used": 16,
+      "final_loss": 0.639991,
+      "weights": [
+        0.0235,
+        -0.0025,
+        0.0112,
+        0.01,
+        -0.0055,
+        0.0044,
+        -0.0273,
+        0.0113
+      ],
+      "bias": 0.0027,
+      "train_brier_model": 0.223667,
+      "train_brier_market": 0.22534,
+      "delta_train_brier": -0.001673
+    }
+  },
+  "diag_residual": {
+    "market": "p_residual_final",
+    "meta": {
+      "n_records": 644,
+      "n_buckets": 10,
+      "audit": {
+        "n_records_total": 644,
+        "n_with_market_implied": 644,
+        "n_with_market_devig": 644,
+        "n_with_close": 644
+      },
+      "base_rate_hit": 0.5047
+    },
+    "reliability_curve": [
+      {
+        "bucket": "[0.0, 0.1]",
+        "lo": 0.0,
+        "hi": 0.1,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.1, 0.2]",
+        "lo": 0.1,
+        "hi": 0.2,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.2, 0.3]",
+        "lo": 0.2,
+        "hi": 0.3,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.3, 0.4]",
+        "lo": 0.3,
+        "hi": 0.4,
+        "n": 28,
+        "mean_p_pred": 0.3703,
+        "hit_rate": 0.3571,
+        "hit_rate_ci95": [
+          0.2071,
+          0.5417
+        ],
+        "mean_p_market_devig": 0.35,
+        "realized_edge_pp": 0.72
+      },
+      {
+        "bucket": "[0.4, 0.5]",
+        "lo": 0.4,
+        "hi": 0.5,
+        "n": 168,
+        "mean_p_pred": 0.4626,
+        "hit_rate": 0.4286,
+        "hit_rate_ci95": [
+          0.3562,
+          0.5042
+        ],
+        "mean_p_market_devig": 0.441,
+        "realized_edge_pp": -1.25
+      },
+      {
+        "bucket": "[0.5, 0.6]",
+        "lo": 0.5,
+        "hi": 0.6,
+        "n": 265,
+        "mean_p_pred": 0.5506,
+        "hit_rate": 0.4868,
+        "hit_rate_ci95": [
+          0.4272,
+          0.5467
+        ],
+        "mean_p_market_devig": 0.5355,
+        "realized_edge_pp": -4.87
+      },
+      {
+        "bucket": "[0.6, 0.7]",
+        "lo": 0.6,
+        "hi": 0.7,
+        "n": 145,
+        "mean_p_pred": 0.6398,
+        "hit_rate": 0.5931,
+        "hit_rate_ci95": [
+          0.5117,
+          0.6697
+        ],
+        "mean_p_market_devig": 0.6312,
+        "realized_edge_pp": -3.81
+      },
+      {
+        "bucket": "[0.7, 0.8]",
+        "lo": 0.7,
+        "hi": 0.8,
+        "n": 36,
+        "mean_p_pred": 0.7315,
+        "hit_rate": 0.75,
+        "hit_rate_ci95": [
+          0.5893,
+          0.8625
+        ],
+        "mean_p_market_devig": 0.7218,
+        "realized_edge_pp": 2.82
+      },
+      {
+        "bucket": "[0.8, 0.9]",
+        "lo": 0.8,
+        "hi": 0.9,
+        "n": 2,
+        "mean_p_pred": 0.8308,
+        "hit_rate": 0.5,
+        "hit_rate_ci95": [
+          0.0945,
+          0.9055
+        ],
+        "mean_p_market_devig": 0.8193,
+        "realized_edge_pp": -31.93
+      },
+      {
+        "bucket": "[0.9, 1.0]",
+        "lo": 0.9,
+        "hi": 1.0,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      }
+    ],
+    "calibration": {
+      "intercept": -0.0258,
+      "slope": 0.963,
+      "r_squared": 0.0296,
+      "interpretation": "Well-calibrated \u21d2 intercept \u2248 0, slope \u2248 1."
+    },
+    "model_vs_market": {
+      "brier_model": 0.244716,
+      "brier_market_raw": 0.244555,
+      "brier_market_devig": 0.242216,
+      "logloss_model": 0.68262,
+      "logloss_market_raw": 0.682491,
+      "logloss_market_devig": 0.67741,
+      "delta_brier_vs_devig": 0.0025,
+      "delta_logloss_vs_devig": 0.00521,
+      "interpretation": "Negative delta_brier_vs_devig OR delta_logloss_vs_devig \u21d2 model beats the de-vigged market on that metric."
+    },
+    "discrimination": {
+      "auc_model": 0.599,
+      "auc_market_devig": 0.6081,
+      "sharpness_stdev_model": 0.0895,
+      "sharpness_dist_model": 0.0817,
+      "sharpness_stdev_market_devig": 0.0951,
+      "sharpness_dist_market_devig": 0.0818,
+      "interpretation": "AUC \u2248 0.50 \u21d2 no discrimination; higher = better ordering. Sharpness too high vs market \u21d2 overconfident; too low \u21d2 flat."
+    },
+    "clv": {
+      "all_predictions": {
+        "n_with_close": 644,
+        "n_picks_with_close": 0,
+        "clv_pp_mean": 0.1121,
+        "clv_pp_median": 0.0,
+        "clv_pp_stdev": 3.2682,
+        "clv_log_odds_mean": -0.001062,
+        "clv_log_odds_median": 0.0,
+        "clv_log_odds_stdev": 0.067463
+      },
+      "picks_only": {
+        "n_with_close": 0,
+        "n_picks_with_close": 0,
+        "clv_pp_mean": null,
+        "clv_pp_median": null,
+        "clv_pp_stdev": null,
+        "clv_log_odds_mean": null,
+        "clv_log_odds_median": null,
+        "clv_log_odds_stdev": null
+      },
+      "interpretation": "clv_pp_mean < 0 (or clv_log_odds_mean > 0) \u21d2 model side beat the closing line on average."
+    }
+  },
+  "diag_market_devig": {
+    "market": "p_market_devig",
+    "meta": {
+      "n_records": 644,
+      "n_buckets": 10,
+      "audit": {
+        "n_records_total": 644,
+        "n_with_market_implied": 644,
+        "n_with_market_devig": 644,
+        "n_with_close": 644
+      },
+      "base_rate_hit": 0.5047
+    },
+    "reliability_curve": [
+      {
+        "bucket": "[0.0, 0.1]",
+        "lo": 0.0,
+        "hi": 0.1,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.1, 0.2]",
+        "lo": 0.1,
+        "hi": 0.2,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.2, 0.3]",
+        "lo": 0.2,
+        "hi": 0.3,
+        "n": 2,
+        "mean_p_pred": 0.2897,
+        "hit_rate": 0.5,
+        "hit_rate_ci95": [
+          0.0945,
+          0.9055
+        ],
+        "mean_p_market_devig": 0.2897,
+        "realized_edge_pp": 21.03
+      },
+      {
+        "bucket": "[0.3, 0.4]",
+        "lo": 0.3,
+        "hi": 0.4,
+        "n": 46,
+        "mean_p_pred": 0.3698,
+        "hit_rate": 0.3696,
+        "hit_rate_ci95": [
+          0.2452,
+          0.514
+        ],
+        "mean_p_market_devig": 0.3698,
+        "realized_edge_pp": -0.02
+      },
+      {
+        "bucket": "[0.4, 0.5]",
+        "lo": 0.4,
+        "hi": 0.5,
+        "n": 188,
+        "mean_p_pred": 0.455,
+        "hit_rate": 0.4309,
+        "hit_rate_ci95": [
+          0.3621,
+          0.5023
+        ],
+        "mean_p_market_devig": 0.455,
+        "realized_edge_pp": -2.41
+      },
+      {
+        "bucket": "[0.5, 0.6]",
+        "lo": 0.5,
+        "hi": 0.6,
+        "n": 229,
+        "mean_p_pred": 0.5452,
+        "hit_rate": 0.5022,
+        "hit_rate_ci95": [
+          0.4379,
+          0.5664
+        ],
+        "mean_p_market_devig": 0.5452,
+        "realized_edge_pp": -4.3
+      },
+      {
+        "bucket": "[0.6, 0.7]",
+        "lo": 0.6,
+        "hi": 0.7,
+        "n": 140,
+        "mean_p_pred": 0.6329,
+        "hit_rate": 0.5929,
+        "hit_rate_ci95": [
+          0.51,
+          0.6707
+        ],
+        "mean_p_market_devig": 0.6329,
+        "realized_edge_pp": -4.0
+      },
+      {
+        "bucket": "[0.7, 0.8]",
+        "lo": 0.7,
+        "hi": 0.8,
+        "n": 37,
+        "mean_p_pred": 0.7229,
+        "hit_rate": 0.7297,
+        "hit_rate_ci95": [
+          0.5702,
+          0.846
+        ],
+        "mean_p_market_devig": 0.7229,
+        "realized_edge_pp": 0.69
+      },
+      {
+        "bucket": "[0.8, 0.9]",
+        "lo": 0.8,
+        "hi": 0.9,
+        "n": 2,
+        "mean_p_pred": 0.8193,
+        "hit_rate": 0.5,
+        "hit_rate_ci95": [
+          0.0945,
+          0.9055
+        ],
+        "mean_p_market_devig": 0.8193,
+        "realized_edge_pp": -31.93
+      },
+      {
+        "bucket": "[0.9, 1.0]",
+        "lo": 0.9,
+        "hi": 1.0,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      }
+    ],
+    "calibration": {
+      "intercept": -0.0217,
+      "slope": 0.9827,
+      "r_squared": 0.0349,
+      "interpretation": "Well-calibrated \u21d2 intercept \u2248 0, slope \u2248 1."
+    },
+    "model_vs_market": {
+      "brier_model": 0.242216,
+      "brier_market_raw": 0.244555,
+      "brier_market_devig": 0.242216,
+      "logloss_model": 0.67741,
+      "logloss_market_raw": 0.682491,
+      "logloss_market_devig": 0.67741,
+      "delta_brier_vs_devig": 0.0,
+      "delta_logloss_vs_devig": 0.0,
+      "interpretation": "Negative delta_brier_vs_devig OR delta_logloss_vs_devig \u21d2 model beats the de-vigged market on that metric."
+    },
+    "discrimination": {
+      "auc_model": 0.6081,
+      "auc_market_devig": 0.6081,
+      "sharpness_stdev_model": 0.0951,
+      "sharpness_dist_model": 0.0818,
+      "sharpness_stdev_market_devig": 0.0951,
+      "sharpness_dist_market_devig": 0.0818,
+      "interpretation": "AUC \u2248 0.50 \u21d2 no discrimination; higher = better ordering. Sharpness too high vs market \u21d2 overconfident; too low \u21d2 flat."
+    },
+    "clv": {
+      "all_predictions": {
+        "n_with_close": 644,
+        "n_picks_with_close": 0,
+        "clv_pp_mean": 0.1121,
+        "clv_pp_median": 0.0,
+        "clv_pp_stdev": 3.2682,
+        "clv_log_odds_mean": -0.001062,
+        "clv_log_odds_median": 0.0,
+        "clv_log_odds_stdev": 0.067463
+      },
+      "picks_only": {
+        "n_with_close": 0,
+        "n_picks_with_close": 0,
+        "clv_pp_mean": null,
+        "clv_pp_median": null,
+        "clv_pp_stdev": null,
+        "clv_log_odds_mean": null,
+        "clv_log_odds_median": null,
+        "clv_log_odds_stdev": null
+      },
+      "interpretation": "clv_pp_mean < 0 (or clv_log_odds_mean > 0) \u21d2 model side beat the closing line on average."
+    }
+  },
+  "diag_dc_original": {
+    "market": "p_dc_original",
+    "meta": {
+      "n_records": 644,
+      "n_buckets": 10,
+      "audit": {
+        "n_records_total": 644,
+        "n_with_market_implied": 644,
+        "n_with_market_devig": 644,
+        "n_with_close": 644
+      },
+      "base_rate_hit": 0.5047
+    },
+    "reliability_curve": [
+      {
+        "bucket": "[0.0, 0.1]",
+        "lo": 0.0,
+        "hi": 0.1,
+        "n": 5,
+        "mean_p_pred": 0.0514,
+        "hit_rate": 0.2,
+        "hit_rate_ci95": [
+          0.0362,
+          0.6245
+        ],
+        "mean_p_market_devig": 0.513,
+        "realized_edge_pp": -31.3
+      },
+      {
+        "bucket": "[0.1, 0.2]",
+        "lo": 0.1,
+        "hi": 0.2,
+        "n": 0,
+        "mean_p_pred": null,
+        "hit_rate": null,
+        "hit_rate_ci95": [
+          null,
+          null
+        ],
+        "mean_p_market_devig": null,
+        "realized_edge_pp": null
+      },
+      {
+        "bucket": "[0.2, 0.3]",
+        "lo": 0.2,
+        "hi": 0.3,
+        "n": 15,
+        "mean_p_pred": 0.2637,
+        "hit_rate": 0.4,
+        "hit_rate_ci95": [
+          0.1982,
+          0.6425
+        ],
+        "mean_p_market_devig": 0.4876,
+        "realized_edge_pp": -8.76
+      },
+      {
+        "bucket": "[0.3, 0.4]",
+        "lo": 0.3,
+        "hi": 0.4,
+        "n": 13,
+        "mean_p_pred": 0.3664,
+        "hit_rate": 0.5385,
+        "hit_rate_ci95": [
+          0.2914,
+          0.7679
+        ],
+        "mean_p_market_devig": 0.5195,
+        "realized_edge_pp": 1.9
+      },
+      {
+        "bucket": "[0.4, 0.5]",
+        "lo": 0.4,
+        "hi": 0.5,
+        "n": 145,
+        "mean_p_pred": 0.4692,
+        "hit_rate": 0.5103,
+        "hit_rate_ci95": [
+          0.4298,
+          0.5904
+        ],
+        "mean_p_market_devig": 0.4785,
+        "realized_edge_pp": 3.18
+      },
+      {
+        "bucket": "[0.5, 0.6]",
+        "lo": 0.5,
+        "hi": 0.6,
+        "n": 283,
+        "mean_p_pred": 0.5522,
+        "hit_rate": 0.5018,
+        "hit_rate_ci95": [
+          0.4439,
+          0.5596
+        ],
+        "mean_p_market_devig": 0.5532,
+        "realized_edge_pp": -5.15
+      },
+      {
+        "bucket": "[0.6, 0.7]",
+        "lo": 0.6,
+        "hi": 0.7,
+        "n": 81,
+        "mean_p_pred": 0.6405,
+        "hit_rate": 0.4938,
+        "hit_rate_ci95": [
+          0.3877,
+          0.6005
+        ],
+        "mean_p_market_devig": 0.5677,
+        "realized_edge_pp": -7.39
+      },
+      {
+        "bucket": "[0.7, 0.8]",
+        "lo": 0.7,
+        "hi": 0.8,
+        "n": 36,
+        "mean_p_pred": 0.7496,
+        "hit_rate": 0.5278,
+        "hit_rate_ci95": [
+          0.3701,
+          0.6801
+        ],
+        "mean_p_market_devig": 0.5307,
+        "realized_edge_pp": -0.29
+      },
+      {
+        "bucket": "[0.8, 0.9]",
+        "lo": 0.8,
+        "hi": 0.9,
+        "n": 40,
+        "mean_p_pred": 0.8478,
+        "hit_rate": 0.45,
+        "hit_rate_ci95": [
+          0.3071,
+          0.6017
+        ],
+        "mean_p_market_devig": 0.5167,
+        "realized_edge_pp": -6.67
+      },
+      {
+        "bucket": "[0.9, 1.0]",
+        "lo": 0.9,
+        "hi": 1.0,
+        "n": 26,
+        "mean_p_pred": 0.9674,
+        "hit_rate": 0.6923,
+        "hit_rate_ci95": [
+          0.5001,
+          0.835
+        ],
+        "mean_p_market_devig": 0.639,
+        "realized_edge_pp": 5.33
+      }
+    ],
+    "calibration": {
+      "intercept": 0.4033,
+      "slope": 0.1759,
+      "r_squared": 0.0027,
+      "interpretation": "Well-calibrated \u21d2 intercept \u2248 0, slope \u2248 1."
+    },
+    "model_vs_market": {
+      "brier_model": 0.269296,
+      "brier_market_raw": 0.244555,
+      "brier_market_devig": 0.242216,
+      "logloss_model": 0.75587,
+      "logloss_market_raw": 0.682491,
+      "logloss_market_devig": 0.67741,
+      "delta_brier_vs_devig": 0.02708,
+      "delta_logloss_vs_devig": 0.07846,
+      "interpretation": "Negative delta_brier_vs_devig OR delta_logloss_vs_devig \u21d2 model beats the de-vigged market on that metric."
+    },
+    "discrimination": {
+      "auc_model": 0.5184,
+      "auc_market_devig": 0.6081,
+      "sharpness_stdev_model": 0.148,
+      "sharpness_dist_model": 0.1136,
+      "sharpness_stdev_market_devig": 0.0951,
+      "sharpness_dist_market_devig": 0.0818,
+      "interpretation": "AUC \u2248 0.50 \u21d2 no discrimination; higher = better ordering. Sharpness too high vs market \u21d2 overconfident; too low \u21d2 flat."
+    },
+    "clv": {
+      "all_predictions": {
+        "n_with_close": 644,
+        "n_picks_with_close": 0,
+        "clv_pp_mean": 0.1121,
+        "clv_pp_median": 0.0,
+        "clv_pp_stdev": 3.2682,
+        "clv_log_odds_mean": -0.001062,
+        "clv_log_odds_median": 0.0,
+        "clv_log_odds_stdev": 0.067463
+      },
+      "picks_only": {
+        "n_with_close": 0,
+        "n_picks_with_close": 0,
+        "clv_pp_mean": null,
+        "clv_pp_median": null,
+        "clv_pp_stdev": null,
+        "clv_log_odds_mean": null,
+        "clv_log_odds_median": null,
+        "clv_log_odds_stdev": null
+      },
+      "interpretation": "clv_pp_mean < 0 (or clv_log_odds_mean > 0) \u21d2 model side beat the closing line on average."
+    }
+  },
+  "bootstrap_brier_resid_vs_market": {
+    "n": 644,
+    "n_boot": 1000,
+    "ci_low": 0.000738,
+    "ci_high": 0.004188,
+    "median": 0.002503,
+    "p_below_zero": 0.002
+  },
+  "bootstrap_logloss_resid_vs_market": {
+    "n": 644,
+    "n_boot": 1000,
+    "ci_low": 0.001573,
+    "ci_high": 0.008657,
+    "median": 0.005232,
+    "p_below_zero": 0.003
+  },
+  "verdict": {
+    "tags": [
+      "RESIDUAL_IMPROVES_CALIBRATION_ONLY"
+    ]
+  },
+  "observe_only": true,
+  "rows": [
+    {
+      "date": "2025-02-21T00:00:00",
+      "competition": "la_liga",
+      "home": "Celta",
+      "away": "Osasuna",
+      "hit": false,
+      "p_dc_original": 0.5238,
+      "p_market_devig": 0.489744,
+      "p_residual_final": 0.507701
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "la_liga",
+      "home": "Alaves",
+      "away": "Espanol",
+      "hit": false,
+      "p_dc_original": 0.5238,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.381351
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "la_liga",
+      "home": "Vallecano",
+      "away": "Villarreal",
+      "hit": false,
+      "p_dc_original": 0.544,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.538638
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "la_liga",
+      "home": "Valencia",
+      "away": "Ath Madrid",
+      "hit": true,
+      "p_dc_original": 0.3909,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.448931
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "la_liga",
+      "home": "Las Palmas",
+      "away": "Barcelona",
+      "hit": false,
+      "p_dc_original": 0.5493,
+      "p_market_devig": 0.729167,
+      "p_residual_final": 0.746074
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Bilbao",
+      "away": "Valladolid",
+      "hit": true,
+      "p_dc_original": 0.5218,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.600665
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "la_liga",
+      "home": "Real Madrid",
+      "away": "Girona",
+      "hit": false,
+      "p_dc_original": 0.5325,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.689835
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "la_liga",
+      "home": "Getafe",
+      "away": "Betis",
+      "hit": true,
+      "p_dc_original": 0.5301,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.373776
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "la_liga",
+      "home": "Sociedad",
+      "away": "Leganes",
+      "hit": true,
+      "p_dc_original": 0.4469,
+      "p_market_devig": 0.379653,
+      "p_residual_final": 0.405687
+    },
+    {
+      "date": "2025-02-24T00:00:00",
+      "competition": "la_liga",
+      "home": "Sevilla",
+      "away": "Mallorca",
+      "hit": false,
+      "p_dc_original": 0.3904,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.377975
+    },
+    {
+      "date": "2025-02-28T00:00:00",
+      "competition": "la_liga",
+      "home": "Valladolid",
+      "away": "Las Palmas",
+      "hit": false,
+      "p_dc_original": 0.2636,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.47581
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "la_liga",
+      "home": "Girona",
+      "away": "Celta",
+      "hit": true,
+      "p_dc_original": 0.3808,
+      "p_market_devig": 0.517949,
+      "p_residual_final": 0.542654
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "la_liga",
+      "home": "Vallecano",
+      "away": "Sevilla",
+      "hit": false,
+      "p_dc_original": 0.3808,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.449029
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "la_liga",
+      "home": "Betis",
+      "away": "Real Madrid",
+      "hit": true,
+      "p_dc_original": 0.5362,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.627454
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Madrid",
+      "away": "Ath Bilbao",
+      "hit": false,
+      "p_dc_original": 0.5574,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.433442
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "la_liga",
+      "home": "Leganes",
+      "away": "Getafe",
+      "hit": false,
+      "p_dc_original": 0.523,
+      "p_market_devig": 0.281184,
+      "p_residual_final": 0.302302
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "la_liga",
+      "home": "Barcelona",
+      "away": "Sociedad",
+      "hit": true,
+      "p_dc_original": 0.5562,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.600608
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "la_liga",
+      "home": "Mallorca",
+      "away": "Alaves",
+      "hit": false,
+      "p_dc_original": 0.4936,
+      "p_market_devig": 0.318182,
+      "p_residual_final": 0.336826
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "la_liga",
+      "home": "Osasuna",
+      "away": "Valencia",
+      "hit": true,
+      "p_dc_original": 0.4122,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.43476
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "la_liga",
+      "home": "Celta",
+      "away": "Leganes",
+      "hit": true,
+      "p_dc_original": 0.4214,
+      "p_market_devig": 0.473684,
+      "p_residual_final": 0.490633
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "la_liga",
+      "home": "Alaves",
+      "away": "Villarreal",
+      "hit": false,
+      "p_dc_original": 0.502,
+      "p_market_devig": 0.473684,
+      "p_residual_final": 0.495514
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "la_liga",
+      "home": "Valencia",
+      "away": "Valladolid",
+      "hit": true,
+      "p_dc_original": 0.4121,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.475877
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "la_liga",
+      "home": "Getafe",
+      "away": "Ath Madrid",
+      "hit": true,
+      "p_dc_original": 0.4212,
+      "p_market_devig": 0.343066,
+      "p_residual_final": 0.35892
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "la_liga",
+      "home": "Real Madrid",
+      "away": "Vallecano",
+      "hit": true,
+      "p_dc_original": 0.4591,
+      "p_market_devig": 0.602597,
+      "p_residual_final": 0.615392
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Bilbao",
+      "away": "Mallorca",
+      "hit": false,
+      "p_dc_original": 0.5458,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.431906
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "la_liga",
+      "home": "Betis",
+      "away": "Las Palmas",
+      "hit": false,
+      "p_dc_original": 0.521,
+      "p_market_devig": 0.549598,
+      "p_residual_final": 0.560386
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "la_liga",
+      "home": "Sociedad",
+      "away": "Sevilla",
+      "hit": false,
+      "p_dc_original": 0.4936,
+      "p_market_devig": 0.397468,
+      "p_residual_final": 0.417441
+    },
+    {
+      "date": "2025-03-10T00:00:00",
+      "competition": "la_liga",
+      "home": "Espanol",
+      "away": "Girona",
+      "hit": false,
+      "p_dc_original": 0.5043,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.45252
+    },
+    {
+      "date": "2025-03-14T00:00:00",
+      "competition": "la_liga",
+      "home": "Las Palmas",
+      "away": "Alaves",
+      "hit": true,
+      "p_dc_original": 0.4598,
+      "p_market_devig": 0.379653,
+      "p_residual_final": 0.408005
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "la_liga",
+      "home": "Valladolid",
+      "away": "Celta",
+      "hit": false,
+      "p_dc_original": 0.4209,
+      "p_market_devig": 0.489744,
+      "p_residual_final": 0.523937
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "la_liga",
+      "home": "Mallorca",
+      "away": "Espanol",
+      "hit": true,
+      "p_dc_original": 0.4209,
+      "p_market_devig": 0.379653,
+      "p_residual_final": 0.393244
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "la_liga",
+      "home": "Villarreal",
+      "away": "Real Madrid",
+      "hit": true,
+      "p_dc_original": 0.5276,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.644472
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "la_liga",
+      "home": "Girona",
+      "away": "Valencia",
+      "hit": false,
+      "p_dc_original": 0.4208,
+      "p_market_devig": 0.473684,
+      "p_residual_final": 0.500272
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "la_liga",
+      "home": "Leganes",
+      "away": "Betis",
+      "hit": true,
+      "p_dc_original": 0.5205,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.454909
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "la_liga",
+      "home": "Sevilla",
+      "away": "Ath Bilbao",
+      "hit": false,
+      "p_dc_original": 0.5493,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.422698
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "la_liga",
+      "home": "Osasuna",
+      "away": "Getafe",
+      "hit": true,
+      "p_dc_original": 0.4933,
+      "p_market_devig": 0.298246,
+      "p_residual_final": 0.312569
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "la_liga",
+      "home": "Vallecano",
+      "away": "Sociedad",
+      "hit": true,
+      "p_dc_original": 0.4609,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.385374
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Madrid",
+      "away": "Barcelona",
+      "hit": true,
+      "p_dc_original": 0.5441,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.607524
+    },
+    {
+      "date": "2025-03-27T00:00:00",
+      "competition": "la_liga",
+      "home": "Barcelona",
+      "away": "Osasuna",
+      "hit": true,
+      "p_dc_original": 0.552,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.71625
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "la_liga",
+      "home": "Sociedad",
+      "away": "Valladolid",
+      "hit": true,
+      "p_dc_original": 0.4613,
+      "p_market_devig": 0.473684,
+      "p_residual_final": 0.50269
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "la_liga",
+      "home": "Espanol",
+      "away": "Ath Madrid",
+      "hit": false,
+      "p_dc_original": 0.4932,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.451203
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "la_liga",
+      "home": "Alaves",
+      "away": "Vallecano",
+      "hit": false,
+      "p_dc_original": 0.4623,
+      "p_market_devig": 0.343675,
+      "p_residual_final": 0.361258
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "la_liga",
+      "home": "Real Madrid",
+      "away": "Leganes",
+      "hit": true,
+      "p_dc_original": 0.5199,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.710751
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "la_liga",
+      "home": "Getafe",
+      "away": "Villarreal",
+      "hit": true,
+      "p_dc_original": 0.4709,
+      "p_market_devig": 0.397468,
+      "p_residual_final": 0.41162
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "la_liga",
+      "home": "Barcelona",
+      "away": "Girona",
+      "hit": true,
+      "p_dc_original": 0.5426,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.715941
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Bilbao",
+      "away": "Osasuna",
+      "hit": false,
+      "p_dc_original": 0.5197,
+      "p_market_devig": 0.484615,
+      "p_residual_final": 0.491382
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "la_liga",
+      "home": "Valencia",
+      "away": "Mallorca",
+      "hit": false,
+      "p_dc_original": 0.5197,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.380831
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "la_liga",
+      "home": "Betis",
+      "away": "Sevilla",
+      "hit": true,
+      "p_dc_original": 0.5376,
+      "p_market_devig": 0.476923,
+      "p_residual_final": 0.480757
+    },
+    {
+      "date": "2025-03-31T00:00:00",
+      "competition": "la_liga",
+      "home": "Celta",
+      "away": "Las Palmas",
+      "hit": false,
+      "p_dc_original": 0.4625,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.542907
+    },
+    {
+      "date": "2025-04-04T00:00:00",
+      "competition": "la_liga",
+      "home": "Vallecano",
+      "away": "Espanol",
+      "hit": true,
+      "p_dc_original": 0.4625,
+      "p_market_devig": 0.397468,
+      "p_residual_final": 0.413015
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "la_liga",
+      "home": "Girona",
+      "away": "Alaves",
+      "hit": false,
+      "p_dc_original": 0.4976,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.47854
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "la_liga",
+      "home": "Real Madrid",
+      "away": "Valencia",
+      "hit": true,
+      "p_dc_original": 0.5317,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.625773
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "la_liga",
+      "home": "Mallorca",
+      "away": "Celta",
+      "hit": true,
+      "p_dc_original": 0.4708,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.430844
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "la_liga",
+      "home": "Barcelona",
+      "away": "Betis",
+      "hit": false,
+      "p_dc_original": 0.9849,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.691014
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "la_liga",
+      "home": "Las Palmas",
+      "away": "Sociedad",
+      "hit": true,
+      "p_dc_original": 0.4626,
+      "p_market_devig": 0.397468,
+      "p_residual_final": 0.423129
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "la_liga",
+      "home": "Sevilla",
+      "away": "Ath Madrid",
+      "hit": true,
+      "p_dc_original": 0.4708,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.450768
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "la_liga",
+      "home": "Valladolid",
+      "away": "Getafe",
+      "hit": true,
+      "p_dc_original": 0.5068,
+      "p_market_devig": 0.343675,
+      "p_residual_final": 0.374375
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "la_liga",
+      "home": "Villarreal",
+      "away": "Ath Bilbao",
+      "hit": false,
+      "p_dc_original": 0.5012,
+      "p_market_devig": 0.510256,
+      "p_residual_final": 0.524554
+    },
+    {
+      "date": "2025-04-07T00:00:00",
+      "competition": "la_liga",
+      "home": "Leganes",
+      "away": "Osasuna",
+      "hit": false,
+      "p_dc_original": 0.507,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.43943
+    },
+    {
+      "date": "2025-04-11T00:00:00",
+      "competition": "la_liga",
+      "home": "Valencia",
+      "away": "Sevilla",
+      "hit": false,
+      "p_dc_original": 0.4938,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.42627
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "la_liga",
+      "home": "Sociedad",
+      "away": "Mallorca",
+      "hit": false,
+      "p_dc_original": 0.4707,
+      "p_market_devig": 0.379653,
+      "p_residual_final": 0.39723
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "la_liga",
+      "home": "Getafe",
+      "away": "Las Palmas",
+      "hit": true,
+      "p_dc_original": 0.501,
+      "p_market_devig": 0.379653,
+      "p_residual_final": 0.391194
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "la_liga",
+      "home": "Celta",
+      "away": "Espanol",
+      "hit": false,
+      "p_dc_original": 0.5249,
+      "p_market_devig": 0.469231,
+      "p_residual_final": 0.480618
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "la_liga",
+      "home": "Leganes",
+      "away": "Barcelona",
+      "hit": false,
+      "p_dc_original": 0.5546,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.670148
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "la_liga",
+      "home": "Osasuna",
+      "away": "Girona",
+      "hit": true,
+      "p_dc_original": 0.5074,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.477574
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "la_liga",
+      "home": "Alaves",
+      "away": "Real Madrid",
+      "hit": false,
+      "p_dc_original": 0.5008,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.567822
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "la_liga",
+      "home": "Betis",
+      "away": "Villarreal",
+      "hit": true,
+      "p_dc_original": 0.4948,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.557213
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Bilbao",
+      "away": "Vallecano",
+      "hit": true,
+      "p_dc_original": 0.4646,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.431335
+    },
+    {
+      "date": "2025-04-14T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Madrid",
+      "away": "Valladolid",
+      "hit": true,
+      "p_dc_original": 0.5077,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.652651
+    },
+    {
+      "date": "2025-04-18T00:00:00",
+      "competition": "la_liga",
+      "home": "Espanol",
+      "away": "Getafe",
+      "hit": false,
+      "p_dc_original": 0.5398,
+      "p_market_devig": 0.318182,
+      "p_residual_final": 0.32625
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "la_liga",
+      "home": "Vallecano",
+      "away": "Valencia",
+      "hit": false,
+      "p_dc_original": 0.4948,
+      "p_market_devig": 0.397468,
+      "p_residual_final": 0.417405
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "la_liga",
+      "home": "Barcelona",
+      "away": "Celta",
+      "hit": true,
+      "p_dc_original": 0.5393,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.700876
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "la_liga",
+      "home": "Mallorca",
+      "away": "Leganes",
+      "hit": false,
+      "p_dc_original": 0.4743,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.381191
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "la_liga",
+      "home": "Las Palmas",
+      "away": "Ath Madrid",
+      "hit": false,
+      "p_dc_original": 0.5297,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.547549
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "la_liga",
+      "home": "Valladolid",
+      "away": "Osasuna",
+      "hit": true,
+      "p_dc_original": 0.4654,
+      "p_market_devig": 0.473684,
+      "p_residual_final": 0.508614
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "la_liga",
+      "home": "Villarreal",
+      "away": "Sociedad",
+      "hit": true,
+      "p_dc_original": 0.4742,
+      "p_market_devig": 0.492308,
+      "p_residual_final": 0.508198
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "la_liga",
+      "home": "Sevilla",
+      "away": "Alaves",
+      "hit": false,
+      "p_dc_original": 0.4577,
+      "p_market_devig": 0.343675,
+      "p_residual_final": 0.367936
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "la_liga",
+      "home": "Real Madrid",
+      "away": "Ath Bilbao",
+      "hit": false,
+      "p_dc_original": 0.5015,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.554592
+    },
+    {
+      "date": "2025-04-21T00:00:00",
+      "competition": "la_liga",
+      "home": "Girona",
+      "away": "Betis",
+      "hit": true,
+      "p_dc_original": 0.4742,
+      "p_market_devig": 0.470899,
+      "p_residual_final": 0.497296
+    },
+    {
+      "date": "2025-04-22T00:00:00",
+      "competition": "la_liga",
+      "home": "Valencia",
+      "away": "Espanol",
+      "hit": false,
+      "p_dc_original": 0.5178,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.443852
+    },
+    {
+      "date": "2025-04-22T00:00:00",
+      "competition": "la_liga",
+      "home": "Barcelona",
+      "away": "Mallorca",
+      "hit": false,
+      "p_dc_original": 0.5337,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.635299
+    },
+    {
+      "date": "2025-04-23T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Bilbao",
+      "away": "Las Palmas",
+      "hit": false,
+      "p_dc_original": 0.4742,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.562895
+    },
+    {
+      "date": "2025-04-23T00:00:00",
+      "competition": "la_liga",
+      "home": "Celta",
+      "away": "Villarreal",
+      "hit": true,
+      "p_dc_original": 0.5013,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.584174
+    },
+    {
+      "date": "2025-04-23T00:00:00",
+      "competition": "la_liga",
+      "home": "Alaves",
+      "away": "Sociedad",
+      "hit": false,
+      "p_dc_original": 0.4945,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.38578
+    },
+    {
+      "date": "2025-04-23T00:00:00",
+      "competition": "la_liga",
+      "home": "Getafe",
+      "away": "Real Madrid",
+      "hit": false,
+      "p_dc_original": 0.5233,
+      "p_market_devig": 0.476923,
+      "p_residual_final": 0.490943
+    },
+    {
+      "date": "2025-04-24T00:00:00",
+      "competition": "la_liga",
+      "home": "Leganes",
+      "away": "Girona",
+      "hit": false,
+      "p_dc_original": 0.501,
+      "p_market_devig": 0.429708,
+      "p_residual_final": 0.457147
+    },
+    {
+      "date": "2025-04-24T00:00:00",
+      "competition": "la_liga",
+      "home": "Osasuna",
+      "away": "Sevilla",
+      "hit": false,
+      "p_dc_original": 0.5011,
+      "p_market_devig": 0.410995,
+      "p_residual_final": 0.43017
+    },
+    {
+      "date": "2025-04-24T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Madrid",
+      "away": "Vallecano",
+      "hit": true,
+      "p_dc_original": 0.5173,
+      "p_market_devig": 0.466667,
+      "p_residual_final": 0.48015
+    },
+    {
+      "date": "2025-04-24T00:00:00",
+      "competition": "la_liga",
+      "home": "Betis",
+      "away": "Valladolid",
+      "hit": true,
+      "p_dc_original": 0.5172,
+      "p_market_devig": 0.637717,
+      "p_residual_final": 0.649708
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "la_liga",
+      "home": "Villarreal",
+      "away": "Espanol",
+      "hit": false,
+      "p_dc_original": 0.5172,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.561024
+    },
+    {
+      "date": "2025-05-02T00:00:00",
+      "competition": "la_liga",
+      "home": "Vallecano",
+      "away": "Getafe",
+      "hit": false,
+      "p_dc_original": 0.5092,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.388199
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "la_liga",
+      "home": "Alaves",
+      "away": "Ath Madrid",
+      "hit": false,
+      "p_dc_original": 0.4805,
+      "p_market_devig": 0.379653,
+      "p_residual_final": 0.400752
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "la_liga",
+      "home": "Villarreal",
+      "away": "Osasuna",
+      "hit": true,
+      "p_dc_original": 0.4769,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.584495
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "la_liga",
+      "home": "Las Palmas",
+      "away": "Valencia",
+      "hit": true,
+      "p_dc_original": 0.4769,
+      "p_market_devig": 0.469231,
+      "p_residual_final": 0.489177
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "la_liga",
+      "home": "Valladolid",
+      "away": "Barcelona",
+      "hit": true,
+      "p_dc_original": 0.5279,
+      "p_market_devig": 0.761905,
+      "p_residual_final": 0.783546
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "la_liga",
+      "home": "Real Madrid",
+      "away": "Celta",
+      "hit": true,
+      "p_dc_original": 0.5226,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.709375
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "la_liga",
+      "home": "Sevilla",
+      "away": "Leganes",
+      "hit": true,
+      "p_dc_original": 0.4601,
+      "p_market_devig": 0.379653,
+      "p_residual_final": 0.406961
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "la_liga",
+      "home": "Espanol",
+      "away": "Betis",
+      "hit": true,
+      "p_dc_original": 0.5406,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.439412
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "la_liga",
+      "home": "Sociedad",
+      "away": "Ath Bilbao",
+      "hit": false,
+      "p_dc_original": 0.4697,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.37919
+    },
+    {
+      "date": "2025-05-05T00:00:00",
+      "competition": "la_liga",
+      "home": "Girona",
+      "away": "Mallorca",
+      "hit": false,
+      "p_dc_original": 0.4604,
+      "p_market_devig": 0.397468,
+      "p_residual_final": 0.426795
+    },
+    {
+      "date": "2025-05-09T00:00:00",
+      "competition": "la_liga",
+      "home": "Las Palmas",
+      "away": "Vallecano",
+      "hit": false,
+      "p_dc_original": 0.5098,
+      "p_market_devig": 0.465608,
+      "p_residual_final": 0.489955
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "la_liga",
+      "home": "Valencia",
+      "away": "Getafe",
+      "hit": true,
+      "p_dc_original": 0.4803,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.375722
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "la_liga",
+      "home": "Celta",
+      "away": "Sevilla",
+      "hit": true,
+      "p_dc_original": 0.4866,
+      "p_market_devig": 0.474359,
+      "p_residual_final": 0.489133
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "la_liga",
+      "home": "Girona",
+      "away": "Villarreal",
+      "hit": false,
+      "p_dc_original": 0.4803,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.625494
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "la_liga",
+      "home": "Mallorca",
+      "away": "Valladolid",
+      "hit": true,
+      "p_dc_original": 0.5026,
+      "p_market_devig": 0.487179,
+      "p_residual_final": 0.51573
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Madrid",
+      "away": "Sociedad",
+      "hit": true,
+      "p_dc_original": 0.4866,
+      "p_market_devig": 0.466667,
+      "p_residual_final": 0.474654
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "la_liga",
+      "home": "Leganes",
+      "away": "Espanol",
+      "hit": true,
+      "p_dc_original": 0.5028,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.385368
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "la_liga",
+      "home": "Barcelona",
+      "away": "Real Madrid",
+      "hit": true,
+      "p_dc_original": 0.5219,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.720397
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Bilbao",
+      "away": "Alaves",
+      "hit": false,
+      "p_dc_original": 0.4614,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.377232
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "la_liga",
+      "home": "Betis",
+      "away": "Osasuna",
+      "hit": false,
+      "p_dc_original": 0.5426,
+      "p_market_devig": 0.523077,
+      "p_residual_final": 0.524215
+    },
+    {
+      "date": "2025-05-13T00:00:00",
+      "competition": "la_liga",
+      "home": "Valladolid",
+      "away": "Girona",
+      "hit": false,
+      "p_dc_original": 0.47,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.560676
+    },
+    {
+      "date": "2025-05-13T00:00:00",
+      "competition": "la_liga",
+      "home": "Sociedad",
+      "away": "Celta",
+      "hit": false,
+      "p_dc_original": 0.48,
+      "p_market_devig": 0.474359,
+      "p_residual_final": 0.501374
+    },
+    {
+      "date": "2025-05-13T00:00:00",
+      "competition": "la_liga",
+      "home": "Sevilla",
+      "away": "Las Palmas",
+      "hit": false,
+      "p_dc_original": 0.47,
+      "p_market_devig": 0.474359,
+      "p_residual_final": 0.499136
+    },
+    {
+      "date": "2025-05-14T00:00:00",
+      "competition": "la_liga",
+      "home": "Alaves",
+      "away": "Valencia",
+      "hit": false,
+      "p_dc_original": 0.47,
+      "p_market_devig": 0.397468,
+      "p_residual_final": 0.420329
+    },
+    {
+      "date": "2025-05-14T00:00:00",
+      "competition": "la_liga",
+      "home": "Villarreal",
+      "away": "Leganes",
+      "hit": true,
+      "p_dc_original": 0.4862,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.614475
+    },
+    {
+      "date": "2025-05-14T00:00:00",
+      "competition": "la_liga",
+      "home": "Real Madrid",
+      "away": "Mallorca",
+      "hit": true,
+      "p_dc_original": 0.48,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.609501
+    },
+    {
+      "date": "2025-05-15T00:00:00",
+      "competition": "la_liga",
+      "home": "Vallecano",
+      "away": "Betis",
+      "hit": true,
+      "p_dc_original": 0.5213,
+      "p_market_devig": 0.469231,
+      "p_residual_final": 0.48783
+    },
+    {
+      "date": "2025-05-15T00:00:00",
+      "competition": "la_liga",
+      "home": "Osasuna",
+      "away": "Ath Madrid",
+      "hit": false,
+      "p_dc_original": 0.5384,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.460457
+    },
+    {
+      "date": "2025-05-15T00:00:00",
+      "competition": "la_liga",
+      "home": "Espanol",
+      "away": "Barcelona",
+      "hit": false,
+      "p_dc_original": 0.526,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.671859
+    },
+    {
+      "date": "2025-05-15T00:00:00",
+      "competition": "la_liga",
+      "home": "Getafe",
+      "away": "Ath Bilbao",
+      "hit": false,
+      "p_dc_original": 0.2699,
+      "p_market_devig": 0.318182,
+      "p_residual_final": 0.344801
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Madrid",
+      "away": "Betis",
+      "hit": true,
+      "p_dc_original": 0.538,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.552968
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "la_liga",
+      "home": "Barcelona",
+      "away": "Villarreal",
+      "hit": true,
+      "p_dc_original": 0.5441,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.699144
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "la_liga",
+      "home": "Celta",
+      "away": "Vallecano",
+      "hit": true,
+      "p_dc_original": 0.5257,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.556759
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "la_liga",
+      "home": "Las Palmas",
+      "away": "Leganes",
+      "hit": false,
+      "p_dc_original": 0.504,
+      "p_market_devig": 0.519481,
+      "p_residual_final": 0.548173
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "la_liga",
+      "home": "Mallorca",
+      "away": "Getafe",
+      "hit": true,
+      "p_dc_original": 0.4477,
+      "p_market_devig": 0.343675,
+      "p_residual_final": 0.368136
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "la_liga",
+      "home": "Osasuna",
+      "away": "Espanol",
+      "hit": false,
+      "p_dc_original": 0.4925,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.465595
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "la_liga",
+      "home": "Sevilla",
+      "away": "Real Madrid",
+      "hit": false,
+      "p_dc_original": 0.5208,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.638399
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "la_liga",
+      "home": "Sociedad",
+      "away": "Girona",
+      "hit": true,
+      "p_dc_original": 0.2703,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.480567
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "la_liga",
+      "home": "Valencia",
+      "away": "Ath Bilbao",
+      "hit": false,
+      "p_dc_original": 0.4761,
+      "p_market_devig": 0.397468,
+      "p_residual_final": 0.407963
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "la_liga",
+      "home": "Valladolid",
+      "away": "Alaves",
+      "hit": false,
+      "p_dc_original": 0.4703,
+      "p_market_devig": 0.474093,
+      "p_residual_final": 0.509037
+    },
+    {
+      "date": "2025-05-23T00:00:00",
+      "competition": "la_liga",
+      "home": "Betis",
+      "away": "Valencia",
+      "hit": false,
+      "p_dc_original": 0.5296,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.594498
+    },
+    {
+      "date": "2025-05-24T00:00:00",
+      "competition": "la_liga",
+      "home": "Real Madrid",
+      "away": "Sociedad",
+      "hit": false,
+      "p_dc_original": 0.4983,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.660286
+    },
+    {
+      "date": "2025-05-24T00:00:00",
+      "competition": "la_liga",
+      "home": "Espanol",
+      "away": "Las Palmas",
+      "hit": false,
+      "p_dc_original": 0.2646,
+      "p_market_devig": 0.525907,
+      "p_residual_final": 0.557203
+    },
+    {
+      "date": "2025-05-24T00:00:00",
+      "competition": "la_liga",
+      "home": "Leganes",
+      "away": "Valladolid",
+      "hit": true,
+      "p_dc_original": 0.5116,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.59185
+    },
+    {
+      "date": "2025-05-24T00:00:00",
+      "competition": "la_liga",
+      "home": "Alaves",
+      "away": "Osasuna",
+      "hit": false,
+      "p_dc_original": 0.4695,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.43203
+    },
+    {
+      "date": "2025-05-24T00:00:00",
+      "competition": "la_liga",
+      "home": "Getafe",
+      "away": "Celta",
+      "hit": true,
+      "p_dc_original": 0.476,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.478447
+    },
+    {
+      "date": "2025-05-24T00:00:00",
+      "competition": "la_liga",
+      "home": "Vallecano",
+      "away": "Mallorca",
+      "hit": false,
+      "p_dc_original": 0.5118,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.469081
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "la_liga",
+      "home": "Girona",
+      "away": "Ath Madrid",
+      "hit": true,
+      "p_dc_original": 0.5202,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.604422
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "la_liga",
+      "home": "Villarreal",
+      "away": "Sevilla",
+      "hit": true,
+      "p_dc_original": 0.5247,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.624127
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "la_liga",
+      "home": "Ath Bilbao",
+      "away": "Barcelona",
+      "hit": true,
+      "p_dc_original": 0.5201,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.626561
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "ligue_1",
+      "home": "Le Havre",
+      "away": "Nice",
+      "hit": true,
+      "p_dc_original": 0.6078,
+      "p_market_devig": 0.52381,
+      "p_residual_final": 0.529463
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lens",
+      "away": "Strasbourg",
+      "hit": false,
+      "p_dc_original": 0.4703,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.549806
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "ligue_1",
+      "home": "Reims",
+      "away": "Angers",
+      "hit": false,
+      "p_dc_original": 0.5009,
+      "p_market_devig": 0.476923,
+      "p_residual_final": 0.489713
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "ligue_1",
+      "home": "Rennes",
+      "away": "Lille",
+      "hit": false,
+      "p_dc_original": 0.6078,
+      "p_market_devig": 0.47619,
+      "p_residual_final": 0.480955
+    },
+    {
+      "date": "2025-02-21T00:00:00",
+      "competition": "ligue_1",
+      "home": "Rennes",
+      "away": "Reims",
+      "hit": false,
+      "p_dc_original": 0.6148,
+      "p_market_devig": 0.487179,
+      "p_residual_final": 0.505426
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lille",
+      "away": "Monaco",
+      "hit": true,
+      "p_dc_original": 0.9773,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.568116
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "ligue_1",
+      "home": "St Etienne",
+      "away": "Angers",
+      "hit": true,
+      "p_dc_original": 0.7198,
+      "p_market_devig": 0.473684,
+      "p_residual_final": 0.493478
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "ligue_1",
+      "home": "Auxerre",
+      "away": "Marseille",
+      "hit": true,
+      "p_dc_original": 0.6162,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.586821
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nantes",
+      "away": "Lens",
+      "hit": true,
+      "p_dc_original": 0.6163,
+      "p_market_devig": 0.466667,
+      "p_residual_final": 0.484927
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "ligue_1",
+      "home": "Le Havre",
+      "away": "Toulouse",
+      "hit": true,
+      "p_dc_original": 0.6167,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.465648
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nice",
+      "away": "Montpellier",
+      "hit": false,
+      "p_dc_original": 0.4999,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.636211
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "ligue_1",
+      "home": "Strasbourg",
+      "away": "Brest",
+      "hit": false,
+      "p_dc_original": 0.583,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.523038
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lyon",
+      "away": "Paris SG",
+      "hit": true,
+      "p_dc_original": 0.9723,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.66977
+    },
+    {
+      "date": "2025-02-28T00:00:00",
+      "competition": "ligue_1",
+      "home": "Monaco",
+      "away": "Reims",
+      "hit": true,
+      "p_dc_original": 0.6602,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.658231
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "ligue_1",
+      "home": "St Etienne",
+      "away": "Nice",
+      "hit": true,
+      "p_dc_original": 0.5827,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.592875
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lens",
+      "away": "Le Havre",
+      "hit": true,
+      "p_dc_original": 0.6188,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.57695
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "ligue_1",
+      "home": "Paris SG",
+      "away": "Lille",
+      "hit": true,
+      "p_dc_original": 0.9724,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.619324
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lyon",
+      "away": "Brest",
+      "hit": true,
+      "p_dc_original": 0.6737,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.543186
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "ligue_1",
+      "home": "Angers",
+      "away": "Toulouse",
+      "hit": true,
+      "p_dc_original": 0.4894,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.416007
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "ligue_1",
+      "home": "Auxerre",
+      "away": "Strasbourg",
+      "hit": false,
+      "p_dc_original": 0.5823,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.522302
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "ligue_1",
+      "home": "Montpellier",
+      "away": "Rennes",
+      "hit": true,
+      "p_dc_original": 0.6205,
+      "p_market_devig": 0.525641,
+      "p_residual_final": 0.541114
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "ligue_1",
+      "home": "Marseille",
+      "away": "Nantes",
+      "hit": false,
+      "p_dc_original": 0.5898,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.585476
+    },
+    {
+      "date": "2025-03-07T00:00:00",
+      "competition": "ligue_1",
+      "home": "Toulouse",
+      "away": "Monaco",
+      "hit": false,
+      "p_dc_original": 0.5556,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.525386
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "ligue_1",
+      "home": "Rennes",
+      "away": "Paris SG",
+      "hit": true,
+      "p_dc_original": 0.9756,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.554156
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lille",
+      "away": "Montpellier",
+      "hit": false,
+      "p_dc_original": 0.5156,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.597604
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "ligue_1",
+      "home": "Marseille",
+      "away": "Lens",
+      "hit": false,
+      "p_dc_original": 0.6608,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.582884
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "ligue_1",
+      "home": "Brest",
+      "away": "Angers",
+      "hit": false,
+      "p_dc_original": 0.521,
+      "p_market_devig": 0.478836,
+      "p_residual_final": 0.490542
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "ligue_1",
+      "home": "Le Havre",
+      "away": "St Etienne",
+      "hit": false,
+      "p_dc_original": 0.5734,
+      "p_market_devig": 0.525641,
+      "p_residual_final": 0.535909
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nantes",
+      "away": "Strasbourg",
+      "hit": false,
+      "p_dc_original": 0.5106,
+      "p_market_devig": 0.469231,
+      "p_residual_final": 0.483048
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "ligue_1",
+      "home": "Reims",
+      "away": "Auxerre",
+      "hit": false,
+      "p_dc_original": 0.6344,
+      "p_market_devig": 0.476923,
+      "p_residual_final": 0.493686
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nice",
+      "away": "Lyon",
+      "hit": false,
+      "p_dc_original": 0.9773,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.565985
+    },
+    {
+      "date": "2025-03-14T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nice",
+      "away": "Auxerre",
+      "hit": false,
+      "p_dc_original": 0.6667,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.537475
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nantes",
+      "away": "Lille",
+      "hit": false,
+      "p_dc_original": 0.511,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.468316
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "ligue_1",
+      "home": "Angers",
+      "away": "Monaco",
+      "hit": false,
+      "p_dc_original": 0.5998,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.621485
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lens",
+      "away": "Rennes",
+      "hit": false,
+      "p_dc_original": 0.4346,
+      "p_market_devig": 0.492308,
+      "p_residual_final": 0.493739
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lyon",
+      "away": "Le Havre",
+      "hit": true,
+      "p_dc_original": 0.9709,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.604414
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "ligue_1",
+      "home": "Brest",
+      "away": "Reims",
+      "hit": false,
+      "p_dc_original": 0.7406,
+      "p_market_devig": 0.512821,
+      "p_residual_final": 0.528954
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "ligue_1",
+      "home": "Montpellier",
+      "away": "St Etienne",
+      "hit": false,
+      "p_dc_original": 0.7253,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.592463
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "ligue_1",
+      "home": "Strasbourg",
+      "away": "Toulouse",
+      "hit": true,
+      "p_dc_original": 0.5995,
+      "p_market_devig": 0.450402,
+      "p_residual_final": 0.439079
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "ligue_1",
+      "home": "Paris SG",
+      "away": "Marseille",
+      "hit": true,
+      "p_dc_original": 0.9771,
+      "p_market_devig": 0.686499,
+      "p_residual_final": 0.668408
+    },
+    {
+      "date": "2025-03-28T00:00:00",
+      "competition": "ligue_1",
+      "home": "Strasbourg",
+      "away": "Lyon",
+      "hit": true,
+      "p_dc_original": 0.671,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.554181
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "ligue_1",
+      "home": "Reims",
+      "away": "Marseille",
+      "hit": true,
+      "p_dc_original": 0.7427,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.569465
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "ligue_1",
+      "home": "St Etienne",
+      "away": "Paris SG",
+      "hit": true,
+      "p_dc_original": 0.9717,
+      "p_market_devig": 0.78018,
+      "p_residual_final": 0.778835
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "ligue_1",
+      "home": "Monaco",
+      "away": "Nice",
+      "hit": true,
+      "p_dc_original": 0.9718,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.574067
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "ligue_1",
+      "home": "Toulouse",
+      "away": "Brest",
+      "hit": true,
+      "p_dc_original": 0.5842,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.452388
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "ligue_1",
+      "home": "Angers",
+      "away": "Rennes",
+      "hit": true,
+      "p_dc_original": 0.6384,
+      "p_market_devig": 0.487179,
+      "p_residual_final": 0.50023
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "ligue_1",
+      "home": "Auxerre",
+      "away": "Montpellier",
+      "hit": false,
+      "p_dc_original": 0.6335,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.54141
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "ligue_1",
+      "home": "Le Havre",
+      "away": "Nantes",
+      "hit": true,
+      "p_dc_original": 0.4421,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.465323
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lille",
+      "away": "Lens",
+      "hit": false,
+      "p_dc_original": 0.5204,
+      "p_market_devig": 0.471795,
+      "p_residual_final": 0.479395
+    },
+    {
+      "date": "2025-04-04T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nice",
+      "away": "Nantes",
+      "hit": true,
+      "p_dc_original": 0.4332,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.549177
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "ligue_1",
+      "home": "Paris SG",
+      "away": "Angers",
+      "hit": false,
+      "p_dc_original": 0.9681,
+      "p_market_devig": 0.761905,
+      "p_residual_final": 0.752601
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "ligue_1",
+      "home": "Brest",
+      "away": "Monaco",
+      "hit": true,
+      "p_dc_original": 0.5915,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.56561
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lyon",
+      "away": "Lille",
+      "hit": true,
+      "p_dc_original": 0.5981,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.550133
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lens",
+      "away": "St Etienne",
+      "hit": false,
+      "p_dc_original": 0.4415,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.590607
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "ligue_1",
+      "home": "Montpellier",
+      "away": "Le Havre",
+      "hit": false,
+      "p_dc_original": 0.5158,
+      "p_market_devig": 0.510582,
+      "p_residual_final": 0.523236
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "ligue_1",
+      "home": "Reims",
+      "away": "Strasbourg",
+      "hit": false,
+      "p_dc_original": 0.5112,
+      "p_market_devig": 0.487179,
+      "p_residual_final": 0.496594
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "ligue_1",
+      "home": "Rennes",
+      "away": "Auxerre",
+      "hit": false,
+      "p_dc_original": 0.5912,
+      "p_market_devig": 0.510256,
+      "p_residual_final": 0.507401
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "ligue_1",
+      "home": "Marseille",
+      "away": "Toulouse",
+      "hit": true,
+      "p_dc_original": 0.591,
+      "p_market_devig": 0.525641,
+      "p_residual_final": 0.523296
+    },
+    {
+      "date": "2025-04-11T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lens",
+      "away": "Reims",
+      "hit": false,
+      "p_dc_original": 0.6315,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.535347
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "ligue_1",
+      "home": "Monaco",
+      "away": "Marseille",
+      "hit": true,
+      "p_dc_original": 0.5943,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.622087
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "ligue_1",
+      "home": "Toulouse",
+      "away": "Lille",
+      "hit": true,
+      "p_dc_original": 0.4517,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.463288
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "ligue_1",
+      "home": "Strasbourg",
+      "away": "Nice",
+      "hit": true,
+      "p_dc_original": 0.5869,
+      "p_market_devig": 0.525641,
+      "p_residual_final": 0.525157
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "ligue_1",
+      "home": "St Etienne",
+      "away": "Brest",
+      "hit": true,
+      "p_dc_original": 0.4516,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.556032
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "ligue_1",
+      "home": "Angers",
+      "away": "Montpellier",
+      "hit": false,
+      "p_dc_original": 0.8256,
+      "p_market_devig": 0.510256,
+      "p_residual_final": 0.54265
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "ligue_1",
+      "home": "Le Havre",
+      "away": "Rennes",
+      "hit": true,
+      "p_dc_original": 0.6238,
+      "p_market_devig": 0.484615,
+      "p_residual_final": 0.4798
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "ligue_1",
+      "home": "Auxerre",
+      "away": "Lyon",
+      "hit": true,
+      "p_dc_original": 0.6004,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.583104
+    },
+    {
+      "date": "2025-04-18T00:00:00",
+      "competition": "ligue_1",
+      "home": "Rennes",
+      "away": "Nantes",
+      "hit": true,
+      "p_dc_original": 0.4512,
+      "p_market_devig": 0.487179,
+      "p_residual_final": 0.490357
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "ligue_1",
+      "home": "Paris SG",
+      "away": "Le Havre",
+      "hit": true,
+      "p_dc_original": 0.6456,
+      "p_market_devig": 0.761905,
+      "p_residual_final": 0.74026
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "ligue_1",
+      "home": "Monaco",
+      "away": "Strasbourg",
+      "hit": false,
+      "p_dc_original": 0.6186,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.647399
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "ligue_1",
+      "home": "Marseille",
+      "away": "Montpellier",
+      "hit": true,
+      "p_dc_original": 0.8586,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.697398
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lille",
+      "away": "Auxerre",
+      "hit": true,
+      "p_dc_original": 0.5096,
+      "p_market_devig": 0.512821,
+      "p_residual_final": 0.515797
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "ligue_1",
+      "home": "Brest",
+      "away": "Lens",
+      "hit": true,
+      "p_dc_original": 0.4506,
+      "p_market_devig": 0.507692,
+      "p_residual_final": 0.510298
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nice",
+      "away": "Angers",
+      "hit": true,
+      "p_dc_original": 0.7404,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.562489
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "ligue_1",
+      "home": "Reims",
+      "away": "Toulouse",
+      "hit": false,
+      "p_dc_original": 0.5186,
+      "p_market_devig": 0.471795,
+      "p_residual_final": 0.479277
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "ligue_1",
+      "home": "St Etienne",
+      "away": "Lyon",
+      "hit": true,
+      "p_dc_original": 0.6226,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.656116
+    },
+    {
+      "date": "2025-04-22T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nantes",
+      "away": "Paris SG",
+      "hit": false,
+      "p_dc_original": 0.9712,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.64993
+    },
+    {
+      "date": "2025-04-25T00:00:00",
+      "competition": "ligue_1",
+      "home": "Paris SG",
+      "away": "Nice",
+      "hit": true,
+      "p_dc_original": 0.6222,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.646034
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "ligue_1",
+      "home": "Strasbourg",
+      "away": "St Etienne",
+      "hit": true,
+      "p_dc_original": 0.5997,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.612726
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "ligue_1",
+      "home": "Le Havre",
+      "away": "Monaco",
+      "hit": false,
+      "p_dc_original": 0.5996,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.6607
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lyon",
+      "away": "Rennes",
+      "hit": true,
+      "p_dc_original": 0.9722,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.588582
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "ligue_1",
+      "home": "Angers",
+      "away": "Lille",
+      "hit": false,
+      "p_dc_original": 0.6457,
+      "p_market_devig": 0.484615,
+      "p_residual_final": 0.498153
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lens",
+      "away": "Auxerre",
+      "hit": true,
+      "p_dc_original": 0.6459,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.577233
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "ligue_1",
+      "home": "Montpellier",
+      "away": "Reims",
+      "hit": false,
+      "p_dc_original": 0.7441,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.543793
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nantes",
+      "away": "Toulouse",
+      "hit": false,
+      "p_dc_original": 0.4588,
+      "p_market_devig": 0.474359,
+      "p_residual_final": 0.482975
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "ligue_1",
+      "home": "Marseille",
+      "away": "Brest",
+      "hit": true,
+      "p_dc_original": 0.6139,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.616763
+    },
+    {
+      "date": "2025-05-02T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nice",
+      "away": "Reims",
+      "hit": false,
+      "p_dc_original": 0.5947,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.596556
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "ligue_1",
+      "home": "Strasbourg",
+      "away": "Paris SG",
+      "hit": true,
+      "p_dc_original": 0.7605,
+      "p_market_devig": 0.656934,
+      "p_residual_final": 0.653496
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "ligue_1",
+      "home": "Toulouse",
+      "away": "Rennes",
+      "hit": true,
+      "p_dc_original": 0.6013,
+      "p_market_devig": 0.492308,
+      "p_residual_final": 0.492926
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "ligue_1",
+      "home": "St Etienne",
+      "away": "Monaco",
+      "hit": true,
+      "p_dc_original": 0.4661,
+      "p_market_devig": 0.723404,
+      "p_residual_final": 0.732963
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nantes",
+      "away": "Angers",
+      "hit": false,
+      "p_dc_original": 0.6384,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.46396
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "ligue_1",
+      "home": "Auxerre",
+      "away": "Le Havre",
+      "hit": true,
+      "p_dc_original": 0.6012,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.521569
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "ligue_1",
+      "home": "Brest",
+      "away": "Montpellier",
+      "hit": false,
+      "p_dc_original": 0.4544,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.611899
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lyon",
+      "away": "Lens",
+      "hit": true,
+      "p_dc_original": 0.6009,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.638193
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lille",
+      "away": "Marseille",
+      "hit": false,
+      "p_dc_original": 0.7638,
+      "p_market_devig": 0.512821,
+      "p_residual_final": 0.500056
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "ligue_1",
+      "home": "Angers",
+      "away": "Strasbourg",
+      "hit": true,
+      "p_dc_original": 0.557,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.537644
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "ligue_1",
+      "home": "Auxerre",
+      "away": "Nantes",
+      "hit": false,
+      "p_dc_original": 0.557,
+      "p_market_devig": 0.507692,
+      "p_residual_final": 0.513145
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "ligue_1",
+      "home": "Brest",
+      "away": "Lille",
+      "hit": false,
+      "p_dc_original": 0.6069,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.528009
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "ligue_1",
+      "home": "Le Havre",
+      "away": "Marseille",
+      "hit": true,
+      "p_dc_original": 0.6123,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.600652
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "ligue_1",
+      "home": "Monaco",
+      "away": "Lyon",
+      "hit": false,
+      "p_dc_original": 0.6079,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.673459
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "ligue_1",
+      "home": "Montpellier",
+      "away": "Paris SG",
+      "hit": true,
+      "p_dc_original": 0.7498,
+      "p_market_devig": 0.729167,
+      "p_residual_final": 0.755152
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "ligue_1",
+      "home": "Reims",
+      "away": "St Etienne",
+      "hit": false,
+      "p_dc_original": 0.6491,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.576303
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "ligue_1",
+      "home": "Rennes",
+      "away": "Nice",
+      "hit": false,
+      "p_dc_original": 0.6028,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.552686
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "ligue_1",
+      "home": "Toulouse",
+      "away": "Lens",
+      "hit": false,
+      "p_dc_original": 0.5493,
+      "p_market_devig": 0.528205,
+      "p_residual_final": 0.539849
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lens",
+      "away": "Monaco",
+      "hit": true,
+      "p_dc_original": 0.5945,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.637821
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lille",
+      "away": "Reims",
+      "hit": true,
+      "p_dc_original": 0.5494,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.570026
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "ligue_1",
+      "home": "Lyon",
+      "away": "Angers",
+      "hit": false,
+      "p_dc_original": 0.5944,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.680283
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "ligue_1",
+      "home": "Marseille",
+      "away": "Rennes",
+      "hit": true,
+      "p_dc_original": 0.7689,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.619957
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nantes",
+      "away": "Montpellier",
+      "hit": true,
+      "p_dc_original": 0.8643,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.566155
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "ligue_1",
+      "home": "Nice",
+      "away": "Brest",
+      "hit": true,
+      "p_dc_original": 0.5919,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.638936
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "ligue_1",
+      "home": "Paris SG",
+      "away": "Auxerre",
+      "hit": true,
+      "p_dc_original": 0.5976,
+      "p_market_devig": 0.744048,
+      "p_residual_final": 0.737672
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "ligue_1",
+      "home": "St Etienne",
+      "away": "Toulouse",
+      "hit": true,
+      "p_dc_original": 0.4564,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.62833
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "ligue_1",
+      "home": "Strasbourg",
+      "away": "Le Havre",
+      "hit": true,
+      "p_dc_original": 0.4634,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.636854
+    },
+    {
+      "date": "2025-02-14T00:00:00",
+      "competition": "premier",
+      "home": "Brighton",
+      "away": "Chelsea",
+      "hit": true,
+      "p_dc_original": 0.5598,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.612513
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier",
+      "home": "Leicester",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.6371,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.545266
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier",
+      "home": "Aston Villa",
+      "away": "Ipswich",
+      "hit": false,
+      "p_dc_original": 0.5344,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.62054
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier",
+      "home": "Fulham",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.8066,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.44987
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier",
+      "home": "Man City",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.8183,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.663525
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier",
+      "home": "Southampton",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5434,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.628914
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier",
+      "home": "West Ham",
+      "away": "Brentford",
+      "hit": false,
+      "p_dc_original": 0.5595,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.602299
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "premier",
+      "home": "Crystal Palace",
+      "away": "Everton",
+      "hit": true,
+      "p_dc_original": 0.5432,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.437525
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "premier",
+      "home": "Liverpool",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.6374,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.727352
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "premier",
+      "home": "Tottenham",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.6376,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.646211
+    },
+    {
+      "date": "2025-02-19T00:00:00",
+      "competition": "premier",
+      "home": "Aston Villa",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.5734,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.60678
+    },
+    {
+      "date": "2025-02-21T00:00:00",
+      "competition": "premier",
+      "home": "Leicester",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.8555,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.614848
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier",
+      "home": "Everton",
+      "away": "Man United",
+      "hit": true,
+      "p_dc_original": 0.5731,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.449577
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier",
+      "home": "Arsenal",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.573,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.593862
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier",
+      "home": "Bournemouth",
+      "away": "Wolves",
+      "hit": false,
+      "p_dc_original": 0.5415,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.627651
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier",
+      "home": "Fulham",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.5573,
+      "p_market_devig": 0.482051,
+      "p_residual_final": 0.496754
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier",
+      "home": "Ipswich",
+      "away": "Tottenham",
+      "hit": true,
+      "p_dc_original": 0.5363,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.630322
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier",
+      "home": "Southampton",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5499,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.602446
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "premier",
+      "home": "Aston Villa",
+      "away": "Chelsea",
+      "hit": true,
+      "p_dc_original": 0.6238,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.611695
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "premier",
+      "home": "Newcastle",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.5518,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.571385
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "premier",
+      "home": "Man City",
+      "away": "Liverpool",
+      "hit": false,
+      "p_dc_original": 0.8943,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.689133
+    },
+    {
+      "date": "2025-02-25T00:00:00",
+      "competition": "premier",
+      "home": "Brighton",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.8167,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.595761
+    },
+    {
+      "date": "2025-02-25T00:00:00",
+      "competition": "premier",
+      "home": "Crystal Palace",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.624,
+      "p_market_devig": 0.512821,
+      "p_residual_final": 0.524993
+    },
+    {
+      "date": "2025-02-25T00:00:00",
+      "competition": "premier",
+      "home": "Wolves",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5649,
+      "p_market_devig": 0.474359,
+      "p_residual_final": 0.487885
+    },
+    {
+      "date": "2025-02-25T00:00:00",
+      "competition": "premier",
+      "home": "Chelsea",
+      "away": "Southampton",
+      "hit": true,
+      "p_dc_original": 0.6159,
+      "p_market_devig": 0.744048,
+      "p_residual_final": 0.755168
+    },
+    {
+      "date": "2025-02-26T00:00:00",
+      "competition": "premier",
+      "home": "Brentford",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.5405,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.525078
+    },
+    {
+      "date": "2025-02-26T00:00:00",
+      "competition": "premier",
+      "home": "Man United",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.8723,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.581823
+    },
+    {
+      "date": "2025-02-26T00:00:00",
+      "competition": "premier",
+      "home": "Nott'm Forest",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.8227,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.44183
+    },
+    {
+      "date": "2025-02-26T00:00:00",
+      "competition": "premier",
+      "home": "Tottenham",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.8229,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.702028
+    },
+    {
+      "date": "2025-02-26T00:00:00",
+      "competition": "premier",
+      "home": "Liverpool",
+      "away": "Newcastle",
+      "hit": false,
+      "p_dc_original": 0.5452,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.67041
+    },
+    {
+      "date": "2025-02-27T00:00:00",
+      "competition": "premier",
+      "home": "West Ham",
+      "away": "Leicester",
+      "hit": false,
+      "p_dc_original": 0.8484,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.565573
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "premier",
+      "home": "Nott'm Forest",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.5496,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.612379
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "premier",
+      "home": "Brighton",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5491,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.564744
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "premier",
+      "home": "Crystal Palace",
+      "away": "Ipswich",
+      "hit": false,
+      "p_dc_original": 0.5559,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.56274
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "premier",
+      "home": "Liverpool",
+      "away": "Southampton",
+      "hit": true,
+      "p_dc_original": 0.6243,
+      "p_market_devig": 0.744048,
+      "p_residual_final": 0.766281
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "premier",
+      "home": "Brentford",
+      "away": "Aston Villa",
+      "hit": false,
+      "p_dc_original": 0.6244,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.629915
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "premier",
+      "home": "Wolves",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.5557,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.413782
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "premier",
+      "home": "Chelsea",
+      "away": "Leicester",
+      "hit": false,
+      "p_dc_original": 0.5387,
+      "p_market_devig": 0.706402,
+      "p_residual_final": 0.725219
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "premier",
+      "home": "Tottenham",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5618,
+      "p_market_devig": 0.686499,
+      "p_residual_final": 0.696444
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "premier",
+      "home": "Man United",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.6245,
+      "p_market_devig": 0.429708,
+      "p_residual_final": 0.44068
+    },
+    {
+      "date": "2025-03-10T00:00:00",
+      "competition": "premier",
+      "home": "West Ham",
+      "away": "Newcastle",
+      "hit": false,
+      "p_dc_original": 0.5972,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.55342
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "premier",
+      "home": "Everton",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.5751,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.4317
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "premier",
+      "home": "Ipswich",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.5716,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.516308
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "premier",
+      "home": "Man City",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5716,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.659835
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "premier",
+      "home": "Southampton",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.5395,
+      "p_market_devig": 0.528205,
+      "p_residual_final": 0.538908
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "premier",
+      "home": "Bournemouth",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.5753,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.677377
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "premier",
+      "home": "Arsenal",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.5654,
+      "p_market_devig": 0.507937,
+      "p_residual_final": 0.530336
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "premier",
+      "home": "Fulham",
+      "away": "Tottenham",
+      "hit": false,
+      "p_dc_original": 0.5653,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.618346
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "premier",
+      "home": "Leicester",
+      "away": "Man United",
+      "hit": true,
+      "p_dc_original": 0.8687,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.532565
+    },
+    {
+      "date": "2025-04-01T00:00:00",
+      "competition": "premier",
+      "home": "Arsenal",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5673,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.474605
+    },
+    {
+      "date": "2025-04-01T00:00:00",
+      "competition": "premier",
+      "home": "Wolves",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.5401,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.448406
+    },
+    {
+      "date": "2025-04-01T00:00:00",
+      "competition": "premier",
+      "home": "Nott'm Forest",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.5371,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.51345
+    },
+    {
+      "date": "2025-04-02T00:00:00",
+      "competition": "premier",
+      "home": "Bournemouth",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.5977,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.633291
+    },
+    {
+      "date": "2025-04-02T00:00:00",
+      "competition": "premier",
+      "home": "Brighton",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.5459,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.603606
+    },
+    {
+      "date": "2025-04-02T00:00:00",
+      "competition": "premier",
+      "home": "Man City",
+      "away": "Leicester",
+      "hit": false,
+      "p_dc_original": 0.8879,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.70764
+    },
+    {
+      "date": "2025-04-02T00:00:00",
+      "competition": "premier",
+      "home": "Newcastle",
+      "away": "Brentford",
+      "hit": true,
+      "p_dc_original": 0.6052,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.671674
+    },
+    {
+      "date": "2025-04-02T00:00:00",
+      "competition": "premier",
+      "home": "Southampton",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.5978,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.520916
+    },
+    {
+      "date": "2025-04-02T00:00:00",
+      "competition": "premier",
+      "home": "Liverpool",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.5363,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.574929
+    },
+    {
+      "date": "2025-04-03T00:00:00",
+      "competition": "premier",
+      "home": "Chelsea",
+      "away": "Tottenham",
+      "hit": false,
+      "p_dc_original": 0.5979,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.699677
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "premier",
+      "home": "Everton",
+      "away": "Arsenal",
+      "hit": false,
+      "p_dc_original": 0.5325,
+      "p_market_devig": 0.397468,
+      "p_residual_final": 0.415915
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "premier",
+      "home": "Crystal Palace",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5408,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.536767
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "premier",
+      "home": "Ipswich",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.5981,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.459906
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "premier",
+      "home": "West Ham",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5329,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.54176
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "premier",
+      "home": "Aston Villa",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.5357,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.536188
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "premier",
+      "home": "Brentford",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.5582,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.644701
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "premier",
+      "home": "Fulham",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.5702,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.536991
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "premier",
+      "home": "Tottenham",
+      "away": "Southampton",
+      "hit": true,
+      "p_dc_original": 0.5334,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.695313
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "premier",
+      "home": "Man United",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.5877,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.584025
+    },
+    {
+      "date": "2025-04-07T00:00:00",
+      "competition": "premier",
+      "home": "Leicester",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.8846,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.587181
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "premier",
+      "home": "Man City",
+      "away": "Crystal Palace",
+      "hit": true,
+      "p_dc_original": 0.5639,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.632123
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "premier",
+      "home": "Brighton",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.8934,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.615125
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "premier",
+      "home": "Nott'm Forest",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.569,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.454075
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "premier",
+      "home": "Southampton",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.5808,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.580518
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "premier",
+      "home": "Arsenal",
+      "away": "Brentford",
+      "hit": false,
+      "p_dc_original": 0.5342,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.57756
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "premier",
+      "home": "Chelsea",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.5809,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.673952
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "premier",
+      "home": "Liverpool",
+      "away": "West Ham",
+      "hit": true,
+      "p_dc_original": 0.5637,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.651269
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "premier",
+      "home": "Wolves",
+      "away": "Tottenham",
+      "hit": true,
+      "p_dc_original": 0.577,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.587759
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "premier",
+      "home": "Newcastle",
+      "away": "Man United",
+      "hit": true,
+      "p_dc_original": 0.5751,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.591826
+    },
+    {
+      "date": "2025-04-14T00:00:00",
+      "competition": "premier",
+      "home": "Bournemouth",
+      "away": "Fulham",
+      "hit": false,
+      "p_dc_original": 0.5696,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.557462
+    },
+    {
+      "date": "2025-04-16T00:00:00",
+      "competition": "premier",
+      "home": "Newcastle",
+      "away": "Crystal Palace",
+      "hit": true,
+      "p_dc_original": 0.5426,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.563782
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "premier",
+      "home": "Brentford",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5697,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.611979
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "premier",
+      "home": "Crystal Palace",
+      "away": "Bournemouth",
+      "hit": false,
+      "p_dc_original": 0.5811,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.541552
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "premier",
+      "home": "Everton",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.5811,
+      "p_market_devig": 0.523077,
+      "p_residual_final": 0.529242
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "premier",
+      "home": "West Ham",
+      "away": "Southampton",
+      "hit": false,
+      "p_dc_original": 0.8935,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.560746
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "premier",
+      "home": "Aston Villa",
+      "away": "Newcastle",
+      "hit": true,
+      "p_dc_original": 0.6987,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.594013
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "premier",
+      "home": "Fulham",
+      "away": "Chelsea",
+      "hit": true,
+      "p_dc_original": 0.57,
+      "p_market_devig": 0.528205,
+      "p_residual_final": 0.551895
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "premier",
+      "home": "Ipswich",
+      "away": "Arsenal",
+      "hit": true,
+      "p_dc_original": 0.5812,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.556974
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "premier",
+      "home": "Man United",
+      "away": "Wolves",
+      "hit": false,
+      "p_dc_original": 0.5634,
+      "p_market_devig": 0.494872,
+      "p_residual_final": 0.501086
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "premier",
+      "home": "Leicester",
+      "away": "Liverpool",
+      "hit": false,
+      "p_dc_original": 0.5776,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.656988
+    },
+    {
+      "date": "2025-04-21T00:00:00",
+      "competition": "premier",
+      "home": "Tottenham",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.5879,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.615864
+    },
+    {
+      "date": "2025-04-22T00:00:00",
+      "competition": "premier",
+      "home": "Man City",
+      "away": "Aston Villa",
+      "hit": true,
+      "p_dc_original": 0.6961,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.624549
+    },
+    {
+      "date": "2025-04-23T00:00:00",
+      "competition": "premier",
+      "home": "Arsenal",
+      "away": "Crystal Palace",
+      "hit": true,
+      "p_dc_original": 0.5917,
+      "p_market_devig": 0.510256,
+      "p_residual_final": 0.532461
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "premier",
+      "home": "Chelsea",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.8962,
+      "p_market_devig": 0.517949,
+      "p_residual_final": 0.53927
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "premier",
+      "home": "Brighton",
+      "away": "West Ham",
+      "hit": true,
+      "p_dc_original": 0.5779,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.58358
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "premier",
+      "home": "Newcastle",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.69,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.718105
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "premier",
+      "home": "Southampton",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5707,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.547625
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "premier",
+      "home": "Wolves",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.5779,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.569871
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "premier",
+      "home": "Bournemouth",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.5367,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.587702
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "premier",
+      "home": "Liverpool",
+      "away": "Tottenham",
+      "hit": true,
+      "p_dc_original": 0.5689,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.744576
+    },
+    {
+      "date": "2025-05-01T00:00:00",
+      "competition": "premier",
+      "home": "Nott'm Forest",
+      "away": "Brentford",
+      "hit": false,
+      "p_dc_original": 0.5745,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.539858
+    },
+    {
+      "date": "2025-05-02T00:00:00",
+      "competition": "premier",
+      "home": "Man City",
+      "away": "Wolves",
+      "hit": false,
+      "p_dc_original": 0.6902,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.634606
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "premier",
+      "home": "Aston Villa",
+      "away": "Fulham",
+      "hit": false,
+      "p_dc_original": 0.5398,
+      "p_market_devig": 0.549598,
+      "p_residual_final": 0.567012
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "premier",
+      "home": "Everton",
+      "away": "Ipswich",
+      "hit": true,
+      "p_dc_original": 0.8918,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.513717
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "premier",
+      "home": "Leicester",
+      "away": "Southampton",
+      "hit": false,
+      "p_dc_original": 0.8852,
+      "p_market_devig": 0.549598,
+      "p_residual_final": 0.554096
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "premier",
+      "home": "Arsenal",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5687,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.547513
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "premier",
+      "home": "Brentford",
+      "away": "Man United",
+      "hit": true,
+      "p_dc_original": 0.5448,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.587109
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "premier",
+      "home": "Brighton",
+      "away": "Newcastle",
+      "hit": false,
+      "p_dc_original": 0.6944,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.621721
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "premier",
+      "home": "West Ham",
+      "away": "Tottenham",
+      "hit": false,
+      "p_dc_original": 0.5855,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.611085
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "premier",
+      "home": "Chelsea",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.5791,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.630946
+    },
+    {
+      "date": "2025-05-05T00:00:00",
+      "competition": "premier",
+      "home": "Crystal Palace",
+      "away": "Nott'm Forest",
+      "hit": false,
+      "p_dc_original": 0.5451,
+      "p_market_devig": 0.484615,
+      "p_residual_final": 0.504171
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "premier",
+      "home": "Fulham",
+      "away": "Everton",
+      "hit": true,
+      "p_dc_original": 0.5452,
+      "p_market_devig": 0.473684,
+      "p_residual_final": 0.48978
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "premier",
+      "home": "Ipswich",
+      "away": "Brentford",
+      "hit": false,
+      "p_dc_original": 0.574,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.616808
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "premier",
+      "home": "Southampton",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.5856,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.698284
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "premier",
+      "home": "Wolves",
+      "away": "Brighton",
+      "hit": false,
+      "p_dc_original": 0.535,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.553713
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "premier",
+      "home": "Bournemouth",
+      "away": "Aston Villa",
+      "hit": false,
+      "p_dc_original": 0.5788,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.595275
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "premier",
+      "home": "Newcastle",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.66,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.61746
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "premier",
+      "home": "Man United",
+      "away": "West Ham",
+      "hit": false,
+      "p_dc_original": 0.5788,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.553847
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "premier",
+      "home": "Nott'm Forest",
+      "away": "Leicester",
+      "hit": true,
+      "p_dc_original": 0.9031,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.589479
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "premier",
+      "home": "Tottenham",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.5763,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.62818
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "premier",
+      "home": "Liverpool",
+      "away": "Arsenal",
+      "hit": true,
+      "p_dc_original": 0.5381,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.56972
+    },
+    {
+      "date": "2025-05-16T00:00:00",
+      "competition": "premier",
+      "home": "Aston Villa",
+      "away": "Tottenham",
+      "hit": false,
+      "p_dc_original": 0.5654,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.72007
+    },
+    {
+      "date": "2025-05-16T00:00:00",
+      "competition": "premier",
+      "home": "Chelsea",
+      "away": "Man United",
+      "hit": false,
+      "p_dc_original": 0.5764,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.654942
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "premier",
+      "home": "Everton",
+      "away": "Southampton",
+      "hit": false,
+      "p_dc_original": 0.9044,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.548235
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "premier",
+      "home": "West Ham",
+      "away": "Nott'm Forest",
+      "hit": true,
+      "p_dc_original": 0.5791,
+      "p_market_devig": 0.492308,
+      "p_residual_final": 0.505542
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "premier",
+      "home": "Brentford",
+      "away": "Fulham",
+      "hit": true,
+      "p_dc_original": 0.5704,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.61028
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "premier",
+      "home": "Leicester",
+      "away": "Ipswich",
+      "hit": false,
+      "p_dc_original": 0.5462,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.555148
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "premier",
+      "home": "Arsenal",
+      "away": "Newcastle",
+      "hit": false,
+      "p_dc_original": 0.6596,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.564391
+    },
+    {
+      "date": "2025-05-19T00:00:00",
+      "competition": "premier",
+      "home": "Brighton",
+      "away": "Liverpool",
+      "hit": true,
+      "p_dc_original": 0.6567,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.66268
+    },
+    {
+      "date": "2025-05-20T00:00:00",
+      "competition": "premier",
+      "home": "Crystal Palace",
+      "away": "Wolves",
+      "hit": true,
+      "p_dc_original": 0.5765,
+      "p_market_devig": 0.482051,
+      "p_residual_final": 0.495657
+    },
+    {
+      "date": "2025-05-20T00:00:00",
+      "competition": "premier",
+      "home": "Man City",
+      "away": "Bournemouth",
+      "hit": true,
+      "p_dc_original": 0.5824,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.647687
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier",
+      "home": "Bournemouth",
+      "away": "Leicester",
+      "hit": false,
+      "p_dc_original": 0.5465,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.650167
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier",
+      "home": "Fulham",
+      "away": "Man City",
+      "hit": false,
+      "p_dc_original": 0.5652,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.640493
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier",
+      "home": "Ipswich",
+      "away": "West Ham",
+      "hit": true,
+      "p_dc_original": 0.5398,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.638161
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier",
+      "home": "Liverpool",
+      "away": "Crystal Palace",
+      "hit": false,
+      "p_dc_original": 0.5367,
+      "p_market_devig": 0.729167,
+      "p_residual_final": 0.744485
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier",
+      "home": "Man United",
+      "away": "Aston Villa",
+      "hit": false,
+      "p_dc_original": 0.5766,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.592601
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier",
+      "home": "Newcastle",
+      "away": "Everton",
+      "hit": false,
+      "p_dc_original": 0.5825,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.635923
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier",
+      "home": "Nott'm Forest",
+      "away": "Chelsea",
+      "hit": false,
+      "p_dc_original": 0.5825,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.587797
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier",
+      "home": "Southampton",
+      "away": "Arsenal",
+      "hit": true,
+      "p_dc_original": 0.5796,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.632556
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier",
+      "home": "Tottenham",
+      "away": "Brighton",
+      "hit": true,
+      "p_dc_original": 0.5824,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.717878
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "premier",
+      "home": "Wolves",
+      "away": "Brentford",
+      "hit": false,
+      "p_dc_original": 0.5326,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.619703
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "serie_a",
+      "home": "Atalanta",
+      "away": "Cagliari",
+      "hit": false,
+      "p_dc_original": 0.6079,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.625984
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "serie_a",
+      "home": "Lazio",
+      "away": "Napoli",
+      "hit": true,
+      "p_dc_original": 0.9642,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.493186
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "serie_a",
+      "home": "Milan",
+      "away": "Verona",
+      "hit": false,
+      "p_dc_original": 0.7912,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.646588
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "serie_a",
+      "home": "Fiorentina",
+      "away": "Como",
+      "hit": false,
+      "p_dc_original": 0.4854,
+      "p_market_devig": 0.494872,
+      "p_residual_final": 0.533358
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "serie_a",
+      "home": "Monza",
+      "away": "Lecce",
+      "hit": false,
+      "p_dc_original": 0.5421,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.44084
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "serie_a",
+      "home": "Udinese",
+      "away": "Empoli",
+      "hit": true,
+      "p_dc_original": 0.7924,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.486811
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "serie_a",
+      "home": "Parma",
+      "away": "Roma",
+      "hit": false,
+      "p_dc_original": 0.5075,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.57986
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "serie_a",
+      "home": "Juventus",
+      "away": "Inter",
+      "hit": false,
+      "p_dc_original": 0.6122,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.490952
+    },
+    {
+      "date": "2025-02-17T00:00:00",
+      "competition": "serie_a",
+      "home": "Genoa",
+      "away": "Venezia",
+      "hit": false,
+      "p_dc_original": 0.7934,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.495296
+    },
+    {
+      "date": "2025-02-21T00:00:00",
+      "competition": "serie_a",
+      "home": "Lecce",
+      "away": "Udinese",
+      "hit": false,
+      "p_dc_original": 0.4988,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.437406
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "serie_a",
+      "home": "Parma",
+      "away": "Bologna",
+      "hit": false,
+      "p_dc_original": 0.5073,
+      "p_market_devig": 0.510256,
+      "p_residual_final": 0.544802
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "serie_a",
+      "home": "Venezia",
+      "away": "Lazio",
+      "hit": false,
+      "p_dc_original": 0.4908,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.549419
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "serie_a",
+      "home": "Torino",
+      "away": "Milan",
+      "hit": true,
+      "p_dc_original": 0.5072,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.490143
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "serie_a",
+      "home": "Inter",
+      "away": "Genoa",
+      "hit": false,
+      "p_dc_original": 0.5071,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.604202
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "serie_a",
+      "home": "Como",
+      "away": "Napoli",
+      "hit": true,
+      "p_dc_original": 0.4905,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.465785
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "serie_a",
+      "home": "Verona",
+      "away": "Fiorentina",
+      "hit": false,
+      "p_dc_original": 0.7959,
+      "p_market_devig": 0.479487,
+      "p_residual_final": 0.516223
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "serie_a",
+      "home": "Empoli",
+      "away": "Atalanta",
+      "hit": true,
+      "p_dc_original": 0.4996,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.560009
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "serie_a",
+      "home": "Cagliari",
+      "away": "Juventus",
+      "hit": false,
+      "p_dc_original": 0.483,
+      "p_market_devig": 0.479487,
+      "p_residual_final": 0.515536
+    },
+    {
+      "date": "2025-02-24T00:00:00",
+      "competition": "serie_a",
+      "home": "Roma",
+      "away": "Monza",
+      "hit": true,
+      "p_dc_original": 0.7969,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.594543
+    },
+    {
+      "date": "2025-02-27T00:00:00",
+      "competition": "serie_a",
+      "home": "Bologna",
+      "away": "Milan",
+      "hit": true,
+      "p_dc_original": 0.5078,
+      "p_market_devig": 0.481481,
+      "p_residual_final": 0.51642
+    },
+    {
+      "date": "2025-02-28T00:00:00",
+      "competition": "serie_a",
+      "home": "Fiorentina",
+      "away": "Lecce",
+      "hit": false,
+      "p_dc_original": 0.7879,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.459696
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "serie_a",
+      "home": "Atalanta",
+      "away": "Venezia",
+      "hit": false,
+      "p_dc_original": 0.4754,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.672933
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "serie_a",
+      "home": "Napoli",
+      "away": "Inter",
+      "hit": false,
+      "p_dc_original": 0.4957,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.481055
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "serie_a",
+      "home": "Udinese",
+      "away": "Parma",
+      "hit": false,
+      "p_dc_original": 0.4684,
+      "p_market_devig": 0.510256,
+      "p_residual_final": 0.548733
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "serie_a",
+      "home": "Monza",
+      "away": "Torino",
+      "hit": false,
+      "p_dc_original": 0.7893,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.439238
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "serie_a",
+      "home": "Bologna",
+      "away": "Cagliari",
+      "hit": true,
+      "p_dc_original": 0.7991,
+      "p_market_devig": 0.473684,
+      "p_residual_final": 0.52255
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "serie_a",
+      "home": "Genoa",
+      "away": "Empoli",
+      "hit": false,
+      "p_dc_original": 0.5317,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.45012
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "serie_a",
+      "home": "Roma",
+      "away": "Como",
+      "hit": true,
+      "p_dc_original": 0.468,
+      "p_market_devig": 0.479487,
+      "p_residual_final": 0.517709
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "serie_a",
+      "home": "Milan",
+      "away": "Lazio",
+      "hit": true,
+      "p_dc_original": 0.4748,
+      "p_market_devig": 0.523077,
+      "p_residual_final": 0.556423
+    },
+    {
+      "date": "2025-03-03T00:00:00",
+      "competition": "serie_a",
+      "home": "Juventus",
+      "away": "Verona",
+      "hit": false,
+      "p_dc_original": 0.5049,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.577589
+    },
+    {
+      "date": "2025-03-07T00:00:00",
+      "competition": "serie_a",
+      "home": "Cagliari",
+      "away": "Genoa",
+      "hit": false,
+      "p_dc_original": 0.7914,
+      "p_market_devig": 0.379653,
+      "p_residual_final": 0.41863
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "serie_a",
+      "home": "Como",
+      "away": "Venezia",
+      "hit": false,
+      "p_dc_original": 0.5327,
+      "p_market_devig": 0.479487,
+      "p_residual_final": 0.531601
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "serie_a",
+      "home": "Parma",
+      "away": "Torino",
+      "hit": true,
+      "p_dc_original": 0.505,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.479847
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "serie_a",
+      "home": "Lecce",
+      "away": "Milan",
+      "hit": true,
+      "p_dc_original": 0.7924,
+      "p_market_devig": 0.517949,
+      "p_residual_final": 0.553238
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "serie_a",
+      "home": "Inter",
+      "away": "Monza",
+      "hit": true,
+      "p_dc_original": 0.2614,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.674291
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "serie_a",
+      "home": "Verona",
+      "away": "Bologna",
+      "hit": true,
+      "p_dc_original": 0.793,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.444864
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "serie_a",
+      "home": "Napoli",
+      "away": "Fiorentina",
+      "hit": true,
+      "p_dc_original": 0.4964,
+      "p_market_devig": 0.450402,
+      "p_residual_final": 0.499328
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "serie_a",
+      "home": "Empoli",
+      "away": "Roma",
+      "hit": false,
+      "p_dc_original": 0.4964,
+      "p_market_devig": 0.474359,
+      "p_residual_final": 0.507059
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "serie_a",
+      "home": "Juventus",
+      "away": "Atalanta",
+      "hit": true,
+      "p_dc_original": 0.9688,
+      "p_market_devig": 0.476923,
+      "p_residual_final": 0.519606
+    },
+    {
+      "date": "2025-03-10T00:00:00",
+      "competition": "serie_a",
+      "home": "Lazio",
+      "away": "Udinese",
+      "hit": false,
+      "p_dc_original": 0.5743,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.542314
+    },
+    {
+      "date": "2025-03-14T00:00:00",
+      "competition": "serie_a",
+      "home": "Genoa",
+      "away": "Lecce",
+      "hit": true,
+      "p_dc_original": 0.8694,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.409557
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "serie_a",
+      "home": "Monza",
+      "away": "Parma",
+      "hit": false,
+      "p_dc_original": 0.8786,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.491243
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "serie_a",
+      "home": "Udinese",
+      "away": "Verona",
+      "hit": false,
+      "p_dc_original": 0.7952,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.496906
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "serie_a",
+      "home": "Milan",
+      "away": "Como",
+      "hit": true,
+      "p_dc_original": 0.496,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.583956
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "serie_a",
+      "home": "Torino",
+      "away": "Empoli",
+      "hit": false,
+      "p_dc_original": 0.4842,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.460919
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "serie_a",
+      "home": "Venezia",
+      "away": "Napoli",
+      "hit": false,
+      "p_dc_original": 0.8802,
+      "p_market_devig": 0.469231,
+      "p_residual_final": 0.496672
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "serie_a",
+      "home": "Bologna",
+      "away": "Lazio",
+      "hit": true,
+      "p_dc_original": 0.5636,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.470968
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "serie_a",
+      "home": "Roma",
+      "away": "Cagliari",
+      "hit": false,
+      "p_dc_original": 0.4882,
+      "p_market_devig": 0.487179,
+      "p_residual_final": 0.538729
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "serie_a",
+      "home": "Fiorentina",
+      "away": "Juventus",
+      "hit": true,
+      "p_dc_original": 0.7971,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.451815
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "serie_a",
+      "home": "Atalanta",
+      "away": "Inter",
+      "hit": false,
+      "p_dc_original": 0.9694,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.552626
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "serie_a",
+      "home": "Como",
+      "away": "Empoli",
+      "hit": false,
+      "p_dc_original": 0.8865,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.498445
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "serie_a",
+      "home": "Venezia",
+      "away": "Bologna",
+      "hit": false,
+      "p_dc_original": 0.497,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.450874
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "serie_a",
+      "home": "Juventus",
+      "away": "Genoa",
+      "hit": false,
+      "p_dc_original": 0.8069,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.492369
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "serie_a",
+      "home": "Lecce",
+      "away": "Roma",
+      "hit": false,
+      "p_dc_original": 0.497,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.464297
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "serie_a",
+      "home": "Cagliari",
+      "away": "Monza",
+      "hit": true,
+      "p_dc_original": 0.2594,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.487095
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "serie_a",
+      "home": "Fiorentina",
+      "away": "Atalanta",
+      "hit": false,
+      "p_dc_original": 0.4953,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.538914
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "serie_a",
+      "home": "Inter",
+      "away": "Udinese",
+      "hit": true,
+      "p_dc_original": 0.488,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.571773
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "serie_a",
+      "home": "Napoli",
+      "away": "Milan",
+      "hit": true,
+      "p_dc_original": 0.4953,
+      "p_market_devig": 0.482051,
+      "p_residual_final": 0.512013
+    },
+    {
+      "date": "2025-03-31T00:00:00",
+      "competition": "serie_a",
+      "home": "Verona",
+      "away": "Parma",
+      "hit": false,
+      "p_dc_original": 0.8851,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.492951
+    },
+    {
+      "date": "2025-03-31T00:00:00",
+      "competition": "serie_a",
+      "home": "Lazio",
+      "away": "Torino",
+      "hit": false,
+      "p_dc_original": 0.4952,
+      "p_market_devig": 0.466667,
+      "p_residual_final": 0.494751
+    },
+    {
+      "date": "2025-04-04T00:00:00",
+      "competition": "serie_a",
+      "home": "Genoa",
+      "away": "Udinese",
+      "hit": false,
+      "p_dc_original": 0.8858,
+      "p_market_devig": 0.343675,
+      "p_residual_final": 0.385461
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "serie_a",
+      "home": "Monza",
+      "away": "Como",
+      "hit": true,
+      "p_dc_original": 0.8008,
+      "p_market_devig": 0.482051,
+      "p_residual_final": 0.517985
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "serie_a",
+      "home": "Parma",
+      "away": "Inter",
+      "hit": true,
+      "p_dc_original": 0.495,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.588645
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "serie_a",
+      "home": "Milan",
+      "away": "Fiorentina",
+      "hit": true,
+      "p_dc_original": 0.495,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.592952
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "serie_a",
+      "home": "Lecce",
+      "away": "Venezia",
+      "hit": false,
+      "p_dc_original": 0.257,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.467469
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "serie_a",
+      "home": "Empoli",
+      "away": "Cagliari",
+      "hit": false,
+      "p_dc_original": 0.5974,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.469874
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "serie_a",
+      "home": "Torino",
+      "away": "Verona",
+      "hit": false,
+      "p_dc_original": 0.4833,
+      "p_market_devig": 0.397468,
+      "p_residual_final": 0.447717
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "serie_a",
+      "home": "Atalanta",
+      "away": "Lazio",
+      "hit": false,
+      "p_dc_original": 0.4935,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.573702
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "serie_a",
+      "home": "Roma",
+      "away": "Juventus",
+      "hit": false,
+      "p_dc_original": 0.4935,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.479576
+    },
+    {
+      "date": "2025-04-07T00:00:00",
+      "competition": "serie_a",
+      "home": "Bologna",
+      "away": "Napoli",
+      "hit": false,
+      "p_dc_original": 0.5551,
+      "p_market_devig": 0.379653,
+      "p_residual_final": 0.423946
+    },
+    {
+      "date": "2025-04-11T00:00:00",
+      "competition": "serie_a",
+      "home": "Udinese",
+      "away": "Milan",
+      "hit": true,
+      "p_dc_original": 0.4912,
+      "p_market_devig": 0.515385,
+      "p_residual_final": 0.537528
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "serie_a",
+      "home": "Venezia",
+      "away": "Monza",
+      "hit": false,
+      "p_dc_original": 0.2677,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.483042
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "serie_a",
+      "home": "Inter",
+      "away": "Cagliari",
+      "hit": true,
+      "p_dc_original": 0.4636,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.597176
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "serie_a",
+      "home": "Juventus",
+      "away": "Lecce",
+      "hit": true,
+      "p_dc_original": 0.607,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.541071
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "serie_a",
+      "home": "Atalanta",
+      "away": "Bologna",
+      "hit": false,
+      "p_dc_original": 0.4634,
+      "p_market_devig": 0.474359,
+      "p_residual_final": 0.503443
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "serie_a",
+      "home": "Fiorentina",
+      "away": "Parma",
+      "hit": false,
+      "p_dc_original": 0.4933,
+      "p_market_devig": 0.492308,
+      "p_residual_final": 0.538511
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "serie_a",
+      "home": "Verona",
+      "away": "Genoa",
+      "hit": false,
+      "p_dc_original": 0.6075,
+      "p_market_devig": 0.343675,
+      "p_residual_final": 0.380911
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "serie_a",
+      "home": "Como",
+      "away": "Torino",
+      "hit": false,
+      "p_dc_original": 0.5002,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.491037
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "serie_a",
+      "home": "Lazio",
+      "away": "Roma",
+      "hit": false,
+      "p_dc_original": 0.4837,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.495843
+    },
+    {
+      "date": "2025-04-14T00:00:00",
+      "competition": "serie_a",
+      "home": "Napoli",
+      "away": "Empoli",
+      "hit": true,
+      "p_dc_original": 0.6081,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.553882
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "serie_a",
+      "home": "Lecce",
+      "away": "Como",
+      "hit": true,
+      "p_dc_original": 0.4913,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.488647
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "serie_a",
+      "home": "Monza",
+      "away": "Napoli",
+      "hit": false,
+      "p_dc_original": 0.4913,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.557823
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "serie_a",
+      "home": "Roma",
+      "away": "Verona",
+      "hit": false,
+      "p_dc_original": 0.6086,
+      "p_market_devig": 0.466667,
+      "p_residual_final": 0.517654
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "serie_a",
+      "home": "Empoli",
+      "away": "Venezia",
+      "hit": true,
+      "p_dc_original": 0.2558,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.460277
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "serie_a",
+      "home": "Bologna",
+      "away": "Inter",
+      "hit": false,
+      "p_dc_original": 0.4032,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.46488
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "serie_a",
+      "home": "Milan",
+      "away": "Atalanta",
+      "hit": false,
+      "p_dc_original": 0.5536,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.620389
+    },
+    {
+      "date": "2025-04-23T00:00:00",
+      "competition": "serie_a",
+      "home": "Cagliari",
+      "away": "Fiorentina",
+      "hit": true,
+      "p_dc_original": 0.4913,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.469749
+    },
+    {
+      "date": "2025-04-23T00:00:00",
+      "competition": "serie_a",
+      "home": "Genoa",
+      "away": "Lazio",
+      "hit": false,
+      "p_dc_original": 0.6094,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.451917
+    },
+    {
+      "date": "2025-04-23T00:00:00",
+      "competition": "serie_a",
+      "home": "Parma",
+      "away": "Juventus",
+      "hit": false,
+      "p_dc_original": 0.8076,
+      "p_market_devig": 0.487179,
+      "p_residual_final": 0.528097
+    },
+    {
+      "date": "2025-04-23T00:00:00",
+      "competition": "serie_a",
+      "home": "Torino",
+      "away": "Udinese",
+      "hit": false,
+      "p_dc_original": 0.6022,
+      "p_market_devig": 0.379653,
+      "p_residual_final": 0.424464
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "serie_a",
+      "home": "Como",
+      "away": "Genoa",
+      "hit": false,
+      "p_dc_original": 0.4715,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.48636
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "serie_a",
+      "home": "Venezia",
+      "away": "Milan",
+      "hit": false,
+      "p_dc_original": 0.4722,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.575291
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "serie_a",
+      "home": "Fiorentina",
+      "away": "Empoli",
+      "hit": true,
+      "p_dc_original": 0.4642,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.480232
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "serie_a",
+      "home": "Inter",
+      "away": "Roma",
+      "hit": false,
+      "p_dc_original": 0.4787,
+      "p_market_devig": 0.482051,
+      "p_residual_final": 0.5375
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "serie_a",
+      "home": "Juventus",
+      "away": "Monza",
+      "hit": false,
+      "p_dc_original": 0.2689,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.661667
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "serie_a",
+      "home": "Atalanta",
+      "away": "Lecce",
+      "hit": false,
+      "p_dc_original": 0.2689,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.639594
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "serie_a",
+      "home": "Napoli",
+      "away": "Torino",
+      "hit": false,
+      "p_dc_original": 0.4715,
+      "p_market_devig": 0.469231,
+      "p_residual_final": 0.51499
+    },
+    {
+      "date": "2025-04-28T00:00:00",
+      "competition": "serie_a",
+      "home": "Udinese",
+      "away": "Bologna",
+      "hit": false,
+      "p_dc_original": 0.8097,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.467833
+    },
+    {
+      "date": "2025-04-28T00:00:00",
+      "competition": "serie_a",
+      "home": "Lazio",
+      "away": "Parma",
+      "hit": true,
+      "p_dc_original": 0.8099,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.596027
+    },
+    {
+      "date": "2025-04-28T00:00:00",
+      "competition": "serie_a",
+      "home": "Verona",
+      "away": "Cagliari",
+      "hit": false,
+      "p_dc_original": 0.5466,
+      "p_market_devig": 0.363196,
+      "p_residual_final": 0.395971
+    },
+    {
+      "date": "2025-05-02T00:00:00",
+      "competition": "serie_a",
+      "home": "Torino",
+      "away": "Venezia",
+      "hit": false,
+      "p_dc_original": 0.5541,
+      "p_market_devig": 0.397403,
+      "p_residual_final": 0.438519
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "serie_a",
+      "home": "Cagliari",
+      "away": "Udinese",
+      "hit": true,
+      "p_dc_original": 0.5579,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.464307
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "serie_a",
+      "home": "Parma",
+      "away": "Como",
+      "hit": false,
+      "p_dc_original": 0.4783,
+      "p_market_devig": 0.510256,
+      "p_residual_final": 0.545179
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "serie_a",
+      "home": "Lecce",
+      "away": "Napoli",
+      "hit": false,
+      "p_dc_original": 0.4715,
+      "p_market_devig": 0.473684,
+      "p_residual_final": 0.509161
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "serie_a",
+      "home": "Inter",
+      "away": "Verona",
+      "hit": false,
+      "p_dc_original": 0.5583,
+      "p_market_devig": 0.525641,
+      "p_residual_final": 0.584172
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "serie_a",
+      "home": "Empoli",
+      "away": "Lazio",
+      "hit": false,
+      "p_dc_original": 0.4645,
+      "p_market_devig": 0.470899,
+      "p_residual_final": 0.506274
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "serie_a",
+      "home": "Monza",
+      "away": "Atalanta",
+      "hit": true,
+      "p_dc_original": 0.2631,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.67583
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "serie_a",
+      "home": "Roma",
+      "away": "Fiorentina",
+      "hit": false,
+      "p_dc_original": 0.4715,
+      "p_market_devig": 0.479487,
+      "p_residual_final": 0.515901
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "serie_a",
+      "home": "Bologna",
+      "away": "Juventus",
+      "hit": false,
+      "p_dc_original": 0.812,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.453465
+    },
+    {
+      "date": "2025-05-05T00:00:00",
+      "competition": "serie_a",
+      "home": "Genoa",
+      "away": "Milan",
+      "hit": true,
+      "p_dc_original": 0.8196,
+      "p_market_devig": 0.489744,
+      "p_residual_final": 0.515477
+    },
+    {
+      "date": "2025-05-09T00:00:00",
+      "competition": "serie_a",
+      "home": "Milan",
+      "away": "Bologna",
+      "hit": true,
+      "p_dc_original": 0.4716,
+      "p_market_devig": 0.489744,
+      "p_residual_final": 0.548976
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "serie_a",
+      "home": "Como",
+      "away": "Cagliari",
+      "hit": true,
+      "p_dc_original": 0.4779,
+      "p_market_devig": 0.494872,
+      "p_residual_final": 0.53819
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "serie_a",
+      "home": "Lazio",
+      "away": "Juventus",
+      "hit": false,
+      "p_dc_original": 0.4716,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.474462
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "serie_a",
+      "home": "Empoli",
+      "away": "Parma",
+      "hit": true,
+      "p_dc_original": 0.5557,
+      "p_market_devig": 0.479487,
+      "p_residual_final": 0.518582
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "serie_a",
+      "home": "Udinese",
+      "away": "Monza",
+      "hit": true,
+      "p_dc_original": 0.2559,
+      "p_market_devig": 0.515385,
+      "p_residual_final": 0.558514
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "serie_a",
+      "home": "Verona",
+      "away": "Lecce",
+      "hit": false,
+      "p_dc_original": 0.2583,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.471185
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "serie_a",
+      "home": "Torino",
+      "away": "Inter",
+      "hit": false,
+      "p_dc_original": 0.8209,
+      "p_market_devig": 0.489744,
+      "p_residual_final": 0.53227
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "serie_a",
+      "home": "Napoli",
+      "away": "Genoa",
+      "hit": true,
+      "p_dc_original": 0.821,
+      "p_market_devig": 0.471795,
+      "p_residual_final": 0.525421
+    },
+    {
+      "date": "2025-05-12T00:00:00",
+      "competition": "serie_a",
+      "home": "Venezia",
+      "away": "Fiorentina",
+      "hit": true,
+      "p_dc_original": 0.4405,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.470503
+    },
+    {
+      "date": "2025-05-12T00:00:00",
+      "competition": "serie_a",
+      "home": "Atalanta",
+      "away": "Roma",
+      "hit": true,
+      "p_dc_original": 0.4683,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.577759
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "serie_a",
+      "home": "Genoa",
+      "away": "Atalanta",
+      "hit": true,
+      "p_dc_original": 0.4682,
+      "p_market_devig": 0.520513,
+      "p_residual_final": 0.549489
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "serie_a",
+      "home": "Cagliari",
+      "away": "Venezia",
+      "hit": true,
+      "p_dc_original": 0.4473,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.470549
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "serie_a",
+      "home": "Fiorentina",
+      "away": "Bologna",
+      "hit": true,
+      "p_dc_original": 0.5181,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.461252
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "serie_a",
+      "home": "Inter",
+      "away": "Lazio",
+      "hit": true,
+      "p_dc_original": 0.4682,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.588525
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "serie_a",
+      "home": "Juventus",
+      "away": "Udinese",
+      "hit": false,
+      "p_dc_original": 0.8152,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.541667
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "serie_a",
+      "home": "Lecce",
+      "away": "Torino",
+      "hit": false,
+      "p_dc_original": 0.2702,
+      "p_market_devig": 0.413265,
+      "p_residual_final": 0.456908
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "serie_a",
+      "home": "Monza",
+      "away": "Empoli",
+      "hit": true,
+      "p_dc_original": 0.5116,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.46479
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "serie_a",
+      "home": "Parma",
+      "away": "Napoli",
+      "hit": false,
+      "p_dc_original": 0.4681,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.537721
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "serie_a",
+      "home": "Roma",
+      "away": "Milan",
+      "hit": true,
+      "p_dc_original": 0.4528,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.577172
+    },
+    {
+      "date": "2025-05-18T00:00:00",
+      "competition": "serie_a",
+      "home": "Verona",
+      "away": "Como",
+      "hit": false,
+      "p_dc_original": 0.8231,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.484912
+    },
+    {
+      "date": "2025-05-23T00:00:00",
+      "competition": "serie_a",
+      "home": "Como",
+      "away": "Inter",
+      "hit": false,
+      "p_dc_original": 0.4739,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.650531
+    },
+    {
+      "date": "2025-05-23T00:00:00",
+      "competition": "serie_a",
+      "home": "Napoli",
+      "away": "Cagliari",
+      "hit": false,
+      "p_dc_original": 0.4739,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.650878
+    },
+    {
+      "date": "2025-05-24T00:00:00",
+      "competition": "serie_a",
+      "home": "Bologna",
+      "away": "Genoa",
+      "hit": true,
+      "p_dc_original": 0.8236,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.582951
+    },
+    {
+      "date": "2025-05-24T00:00:00",
+      "competition": "serie_a",
+      "home": "Milan",
+      "away": "Monza",
+      "hit": false,
+      "p_dc_original": 0.4406,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.751879
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "serie_a",
+      "home": "Atalanta",
+      "away": "Parma",
+      "hit": true,
+      "p_dc_original": 0.4472,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.600146
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "serie_a",
+      "home": "Empoli",
+      "away": "Verona",
+      "hit": true,
+      "p_dc_original": 0.8241,
+      "p_market_devig": 0.397468,
+      "p_residual_final": 0.44769
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "serie_a",
+      "home": "Lazio",
+      "away": "Lecce",
+      "hit": false,
+      "p_dc_original": 0.4406,
+      "p_market_devig": 0.525907,
+      "p_residual_final": 0.574836
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "serie_a",
+      "home": "Torino",
+      "away": "Roma",
+      "hit": false,
+      "p_dc_original": 0.8245,
+      "p_market_devig": 0.506494,
+      "p_residual_final": 0.546001
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "serie_a",
+      "home": "Udinese",
+      "away": "Fiorentina",
+      "hit": true,
+      "p_dc_original": 0.4406,
+      "p_market_devig": 0.487047,
+      "p_residual_final": 0.516628
+    },
+    {
+      "date": "2025-05-25T00:00:00",
+      "competition": "serie_a",
+      "home": "Venezia",
+      "away": "Juventus",
+      "hit": true,
+      "p_dc_original": 0.4406,
+      "p_market_devig": 0.512953,
+      "p_residual_final": 0.555505
+    },
+    {
+      "date": "2025-02-15T00:00:00",
+      "competition": "bundesliga",
+      "home": "Leverkusen",
+      "away": "Bayern Munich",
+      "hit": false,
+      "p_dc_original": 0.9762,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.589929
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "bundesliga",
+      "home": "Werder Bremen",
+      "away": "Hoffenheim",
+      "hit": true,
+      "p_dc_original": 0.5921,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.621023
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "bundesliga",
+      "home": "Ein Frankfurt",
+      "away": "Holstein Kiel",
+      "hit": true,
+      "p_dc_original": 0.9626,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.700484
+    },
+    {
+      "date": "2025-02-16T00:00:00",
+      "competition": "bundesliga",
+      "home": "Heidenheim",
+      "away": "Mainz",
+      "hit": false,
+      "p_dc_original": 0.0612,
+      "p_market_devig": 0.507692,
+      "p_residual_final": 0.484837
+    },
+    {
+      "date": "2025-02-21T00:00:00",
+      "competition": "bundesliga",
+      "home": "Freiburg",
+      "away": "Werder Bremen",
+      "hit": true,
+      "p_dc_original": 0.061,
+      "p_market_devig": 0.492308,
+      "p_residual_final": 0.492055
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "bundesliga",
+      "home": "Holstein Kiel",
+      "away": "Leverkusen",
+      "hit": false,
+      "p_dc_original": 0.6551,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.662844
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "bundesliga",
+      "home": "Mainz",
+      "away": "St Pauli",
+      "hit": false,
+      "p_dc_original": 0.5813,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.453148
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "bundesliga",
+      "home": "M'gladbach",
+      "away": "Augsburg",
+      "hit": true,
+      "p_dc_original": 0.7289,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.546422
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "bundesliga",
+      "home": "Wolfsburg",
+      "away": "Bochum",
+      "hit": false,
+      "p_dc_original": 0.7043,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.594335
+    },
+    {
+      "date": "2025-02-22T00:00:00",
+      "competition": "bundesliga",
+      "home": "Dortmund",
+      "away": "Union Berlin",
+      "hit": true,
+      "p_dc_original": 0.5933,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.585514
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "bundesliga",
+      "home": "RB Leipzig",
+      "away": "Heidenheim",
+      "hit": true,
+      "p_dc_original": 0.3311,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.640778
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "bundesliga",
+      "home": "Bayern Munich",
+      "away": "Ein Frankfurt",
+      "hit": true,
+      "p_dc_original": 0.9591,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.738243
+    },
+    {
+      "date": "2025-02-23T00:00:00",
+      "competition": "bundesliga",
+      "home": "Hoffenheim",
+      "away": "Stuttgart",
+      "hit": false,
+      "p_dc_original": 0.6313,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.630977
+    },
+    {
+      "date": "2025-02-28T00:00:00",
+      "competition": "bundesliga",
+      "home": "Stuttgart",
+      "away": "Bayern Munich",
+      "hit": true,
+      "p_dc_original": 0.5313,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.619355
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "bundesliga",
+      "home": "Bochum",
+      "away": "Hoffenheim",
+      "hit": false,
+      "p_dc_original": 0.5939,
+      "p_market_devig": 0.589005,
+      "p_residual_final": 0.576321
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "bundesliga",
+      "home": "Heidenheim",
+      "away": "M'gladbach",
+      "hit": true,
+      "p_dc_original": 0.5941,
+      "p_market_devig": 0.570292,
+      "p_residual_final": 0.5509
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "bundesliga",
+      "home": "RB Leipzig",
+      "away": "Mainz",
+      "hit": true,
+      "p_dc_original": 0.5942,
+      "p_market_devig": 0.526882,
+      "p_residual_final": 0.531297
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "bundesliga",
+      "home": "St Pauli",
+      "away": "Dortmund",
+      "hit": false,
+      "p_dc_original": 0.6143,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.519593
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "bundesliga",
+      "home": "Werder Bremen",
+      "away": "Wolfsburg",
+      "hit": true,
+      "p_dc_original": 0.3427,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.564527
+    },
+    {
+      "date": "2025-03-01T00:00:00",
+      "competition": "bundesliga",
+      "home": "Ein Frankfurt",
+      "away": "Leverkusen",
+      "hit": true,
+      "p_dc_original": 0.706,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.571353
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "bundesliga",
+      "home": "Union Berlin",
+      "away": "Holstein Kiel",
+      "hit": false,
+      "p_dc_original": 0.6964,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.560845
+    },
+    {
+      "date": "2025-03-02T00:00:00",
+      "competition": "bundesliga",
+      "home": "Augsburg",
+      "away": "Freiburg",
+      "hit": false,
+      "p_dc_original": 0.6144,
+      "p_market_devig": 0.431525,
+      "p_residual_final": 0.433149
+    },
+    {
+      "date": "2025-03-07T00:00:00",
+      "competition": "bundesliga",
+      "home": "M'gladbach",
+      "away": "Mainz",
+      "hit": true,
+      "p_dc_original": 0.7064,
+      "p_market_devig": 0.526882,
+      "p_residual_final": 0.530376
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "bundesliga",
+      "home": "Bayern Munich",
+      "away": "Bochum",
+      "hit": true,
+      "p_dc_original": 0.5349,
+      "p_market_devig": 0.744048,
+      "p_residual_final": 0.764108
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "bundesliga",
+      "home": "Dortmund",
+      "away": "Augsburg",
+      "hit": false,
+      "p_dc_original": 0.6142,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.542285
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "bundesliga",
+      "home": "Holstein Kiel",
+      "away": "Stuttgart",
+      "hit": true,
+      "p_dc_original": 0.6973,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.622834
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "bundesliga",
+      "home": "Leverkusen",
+      "away": "Werder Bremen",
+      "hit": false,
+      "p_dc_original": 0.5954,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.631117
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "bundesliga",
+      "home": "Wolfsburg",
+      "away": "St Pauli",
+      "hit": false,
+      "p_dc_original": 0.0498,
+      "p_market_devig": 0.510582,
+      "p_residual_final": 0.508609
+    },
+    {
+      "date": "2025-03-08T00:00:00",
+      "competition": "bundesliga",
+      "home": "Freiburg",
+      "away": "RB Leipzig",
+      "hit": false,
+      "p_dc_original": 0.6978,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.525621
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "bundesliga",
+      "home": "Ein Frankfurt",
+      "away": "Union Berlin",
+      "hit": true,
+      "p_dc_original": 0.5854,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.579438
+    },
+    {
+      "date": "2025-03-09T00:00:00",
+      "competition": "bundesliga",
+      "home": "Hoffenheim",
+      "away": "Heidenheim",
+      "hit": false,
+      "p_dc_original": 0.3313,
+      "p_market_devig": 0.570292,
+      "p_residual_final": 0.561087
+    },
+    {
+      "date": "2025-03-14T00:00:00",
+      "competition": "bundesliga",
+      "home": "St Pauli",
+      "away": "Hoffenheim",
+      "hit": false,
+      "p_dc_original": 0.0437,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.43783
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "bundesliga",
+      "home": "Augsburg",
+      "away": "Wolfsburg",
+      "hit": false,
+      "p_dc_original": 0.3422,
+      "p_market_devig": 0.473684,
+      "p_residual_final": 0.471885
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "bundesliga",
+      "home": "Mainz",
+      "away": "Freiburg",
+      "hit": true,
+      "p_dc_original": 0.5842,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.455911
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "bundesliga",
+      "home": "Union Berlin",
+      "away": "Bayern Munich",
+      "hit": false,
+      "p_dc_original": 0.552,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.589925
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "bundesliga",
+      "home": "Werder Bremen",
+      "away": "M'gladbach",
+      "hit": true,
+      "p_dc_original": 0.5864,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.59767
+    },
+    {
+      "date": "2025-03-15T00:00:00",
+      "competition": "bundesliga",
+      "home": "RB Leipzig",
+      "away": "Dortmund",
+      "hit": false,
+      "p_dc_original": 0.71,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.590419
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "bundesliga",
+      "home": "Bochum",
+      "away": "Ein Frankfurt",
+      "hit": true,
+      "p_dc_original": 0.7101,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.553385
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "bundesliga",
+      "home": "Heidenheim",
+      "away": "Holstein Kiel",
+      "hit": true,
+      "p_dc_original": 0.385,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.50676
+    },
+    {
+      "date": "2025-03-16T00:00:00",
+      "competition": "bundesliga",
+      "home": "Stuttgart",
+      "away": "Leverkusen",
+      "hit": true,
+      "p_dc_original": 0.7014,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.562847
+    },
+    {
+      "date": "2025-03-28T00:00:00",
+      "competition": "bundesliga",
+      "home": "Leverkusen",
+      "away": "Bochum",
+      "hit": true,
+      "p_dc_original": 0.5908,
+      "p_market_devig": 0.656934,
+      "p_residual_final": 0.672915
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "bundesliga",
+      "home": "Bayern Munich",
+      "away": "St Pauli",
+      "hit": true,
+      "p_dc_original": 0.5971,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.673123
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "bundesliga",
+      "home": "Hoffenheim",
+      "away": "Augsburg",
+      "hit": false,
+      "p_dc_original": 0.5874,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.443598
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "bundesliga",
+      "home": "Holstein Kiel",
+      "away": "Werder Bremen",
+      "hit": true,
+      "p_dc_original": 0.5876,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.56939
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "bundesliga",
+      "home": "M'gladbach",
+      "away": "RB Leipzig",
+      "hit": false,
+      "p_dc_original": 0.5756,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.616982
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "bundesliga",
+      "home": "Wolfsburg",
+      "away": "Heidenheim",
+      "hit": false,
+      "p_dc_original": 0.5976,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.553302
+    },
+    {
+      "date": "2025-03-29T00:00:00",
+      "competition": "bundesliga",
+      "home": "Ein Frankfurt",
+      "away": "Stuttgart",
+      "hit": false,
+      "p_dc_original": 0.5833,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.645448
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "bundesliga",
+      "home": "Freiburg",
+      "away": "Union Berlin",
+      "hit": true,
+      "p_dc_original": 0.5978,
+      "p_market_devig": 0.451697,
+      "p_residual_final": 0.453886
+    },
+    {
+      "date": "2025-03-30T00:00:00",
+      "competition": "bundesliga",
+      "home": "Dortmund",
+      "away": "Mainz",
+      "hit": true,
+      "p_dc_original": 0.5493,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.57116
+    },
+    {
+      "date": "2025-04-04T00:00:00",
+      "competition": "bundesliga",
+      "home": "Augsburg",
+      "away": "Bayern Munich",
+      "hit": true,
+      "p_dc_original": 0.5489,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.590805
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "bundesliga",
+      "home": "Bochum",
+      "away": "Stuttgart",
+      "hit": true,
+      "p_dc_original": 0.7031,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.586022
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "bundesliga",
+      "home": "Freiburg",
+      "away": "Dortmund",
+      "hit": true,
+      "p_dc_original": 0.5487,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.530036
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "bundesliga",
+      "home": "Heidenheim",
+      "away": "Leverkusen",
+      "hit": false,
+      "p_dc_original": 0.5536,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.573637
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "bundesliga",
+      "home": "Mainz",
+      "away": "Holstein Kiel",
+      "hit": false,
+      "p_dc_original": 0.712,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.576323
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "bundesliga",
+      "home": "RB Leipzig",
+      "away": "Hoffenheim",
+      "hit": true,
+      "p_dc_original": 0.3858,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.620305
+    },
+    {
+      "date": "2025-04-05T00:00:00",
+      "competition": "bundesliga",
+      "home": "Werder Bremen",
+      "away": "Ein Frankfurt",
+      "hit": false,
+      "p_dc_original": 0.7123,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.592441
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "bundesliga",
+      "home": "St Pauli",
+      "away": "M'gladbach",
+      "hit": false,
+      "p_dc_original": 0.7039,
+      "p_market_devig": 0.517949,
+      "p_residual_final": 0.507171
+    },
+    {
+      "date": "2025-04-06T00:00:00",
+      "competition": "bundesliga",
+      "home": "Union Berlin",
+      "away": "Wolfsburg",
+      "hit": false,
+      "p_dc_original": 0.386,
+      "p_market_devig": 0.474359,
+      "p_residual_final": 0.454284
+    },
+    {
+      "date": "2025-04-11T00:00:00",
+      "competition": "bundesliga",
+      "home": "Wolfsburg",
+      "away": "RB Leipzig",
+      "hit": true,
+      "p_dc_original": 0.4364,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.607422
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "bundesliga",
+      "home": "Bochum",
+      "away": "Augsburg",
+      "hit": true,
+      "p_dc_original": 0.4365,
+      "p_market_devig": 0.482051,
+      "p_residual_final": 0.458361
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "bundesliga",
+      "home": "Hoffenheim",
+      "away": "Mainz",
+      "hit": false,
+      "p_dc_original": 0.6694,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.537911
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "bundesliga",
+      "home": "Holstein Kiel",
+      "away": "St Pauli",
+      "hit": true,
+      "p_dc_original": 0.4464,
+      "p_market_devig": 0.487179,
+      "p_residual_final": 0.467086
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "bundesliga",
+      "home": "Leverkusen",
+      "away": "Union Berlin",
+      "hit": false,
+      "p_dc_original": 0.5279,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.604839
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "bundesliga",
+      "home": "M'gladbach",
+      "away": "Freiburg",
+      "hit": true,
+      "p_dc_original": 0.6779,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.569026
+    },
+    {
+      "date": "2025-04-12T00:00:00",
+      "competition": "bundesliga",
+      "home": "Bayern Munich",
+      "away": "Dortmund",
+      "hit": true,
+      "p_dc_original": 0.9668,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.701039
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "bundesliga",
+      "home": "Stuttgart",
+      "away": "Werder Bremen",
+      "hit": true,
+      "p_dc_original": 0.538,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.658531
+    },
+    {
+      "date": "2025-04-13T00:00:00",
+      "competition": "bundesliga",
+      "home": "Ein Frankfurt",
+      "away": "Heidenheim",
+      "hit": true,
+      "p_dc_original": 0.5906,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.57602
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "bundesliga",
+      "home": "Freiburg",
+      "away": "Hoffenheim",
+      "hit": true,
+      "p_dc_original": 0.5907,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.548606
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "bundesliga",
+      "home": "Heidenheim",
+      "away": "Bayern Munich",
+      "hit": true,
+      "p_dc_original": 0.5818,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.670905
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "bundesliga",
+      "home": "Mainz",
+      "away": "Wolfsburg",
+      "hit": true,
+      "p_dc_original": 0.4468,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.527217
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "bundesliga",
+      "home": "RB Leipzig",
+      "away": "Holstein Kiel",
+      "hit": false,
+      "p_dc_original": 0.6705,
+      "p_market_devig": 0.681818,
+      "p_residual_final": 0.687141
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "bundesliga",
+      "home": "Werder Bremen",
+      "away": "Bochum",
+      "hit": false,
+      "p_dc_original": 0.588,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.605779
+    },
+    {
+      "date": "2025-04-19T00:00:00",
+      "competition": "bundesliga",
+      "home": "Union Berlin",
+      "away": "Stuttgart",
+      "hit": true,
+      "p_dc_original": 0.5816,
+      "p_market_devig": 0.526316,
+      "p_residual_final": 0.522622
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "bundesliga",
+      "home": "Augsburg",
+      "away": "Ein Frankfurt",
+      "hit": false,
+      "p_dc_original": 0.6787,
+      "p_market_devig": 0.507692,
+      "p_residual_final": 0.505954
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "bundesliga",
+      "home": "Dortmund",
+      "away": "M'gladbach",
+      "hit": true,
+      "p_dc_original": 0.5879,
+      "p_market_devig": 0.701754,
+      "p_residual_final": 0.699026
+    },
+    {
+      "date": "2025-04-20T00:00:00",
+      "competition": "bundesliga",
+      "home": "St Pauli",
+      "away": "Leverkusen",
+      "hit": false,
+      "p_dc_original": 0.5746,
+      "p_market_devig": 0.479487,
+      "p_residual_final": 0.465155
+    },
+    {
+      "date": "2025-04-25T00:00:00",
+      "competition": "bundesliga",
+      "home": "Stuttgart",
+      "away": "Heidenheim",
+      "hit": false,
+      "p_dc_original": 0.5812,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.651818
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "bundesliga",
+      "home": "Bayern Munich",
+      "away": "Mainz",
+      "hit": true,
+      "p_dc_original": 0.5307,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.734832
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "bundesliga",
+      "home": "Hoffenheim",
+      "away": "Dortmund",
+      "hit": true,
+      "p_dc_original": 0.5256,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.65008
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "bundesliga",
+      "home": "Holstein Kiel",
+      "away": "M'gladbach",
+      "hit": true,
+      "p_dc_original": 0.6714,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.623235
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "bundesliga",
+      "home": "Leverkusen",
+      "away": "Augsburg",
+      "hit": false,
+      "p_dc_original": 0.6792,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.569837
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "bundesliga",
+      "home": "Wolfsburg",
+      "away": "Freiburg",
+      "hit": false,
+      "p_dc_original": 0.6715,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.549095
+    },
+    {
+      "date": "2025-04-26T00:00:00",
+      "competition": "bundesliga",
+      "home": "Ein Frankfurt",
+      "away": "RB Leipzig",
+      "hit": true,
+      "p_dc_original": 0.5811,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.643957
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "bundesliga",
+      "home": "Bochum",
+      "away": "Union Berlin",
+      "hit": false,
+      "p_dc_original": 0.6967,
+      "p_market_devig": 0.525641,
+      "p_residual_final": 0.509452
+    },
+    {
+      "date": "2025-04-27T00:00:00",
+      "competition": "bundesliga",
+      "home": "Werder Bremen",
+      "away": "St Pauli",
+      "hit": false,
+      "p_dc_original": 0.5656,
+      "p_market_devig": 0.517949,
+      "p_residual_final": 0.524642
+    },
+    {
+      "date": "2025-05-02T00:00:00",
+      "competition": "bundesliga",
+      "home": "Heidenheim",
+      "away": "Bochum",
+      "hit": false,
+      "p_dc_original": 0.3537,
+      "p_market_devig": 0.570292,
+      "p_residual_final": 0.554825
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "bundesliga",
+      "home": "M'gladbach",
+      "away": "Hoffenheim",
+      "hit": true,
+      "p_dc_original": 0.5594,
+      "p_market_devig": 0.656934,
+      "p_residual_final": 0.65668
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "bundesliga",
+      "home": "RB Leipzig",
+      "away": "Bayern Munich",
+      "hit": true,
+      "p_dc_original": 0.9726,
+      "p_market_devig": 0.706402,
+      "p_residual_final": 0.713576
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "bundesliga",
+      "home": "St Pauli",
+      "away": "Stuttgart",
+      "hit": false,
+      "p_dc_original": 0.5527,
+      "p_market_devig": 0.525641,
+      "p_residual_final": 0.518343
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "bundesliga",
+      "home": "Union Berlin",
+      "away": "Werder Bremen",
+      "hit": true,
+      "p_dc_original": 0.5592,
+      "p_market_devig": 0.515385,
+      "p_residual_final": 0.503205
+    },
+    {
+      "date": "2025-05-03T00:00:00",
+      "competition": "bundesliga",
+      "home": "Dortmund",
+      "away": "Wolfsburg",
+      "hit": true,
+      "p_dc_original": 0.5282,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.71933
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "bundesliga",
+      "home": "Augsburg",
+      "away": "Holstein Kiel",
+      "hit": true,
+      "p_dc_original": 0.6981,
+      "p_market_devig": 0.525641,
+      "p_residual_final": 0.525851
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "bundesliga",
+      "home": "Freiburg",
+      "away": "Leverkusen",
+      "hit": true,
+      "p_dc_original": 0.5525,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.547189
+    },
+    {
+      "date": "2025-05-04T00:00:00",
+      "competition": "bundesliga",
+      "home": "Mainz",
+      "away": "Ein Frankfurt",
+      "hit": false,
+      "p_dc_original": 0.7067,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.589644
+    },
+    {
+      "date": "2025-05-09T00:00:00",
+      "competition": "bundesliga",
+      "home": "Wolfsburg",
+      "away": "Hoffenheim",
+      "hit": true,
+      "p_dc_original": 0.5524,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.64314
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "bundesliga",
+      "home": "Bochum",
+      "away": "Mainz",
+      "hit": true,
+      "p_dc_original": 0.3626,
+      "p_market_devig": 0.568475,
+      "p_residual_final": 0.547937
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "bundesliga",
+      "home": "Holstein Kiel",
+      "away": "Freiburg",
+      "hit": true,
+      "p_dc_original": 0.5282,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.613608
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "bundesliga",
+      "home": "Union Berlin",
+      "away": "Heidenheim",
+      "hit": true,
+      "p_dc_original": 0.4438,
+      "p_market_devig": 0.5,
+      "p_residual_final": 0.484138
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "bundesliga",
+      "home": "Werder Bremen",
+      "away": "RB Leipzig",
+      "hit": false,
+      "p_dc_original": 0.5645,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.629295
+    },
+    {
+      "date": "2025-05-10T00:00:00",
+      "competition": "bundesliga",
+      "home": "Bayern Munich",
+      "away": "M'gladbach",
+      "hit": false,
+      "p_dc_original": 0.984,
+      "p_market_devig": 0.810373,
+      "p_residual_final": 0.829671
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "bundesliga",
+      "home": "Leverkusen",
+      "away": "Dortmund",
+      "hit": true,
+      "p_dc_original": 0.9734,
+      "p_market_devig": 0.636804,
+      "p_residual_final": 0.661601
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "bundesliga",
+      "home": "Ein Frankfurt",
+      "away": "St Pauli",
+      "hit": true,
+      "p_dc_original": 0.7078,
+      "p_market_devig": 0.548303,
+      "p_residual_final": 0.554938
+    },
+    {
+      "date": "2025-05-11T00:00:00",
+      "competition": "bundesliga",
+      "home": "Stuttgart",
+      "away": "Augsburg",
+      "hit": true,
+      "p_dc_original": 0.6793,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.616905
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "bundesliga",
+      "home": "Augsburg",
+      "away": "Union Berlin",
+      "hit": true,
+      "p_dc_original": 0.4484,
+      "p_market_devig": 0.586735,
+      "p_residual_final": 0.586007
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "bundesliga",
+      "home": "Dortmund",
+      "away": "Holstein Kiel",
+      "hit": true,
+      "p_dc_original": 0.9839,
+      "p_market_devig": 0.828313,
+      "p_residual_final": 0.83189
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "bundesliga",
+      "home": "Freiburg",
+      "away": "Ein Frankfurt",
+      "hit": true,
+      "p_dc_original": 0.5313,
+      "p_market_devig": 0.620347,
+      "p_residual_final": 0.624294
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "bundesliga",
+      "home": "Heidenheim",
+      "away": "Werder Bremen",
+      "hit": true,
+      "p_dc_original": 0.4401,
+      "p_market_devig": 0.489744,
+      "p_residual_final": 0.470868
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "bundesliga",
+      "home": "Hoffenheim",
+      "away": "Bayern Munich",
+      "hit": true,
+      "p_dc_original": 0.6747,
+      "p_market_devig": 0.744048,
+      "p_residual_final": 0.735
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "bundesliga",
+      "home": "Mainz",
+      "away": "Leverkusen",
+      "hit": true,
+      "p_dc_original": 0.6799,
+      "p_market_devig": 0.656325,
+      "p_residual_final": 0.652004
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "bundesliga",
+      "home": "M'gladbach",
+      "away": "Wolfsburg",
+      "hit": false,
+      "p_dc_original": 0.5668,
+      "p_market_devig": 0.729167,
+      "p_residual_final": 0.721971
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "bundesliga",
+      "home": "RB Leipzig",
+      "away": "Stuttgart",
+      "hit": true,
+      "p_dc_original": 0.5725,
+      "p_market_devig": 0.718816,
+      "p_residual_final": 0.725002
+    },
+    {
+      "date": "2025-05-17T00:00:00",
+      "competition": "bundesliga",
+      "home": "St Pauli",
+      "away": "Bochum",
+      "hit": false,
+      "p_dc_original": 0.0411,
+      "p_market_devig": 0.602532,
+      "p_residual_final": 0.589994
+    }
+  ]
+}

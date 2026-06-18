@@ -28,6 +28,11 @@ import re
 from datetime import datetime
 from typing import Iterable, Optional
 
+# Sprint D9.1 · alias for goal-xG overperformance (point-in-time).
+from services.football_goal_xg_overperformance import (
+    compute_goal_xg_overperformance as _gxg_op,
+)
+
 log = logging.getLogger("football_historical_ingestor")
 
 # Initial ELO rating used when a team is first seen.
@@ -388,6 +393,15 @@ def build_point_in_time_features(
         ),
         "market_implied_under25_prob": (
             (1.0 / m["odd_under25"]) if m.get("odd_under25") else None
+        ),
+        # Sprint D9.1 · Goal-minus-xG_proxy overperformance (L15) — the
+        # ONLY new feature in this phase. Strictly point-in-time. See
+        # ``services/football_goal_xg_overperformance.py``.
+        "goal_minus_xg_home_l15": (
+            _gxg_op(home, matches_sorted, target_index)
+        ),
+        "goal_minus_xg_away_l15": (
+            _gxg_op(away, matches_sorted, target_index)
         ),
         # Debug audit.
         "_audit": {

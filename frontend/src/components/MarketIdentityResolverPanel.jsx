@@ -119,6 +119,46 @@ export const MarketIdentityResolverPanel = ({
       </CardHeader>
 
       <CardContent className="space-y-3">
+        {/* Sprint D10 H3 — readonly preview of the payload that will be
+            sent. Always visible so the operator knows exactly what is
+            being submitted to The Odds API. */}
+        <div
+          className="rounded border border-sky-700/30 bg-sky-950/30 px-3 py-2 text-[11px] space-y-1"
+          data-testid={`${testIdPrefix}-preview`}
+        >
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-400">Partido</span>
+            <span className="font-mono text-slate-200" data-testid={`${testIdPrefix}-preview-match`}>
+              {homeName && awayName ? `${homeName} vs ${awayName}` : <span className="text-rose-400">—</span>}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-400">match_id</span>
+            <span className="font-mono text-slate-200 break-all" data-testid={`${testIdPrefix}-preview-matchid`}>
+              {matchId || <span className="text-rose-400">—</span>}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2 items-center">
+            <span className="text-slate-400">Cuota a enviar</span>
+            {detectedOdd != null && detectedOdd > 1.0 ? (
+              <span className="font-mono text-slate-200" data-testid={`${testIdPrefix}-preview-price-detected`}>
+                {Number(detectedOdd).toFixed(2)} <span className="text-[10px] text-slate-500">(detectada)</span>
+              </span>
+            ) : (
+              <input
+                type="number"
+                step="0.01"
+                min="1.01"
+                placeholder="ej. 1.85"
+                value={manualPrice}
+                onChange={(e) => setManualPrice(e.target.value)}
+                className="bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-right text-slate-100 font-mono w-24 focus:outline-none focus:border-sky-500"
+                data-testid={`${testIdPrefix}-preview-price-input`}
+              />
+            )}
+          </div>
+        </div>
+
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
@@ -148,9 +188,25 @@ export const MarketIdentityResolverPanel = ({
         </div>
 
         {!canResolve && (
-          <div className="text-[11px] text-amber-300 flex items-center gap-2">
-            <AlertTriangle className="h-3 w-3" />
-            Faltan datos (match_id / equipos / cuota detectada) para invocar el resolver.
+          <div
+            className="text-[11px] text-amber-300 flex flex-col gap-1"
+            data-testid={`${testIdPrefix}-missing`}
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+              <span>Para invocar el resolver faltan los siguientes campos:</span>
+            </div>
+            <ul className="pl-5 list-disc">
+              {missing.map((code) => (
+                <li
+                  key={code}
+                  className="font-mono text-[10px] text-amber-200"
+                  data-testid={`${testIdPrefix}-missing-${code.toLowerCase()}`}
+                >
+                  {code}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 

@@ -1,0 +1,16 @@
+[
+  {
+    "scope": "top5_2425",
+    "market": "OVER_2_5",
+    "verdict": [
+      "RESIDUAL_IMPROVES_CALIBRATION_ONLY"
+    ]
+  },
+  {
+    "scope": "premier_multiseason",
+    "market": "OVER_2_5",
+    "verdict": [
+      "NO_INCREMENTAL_SIGNAL_WITH_CURRENT_FEATURES"
+    ]
+  }
+]

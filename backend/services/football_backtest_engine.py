@@ -174,7 +174,11 @@ def _predict_draw(features: dict, *,
                   # Sprint-D7-F · per-market implied probs are routed
                   # by the engine, not consumed by the draw module.
                   "market_implied_over25_prob",
-                  "market_implied_under25_prob"):
+                  "market_implied_under25_prob",
+                  # Sprint-D9.1 · goal-minus-xG_proxy overperformance
+                  # is consumed by the residual model only.
+                  "goal_minus_xg_home_l15",
+                  "goal_minus_xg_away_l15"):
         pred_kwargs.pop(extra, None)
     # Sprint D7-E: propagate threshold overrides only if provided.
     if value_threshold_pp is not None:
