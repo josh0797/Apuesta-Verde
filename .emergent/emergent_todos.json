@@ -1,22 +1,18 @@
 [
   {
-    "content": "D8 Fase 1 CERRADA: predictor+parser+engine+24 tests + model-only diagnostics. 3761 tests, 0 regresiones. Veredicto WELL_CALIBRATED_BUT_NO_EDGE_DEMONSTRABLE → cierre goles en ligas",
+    "content": "D9.2 Fix recalculo cuota guardada: extractor compartido + panel client-side EV/Implied/Modelo en InlineManualOddsInput. Verificado live: cuota 1.28 → EV +1.50% sin banner bloqueante. 3761 tests passing",
     "status": "completed"
   },
   {
-    "content": "D9.2 Block 1a: investigar fix de córneres (incluir amistosos en ventana L1/L5/L15) — ubicar código actual",
+    "content": "D9.2 Block A: córneres — incluir amistosos en ventana L1/L5/L15 (actualmente sólo WC)",
+    "status": "in_progress"
+  },
+  {
+    "content": "D9.2 Block B: integrar xG real Understat (primario) + FBref (fallback)",
     "status": "pending"
   },
   {
-    "content": "D9.2 Block 1b: integrar xG real Understat (primario) + FBref (fallback) vía Scrape.do",
-    "status": "pending"
-  },
-  {
-    "content": "D9.2 Block 1c: usar xG real (L15 + std/dispersion) como feature del Residual Model y rebacktest",
-    "status": "pending"
-  },
-  {
-    "content": "D8 Fase 2: WC2022 + Euro2024 + Copa America 2024 (tope duro 2500 créditos, confirmar CopaAmerica ground truth)",
+    "content": "D9.2 Block C: usar xG real (L15 + std) como feature del Residual Model + rebacktest",
     "status": "pending"
   }
 ]

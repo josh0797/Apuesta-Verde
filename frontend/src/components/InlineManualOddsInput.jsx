@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Calculator, Loader2, RefreshCcw, RotateCw, Bug, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+import { computeEvFromPick } from '@/lib/mlbManualOdds';
 
 /**
  * Normalize a team value that may arrive as a string or as a vendor
@@ -83,6 +84,20 @@ export function InlineManualOddsInput({
   const [debugData,    setDebugData]    = useState(null);
   const [debugError,   setDebugError]   = useState(null);
 
+  // D9.2 — Client-side EV preview using the SAME cascade the
+  // "Lecturas estructurales que requieren cuota" panel uses. We
+  // compute EV / Implied / Modelo locally from the pick context so
+  // the user gets immediate, useful feedback even when the backend
+  // reprice path cannot locate the pick (the OVERRIDE_SAVED_ONLY
+  // case). The backend persistence still runs in parallel below.
+  //
+  // Hook MUST live above the `if (!pickId) return null;` early return
+  // so React sees the same hook order on every render.
+  const clientEv = useMemo(() => {
+    if (!value || !pickContext) return null;
+    return computeEvFromPick(value, pickContext, { market, selection });
+  }, [value, pickContext, market, selection]);
+
   if (!pickId) return null;
 
   const ranLabel = lang === 'en' ? 'Add manual odds' : 'Agregar cuota manual';
@@ -147,11 +162,23 @@ export function InlineManualOddsInput({
             : `Cuota guardada a ${odd.toFixed(2)} — informativo.`,
         );
       } else if (r.data?.status === 'OVERRIDE_SAVED_ONLY') {
-        toast.warning(
-          lang === 'en'
-            ? 'Odds saved, but could not reprice (pick context not found).'
-            : 'Cuota guardada, pero no se pudo recalcular (contexto del pick no encontrado).',
-        );
+        // D9.2 — When the client-side calculator has the model
+        // probability (same source the structural panel uses), don't
+        // bother the user with the "context not found" toast — they
+        // already see EV / Implied / Modelo computed locally.
+        if (clientEv) {
+          toast.success(
+            lang === 'en'
+              ? `Saved at ${odd.toFixed(2)} (${clientEv.edgePct >= 0 ? '+' : ''}${clientEv.edgePct.toFixed(1)}% edge from structural reading).`
+              : `Cuota guardada a ${odd.toFixed(2)} (${clientEv.edgePct >= 0 ? '+' : ''}${clientEv.edgePct.toFixed(1)}% edge desde lectura estructural).`,
+          );
+        } else {
+          toast.warning(
+            lang === 'en'
+              ? 'Odds saved, but could not reprice (pick context not found).'
+              : 'Cuota guardada, pero no se pudo recalcular (contexto del pick no encontrado).',
+          );
+        }
       } else {
         toast.error(
           lang === 'en' ? 'Could not save odds.' : 'No se pudo guardar la cuota.',
@@ -240,6 +267,12 @@ export function InlineManualOddsInput({
   const isSavedOnly = result?.status === 'OVERRIDE_SAVED_ONLY';
   const isRepriced  = result?.status === 'REPRICED';
 
+  // We only suppress the legacy "no se pudo recalcular" banner when
+  // the client-side panel was able to surface a real probability —
+  // i.e. the user is NOT actually stuck. (Hook computed above the
+  // early return.)
+  const hideSavedOnlyBanner = isSavedOnly && clientEv != null;
+
   const handleRefresh    = () => {
     if (typeof onRefreshCard === 'function') onRefreshCard();
     else if (typeof window !== 'undefined') window.location.reload();
@@ -317,6 +350,49 @@ export function InlineManualOddsInput({
         )}
       </div>
 
+      {/* D9.2 — Client-side EV preview (same logic as the structural
+          "Lecturas estructurales que requieren cuota" panel). Shows as
+          soon as the user types — no roundtrip required. Backend
+          persistence still runs on Save. */}
+      {clientEv && (
+        <div
+          className={`rounded border px-2 py-1.5 text-[11px] grid grid-cols-3 gap-2 tabular-nums ${
+            clientEv.edgePct >= 0
+              ? 'border-emerald-500/30 bg-emerald-500/[0.06]'
+              : 'border-rose-500/30 bg-rose-500/[0.05]'
+          }`}
+          data-testid={`${testId || 'inline-manual-odds-input'}-client-ev`}
+        >
+          <div>
+            <div className="text-muted-foreground/70 text-[10px]">EV</div>
+            <div
+              className={`font-semibold ${clientEv.edgePct >= 0 ? 'text-emerald-200' : 'text-rose-300'}`}
+              data-testid={`${testId || 'inline-manual-odds-input'}-client-ev-pct`}
+            >
+              {clientEv.edgePct >= 0 ? '+' : ''}{clientEv.edgePct.toFixed(2)}%
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground/70 text-[10px]">Implied</div>
+            <div
+              className="text-foreground/80"
+              data-testid={`${testId || 'inline-manual-odds-input'}-client-ev-implied`}
+            >
+              {clientEv.impliedProbPct.toFixed(1)}%
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground/70 text-[10px]">Modelo</div>
+            <div
+              className="text-foreground/80"
+              data-testid={`${testId || 'inline-manual-odds-input'}-client-ev-model`}
+            >
+              {clientEv.modelProbabilityPct.toFixed(1)}%
+            </div>
+          </div>
+        </div>
+      )}
+
       {result?.message_user && isRepriced && (
         <div
           className="text-[10.5px] text-cyan-100/90"
@@ -326,7 +402,7 @@ export function InlineManualOddsInput({
         </div>
       )}
 
-      {isSavedOnly && (
+      {isSavedOnly && !hideSavedOnlyBanner && (
         <div
           className="rounded border border-amber-500/30 bg-amber-500/[0.06] p-2 flex flex-col gap-1.5"
           data-testid={`${testId || 'inline-manual-odds-input'}-saved-only`}

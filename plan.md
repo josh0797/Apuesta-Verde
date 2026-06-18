@@ -684,3 +684,30 @@ Sin tareas P0 abiertas. Siguen en pendientes:
 Reporte consolidado: `/app/diagnostics/sprint_d8_phase1_summary.json`.
 
 **Siguiente**: D8 Fase 2 (DRAW + cohorte favorito-dominante en selecciones).
+
+---
+
+## SPRINT D9.2 — Block 0: Fix del recálculo de cuota guardada (PRE-córneres)
+
+**Bug visible en producción**: Cuando el usuario teclea una cuota manual en la card "APUESTA RECOMENDADA" de un pick MLB (ej. OVER 7.0 NY Mets @ Phillies, cuota 1.28), el backend responde con `OVERRIDE_SAVED_ONLY` y la card muestra "Cuota guardada, pero no se pudo recalcular porque no se encontró probabilidad estimada para el pick" — pese a que la misma probabilidad (56.7%) está visible en la sección "LECTURAS ESTRUCTURALES QUE REQUIEREN CUOTA" y permite calcular EV/Implied/Modelo perfectamente.
+
+**Causa**: El backend reprice (`reprice_mlb_pick_with_manual_odds`) requiere que el extractor encuentre `model_probability` en alguna de 15+ ubicaciones del payload del pick. Para algunos picks MLB la probabilidad SÍ está disponible pero en una ubicación o forma que el lookup multi-key no exhibe (especialmente cuando se llega vía `pick_context` y la búsqueda en `pick_runs` no matcheó).
+
+**Fix aplicado** (mismo patrón que `ManualOddsReviewPanel`/"Lecturas estructurales"):
+- Nuevo util compartido `frontend/src/lib/mlbManualOdds.js` con:
+  - `computeEvFromOdds(odds, probPct)` — pure helper.
+  - `extractModelProbability(pick, {market, selection})` — cascada cliente que espeja las 15+ ubicaciones del backend (`pick.cover_probability`, `_mlb_script_v2.coverProbability`/`probabilityUnder`/`probabilityOver`, `margin_v2.*`, `expected_runs_distribution.*` side-aware, `tail_risk.*` side-aware, `key_data.*`, `recommendation.*`, `estimated_probability` mirror).
+  - `computeEvFromPick(odds, pick, ctx)` — convenience wrapper.
+- `InlineManualOddsInput.jsx` ahora:
+  - `useMemo` de `clientEv` que recalcula EV en cuanto el usuario teclea, sin roundtrip backend.
+  - Renderiza el mismo panel "EV / Implied / Modelo" (3 columnas, tabular-nums, emerald/rose según signo) que la sección estructural.
+  - Suprime el banner ámbar "no se pudo recalcular" cuando `clientEv != null` (el usuario ya tiene la información).
+  - Toast informativo (success en vez de warning) cuando backend dice OVERRIDE_SAVED_ONLY pero el cálculo client-side funcionó.
+- Backend reprice cascade preservada — la persistencia sigue ocurriendo igual; sólo se cambia la experiencia del usuario.
+
+**Validación live** (Washington Nationals @ San Francisco Giants UNDER 9.5, cuota 1.28):
+- `pick-inline-manual-odds-823215-client-ev` → `EV +1.50%, Implied 78.1%, Modelo 79.3%`
+- Banner `saved-only` visible: **False** (suprimido)
+- 3761 tests backend passing, 0 regresiones. Lint clean en JS/JSX/Python.
+
+**Próximo**: Block A — fix córneres incluyendo amistosos en ventana L1/L5/L15.
