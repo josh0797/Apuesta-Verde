@@ -288,7 +288,7 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
 
 ---
 
-# Phase SPRINT D7-E — Threshold parametrization + honest sweep + multi-season sanity check — COMPLETADO ✅ (P1)
+# Phase SPRINT D7-E — Threshold parametrization + honest sweep + multi-season sanity check (DRAW) — COMPLETADO ✅ (P1)
 
 ## Contexto
 Se detectó un bug de diseño: `--min-edge-pp` del CLI era **inoperante** porque el threshold real (`EDGE_VALUE_THRESHOLD_PP=4.0`) estaba hardcodeado dentro de `football_draw_potential.py` y el motor filtraba por `label in (VALUE_DRAW, STRONG_VALUE)`, descartando picks con edge ∈ [3,4)pp “en silencio”.
@@ -309,7 +309,7 @@ Se detectó un bug de diseño: `--min-edge-pp` del CLI era **inoperante** porque
   - back-compat: Premier 24/25 mantiene 149 picks a 4pp.
 
 ## Fase E4 — Barrido honesto de thresholds (5 ligas, 24/25) — COMPLETADO ✅
-Script: `scripts/run_backtest_d7_threshold_sweep.py` → `/app/backtest_d7_threshold_sweep.json`
+Script: `scripts/run_backtest_d7_threshold_sweep.py`.
 
 Resultado (agregado 5 ligas, weighted por n_bets):
 
@@ -333,7 +333,7 @@ Observaciones:
   - `/app/data/football_data_co_uk/E0_2223.csv`
   - `/app/data/football_data_co_uk/E0_2324.csv`
   - (ya existía) `/app/data/football_data_co_uk/E0_2425.csv`
-- ✅ Script: `scripts/run_backtest_d7_premier_multiseason.py` → `/app/backtest_d7_premier_multiseason.json`
+- ✅ Script: `scripts/run_backtest_d7_premier_multiseason.py`.
 
 Tabla clave (edge≥4pp):
 
@@ -352,22 +352,99 @@ Conclusión: el +27.96% 24/25 fue un outlier; el promedio colapsa cerca de 0 con
 - ✅ `pytest` backend completo: **3632 passing**, 2 skipped, 0 regresiones.
 
 ## Veredicto científico (D7-E)
-**No hay evidencia de edge real** en el módulo Draw Potential para mercado DRAW en ligas domésticas bajo este horizonte. El comportamiento es consistente con ruido (ROI no robusto al threshold, alta varianza inter-liga e inter-temporada).
+**No hay evidencia de edge real** en el módulo Draw Potential para mercado DRAW en ligas domésticas bajo este horizonte.
 
-## Artefactos (D7 + D7-E)
-- `/app/backtest_d7_domestic_edge4.json`
-- `/app/backtest_d7_domestic_edge3.json`
-- `/app/backtest_d7_threshold_sweep.json`
-- `/app/backtest_d7_premier_multiseason.json`
-- `/app/data/openfootball/{wc2022,euro2024}.json`
+---
 
-## Próximos pasos sugeridos (pendientes de prioridad del usuario)
-1. Pivotear a otros mercados/módulos (OVER_1_5, BTTS, DC) y repetir exactamente la misma disciplina de:
-   - barrido de thresholds,
-   - checks multi-liga,
-   - checks multi-temporada,
-   antes de consumir créditos históricos.
-2. Mantener bloque nacional D7 aplazado (no gastar créditos) hasta tener una nueva tesis y/o caching de odds ya pagadas.
+# Phase SPRINT D7-F — OVER_2_5 / UNDER_2_5 con la misma disciplina (D7-E) — COMPLETADO ✅ (P1)
+
+## Objetivo
+Aplicar la misma disciplina de validación que en D7-E (parametrización end-to-end, barrido de thresholds multi-liga, multi-season) a los mercados **OVER_2_5** y **UNDER_2_5**, manteniendo:
+- point-in-time correctness,
+- fail-soft,
+- `observe_only`,
+- 0 regresiones en la suite.
+
+## Trabajo realizado (todo offline, 0 créditos) — COMPLETADO ✅
+
+### F1 — Predictor `compute_score_grid_potential` (Dixon-Coles bivariate score grid 9×9)
+- ✅ Nuevo módulo: `services/football_score_grid_potential.py`.
+- ✅ Grid 0..8 goles por equipo (masa cubierta típica 99.78–99.99%).
+- ✅ OVER_2_5 y UNDER_2_5 calculados **sumando SUS celdas** (no como complemento) para preservar la τ-correction asimétrica en 0–0 / 0–1 / 1–0 / 1–1.
+- ✅ BTTS_YES/NO también disponibles en el módulo (pero aplazado en backtests por falta de cuotas históricas gratis en football-data.co.uk).
+
+### F2 — Parser + PIT features
+- ✅ `parse_football_data_csv` extendido para:
+  - Opening: `B365>2.5` / `B365<2.5`
+  - Closing: `B365C>2.5` / `B365C<2.5`
+  - Fallback cascade: B365 → Pinnacle (P/PC) → Avg/AvgC → BbAv.
+  - Nuevos campos: `odd_over25`, `odd_under25`, `*_open`, `*_close`.
+- ✅ `build_point_in_time_features` ahora expone:
+  - `market_implied_over25_prob = 1/odd_over25`
+  - `market_implied_under25_prob = 1/odd_under25`
+  - Nota: NO se deriva under = 1−over; se preserva overround asimétrico.
+
+### F3 — Engine market-aware generalizado
+- ✅ `MARKET_AWARE_SUPPORTED = ("DRAW", "OVER_2_5", "UNDER_2_5")`.
+- ✅ Nuevos predictors/hit_fns:
+  - `_predict_over25`, `_predict_under25`
+  - `_hit_over25`, `_hit_under25`
+- ✅ `_extract_prob_pct` y `_store_prob_pct` soportan los nuevos mercados.
+- ✅ Inyección de `market_implied` / `edge` / `label` (GENERIC) en el verdict **pre y post calibración**.
+- ✅ Gate de fire generalizado: acepta `LABEL_VALUE_GENERIC` / `LABEL_STRONG_VALUE_GENERIC` además de los labels legacy de DRAW.
+- ✅ Pick rows en modo con-odds ahora exponen:
+  - `odd` (canónico por mercado)
+  - `odd_draw` se preserva solo por back-compat cuando market=DRAW.
+- ✅ `compute_backtest_metrics` generalizado para usar `odd` (fallback a `odd_draw`).
+
+### F4 — Scripts
+- ✅ `scripts/run_backtest_d7_threshold_sweep.py` ahora acepta `--market {DRAW, OVER_2_5, UNDER_2_5}` y escribe por defecto `..._\<market\>.json`.
+- ✅ `scripts/run_backtest_d7_premier_multiseason.py` ahora acepta `--market` y escribe por defecto `..._\<market\>.json`.
+
+### F5 — Tests
+- ✅ Nuevo archivo: `tests/test_sprint_d7_phaseF_score_grid_markets.py` (16 tests).
+- Incluye:
+  - sanity del grid (rangos, suma≈100%, monotónico con xG, fallback sin inputs),
+  - regresión explícita: `test_under25_is_NOT_complement_of_over25`,
+  - parser (opening/closing/fallback),
+  - engine (market-aware O/U 2.5),
+  - back-compat DRAW (149 picks @ 4pp, ROI=+27.96%).
+
+### F6 — Ejecución de barridos (artefactos)
+
+**Threshold sweep · top-5 ligas · 2024/25**
+
+| edge_pp | OVER_2_5 w_ROI | UNDER_2_5 w_ROI |
+|---:|---:|---:|
+| 2.0 | -9.2% | -12.2% |
+| 3.0 | -9.3% | -13.4% |
+| 4.0 | -9.4% | -14.4% |
+| 5.0 | -9.6% | -15.2% |
+| 6.0 | -9.2% | -15.3% |
+| 8.0 | -8.1% | -14.9% |
+
+**Multi-season Premier (4 temporadas) — ROI @ edge=4pp**
+
+- OVER_2_5: 21/22=-5.10%, 22/23=-11.35%, 23/24=+1.88%, 24/25=-7.50% → MEAN=-5.52% STDEV=5.56%.
+- UNDER_2_5: 21/22=-13.43%, 22/23=-3.90%, 23/24=-14.13%, 24/25=-11.57% → MEAN=-10.76% STDEV=4.70%.
+
+**Artefactos (D7-F):**
+- `/app/backtest_d7_threshold_sweep_over_2_5.json`
+- `/app/backtest_d7_threshold_sweep_under_2_5.json`
+- `/app/backtest_d7_premier_multiseason_over_2_5.json`
+- `/app/backtest_d7_premier_multiseason_under_2_5.json`
+
+### F7 — Validación
+- ✅ `pytest` backend completo: **3650 passing**, 2 skipped, 0 regresiones.
+
+## Veredicto científico (D7-F)
+- A diferencia de DRAW (ruido errático), OVER_2_5 y UNDER_2_5 muestran un **sesgo sistemático estable**:
+  - ROI agregado y cross-temporada siempre negativo.
+  - Bastante estable vs threshold (no hay “corte mágico”).
+  - Stdev moderado (~5–7%) comparado con DRAW (~21%).
+- Diagnóstico probable: el modelo DC plano (tunables globales `HOME_ADV_LAMBDA=0.20`, `RHO=-0.13`, límites de λ) está **miscalibrado estructuralmente** vs mercado; el calibrador walk-forward + shrinkage no corrige el sesgo → la causa parece ser el modelo base/parametrización.
+- Ningún sub-resultado cruza significancia estadística.
+- **BTTS aplazado** (no hay cuotas históricas gratis en football-data.co.uk; reactivarlo requeriría otra fuente o gasto de créditos).
 
 ---
 
@@ -400,13 +477,19 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 - 🟡 **SPRINT D5** (histórico en curso): cohortes + reportes multi-competición.
 
 ### Pendientes P1
-- ⏳ Evaluar pivote de mercado (OVER_1_5 / BTTS / DC) con disciplina D7-E (threshold sweep + multi-season).
+- ✅ (COMPLETADO) Validación de mercados con disciplina D7-E:
+  - DRAW (D7-E) refutado como edge real.
+  - OVER_2_5 / UNDER_2_5 (D7-F) refutados como edge (sesgo negativo estable).
+- ⏳ **BTTS aplazado** (sin cuotas históricas gratis). Solo reactivar con nueva tesis + fuente/caching.
 - 🟡 **REFACTOR-1** (pasos 2/3 y 3/3 + ingest_upcoming).
 - ⏳ **F84.c/F84.d** Lineups + Standings.
 
 ### Pendientes P2
 - ⏳ Expandir `team_name_translations.py`.
-- ⏳ Expandir backtest framework a otros mercados tras validar robustez.
+- ⏳ Nuevas hipótesis de señal para O/U 2.5:
+  - features adicionales (lineups, std de xG, matchup/estilos, fatiga),
+  - calibración por liga (pero con guardrails anti-overfitting),
+  - o pivotear a otro mercado/línea.
 
 ---
 
@@ -416,7 +499,7 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
   - Cero regresión post-cada cambio.
   - Fail-soft y back-compat.
   - Point-in-time correctness en backtests.
-  - `observe_only` en SPRINT D/E (sin apuestas automáticas).
+  - `observe_only` en SPRINT D/E/F (sin apuestas automáticas).
 
 ---
 
@@ -428,6 +511,7 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
   - Backtests: disciplina point-in-time estricta.
   - **E.1**: polling limitado al universo visible de UI.
   - **D6**: shrinkage es opt-in (`shrinkage_K=None` preserva legacy).
+  - **Observe-only**: no implementar apuestas automáticas.
 
 - Flags / env (principales):
   - `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY`.
@@ -436,3 +520,6 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
     - `--min-edge-pp`
     - `--skip-national`
     - `--out`
+  - (D7-E/F scripts):
+    - `scripts/run_backtest_d7_threshold_sweep.py --market {DRAW,OVER_2_5,UNDER_2_5}`
+    - `scripts/run_backtest_d7_premier_multiseason.py --market {DRAW,OVER_2_5,UNDER_2_5}`

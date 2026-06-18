@@ -58,6 +58,14 @@ _COL_B365A_OPEN = ("B365A", "PSA")
 _COL_B365D_CLOSE = ("B365CD", "PSCD")
 _COL_B365H_CLOSE = ("B365CH", "PSCH")
 _COL_B365A_CLOSE = ("B365CA", "PSCA")
+# Sprint-D7-F · OVER/UNDER 2.5 columns (no Pinnacle close alias).
+# Opening: B365>2.5 / B365<2.5; fallback to Pinnacle P>2.5 / P<2.5 or
+# the Avg consensus Avg>2.5 / Avg<2.5.
+# Closing: B365C>2.5 / B365C<2.5 (PC>2.5 / PC<2.5 Pinnacle closing).
+_COL_O25_OPEN  = ("B365>2.5", "P>2.5", "Avg>2.5", "BbAv>2.5")
+_COL_U25_OPEN  = ("B365<2.5", "P<2.5", "Avg<2.5", "BbAv<2.5")
+_COL_O25_CLOSE = ("B365C>2.5", "PC>2.5", "AvgC>2.5")
+_COL_U25_CLOSE = ("B365C<2.5", "PC<2.5", "AvgC<2.5")
 # Sprint-D back-compat (kept for older callers).
 _COL_B365D = _COL_B365D_OPEN + _COL_B365D_CLOSE
 _COL_B365H = _COL_B365H_OPEN + _COL_B365H_CLOSE
@@ -149,6 +157,11 @@ def parse_football_data_csv(
         oh_close = _parse_float(_first(row, _COL_B365H_CLOSE))
         od_close = _parse_float(_first(row, _COL_B365D_CLOSE))
         oa_close = _parse_float(_first(row, _COL_B365A_CLOSE))
+        # Sprint-D7-F · OVER / UNDER 2.5 — same prefer_closing logic.
+        oo25_open  = _parse_float(_first(row, _COL_O25_OPEN))
+        ou25_open  = _parse_float(_first(row, _COL_U25_OPEN))
+        oo25_close = _parse_float(_first(row, _COL_O25_CLOSE))
+        ou25_close = _parse_float(_first(row, _COL_U25_CLOSE))
 
         has_open  = any(v is not None for v in (oh_open, od_open, oa_open))
         has_close = any(v is not None for v in (oh_close, od_close, oa_close))
@@ -171,6 +184,18 @@ def parse_football_data_csv(
             oh, od, oa = None, None, None
             odds_type = ODDS_TYPE_NONE
 
+        # Sprint-D7-F · choose canonical OVER / UNDER 2.5 odds (parallel
+        # to the 1X2 cascade above). We honour ``prefer_closing`` and
+        # silently fall back to whatever is available.
+        if prefer_closing and (oo25_close is not None or ou25_close is not None):
+            oo25, ou25 = oo25_close, ou25_close
+        elif oo25_open is not None or ou25_open is not None:
+            oo25, ou25 = oo25_open, ou25_open
+        elif oo25_close is not None or ou25_close is not None:
+            oo25, ou25 = oo25_close, ou25_close
+        else:
+            oo25, ou25 = None, None
+
         out.append({
             "competition":  competition or "",
             "date":         date,
@@ -191,6 +216,13 @@ def parse_football_data_csv(
             "odd_home_close": oh_close,
             "odd_draw_close": od_close,
             "odd_away_close": oa_close,
+            # Sprint-D7-F · OVER / UNDER 2.5 (canonical + components).
+            "odd_over25":         oo25,
+            "odd_under25":        ou25,
+            "odd_over25_open":    oo25_open,
+            "odd_under25_open":   ou25_open,
+            "odd_over25_close":   oo25_close,
+            "odd_under25_close":  ou25_close,
             "odds_type":      odds_type,
             "warnings":       warnings,
         })
@@ -348,6 +380,15 @@ def build_point_in_time_features(
         "conservative_style_away": False,
         # Market implied draw probability from the PRE-kickoff B365 odd.
         "market_implied_draw_prob": (1.0 / m["odd_draw"]) if m.get("odd_draw") else None,
+        # Sprint-D7-F · Implied probs for OVER / UNDER 2.5.
+        # NB: each is computed from its OWN odd (asymmetric overround
+        # is preserved; we do NOT derive under = 1 − over).
+        "market_implied_over25_prob": (
+            (1.0 / m["odd_over25"]) if m.get("odd_over25") else None
+        ),
+        "market_implied_under25_prob": (
+            (1.0 / m["odd_under25"]) if m.get("odd_under25") else None
+        ),
         # Debug audit.
         "_audit": {
             "home_hist_n": len(h_hist),

@@ -1,0 +1,417 @@
+{
+  "market": "OVER_2_5",
+  "thresholds": [
+    2.0,
+    3.0,
+    4.0,
+    5.0,
+    6.0,
+    8.0
+  ],
+  "leagues": [
+    "premier_league",
+    "la_liga",
+    "serie_a",
+    "bundesliga",
+    "ligue_1"
+  ],
+  "sweep": [
+    {
+      "threshold_pp": 2.0,
+      "market": "OVER_2_5",
+      "per_league": {
+        "premier_league": {
+          "n_matches": 380,
+          "n_picks": 139,
+          "n_bets": 139,
+          "n_won": 77,
+          "roi": -0.0758,
+          "hit_rate": 0.554,
+          "roi_ci_low": -0.2163,
+          "roi_ci_high": 0.0605,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "la_liga": {
+          "n_matches": 380,
+          "n_picks": 181,
+          "n_bets": 181,
+          "n_won": 79,
+          "roi": -0.1457,
+          "hit_rate": 0.4365,
+          "roi_ci_low": -0.2989,
+          "roi_ci_high": 0.006,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "serie_a": {
+          "n_matches": 380,
+          "n_picks": 148,
+          "n_bets": 148,
+          "n_won": 67,
+          "roi": -0.1124,
+          "hit_rate": 0.4527,
+          "roi_ci_low": -0.2716,
+          "roi_ci_high": 0.0474,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "bundesliga": {
+          "n_matches": 306,
+          "n_picks": 115,
+          "n_bets": 115,
+          "n_won": 68,
+          "roi": -0.0837,
+          "hit_rate": 0.5913,
+          "roi_ci_low": -0.2238,
+          "roi_ci_high": 0.0565,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "ligue_1": {
+          "n_matches": 306,
+          "n_picks": 143,
+          "n_bets": 143,
+          "n_won": 81,
+          "roi": -0.0257,
+          "hit_rate": 0.5664,
+          "roi_ci_low": -0.1709,
+          "roi_ci_high": 0.1167,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        }
+      },
+      "aggregate": {
+        "n_bets_total": 726,
+        "weighted_roi": -0.09207121212121212,
+        "weighted_hit_rate": 0.5124060606060606
+      }
+    },
+    {
+      "threshold_pp": 3.0,
+      "market": "OVER_2_5",
+      "per_league": {
+        "premier_league": {
+          "n_matches": 380,
+          "n_picks": 130,
+          "n_bets": 130,
+          "n_won": 72,
+          "roi": -0.0755,
+          "hit_rate": 0.5538,
+          "roi_ci_low": -0.2173,
+          "roi_ci_high": 0.0649,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "la_liga": {
+          "n_matches": 380,
+          "n_picks": 168,
+          "n_bets": 168,
+          "n_won": 72,
+          "roi": -0.1596,
+          "hit_rate": 0.4286,
+          "roi_ci_low": -0.3111,
+          "roi_ci_high": -0.0077,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "serie_a": {
+          "n_matches": 380,
+          "n_picks": 140,
+          "n_bets": 140,
+          "n_won": 64,
+          "roi": -0.1074,
+          "hit_rate": 0.4571,
+          "roi_ci_low": -0.2736,
+          "roi_ci_high": 0.0556,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "bundesliga": {
+          "n_matches": 306,
+          "n_picks": 114,
+          "n_bets": 114,
+          "n_won": 67,
+          "roi": -0.0895,
+          "hit_rate": 0.5877,
+          "roi_ci_low": -0.2334,
+          "roi_ci_high": 0.0519,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "ligue_1": {
+          "n_matches": 306,
+          "n_picks": 138,
+          "n_bets": 138,
+          "n_won": 79,
+          "roi": -0.0167,
+          "hit_rate": 0.5725,
+          "roi_ci_low": -0.1628,
+          "roi_ci_high": 0.1229,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        }
+      },
+      "aggregate": {
+        "n_bets_total": 690,
+        "weighted_roi": -0.09300202898550723,
+        "weighted_hit_rate": 0.5130371014492754
+      }
+    },
+    {
+      "threshold_pp": 4.0,
+      "market": "OVER_2_5",
+      "per_league": {
+        "premier_league": {
+          "n_matches": 380,
+          "n_picks": 124,
+          "n_bets": 124,
+          "n_won": 69,
+          "roi": -0.075,
+          "hit_rate": 0.5565,
+          "roi_ci_low": -0.2223,
+          "roi_ci_high": 0.0735,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "la_liga": {
+          "n_matches": 380,
+          "n_picks": 161,
+          "n_bets": 161,
+          "n_won": 67,
+          "roi": -0.1753,
+          "hit_rate": 0.4161,
+          "roi_ci_low": -0.3286,
+          "roi_ci_high": -0.0126,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "serie_a": {
+          "n_matches": 380,
+          "n_picks": 138,
+          "n_bets": 138,
+          "n_won": 64,
+          "roi": -0.0944,
+          "hit_rate": 0.4638,
+          "roi_ci_low": -0.2622,
+          "roi_ci_high": 0.0748,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "bundesliga": {
+          "n_matches": 306,
+          "n_picks": 111,
+          "n_bets": 111,
+          "n_won": 66,
+          "roi": -0.0778,
+          "hit_rate": 0.5946,
+          "roi_ci_low": -0.2186,
+          "roi_ci_high": 0.0689,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "ligue_1": {
+          "n_matches": 306,
+          "n_picks": 131,
+          "n_bets": 131,
+          "n_won": 74,
+          "roi": -0.0247,
+          "hit_rate": 0.5649,
+          "roi_ci_low": -0.1821,
+          "roi_ci_high": 0.1252,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        }
+      },
+      "aggregate": {
+        "n_bets_total": 665,
+        "weighted_roi": -0.09386766917293234,
+        "weighted_hit_rate": 0.5112857142857142
+      }
+    },
+    {
+      "threshold_pp": 5.0,
+      "market": "OVER_2_5",
+      "per_league": {
+        "premier_league": {
+          "n_matches": 380,
+          "n_picks": 115,
+          "n_bets": 115,
+          "n_won": 63,
+          "roi": -0.0856,
+          "hit_rate": 0.5478,
+          "roi_ci_low": -0.2386,
+          "roi_ci_high": 0.0689,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "la_liga": {
+          "n_matches": 380,
+          "n_picks": 147,
+          "n_bets": 147,
+          "n_won": 59,
+          "roi": -0.1944,
+          "hit_rate": 0.4014,
+          "roi_ci_low": -0.3584,
+          "roi_ci_high": -0.0214,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "serie_a": {
+          "n_matches": 380,
+          "n_picks": 133,
+          "n_bets": 133,
+          "n_won": 61,
+          "roi": -0.0994,
+          "hit_rate": 0.4586,
+          "roi_ci_low": -0.2679,
+          "roi_ci_high": 0.0694,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "bundesliga": {
+          "n_matches": 306,
+          "n_picks": 100,
+          "n_bets": 100,
+          "n_won": 60,
+          "roi": -0.076,
+          "hit_rate": 0.6,
+          "roi_ci_low": -0.2253,
+          "roi_ci_high": 0.0712,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "ligue_1": {
+          "n_matches": 306,
+          "n_picks": 125,
+          "n_bets": 125,
+          "n_won": 72,
+          "roi": -0.0031,
+          "hit_rate": 0.576,
+          "roi_ci_low": -0.1568,
+          "roi_ci_high": 0.1523,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        }
+      },
+      "aggregate": {
+        "n_bets_total": 620,
+        "weighted_roi": -0.09617500000000001,
+        "weighted_hit_rate": 0.5080590322580645
+      }
+    },
+    {
+      "threshold_pp": 6.0,
+      "market": "OVER_2_5",
+      "per_league": {
+        "premier_league": {
+          "n_matches": 380,
+          "n_picks": 110,
+          "n_bets": 110,
+          "n_won": 58,
+          "roi": -0.1263,
+          "hit_rate": 0.5273,
+          "roi_ci_low": -0.2837,
+          "roi_ci_high": 0.03,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "la_liga": {
+          "n_matches": 380,
+          "n_picks": 136,
+          "n_bets": 136,
+          "n_won": 56,
+          "roi": -0.1738,
+          "hit_rate": 0.4118,
+          "roi_ci_low": -0.3427,
+          "roi_ci_high": 0.0064,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "serie_a": {
+          "n_matches": 380,
+          "n_picks": 125,
+          "n_bets": 125,
+          "n_won": 59,
+          "roi": -0.0749,
+          "hit_rate": 0.472,
+          "roi_ci_low": -0.2514,
+          "roi_ci_high": 0.0965,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "bundesliga": {
+          "n_matches": 306,
+          "n_picks": 93,
+          "n_bets": 93,
+          "n_won": 56,
+          "roi": -0.0698,
+          "hit_rate": 0.6022,
+          "roi_ci_low": -0.2253,
+          "roi_ci_high": 0.0818,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "ligue_1": {
+          "n_matches": 306,
+          "n_picks": 121,
+          "n_bets": 121,
+          "n_won": 70,
+          "roi": -0.0034,
+          "hit_rate": 0.5785,
+          "roi_ci_low": -0.1626,
+          "roi_ci_high": 0.1506,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        }
+      },
+      "aggregate": {
+        "n_bets_total": 585,
+        "weighted_roi": -0.0919574358974359,
+        "weighted_hit_rate": 0.5111297435897436
+      }
+    },
+    {
+      "threshold_pp": 8.0,
+      "market": "OVER_2_5",
+      "per_league": {
+        "premier_league": {
+          "n_matches": 380,
+          "n_picks": 101,
+          "n_bets": 101,
+          "n_won": 53,
+          "roi": -0.1303,
+          "hit_rate": 0.5248,
+          "roi_ci_low": -0.2966,
+          "roi_ci_high": 0.0382,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "la_liga": {
+          "n_matches": 380,
+          "n_picks": 118,
+          "n_bets": 118,
+          "n_won": 52,
+          "roi": -0.1173,
+          "hit_rate": 0.4407,
+          "roi_ci_low": -0.3001,
+          "roi_ci_high": 0.0774,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "serie_a": {
+          "n_matches": 380,
+          "n_picks": 112,
+          "n_bets": 112,
+          "n_won": 53,
+          "roi": -0.0659,
+          "hit_rate": 0.4732,
+          "roi_ci_low": -0.2516,
+          "roi_ci_high": 0.1167,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "bundesliga": {
+          "n_matches": 306,
+          "n_picks": 78,
+          "n_bets": 78,
+          "n_won": 48,
+          "roi": -0.0437,
+          "hit_rate": 0.6154,
+          "roi_ci_low": -0.2167,
+          "roi_ci_high": 0.1203,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        },
+        "ligue_1": {
+          "n_matches": 306,
+          "n_picks": 102,
+          "n_bets": 102,
+          "n_won": 57,
+          "roi": -0.0373,
+          "hit_rate": 0.5588,
+          "roi_ci_low": -0.2023,
+          "roi_ci_high": 0.1288,
+          "sample_status": "SMALL_SAMPLE_CAUTION"
+        }
+      },
+      "aggregate": {
+        "n_bets_total": 511,
+        "weighted_roi": -0.08140058708414873,
+        "weighted_hit_rate": 0.5146861056751467
+      }
+    }
+  ],
+  "observe_only": true
+}

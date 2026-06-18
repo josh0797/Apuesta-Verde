@@ -141,7 +141,12 @@ def compute_backtest_metrics(backtest_result: dict) -> dict:
     n_lost = n_bets - n_won
     total_staked = sum(p["stake"] for p in picks)
     total_returned = sum(
-        (p["odd_draw"] * p["stake"]) if p.get("hit") else 0.0 for p in picks
+        # Sprint-D7-F · use the generic ``odd`` field if present
+        # (added for non-DRAW market-aware markets); fall back to the
+        # legacy ``odd_draw`` field for back-compat.
+        ((p.get("odd") if p.get("odd") is not None else p.get("odd_draw"))
+            * p["stake"]) if p.get("hit") else 0.0
+        for p in picks
     )
     net_pnl = sum(p["pnl"] for p in picks)
     hit_rate = (n_won / n_bets) if n_bets else None

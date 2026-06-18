@@ -40,9 +40,10 @@ CSV_DIR = Path("/app/data/football_data_co_uk")
 DEFAULT_THRESHOLDS = (2.0, 3.0, 4.0, 5.0, 6.0)
 
 
-def run_one(matches: list[dict], threshold_pp: float) -> dict:
+def run_one(matches: list[dict], threshold_pp: float, *,
+              market: str = "DRAW") -> dict:
     bt = run_backtest(
-        matches, market="DRAW", no_market=False,
+        matches, market=market, no_market=False,
         use_calibration=True, walk_forward=True,
         shrinkage_K=50, min_pred_prob_pp=8.0,
         min_edge_pp=threshold_pp,
@@ -63,13 +64,18 @@ def run_one(matches: list[dict], threshold_pp: float) -> dict:
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="Sprint-D7-E Premier multi-season (offline)")
+        description="Sprint-D7-E/F Premier multi-season (offline)")
+    p.add_argument("--market", default="DRAW",
+                    choices=["DRAW", "OVER_2_5", "UNDER_2_5"])
     p.add_argument("--thresholds", type=str,
                     default=",".join(str(t) for t in DEFAULT_THRESHOLDS))
-    p.add_argument("--out", default="/app/backtest_d7_premier_multiseason.json")
+    p.add_argument("--out", default=None)
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
+    out_default = (f"/app/backtest_d7_premier_multiseason_"
+                    f"{args.market.lower()}.json")
+    out = args.out or out_default
     thresholds = tuple(float(x.strip()) for x in args.thresholds.split(",")
                         if x.strip())
 
@@ -89,14 +95,13 @@ def main() -> int:
     for season, matches in seasons_data.items():
         table[season] = {}
         for t in thresholds:
-            r = run_one(matches, t)
+            r = run_one(matches, t, market=args.market)
             table[season][t] = r
-            log.info("[%s @ %.1fpp] n_picks=%d roi=%s hit=%s sig=%s",
-                      season, t, r["n_picks"], r["roi"],
+            log.info("[%s @ %.1fpp · %s] n_picks=%d roi=%s hit=%s sig=%s",
+                      season, t, args.market, r["n_picks"], r["roi"],
                       r["hit_rate"], r["is_roi_significant"])
 
-    # Aggregate per threshold across seasons (unweighted ROI mean +
-    # weighted by n_bets).
+    # Aggregate per threshold across seasons.
     summary_per_threshold: list[dict] = []
     for t in thresholds:
         rois = [table[s][t]["roi"] for s in table
@@ -123,22 +128,23 @@ def main() -> int:
         })
 
     report = {
+        "market":               args.market,
         "seasons":              list(seasons_data.keys()),
         "thresholds":           list(thresholds),
         "per_season_threshold": table,
         "summary_per_threshold": summary_per_threshold,
         "observe_only":         True,
     }
-    Path(args.out).write_text(json.dumps(report, indent=2, default=str))
-    log.info("Multi-season Premier report written → %s", args.out)
+    Path(out).write_text(json.dumps(report, indent=2, default=str))
+    log.info("Multi-season Premier report written → %s", out)
 
     # Pretty-print.
     print()
-    print(f"{'Premier League · DRAW · 4 seasons (2021-22 … 2024-25)':^96}")
+    print(f"{'Premier League · '+args.market+' · 4 seasons':^96}")
     print("=" * 96)
     hdr = "{:>10} | ".format("Season")
     for t in thresholds:
-        hdr += "{:>11}".format(f"edge≥{t:.1f}pp")
+        hdr += "{:>11}".format(f"edge>={t:.1f}pp")
     print(hdr)
     print("-" * 96)
     for season in table:

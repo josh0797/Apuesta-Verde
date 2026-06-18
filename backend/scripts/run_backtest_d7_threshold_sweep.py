@@ -1,21 +1,21 @@
-"""Sprint-D7-E · Barrido honesto de ``min_edge_pp`` (DRAW market).
+"""Sprint-D7-E/F · Barrido honesto de ``min_edge_pp`` (multi-market).
 
 Corre el backtest doméstico (5 ligas, temporada 2024/25) sobre una
-lista de thresholds (por defecto ``{2, 3, 4, 5, 6, 8}``) y produce
-una tabla agregada que muestra:
+lista de thresholds (por defecto ``{2, 3, 4, 5, 6, 8}``) para un
+mercado configurable (``DRAW`` por defecto; también ``OVER_2_5``,
+``UNDER_2_5``) y produce una tabla agregada con:
 
 * n_picks por liga y por threshold
 * ROI por liga y por threshold
 * ROI agregado (weighted por ``n_bets``) por threshold
 * hit_rate agregado (weighted) por threshold
 
-Objetivo del barrido (consigna del usuario): determinar si el ROI
-agregado es **estable** a través de thresholds — la firma de una
-señal real — o **errático** — la firma del ruido.
+Objetivo del barrido: determinar si el ROI agregado es **estable** a
+través de thresholds — la firma de una señal real — o **errático** —
+la firma del ruido.
 
 Este script es **offline**, NO consume créditos de The Odds API y
-preserva ``observe_only`` (no escribe en producción, no genera
-órdenes).
+preserva ``observe_only``.
 """
 from __future__ import annotations
 
@@ -58,12 +58,13 @@ def _weighted_avg(rows: list[dict], key: str) -> float | None:
 
 
 def run_one_threshold(matches_by_league: dict[str, list[dict]],
-                       threshold_pp: float) -> dict:
+                       threshold_pp: float, *,
+                       market: str = "DRAW") -> dict:
     per_league: dict[str, dict] = {}
     rows: list[dict] = []
     for label, matches in matches_by_league.items():
         bt = run_backtest(
-            matches, market="DRAW", no_market=False,
+            matches, market=market, no_market=False,
             use_calibration=True, walk_forward=True,
             shrinkage_K=50, min_pred_prob_pp=8.0,
             min_edge_pp=threshold_pp,
@@ -87,6 +88,7 @@ def run_one_threshold(matches_by_league: dict[str, list[dict]],
         "weighted_hit_rate": _weighted_avg(rows, "hit_rate"),
     }
     return {"threshold_pp": threshold_pp,
+            "market":       market,
             "per_league":  per_league,
             "aggregate":   aggregate}
 
@@ -107,23 +109,29 @@ def load_matches() -> dict[str, list[dict]]:
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="Sprint-D7-E barrido de thresholds (offline, observe_only)",
+        description="Sprint-D7-E/F barrido de thresholds (offline, observe_only)",
     )
+    p.add_argument("--market", default="DRAW",
+                    choices=["DRAW", "OVER_2_5", "UNDER_2_5"],
+                    help="Mercado a evaluar (default DRAW).")
     p.add_argument("--thresholds", type=str,
                     default=",".join(str(t) for t in DEFAULT_THRESHOLDS),
                     help="Coma-separados (ej: '2,3,4,5,6,8').")
-    p.add_argument("--out", default="/app/backtest_d7_threshold_sweep.json")
+    p.add_argument("--out", default=None,
+                    help=("Salida JSON. Si se omite, "
+                          "/app/backtest_d7_threshold_sweep_<market>.json"))
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
+    out = args.out or f"/app/backtest_d7_threshold_sweep_{args.market.lower()}.json"
     thresholds = tuple(float(x.strip()) for x in args.thresholds.split(",")
                         if x.strip())
     matches_by_league = load_matches()
 
     sweep: list[dict] = []
     for t in thresholds:
-        log.info("--- threshold = %.1f pp ---", t)
-        res = run_one_threshold(matches_by_league, t)
+        log.info("--- market=%s threshold = %.1f pp ---", args.market, t)
+        res = run_one_threshold(matches_by_league, t, market=args.market)
         log.info("aggregate: n_bets=%d weighted_roi=%s weighted_hit=%s",
                   res["aggregate"]["n_bets_total"],
                   res["aggregate"]["weighted_roi"],
@@ -131,20 +139,24 @@ def main() -> int:
         sweep.append(res)
 
     report = {
+        "market":             args.market,
         "thresholds":         list(thresholds),
         "leagues":            list(matches_by_league.keys()),
         "sweep":              sweep,
         "observe_only":       True,
     }
-    Path(args.out).write_text(json.dumps(report, indent=2, default=str))
-    log.info("Threshold sweep written → %s", args.out)
+    Path(out).write_text(json.dumps(report, indent=2, default=str))
+    log.info("Threshold sweep written → %s", out)
 
     # Pretty-print summary table to stdout.
     print()
-    print("=" * 86)
+    print("=" * 92)
+    title = f"{args.market} threshold sweep · top-5 leagues 2024/25"
+    print(f"{title:^92}")
+    print("-" * 92)
     print(f"{'edge_pp':>8} | {'n_bets':>7} | {'w_ROI':>8} | {'w_hit_rate':>11} | "
-          f"{'roi_min(per_lg)':>15} | {'roi_max(per_lg)':>15}")
-    print("-" * 86)
+          f"{'roi_min(per_lg)':>17} | {'roi_max(per_lg)':>17}")
+    print("-" * 92)
     for r in sweep:
         agg = r["aggregate"]
         rois = [v.get("roi") for v in r["per_league"].values()
@@ -152,13 +164,13 @@ def main() -> int:
         roi_min = min(rois) if rois else None
         roi_max = max(rois) if rois else None
         def _fmt(x, w=8):
-            return ("{:.3f}".format(x) if isinstance(x, (int, float))
+            return ("{:+.3f}".format(x) if isinstance(x, (int, float))
                      else "  n/a   ").rjust(w)
         print(f"{r['threshold_pp']:>8.1f} | {agg['n_bets_total']:>7d} | "
               f"{_fmt(agg['weighted_roi'])} | "
               f"{_fmt(agg['weighted_hit_rate'], 11)} | "
-              f"{_fmt(roi_min, 15)} | {_fmt(roi_max, 15)}")
-    print("=" * 86)
+              f"{_fmt(roi_min, 17)} | {_fmt(roi_max, 17)}")
+    print("=" * 92)
     return 0
 
 
