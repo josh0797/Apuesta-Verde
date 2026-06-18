@@ -385,28 +385,54 @@ async def fixtures_last_n(
     team_id: int,
     *,
     n: int = 10,
-    season: int = PROXY_SEASON,
+    season: int | None = PROXY_SEASON,
     db=None,
+    include_all_competitions: bool = False,
 ) -> list[dict]:
     """Return the team's last N fixtures (most recent first) WITH final score.
 
     Used by `services/statsbomb_features.py` to build a goal-distribution
     profile per team — feeds the Poisson model that powers the Under 3.5 /
-    Under 2.5 protected scan (Phase 9 + P2A enhancement).
+    Under 2.5 protected scan (Phase 9 + P2A enhancement). Also used by
+    ``football_corners_history`` for the L1/L5/L15 corner window.
 
-    Cached by `(team_id, season)` for 12h so a team playing several times
-    in the analysis window does not burn rate-limited API calls.
+    Sprint-D9.2 Block A — Cross-tournament window
+    ---------------------------------------------
+    For national-team analysis (World Cup, Euros, Copa América) the
+    legacy contract ``season=PROXY_SEASON`` over-filters: API-Sports
+    files friendlies and qualifiers under different ``season`` values
+    (league_id=10 "Friendlies International" lives in a season equal to
+    the calendar year, not the tournament year). To compute a real
+    L1/L5/L15 corner window for a national team you need ALL competitions
+    glued together.
+
+    Two new entry-points:
+
+    * ``include_all_competitions=True`` — drops the ``season`` filter and
+      asks API-Sports for "last N globally". This is the recommended
+      mode for national-team windows. Cache key is versioned
+      ``kind: "last_n_global"`` so it does not collide with the legacy
+      cache.
+    * ``season=None`` — same effect (drops the filter) but keeps the
+      legacy cache key, primarily for ad-hoc scripts.
+
+    Leagues stay on the original contract by default
+    (``include_all_competitions=False``, ``season=PROXY_SEASON``) so we
+    don't introduce a regression in club-football flows.
     """
     n = max(1, min(int(n or 10), 20))
-    key = {"team_id": team_id, "season": season, "kind": "last_n"}
+    # Sprint-D9.2 Block A — cross-tournament fan-in for national teams.
+    use_global = bool(include_all_competitions) or season is None
+    kind = "last_n_global" if use_global else "last_n"
+    key = {"team_id": team_id, "season": (None if use_global else season),
+            "kind": kind}
     cached = await _cache_get(db, "cache_team_recent_fixtures", key, 12 * 60)
     if cached is not None:
         return cached[:n]
-    data = await _get(client, "/fixtures", {
-        "team": team_id,
-        "season": season,
-        "last": n,
-    })
+    params: dict[str, Any] = {"team": team_id, "last": n}
+    if not use_global:
+        params["season"] = season
+    data = await _get(client, "/fixtures", params)
     resp = data.get("response", []) or []
     # API-Sports returns chronological; keep newest-first.
     resp.sort(key=lambda f: ((f.get("fixture") or {}).get("timestamp") or 0), reverse=True)

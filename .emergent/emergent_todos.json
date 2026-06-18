@@ -1,18 +1,18 @@
 [
   {
-    "content": "D9.2 Fix recalculo cuota guardada: extractor compartido + panel client-side EV/Implied/Modelo en InlineManualOddsInput. Verificado live: cuota 1.28 → EV +1.50% sin banner bloqueante. 3761 tests passing",
+    "content": "Block A CERRADO: fix fixtures_last_n + propagación a corners_history + data_ingestion auto-detect nacionales, 8 tests verdes",
     "status": "completed"
   },
   {
-    "content": "D9.2 Block A: córneres — incluir amistosos en ventana L1/L5/L15 (actualmente sólo WC)",
-    "status": "in_progress"
+    "content": "Block B CERRADO: cascada xG real (Understat→FBref→footystats→TheStatsAPI) + cache Mongo 7d + 22 tests verdes",
+    "status": "completed"
   },
   {
-    "content": "D9.2 Block B: integrar xG real Understat (primario) + FBref (fallback)",
-    "status": "pending"
+    "content": "Zero-regression confirmada: 3791 tests passing (+30 esta sesión), índices XG_REAL creados al startup",
+    "status": "completed"
   },
   {
-    "content": "D9.2 Block C: usar xG real (L15 + std) como feature del Residual Model + rebacktest",
+    "content": "Block C pendiente: Residual Model con xG real (compute_xg_features_l15 → backtest D9.1)",
     "status": "pending"
   }
 ]

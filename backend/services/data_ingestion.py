@@ -1055,6 +1055,31 @@ async def _schedule_corners_profile_background(
         as_away = away.get("id")
         season  = (fx_raw.get("league") or {}).get("season")
 
+        # Sprint-D9.2 Block A — detect national-team fixtures and ask
+        # the corners history layer for a CROSS-tournament window
+        # (friendlies + qualifiers + tournaments) instead of just the
+        # current tournament season. Without this the L1/L5/L15 window
+        # for selecciones never had more than ~7 matches.
+        league_block = (fx_raw.get("league") or {})
+        league_type  = (league_block.get("type") or "").lower()
+        league_id    = league_block.get("id")
+        is_national_team_fixture = (
+            league_type == "cup"
+            and league_id in (
+                1,    # FIFA World Cup
+                4,    # UEFA European Championship
+                9,    # Copa América
+                10,   # Friendlies International
+                32,   # World Cup Qualifying (Europe)
+                34,   # World Cup Qualifying (South America)
+                29,   # World Cup Qualifying (Africa)
+                30,   # World Cup Qualifying (Asia)
+                31,   # World Cup Qualifying (Concacaf)
+                5,    # UEFA Nations League
+                26,   # International Friendlies — Clubs (some flags)
+            )
+        )
+
         async def _one(team_label, ts_id, as_id):
             try:
                 return await asyncio.wait_for(
@@ -1063,6 +1088,7 @@ async def _schedule_corners_profile_background(
                         team_id_thestatsapi=str(ts_id) if ts_id else None,
                         team_id_apisports=as_id,
                         season=season, n=15, min_sample=5, use_cache=True,
+                        include_all_competitions=is_national_team_fixture,
                     ),
                     timeout=_CORNERS_PROFILE_BG_TIMEOUT_S,
                 )

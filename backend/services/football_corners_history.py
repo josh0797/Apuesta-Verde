@@ -325,8 +325,16 @@ async def fetch_team_corners_history_apisports(
     team_id: int | str,
     season: int | str | None,
     n: int = _DEFAULT_N,
+    include_all_competitions: bool = False,
 ) -> tuple[list[dict], list[str]]:
-    """Return ``(history, reason_codes)`` via API-Sports per-fixture stats."""
+    """Return ``(history, reason_codes)`` via API-Sports per-fixture stats.
+
+    Sprint-D9.2 Block A — pass ``include_all_competitions=True`` for
+    national-team windows so friendlies + qualifiers + tournaments are
+    glued together (the legacy ``season=YEAR`` filter only surfaces
+    the partidos del torneo principal, lo cual destruía L1/L5/L15 para
+    selecciones del Mundial).
+    """
     reasons: list[str] = []
     try:
         team_id_int = int(team_id)
@@ -339,8 +347,12 @@ async def fetch_team_corners_history_apisports(
         client = httpx.AsyncClient(timeout=_AS_PER_FIXTURE_TIMEOUT)
     try:
         try:
-            fixtures = await af.fixtures_last_n(client, team_id_int, n=n,
-                                                season=season, db=db)
+            fixtures = await af.fixtures_last_n(
+                client, team_id_int, n=n, season=season, db=db,
+                include_all_competitions=include_all_competitions,
+            )
+            if include_all_competitions:
+                reasons.append("AS_LAST_N_GLOBAL_USED")
         except Exception as exc:
             log.debug("[corners_history.as] fixtures_last_n team=%s failed: %s",
                       team_id, exc)
@@ -394,8 +406,14 @@ async def fetch_team_corners_history(
     n: int = _DEFAULT_N,
     min_sample: int = 5,
     use_cache: bool = True,
+    include_all_competitions: bool = False,
 ) -> dict[str, Any]:
     """Public, multi-provider entry point.
+
+    Sprint-D9.2 Block A — pass ``include_all_competitions=True`` for
+    national-team windows so friendlies + qualifiers + tournaments are
+    glued together (the legacy ``season=YEAR`` filter only surfaced
+    WC2022 matches, breaking L1/L5/L15 for selecciones).
 
     Returns::
 
@@ -439,6 +457,7 @@ async def fetch_team_corners_history(
     if team_id_apisports:
         hist_as, rc_as = await fetch_team_corners_history_apisports(
             client, db, team_id=team_id_apisports, season=season, n=n,
+            include_all_competitions=include_all_competitions,
         )
         reasons.extend(rc_as)
         # Merge with TheStatsAPI partial (deduplicated by match_id).

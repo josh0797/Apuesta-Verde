@@ -167,6 +167,13 @@ async def on_startup() -> None:
         log.info("[365SCORES_TOP_TRENDS] cache indexes ensured")
     except Exception as exc:
         log.warning("[365SCORES_TOP_TRENDS] index ensure failed: %s", exc)
+    # Sprint D9.2 Block B — real-xG cache indexes (Understat/FBref/etc.).
+    try:
+        from services import football_xg_real_client as _xg
+        await _xg.ensure_indexes(db)
+        log.info("[XG_REAL] cache indexes ensured")
+    except Exception as exc:
+        log.warning("[XG_REAL] index ensure failed: %s", exc)
     # Sprint E.2 — odds_alerts indexes (audit + dedupe + filters).
     try:
         await db.odds_alerts.create_index(

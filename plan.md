@@ -711,3 +711,55 @@ Reporte consolidado: `/app/diagnostics/sprint_d8_phase1_summary.json`.
 - 3761 tests backend passing, 0 regresiones. Lint clean en JS/JSX/Python.
 
 **Próximo**: Block A — fix córneres incluyendo amistosos en ventana L1/L5/L15.
+
+---
+
+## SPRINT D9.2 — Block A + B COMPLETO
+
+### Block A — Córneres incluyendo amistosos (CERRADO ✅)
+
+**Bug fix**:
+- `services/api_football.py:fixtures_last_n` ahora acepta:
+  - `season=None` → omite el filtro de temporada en el wire
+  - `include_all_competitions=True` → drop del season y namespace de cache aislado (`kind: "last_n_global"`)
+- Default sigue siendo `season=PROXY_SEASON` (zero regresión para ligas).
+
+**Propagación**:
+- `services/football_corners_history.py`: ambos `fetch_team_corners_history_apisports` y `fetch_team_corners_history` aceptan y forwardean `include_all_competitions`. Reason code `AS_LAST_N_GLOBAL_USED` para auditoría.
+- `services/data_ingestion.py`: detecta `league.type=="cup"` + `league_id` en lista oficial de torneos/clasificatorios/amistosos internacionales (FIFA WC, Euros, Copa América, Nations League, Friendlies International, qualifiers de cada confederación) y activa el flag automáticamente. Selecciones nacionales del WC2022/Euro2024 ahora reciben los amistosos + clasificatorios en la ventana L1/L5/L15.
+
+**Tests**: 8 nuevos (`test_sprint_d9_2_block_a_corner_window.py`) — drop del season en wire, cache namespace aislado, cache hit short-circuit, propagación a apisports branch, propagación al public entry point. Todos verdes.
+
+### Block B — xG real con cascada multi-fuente (CERRADO ✅)
+
+**Nuevo módulo**: `services/football_xg_real_client.py` (lint clean).
+
+**Cascada de fuentes** (cada una fail-soft, transport inyectable):
+1. **Understat** — primary. HTML JSON-embedded vía Scrape.do. Parser `parse_understat_team_page` decodifica los escapes `\xHH` y `\u` que Understat emite, extrae rows con `xG.h/xG.a`, `goals.h/goals.a`, `datetime`. Auto-fallback al año anterior si el slug+year actual no carga.
+2. **FBref** — secundario. Scraper de `/squads/{fbref_id}/matchlogs/all_comps/schedule/`. Parser `parse_fbref_matchlog` extrae las columnas `data-stat="xg_for"/"xg_against"/"opponent"/"venue"/"comp"`. Skip rows sin xG (ligas viejas, copas menores).
+3. **footystats** — terciario. Parser `parse_footystats_team_page` busca pares de `data-xg=...` en filas de la tabla per-match.
+4. **TheStatsAPI** — último recurso. JSON con `THESTATSAPI_KEY`, side-aware (home/away).
+
+**Cache**: colección `football_team_xg_history` con `ix_team_league_season (unique)` + TTL 7d. Hit short-circuita toda la cascada.
+
+**Feature engineering**: `compute_xg_features_l15(matches)` devuelve `xg_l15_mean`, `xg_l15_std`, `xg_l15_dispersion` (CV), `xga_l15_mean`, `n_samples` — listo para alimentar el Residual Model.
+
+**Contract**: `get_team_xg_history(team_name, league?, season?, fbref_id?, thestatsapi_id?, db?, transport?, ...)` — siempre devuelve dict, nunca lanza. Reason codes:
+`XG_FOUND_UNDERSTAT/FBREF/FOOTYSTATS/THESTATSAPI`, `XG_FROM_CACHE`, `XG_ALL_SOURCES_FAILED`, `XG_INSUFFICIENT_SAMPLE`.
+
+**Tests**: 22 nuevos (`test_sprint_d9_2_block_b_xg_real_client.py`) cubriendo:
+- Parsers puros (Understat, FBref, footystats) con fixtures HTML sintéticos.
+- Feature engineering (window, missing values, std=0 con un sample, dispersión).
+- Cascada completa: Understat short-circuits, fallback a FBref, fallback a footystats, fallback a TheStatsAPI, all-failed reason code.
+- Cache: persist on success, hit short-circuita transport, force_refresh bypassa, stale (>TTL) ignora.
+- Indexes: ensure_indexes con/sin db.
+
+### Total tests + zero-regression
+- 3791 backend tests passing (3761 + 8 Block A + 22 Block B), 0 fallos.
+- Backend startup confirma los 3 índices (`365SCORES_IDENTITIES`, `365SCORES_TOP_TRENDS`, `XG_REAL`).
+
+### Pendiente (próxima sesión)
+
+**Block C — Residual Model con xG real**: usar `compute_xg_features_l15` para alimentar las features `xg_l15_mean / std / dispersion` y rebackest D9.1. Criterio Bonferroni: AUC > 0.55 ∧ delta_brier < 0 ∧ roi_ci_low > 0.
+
+**D8 Fase 2** — selecciones (DRAW + cohorte favorito-dominante) con MAX_CREDITS=2500. Sigue requiriendo confirmar ground truth de Copa América 2024 (mencionaste sólo tienes odds, no JSON de openfootball).
