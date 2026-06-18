@@ -398,37 +398,14 @@ Aplicar la misma disciplina de validación que en D7-E (parametrización end-to-
 - ✅ `compute_backtest_metrics` generalizado para usar `odd` (fallback a `odd_draw`).
 
 ### F4 — Scripts
-- ✅ `scripts/run_backtest_d7_threshold_sweep.py` ahora acepta `--market {DRAW, OVER_2_5, UNDER_2_5}` y escribe por defecto `..._\<market\>.json`.
-- ✅ `scripts/run_backtest_d7_premier_multiseason.py` ahora acepta `--market` y escribe por defecto `..._\<market\>.json`.
+- ✅ `scripts/run_backtest_d7_threshold_sweep.py` ahora acepta `--market {DRAW, OVER_2_5, UNDER_2_5}` y escribe por defecto `..._<market>.json`.
+- ✅ `scripts/run_backtest_d7_premier_multiseason.py` ahora acepta `--market` y escribe por defecto `..._<market>.json`.
 
 ### F5 — Tests
 - ✅ Nuevo archivo: `tests/test_sprint_d7_phaseF_score_grid_markets.py` (16 tests).
-- Incluye:
-  - sanity del grid (rangos, suma≈100%, monotónico con xG, fallback sin inputs),
-  - regresión explícita: `test_under25_is_NOT_complement_of_over25`,
-  - parser (opening/closing/fallback),
-  - engine (market-aware O/U 2.5),
-  - back-compat DRAW (149 picks @ 4pp, ROI=+27.96%).
 
 ### F6 — Ejecución de barridos (artefactos)
-
-**Threshold sweep · top-5 ligas · 2024/25**
-
-| edge_pp | OVER_2_5 w_ROI | UNDER_2_5 w_ROI |
-|---:|---:|---:|
-| 2.0 | -9.2% | -12.2% |
-| 3.0 | -9.3% | -13.4% |
-| 4.0 | -9.4% | -14.4% |
-| 5.0 | -9.6% | -15.2% |
-| 6.0 | -9.2% | -15.3% |
-| 8.0 | -8.1% | -14.9% |
-
-**Multi-season Premier (4 temporadas) — ROI @ edge=4pp**
-
-- OVER_2_5: 21/22=-5.10%, 22/23=-11.35%, 23/24=+1.88%, 24/25=-7.50% → MEAN=-5.52% STDEV=5.56%.
-- UNDER_2_5: 21/22=-13.43%, 22/23=-3.90%, 23/24=-14.13%, 24/25=-11.57% → MEAN=-10.76% STDEV=4.70%.
-
-**Artefactos (D7-F):**
+Artefactos (D7-F):
 - `/app/backtest_d7_threshold_sweep_over_2_5.json`
 - `/app/backtest_d7_threshold_sweep_under_2_5.json`
 - `/app/backtest_d7_premier_multiseason_over_2_5.json`
@@ -438,13 +415,7 @@ Aplicar la misma disciplina de validación que en D7-E (parametrización end-to-
 - ✅ `pytest` backend completo: **3650 passing**, 2 skipped, 0 regresiones.
 
 ## Veredicto científico (D7-F)
-- A diferencia de DRAW (ruido errático), OVER_2_5 y UNDER_2_5 muestran un **sesgo sistemático estable**:
-  - ROI agregado y cross-temporada siempre negativo.
-  - Bastante estable vs threshold (no hay “corte mágico”).
-  - Stdev moderado (~5–7%) comparado con DRAW (~21%).
-- Diagnóstico probable: el modelo DC plano (tunables globales `HOME_ADV_LAMBDA=0.20`, `RHO=-0.13`, límites de λ) está **miscalibrado estructuralmente** vs mercado; el calibrador walk-forward + shrinkage no corrige el sesgo → la causa parece ser el modelo base/parametrización.
-- Ningún sub-resultado cruza significancia estadística.
-- **BTTS aplazado** (no hay cuotas históricas gratis en football-data.co.uk; reactivarlo requeriría otra fuente o gasto de créditos).
+- OVER_2_5 y UNDER_2_5: sesgo negativo estable; sin edge demostrable.
 
 ---
 
@@ -475,14 +446,13 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 
 ### Pendientes P0 (actual)
 - 🟡 **SPRINT D5** (histórico en curso): cohortes + reportes multi-competición.
+- 🟡 **SPRINT D9.3-A** (hotfix MLB): corregir “Contexto de serie activa” (impacta proyección y UI).
 
 ### Pendientes P1
-- ✅ (COMPLETADO) Validación de mercados con disciplina D7-E:
-  - DRAW (D7-E) refutado como edge real.
-  - OVER_2_5 / UNDER_2_5 (D7-F) refutados como edge (sesgo negativo estable).
-- ⏳ **BTTS aplazado** (sin cuotas históricas gratis). Solo reactivar con nueva tesis + fuente/caching.
+- 🟡 **SPRINT D9.2 — Block C** Residual Model con xG real (después de D9.3).
 - 🟡 **REFACTOR-1** (pasos 2/3 y 3/3 + ingest_upcoming).
 - ⏳ **F84.c/F84.d** Lineups + Standings.
+- ⏳ **D8 Fase 2** — selecciones (DRAW + cohorte favorito-dominante) con MAX_CREDITS=2500 (bloqueado por ground truth Copa América 2024).
 
 ### Pendientes P2
 - ⏳ Expandir `team_name_translations.py`.
@@ -499,7 +469,8 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
   - Cero regresión post-cada cambio.
   - Fail-soft y back-compat.
   - Point-in-time correctness en backtests.
-  - `observe_only` en SPRINT D/E/F (sin apuestas automáticas).
+  - `observe_only` (sin apuestas automáticas).
+  - Backend: ejecutar `pytest` completo tras cambios.
 
 ---
 
@@ -509,257 +480,141 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
   - Siempre usar `yarn` (no `npm`).
   - Fail-soft: no levantar excepción sin convertirla a auditoría/razón.
   - Backtests: disciplina point-in-time estricta.
-  - **E.1**: polling limitado al universo visible de UI.
-  - **D6**: shrinkage es opt-in (`shrinkage_K=None` preserva legacy).
   - **Observe-only**: no implementar apuestas automáticas.
 
 - Flags / env (principales):
   - `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY`.
   - `THE_ODDS_API_KEY=...`.
-  - (D7) Flags CLI ya implementados:
-    - `--min-edge-pp`
-    - `--skip-national`
-    - `--out`
-  - (D7-E/F scripts):
-    - `scripts/run_backtest_d7_threshold_sweep.py --market {DRAW,OVER_2_5,UNDER_2_5}`
-    - `scripts/run_backtest_d7_premier_multiseason.py --market {DRAW,OVER_2_5,UNDER_2_5}`
 
 ---
 
-## SPRINT F — Ingesta de Tendencias Top desde 365Scores (NUEVO)
+## SPRINT F — Ingesta de Tendencias Top desde 365Scores — COMPLETADO ✅
 
-**Objetivo**: ingestar las "Tendencias Top" de 365Scores vía Scrape.do para los partidos visibles en la UI que pasaron filtros del engine, y **reemplazar** el bloque UI "Revisión manual — alternativas posibles" por "Tendencias Top — 365Scores". Las tendencias son evidencia contextual `observe_only`: no se convierten en picks automáticos ni modifican el edge.
-
-### Sub-fases
-
-- ✅ **F.1 — Identity Resolver** (COMPLETADO — criterio de salida `F1_IDENTITY_RESOLVER_READY`):
-  - Nuevo módulo: `services/external_sources/three65scores_identity_resolver.py`.
-  - Cascada: (1) cache Mongo `football_365scores_identities`; (2) parsing URL conocida (`game_id`/`matchup_id`); (3) búsqueda por equipos + competición + commence_time (±6h configurable).
-  - **Validación crítica**: cada `team_id` recibido debe validarse contra el nombre del equipo que devuelve el payload de 365Scores. No asumir que el orden home/away del slug es correcto.
-  - Aliases extendidos: Mexico↔México, South Korea↔Corea del Sur↔Korea Republic, Congo DR↔RD Congo↔DR Congo, Ivory Coast↔Côte d'Ivoire↔Costa de Marfil, USA↔EEUU, North Macedonia↔Macedonia del Norte, Bosnia & Herzegovina↔Bosnia y Herzegovina.
-  - Estados: `RESOLVED` | `AMBIGUOUS` | `NOT_FOUND` | `SOURCE_UNAVAILABLE` | `INVALID_TEAM_MAPPING`.
-  - Confidence: `HIGH` | `MEDIUM` | `LOW`.
-  - Persistencia: colección `football_365scores_identities` con índices `unique(internal_match_id)`, `unique(game_id)`, `(home_team_id, away_team_id, commence_time)`.
-  - Fixture de pruebas: México vs Corea del Sur, `game_id=4627854`, `competition_id=5930`, `home_team_id=5106`, `away_team_id=2383`, kickoff 2026-06-17.
-  - Tests: aliases, ±6h tolerance, INVALID_TEAM_MAPPING (slot home/away invertido), AMBIGUOUS (dos candidatos), cache hit, fail-soft cuando fuente cae.
-  - Criterio de salida: `F1_IDENTITY_RESOLVER_READY` (tests verdes + 3677 previos sin regresión).
-
-- ✅ **F.2 — Descubrimiento + Cliente Top Trends** (COMPLETADO — criterio de salida `F2_TRENDS_CONTRACT_STABLE`):
-  - Discovery timeboxed: máximo 1 ciclo técnico.
-  - Estrategia híbrida: cargar página pública, interceptar `fetch/XHR` con headless, buscar requests con `4627854/5106/2383/trend/insight/pre-game/top trends`, revisar JSON embebido (`__NEXT_DATA__`/initial state), bundles, requests existentes en `score365_*_client.py`.
-  - Si falla → entregar reporte de discovery (rutas/status/content-type/schema-fragment/causa de bloqueo) y marcar `BLOCKED_ENDPOINT_NOT_IDENTIFIED`. **No inventar endpoints**, no implementar parser por supuestos.
-  - Si requiere autenticación privada/captcha → reason `365SCORES_TRENDS_SOURCE_RESTRICTED`.
-  - Criterio de salida: `F2_TRENDS_CONTRACT_STABLE` (endpoint + método + params + schema real + fixture JSON anonimizado + parser + cache + tests sin red).
-
-- ✅ **F.3 — UI** (COMPLETADO — criterio de salida `F3_UI_TOP_TRENDS_INTEGRATED`):
-  - Reemplazar `Revisión manual — alternativas posibles` por `Tendencias Top — 365Scores` en el componente correspondiente (`MarketIdentityResolverPanel.jsx` u otro consumidor de revisión manual). No mostrar ambos paneles, no fabricar tendencias simuladas cuando la fuente caiga.
-  - Mantener `observe_only` siempre.
-  - Criterio de salida: `F3_UI_TOP_TRENDS_INTEGRATED`.
-
-### Reglas operacionales del Sprint F
-- Cero regresión: 3677 tests pre-Sprint F deben seguir pasando.
-- Resolver es fail-soft: nunca raise, siempre dict con `status`/`confidence`/`reason_code`.
-- Los IDs del caso de prueba (5106/2383/4627854/5930) sólo aparecen en fixtures, **nunca hardcodeados** en lógica productiva.
-- Si Scrape.do/365Scores responde con bloqueo → marcar `SOURCE_UNAVAILABLE` y degradar limpio.
-
-### F.1 — Resultado de cierre (2026-06-17)
-
-- **Status**: `F1_IDENTITY_RESOLVER_READY` ✅
-- **Módulo nuevo**: `services/external_sources/three65scores_identity_resolver.py` (lint clean).
-- **Tests nuevos**: `tests/test_sprint_f1_three65scores_identity_resolver.py` — 29 tests verdes.
-- **Suite total**: 3706 passed / 2 skipped (3677 previos + 29 nuevos), 0 regresiones.
-- **Persistencia**: índices `ix_internal_match_id (unique)`, `ix_game_id (unique partial $gt:0)`, `ix_teams_commence` confirmados creados al startup.
-- **Resolver expone**:
-  - `resolve_match_identity(internal_match_id, home_team, away_team, commence_time, competition_id?, match_url?, tolerance_hours=6, db?, persist=True, games_fetcher?, game_detail_fetcher?, force_refresh=False)`.
-  - Helpers públicos: `normalize_team_name`, `build_team_alias_set`, `validate_team_mapping`, `ensure_indexes`.
-- **Garantías clave**:
-  - Validación obligatoria `team_id ↔ nombre`. Si 365Scores devuelve [home, away] invertido, el resolver detecta el swap y persiste los IDs ALINEADOS al canónico (con `mapping_reason=F1_TEAM_MAPPING_SWAPPED` para auditoría). Si ninguno coincide → `INVALID_TEAM_MAPPING`.
-  - `competition_id` actúa como guard duro: descarta candidatos con otra competición conocida.
-  - Tolerancia `±6h` configurable.
-  - Cache Mongo: cache-hit → `RC_FROM_MONGO_CACHE` y no llama a la fuente.
-  - `force_refresh=True` salta la cache (útil para re-resoluciones).
-  - Fail-soft: nunca lanza excepción.
-- **Lo que NO incluye F.1** (queda para F.2): la lógica de scraping vía Scrape.do. F.1 sólo expone los hooks (`games_fetcher`/`game_detail_fetcher`) y el contrato; los adaptadores reales a HTTP se cablearán en F.2 una vez se identifique el endpoint estable.
-
-### Próximo paso
-
-**F.2** — Descubrimiento timeboxed del endpoint Top Trends. Necesita 1 ciclo técnico con browser headless interceptando XHR/fetch y revisión de `__NEXT_DATA__`. Si falla → reporte de discovery + `BLOCKED_ENDPOINT_NOT_IDENTIFIED`.
-
-### F.2 — Resultado de cierre (2026-06-17)
-
-- **Status**: `F2_TRENDS_CONTRACT_STABLE` ✅
-- **Endpoint confirmado** (descubierto vía Playwright headless interceptando XHR):
-  `GET https://webws.365scores.com/web/trends/?appTypeId=5&langId={1|29}&timezoneName=UTC&userCountryId=333&games={game_id}&topBookmaker=103`
-  - HTTP 200, `application/json; charset=utf-8`
-  - Confirmado vía Scrape.do (transport productivo) en `scripts/run_sprint_f2_capture_fixture.py`.
-- **Schema observado**:
-  - Top-level: `trends[]`, `bookmakers[]`, `lastUpdateId`, `ttl`, `sports[]`, `countries[]`, `competitions[]`, `competitors[]`, `games[]`.
-  - Por trend: `id`, `lineTypeId`, `text`, `cause`, `betCTA`, `isTop`, `competitorIds[]`, `gameId`, `percentage`, `odds{rate, oldRate, originalRate, trend, bookmakerId}`, `confidenceTrendIds[]`.
-  - `lineTypeId` taxonomy observada: `1=ML`, `3=OU_GOALS`, `5=1H_ML`, `7=FIRST_GOAL`, `12=BTTS`. Para valores no mapeados se emite `LINE_TYPE_{id}` (nunca se descarta silenciosamente).
-- **Módulo nuevo**: `services/external_sources/three65scores_top_trends_client.py` (lint clean).
-  - `fetch_top_trends(game_id, ...)` low-level con transport inyectable y cache Mongo (TTL 30 min default).
-  - `fetch_top_trends_for_match(internal_match_id, home_team, away_team, commence_time, ...)` high-level que orquesta F.1 (identity) → F.2 (trends).
-  - `normalize_trends_payload(payload)` parser puro (testeable sin Mongo ni red).
-  - Confidence heuristic: total≥10 ∧ pct≥0.80 → HIGH; total≥5 ∧ pct≥0.70 → MEDIUM; isTop=True floor MEDIUM; resto LOW.
-  - Detección de `team_side` (home/away/both/unknown) vía `competitorIds` cruzados con `home_team_id`/`away_team_id` de F.1. Detección de `scope` (home/away/first_half/all) por texto + line_type.
-- **Cache**: colección `football_365scores_top_trends` con `ix_game_language (unique)` + TTL 6h hard ceiling en `fetched_at`. Registrado en `server.py` startup.
-- **Fixture capturado**: `tests/fixtures/365scores_top_trends_4627854.json` (10 KB, 12 trends del partido México vs Corea del Sur, incluyendo 2+ `isTop=True`).
-- **Tests nuevos**: `tests/test_sprint_f2_top_trends_client.py` — 26 tests verdes (parser puro + payload completo del fixture real + cache hit/miss/stale + force_refresh + filtro `only_top` + langId 1/29 + identity short-circuit + fail-soft).
-- **Suite total**: 3732 passed / 2 skipped (3677 base + 29 F.1 + 26 F.2), 0 regresiones.
-
-### Próximo paso — F.3 (UI)
-
-Reemplazar el bloque "Revisión manual — alternativas posibles" por "Tendencias Top — 365Scores" en el componente correspondiente (`MarketIdentityResolverPanel.jsx` u otro consumidor). Endpoint de backend a exponer:
-
-`GET /api/football/365scores/top-trends?internal_match_id=...` (o un payload POST con identity ya pre-resuelta).
-
-Reglas:
-- `observe_only`: las tendencias se muestran como evidencia contextual, no modifican picks ni edge.
-- Si la fuente cae → mostrar reason code (`F2_TRANSPORT_UNAVAILABLE` / `F2_IDENTITY_NOT_RESOLVED` / `F2_TRENDS_EMPTY`) en la UI; nunca fabricar tendencias.
-- No mostrar ambos paneles ("Revisión manual" y "Tendencias Top") a la vez.
-
-### F.3 — Resultado de cierre (2026-06-18)
-
-- **Status**: `F3_UI_TOP_TRENDS_INTEGRATED` ✅
-- **Endpoint backend nuevo**: `POST /api/football/365scores/top-trends`
-  - Body: `{internal_match_id, home_team, away_team, commence_time (ISO), competition?, competition_id?, match_url?, language?, only_top?, force_refresh?}`.
-  - Orquesta F.1 (identidad) → F.2 (trends) → cache Mongo.
-  - Marca `observe_only: True` siempre. Never raises.
-  - Live fetchers cableados vía `services/external_sources/three65scores_live_fetchers.py` (Scrape.do como transport; fail-soft con `[]`/`{}` en fallos).
-- **Componente UI nuevo**: `frontend/src/components/Top365TrendsPanel.jsx`.
-  - Lazy fetch on first expand (no carga si el usuario no abre el panel).
-  - Estados: loading (skeleton+spinner), error con `reason_code` legible (`F2_IDENTITY_REQUIRED`, `F2_TRANSPORT_UNAVAILABLE`, `F2_TOP_TRENDS_EMPTY`, etc.), success con lista.
-  - Cada trend: badge `isTop`, market chip, team_side chip, scope chip si distinto del team_side, confidence chip (HIGH=emerald / MEDIUM=amber / LOW=slate), texto raw, sample `hits/total`, barra de progreso `percentage`, link al partido en 365Scores.
-  - Footer "observe_only" + `game_id` resuelto para auditoría.
-  - `data-testid` en todos los elementos interactivos (toggle, refresh, list, row-N-market, row-N-confidence, etc.).
-  - Botón refresh fuerza `force_refresh=True`.
-- **Reemplazo en Dashboard**: `frontend/src/pages/DashboardPage.jsx` cambia `<PossibleAlternativeMarkets>` por `<Top365TrendsPanel>` cuando `possibleAlts.length > 0`. No se muestran ambos paneles a la vez. No se fabrican tendencias simuladas cuando la fuente cae.
-- **Bug pre-existente arreglado**: `MarketIdentityResolverPanel.jsx` (Sprint D10) referenciaba `missing`, `manualPrice`, `setManualPrice` sin definirlos — causaba `Uncaught runtime error` que rompía la sección de discarded rows del Dashboard. Fix: declarar `useMemo` para `missing` (derivado de las props canónicas), state `manualPrice`/`setManualPrice`, y `effectivePrice` que cae al `manualPrice` cuando no hay `detectedOdd`. Lint clean.
-- **Validación end-to-end en producción (preview)**:
-  - Backend: 3735 passed / 2 skipped (3677 base + 32 F.1 + 26 F.2), 0 regresiones.
-  - Endpoint live test (Portugal vs DR Congo, game_id=4697734): identity RESOLVED HIGH confidence, 5 trends ES, cache hit confirmado.
-  - UI render real con demo account: panel "Tendencias Top — 365Scores" se renderiza con icono Sparkles + theme cyan correcto. Caso `F2_IDENTITY_REQUIRED` mostrado limpio cuando el item descartado no expone `commence_time` (mensaje claro, no se muestra el bloque antiguo). Sin errores de runtime.
-- **Resultado**: Sprint F **COMPLETO** (F.1 + F.2 + F.3). Las tendencias de 365Scores se ingestan, normalizan, cachean y muestran en la UI como evidencia contextual `observe_only`. Sin tocar el engine ni los picks.
-
-### Próximos pasos (post Sprint F)
-
-Sin tareas P0 abiertas. Siguen en pendientes:
-- **D9.2 Block 1**: xG real (FBref/Understat) para el Residual Model (P1).
-- **REFACTOR-1**: Extraer Steps 2 y 3 fuera de `data_ingestion.py` (P2).
-- **F84.c/F84.d**: Lineups + Standings via API-Sports (P1).
-- **BTTS market backtest**: aplazado hasta sourcing de cuotas históricas.
+Sin cambios (ver bitácora previa).
 
 ---
 
 ## SPRINT D8 — UNDER_3_5 (ligas) + DRAW/cohorte (selecciones)
 
-### D8 Fase 1 — UNDER_3_5 / OVER_3_5 en ligas (CERRADA — `WELL_CALIBRATED_BUT_NO_EDGE_DEMONSTRABLE`)
-
-**Pregunta**: ¿la línea 3.5 esconde una señal real o replica el patrón de "modelo bien calibrado pero sin edge sobre devig" ya observado en 2.5?
-
-**Implementación**:
-- Predictor `compute_score_grid_potential`: añadidos `over35_probability` y `under35_probability` sumando sus PROPIAS celdas (i+j ≥ 4 y ≤ 3 respectivamente). Audit invariant `p_under35_complement_check < 1e-9` testado.
-- Parser `parse_football_data_csv`: añadidas las cascadas `B365>3.5/B365<3.5` + close + Avg fallback. Preserva `prefer_closing`.
-- Engine `MARKET_AWARE_SUPPORTED` extendido con `OVER_3_5`/`UNDER_3_5`. Hit functions y NO_MARKET_THRESHOLDS registrados.
-- 24 tests nuevos (`tests/test_sprint_d8_phase1_under_3_5.py`) cubriendo: NOT-complement, monotonía, sample size en bucket, parser open/close/fallback, engine integration, back-compat 2.5.
-- Suite total: **3761 passed / 2 skipped** (3735 + 26), 0 regresiones.
-
-**Hallazgo crítico durante la ejecución**:
-- `football-data.co.uk` **no publica** columnas 3.5 (>3.5 / <3.5) ni en open ni en close ni en Avg. Verificado contra los 8 CSVs cacheados y contra el remoto live. El parser está listo para cuando esos datos lleguen, pero hoy quedan en `None`.
-- Resultado: **no es posible calcular `delta_brier_vs_devig` para 3.5 con el dataset actual**. Por honestidad, se ejecuta un diagnóstico *model-only* (predictor vs ground truth) y se compara con el patrón ya conocido de 2.5.
-
-**Resultados model-only** (`/app/diagnostics/calibration_under_3_5_*.json` y `over_3_5_*`):
-
-| Mercado    | Scope                  | n     | base_rate | AUC    | Brier   | Sharpness | Veredicto                                                                    |
-|------------|------------------------|-------|-----------|--------|---------|-----------|------------------------------------------------------------------------------|
-| UNDER_3_5  | premier_2425           |  370  | 0.6486    | 0.464  | 0.24501 | 0.6640    | MODEL_DOES_NOT_DISCRIMINATE                                                  |
-| UNDER_3_5  | top5_2425              | 1704  | 0.6796    | 0.5609 | 0.22926 | 0.6709    | MODEL_DISCRIMINATES_MODEST (weak vs market untestable here)                  |
-| UNDER_3_5  | premier_multiseason    | 1480  | 0.6412    | 0.5319 | 0.24839 | 0.6409    | MODEL_DISCRIMINATES_WEAK                                                     |
-| OVER_3_5   | premier_2425           |  370  | 0.3514    | 0.4819 | 0.24234 | 0.3355    | MODEL_DOES_NOT_DISCRIMINATE                                                  |
-| OVER_3_5   | top5_2425              | 1704  | 0.3204    | 0.5523 | 0.22808 | 0.3300    | MODEL_DISCRIMINATES_MODEST                                                   |
-| OVER_3_5   | premier_multiseason    | 1480  | 0.3588    | 0.5344 | 0.24600 | 0.3594    | MODEL_DISCRIMINATES_WEAK                                                     |
-
-**Veredicto cerrado**: AUC entre 0.46 y 0.56 a lo largo de los 6 escenarios — la misma magnitud de discriminación pobre observada en 2.5 (D7-G: AUC 0.503–0.534, brier_modelo > brier_devig en TODOS los scopes). Por analogía estricta: el modelo es a lo sumo "weak/modest" vs ground truth, y el devig de la casa ha probado ser mejor calibrador en cada caso que hemos podido medirlo. **Cierre de mercados de goles en ligas — no se persigue 3.5 más adelante salvo que cambie la fuente de odds**.
-
-Reporte consolidado: `/app/diagnostics/sprint_d8_phase1_summary.json`.
-
-**Siguiente**: D8 Fase 2 (DRAW + cohorte favorito-dominante en selecciones).
+### D8 Fase 1 — UNDER_3_5 / OVER_3_5 en ligas (CERRADA)
+Sin cambios (ver bitácora previa).
 
 ---
 
-## SPRINT D9.2 — Block 0: Fix del recálculo de cuota guardada (PRE-córneres)
+## SPRINT D9.2 — Block 0 + A + B (COMPLETADO ✅)
 
-**Bug visible en producción**: Cuando el usuario teclea una cuota manual en la card "APUESTA RECOMENDADA" de un pick MLB (ej. OVER 7.0 NY Mets @ Phillies, cuota 1.28), el backend responde con `OVERRIDE_SAVED_ONLY` y la card muestra "Cuota guardada, pero no se pudo recalcular porque no se encontró probabilidad estimada para el pick" — pese a que la misma probabilidad (56.7%) está visible en la sección "LECTURAS ESTRUCTURALES QUE REQUIEREN CUOTA" y permite calcular EV/Implied/Modelo perfectamente.
-
-**Causa**: El backend reprice (`reprice_mlb_pick_with_manual_odds`) requiere que el extractor encuentre `model_probability` en alguna de 15+ ubicaciones del payload del pick. Para algunos picks MLB la probabilidad SÍ está disponible pero en una ubicación o forma que el lookup multi-key no exhibe (especialmente cuando se llega vía `pick_context` y la búsqueda en `pick_runs` no matcheó).
-
-**Fix aplicado** (mismo patrón que `ManualOddsReviewPanel`/"Lecturas estructurales"):
-- Nuevo util compartido `frontend/src/lib/mlbManualOdds.js` con:
-  - `computeEvFromOdds(odds, probPct)` — pure helper.
-  - `extractModelProbability(pick, {market, selection})` — cascada cliente que espeja las 15+ ubicaciones del backend (`pick.cover_probability`, `_mlb_script_v2.coverProbability`/`probabilityUnder`/`probabilityOver`, `margin_v2.*`, `expected_runs_distribution.*` side-aware, `tail_risk.*` side-aware, `key_data.*`, `recommendation.*`, `estimated_probability` mirror).
-  - `computeEvFromPick(odds, pick, ctx)` — convenience wrapper.
-- `InlineManualOddsInput.jsx` ahora:
-  - `useMemo` de `clientEv` que recalcula EV en cuanto el usuario teclea, sin roundtrip backend.
-  - Renderiza el mismo panel "EV / Implied / Modelo" (3 columnas, tabular-nums, emerald/rose según signo) que la sección estructural.
-  - Suprime el banner ámbar "no se pudo recalcular" cuando `clientEv != null` (el usuario ya tiene la información).
-  - Toast informativo (success en vez de warning) cuando backend dice OVERRIDE_SAVED_ONLY pero el cálculo client-side funcionó.
-- Backend reprice cascade preservada — la persistencia sigue ocurriendo igual; sólo se cambia la experiencia del usuario.
-
-**Validación live** (Washington Nationals @ San Francisco Giants UNDER 9.5, cuota 1.28):
-- `pick-inline-manual-odds-823215-client-ev` → `EV +1.50%, Implied 78.1%, Modelo 79.3%`
-- Banner `saved-only` visible: **False** (suprimido)
-- 3761 tests backend passing, 0 regresiones. Lint clean en JS/JSX/Python.
-
-**Próximo**: Block A — fix córneres incluyendo amistosos en ventana L1/L5/L15.
+Sin cambios (Block 0: UI manual odds; Block A: corners friendlies; Block B: xG real cascada + cache + features).
 
 ---
 
-## SPRINT D9.2 — Block A + B COMPLETO
+## SPRINT D9.3 — Active Series Context Fix + Expansion (P0 hotfix)
 
-### Block A — Córneres incluyendo amistosos (CERRADO ✅)
+### Contexto / Bug visible en producción
+Captura del usuario (Texas Rangers @ Minnesota Twins, Joe Ryan vs Jack Leiter):
+- "Familiaridad de serie: media (56/100) — 3d:2, 5d:2, 15d:2" → **correcto**.
+- "Contexto de serie activa (G2): G1 Texas Rangers 0 - 0 Minnesota Twins = 0 carreras. Promedio: 0.0 carreras · Over rate: 0%" → **bug**.
+- "Segundo juego: ER ajustado 7.2 → 7.9 (+0.7)" → **consecuencia del bug** (contamina proyección).
 
-**Bug fix**:
-- `services/api_football.py:fixtures_last_n` ahora acepta:
-  - `season=None` → omite el filtro de temporada en el wire
-  - `include_all_competitions=True` → drop del season y namespace de cache aislado (`kind: "last_n_global"`)
-- Default sigue siendo `season=PROXY_SEASON` (zero regresión para ligas).
+### Causa raíz (confirmada en código)
+`services/mlb_active_series_analyzer.py`:
+- `_extract_runs` usa `path.get("home", 0)` / `path.get("away", 0)` y similares; cuando faltan keys, produce **0** y lo interpreta como score válido.
+- No hay filtro estricto de `status` final.
+- Resultado: `runs_list` incluye un juego fantasma 0 carreras → `next_game_number=2` → `apply_series_degradation` suma +0.4..+0.8 ER → proyección contaminada.
 
-**Propagación**:
-- `services/football_corners_history.py`: ambos `fetch_team_corners_history_apisports` y `fetch_team_corners_history` aceptan y forwardean `include_all_competitions`. Reason code `AS_LAST_N_GLOBAL_USED` para auditoría.
-- `services/data_ingestion.py`: detecta `league.type=="cup"` + `league_id` en lista oficial de torneos/clasificatorios/amistosos internacionales (FIFA WC, Euros, Copa América, Nations League, Friendlies International, qualifiers de cada confederación) y activa el flag automáticamente. Selecciones nacionales del WC2022/Euro2024 ahora reciben los amistosos + clasificatorios en la ventana L1/L5/L15.
+### Plan en fases
+- **D9.3-A (hotfix, prioridad P0):** validación estricta de marcadores válidos + estados + UI honesta.
+- **D9.3-B (señal matemática):** weighted runs, shrinkage, CV, over/under line-aware.
+- **D9.3-C (interacciones):** slope, pitching/bullpen delta, anti-double-counting con familiaridad H2H.
 
-**Tests**: 8 nuevos (`test_sprint_d9_2_block_a_corner_window.py`) — drop del season en wire, cache namespace aislado, cache hit short-circuit, propagación a apisports branch, propagación al public entry point. Todos verdes.
+### Sub-fase D9.3-A — Validación + estados + UI honesta (CERRADO ✅ 2026-06-18)
 
-### Block B — xG real con cascada multi-fuente (CERRADO ✅)
+#### Resultado de cierre
+- ✅ `mlb_active_series_analyzer.py` reescrito:
+  - `_parse_int_strict` y `_read_scores_strict` eliminan defaults a 0 → keys faltantes ahora producen `None`.
+  - `_doc_status` + `_is_status_final` clasifican explícitamente `FINAL/COMPLETED/GAME_OVER/...` vs `POSTPONED/SUSPENDED/LIVE/...`.
+  - Guard MLB 0-0: excluye partidos 0-0 a menos que `score_confirmed=True`.
+  - Estados `series_state` expuestos: `ACTIVE_SERIES_CONFIRMED`, `ACTIVE_SERIES_NO_COMPLETED_GAMES`, `ACTIVE_SERIES_SCORE_MISSING`, `ACTIVE_SERIES_UNRESOLVED`.
+  - Auditoría `excluded_docs[]` por partido descartado (con `reason`, `status`, scores).
+  - `reason_codes` siempre presentes (incl. `LIMITED_SAMPLE_SERIES_SIGNAL` cuando n<3).
+  - Conteo line-aware: `over_count`, `under_count`, `push_count` + `reference_line`. `over_rate` mantenido por back-compat.
+- ✅ `frontend/MLBScriptPanel.jsx` actualizado:
+  - Estado degradado: "La serie actual todavía no tiene partidos finalizados." (sin promedio falso ni Over rate 0%).
+  - Estado confirmado: "Promedio · Partidos válidos: N · Over {line}: X de N · Under {line}: Y de N".
+  - Badge "Muestra limitada — señal contextual, no concluyente" cuando n<3.
+  - `data-testid` adicionales para QA: `-series-state-badge`, `-series-empty-message`, `-series-line-counts`, `-series-limited-sample`, `-series-avg`, `-series-games-list`, `-series-game-{n}`.
+- ✅ Tests: nuevo `backend/tests/test_mlb_active_series_analyzer.py` con **15 tests** cubriendo:
+  - Bug regression `final_score={}` → `SCORE_MISSING` (no fabrica G1 0-0).
+  - `final_score={"home":None,"away":None}` → `SCORE_MISSING`.
+  - Suspicious 0-0 sin confirmar → excluido + `SUSPICIOUS_ZERO_ZERO_EXCLUDED`.
+  - 0-0 con `score_confirmed=True` → aceptado.
+  - `status=Postponed` → excluido.
+  - `status=Live` → excluido.
+  - Status missing + scores válidos → soft-final.
+  - Happy path 2 juegos confirmados con over/under counts correctos.
+  - Reorientación home/away cuando el doc tiene equipos invertidos.
+  - `live_stats.score = {home, away}` shape soportado (back-compat).
+  - Sin matchup en ventana → `NO_COMPLETED_GAMES`.
+  - `db=None` → `UNRESOLVED`.
+  - n≥3 → no emite `LIMITED_SAMPLE_SERIES_SIGNAL`.
+  - Mix válido + inválido → solo los válidos cuentan, los demás aparecen en `excluded_docs`.
+  - High-scoring series → triggers `series_override=True` + `lean=OVER`.
+- ✅ Pytest backend completo: **3806 passed / 2 skipped** (3791 base + 15 nuevos), 0 regresiones.
+- ✅ Build FE (`esbuild MLBScriptPanel.jsx`) clean, sin errores.
 
-**Nuevo módulo**: `services/football_xg_real_client.py` (lint clean).
+#### Efecto sobre el bug visible
+Para el caso Texas Rangers @ Minnesota Twins (Joe Ryan vs Jack Leiter):
+- Antes: G1 fantasma 0-0 → `games_in_series=1` → `apply_series_degradation(g=2)` sumaba +0.7 ER (7.2 → 7.9).
+- Ahora: el doc con `final_score={}` (o sin scores válidos) cae en `SCORE_MISSING` → `games_in_series=0` → guard `if base_er and series_ctx.get("games_in_series", 0) >= 1` en `mlb_day_orchestrator.py:3273` no activa la degradación → ER permanece intacta.
+- UI: muestra "La serie actual todavía no tiene partidos finalizados." en vez de "G1: 0-0, Promedio 0.0, Over rate 0%".
 
-**Cascada de fuentes** (cada una fail-soft, transport inyectable):
-1. **Understat** — primary. HTML JSON-embedded vía Scrape.do. Parser `parse_understat_team_page` decodifica los escapes `\xHH` y `\u` que Understat emite, extrae rows con `xG.h/xG.a`, `goals.h/goals.a`, `datetime`. Auto-fallback al año anterior si el slug+year actual no carga.
-2. **FBref** — secundario. Scraper de `/squads/{fbref_id}/matchlogs/all_comps/schedule/`. Parser `parse_fbref_matchlog` extrae las columnas `data-stat="xg_for"/"xg_against"/"opponent"/"venue"/"comp"`. Skip rows sin xG (ligas viejas, copas menores).
-3. **footystats** — terciario. Parser `parse_footystats_team_page` busca pares de `data-xg=...` en filas de la tabla per-match.
-4. **TheStatsAPI** — último recurso. JSON con `THESTATSAPI_KEY`, side-aware (home/away).
+### Sub-fase D9.3-B — Señal matemática weighted + shrinkage + CV (PENDIENTE)
+- Implementar `calculate_series_total_signal(current_expected_runs, market_total, active_series_games, recent_h2h_games, starting_pitching_projection, bullpen_projection)`.
+- Weighted runs:
+  - pesos por recencia: 1.00 / 0.75 / 0.55 / 0.40 / 0.30.
+  - peso de juegos de serie activa: 1.0.
+  - peso de H2H de series previas: 0.45.
+- Shrinkage:
+  - `series_reliability = n/(n+3)`.
+  - cap de influencia: máx 30% de la proyección.
+  - clamp de ajuste: [-1.25, +1.25].
+- `series_edge_runs = adjusted_expected_runs - market_total` con bandas interpretables.
+- Métricas: mean, median, std, min, max, CV.
 
-**Cache**: colección `football_team_xg_history` con `ix_team_league_season (unique)` + TTL 7d. Hit short-circuita toda la cascada.
+### Sub-fase D9.3-C — Interacciones pitching/bullpen + slope + anti-double-counting (PENDIENTE)
+- Tendencia:
+  - `series_slope = linear_regression_slope(game_number, total_runs)`.
+  - Guard: `INSUFFICIENT_SAMPLE_FOR_SERIES_TREND` si n<3.
+- Interacciones:
+  - `pitching_delta`, `bullpen_delta` y reason codes explicativos.
+- Evitar doble conteo:
+  - si hay overlap `active_series_games` vs `recent_h2h_games` → `do_not_double_count=True`.
 
-**Feature engineering**: `compute_xg_features_l15(matches)` devuelve `xg_l15_mean`, `xg_l15_std`, `xg_l15_dispersion` (CV), `xga_l15_mean`, `n_samples` — listo para alimentar el Residual Model.
+---
 
-**Contract**: `get_team_xg_history(team_name, league?, season?, fbref_id?, thestatsapi_id?, db?, transport?, ...)` — siempre devuelve dict, nunca lanza. Reason codes:
-`XG_FOUND_UNDERSTAT/FBREF/FOOTYSTATS/THESTATSAPI`, `XG_FROM_CACHE`, `XG_ALL_SOURCES_FAILED`, `XG_INSUFFICIENT_SAMPLE`.
+## SPRINT D9.2 — Block C: Residual Model con xG real (CONFIRMADO, PENDIENTE)
 
-**Tests**: 22 nuevos (`test_sprint_d9_2_block_b_xg_real_client.py`) cubriendo:
-- Parsers puros (Understat, FBref, footystats) con fixtures HTML sintéticos.
-- Feature engineering (window, missing values, std=0 con un sample, dispersión).
-- Cascada completa: Understat short-circuits, fallback a FBref, fallback a footystats, fallback a TheStatsAPI, all-failed reason code.
-- Cache: persist on success, hit short-circuita transport, force_refresh bypassa, stale (>TTL) ignora.
-- Indexes: ensure_indexes con/sin db.
+### Decisión usuario (confirmada)
+- Estrategia: **cache-first agresivo** (fetch 1× por equipo+temporada en Mongo `football_team_xg_history`), y **PIT-filter en memoria** por `match_date < target_date`.
+- Scope: **top5_2425** únicamente.
+- Cobertura parcial: añadir feature `xg_real_available` (0/1).
+- Criterio Bonferroni estricto: **AUC > 0.55 ∧ delta_brier < 0 ∧ roi_ci_low > 0**.
 
-### Total tests + zero-regression
-- 3791 backend tests passing (3761 + 8 Block A + 22 Block B), 0 fallos.
-- Backend startup confirma los 3 índices (`365SCORES_IDENTITIES`, `365SCORES_TOP_TRENDS`, `XG_REAL`).
-
-### Pendiente (próxima sesión)
-
-**Block C — Residual Model con xG real**: usar `compute_xg_features_l15` para alimentar las features `xg_l15_mean / std / dispersion` y rebackest D9.1. Criterio Bonferroni: AUC > 0.55 ∧ delta_brier < 0 ∧ roi_ci_low > 0.
-
-**D8 Fase 2** — selecciones (DRAW + cohorte favorito-dominante) con MAX_CREDITS=2500. Sigue requiriendo confirmar ground truth de Copa América 2024 (mencionaste sólo tienes odds, no JSON de openfootball).
+### Plan (a ejecutar después de D9.3)
+1) Añadir wrapper PIT-safe:
+   - Dado `team_xg_history.matches[]` (fecha,xG), filtrar **solo** `dt < match_dt` antes de `compute_xg_features_l15`.
+2) Expandir `FEATURE_NAMES` en `backend/scripts/run_d9_residual_backtest.py`:
+   - `xg_l15_mean`, `xg_l15_std`, `xg_l15_dispersion`, `xg_real_available`.
+3) Modificar `_gather_records`:
+   - hidratar xG real por equipo+temporada (cache-first),
+   - calcular features PIT por cada match,
+   - mantener fail-soft (si no hay xG: features None + flag 0).
+4) Reportar coverage en `train_audit`:
+   - % de filas con `xg_real_available=1` (train/holdout).
+5) Clasificación/veredicto:
+   - aplicar criterio Bonferroni (nuevo tag `NO_INCREMENTAL_SIGNAL_WITH_XG_REAL` si falla).
+6) Ejecutar backtest:
+   - generar `/app/diagnostics/residual_d9_2c_over_2_5_top5_2425.json`.
+7) Tests:
+   - wrapper PIT-filter (no usa partidos futuros),
+   - coverage flag,
+   - criterio Bonferroni aplicado correctamente.

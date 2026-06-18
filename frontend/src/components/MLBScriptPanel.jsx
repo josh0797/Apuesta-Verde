@@ -263,12 +263,59 @@ export function MLBScriptPanel({
         </div>
       ) : null}
 
-      {/* Active Series Context Badge (Module #1 — GAP #3) */}
-      {(activeSeriesContext?.available && (activeSeriesContext.games_in_series || 0) >= 1) && (() => {
+      {/* Active Series Context Badge (Module #1 — D9.3-A hotfix).
+            Renders one of three honest states:
+              (1) ACTIVE_SERIES_CONFIRMED → full breakdown + over/under
+                  line-aware counts + "muestra limitada" badge when n<3.
+              (2) ACTIVE_SERIES_NO_COMPLETED_GAMES / SCORE_MISSING /
+                  UNRESOLVED → truthful message, NO promedio / NO over
+                  rate (zero observations does NOT mean zero runs).
+              (3) Falsy / missing payload → nothing.
+      */}
+      {activeSeriesContext && activeSeriesContext.series_state ? (() => {
+        const state = activeSeriesContext.series_state;
+        const nValid = activeSeriesContext.games_in_series || 0;
         const games = activeSeriesContext.games_detail || [];
-        const nextG = activeSeriesContext.next_game_number || (games.length + 1);
         const isRunLine = (chosenMarket || '').toLowerCase().includes('run line');
+        const refLine = activeSeriesContext.reference_line ?? 9.5;
+
+        // Truthful "no completed games yet" message — D9.3-A spec.
+        if (state !== 'ACTIVE_SERIES_CONFIRMED' || nValid === 0) {
+          const stateMessage = {
+            ACTIVE_SERIES_NO_COMPLETED_GAMES: 'La serie actual todavía no tiene partidos finalizados.',
+            ACTIVE_SERIES_SCORE_MISSING:      'Marcador no disponible para los partidos previos de la serie.',
+            ACTIVE_SERIES_UNRESOLVED:         'Serie activa no resoluble con los datos disponibles.',
+          }[state] || 'La serie actual todavía no tiene partidos finalizados.';
+          return (
+            <div
+              className="rounded-md border px-2.5 py-1.5 text-[11.5px] leading-snug space-y-1 border-slate-500/30 bg-slate-500/5 text-slate-200"
+              data-testid={`${testId || 'mlb-script'}-series-context`}
+              data-series-state={state}
+            >
+              <div className="flex items-center gap-1.5 font-semibold">
+                <span aria-hidden>📊</span>
+                <span>Contexto de serie activa</span>
+                <span
+                  className="ml-auto inline-block px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide bg-slate-500/15 text-slate-200 border border-slate-500/30"
+                  data-testid={`${testId || 'mlb-script'}-series-state-badge`}
+                >
+                  Sin muestra válida
+                </span>
+              </div>
+              <div className="text-[10.5px] opacity-90" data-testid={`${testId || 'mlb-script'}-series-empty-message`}>
+                {stateMessage}
+              </div>
+            </div>
+          );
+        }
+
+        // CONFIRMED path — there's at least 1 valid completed game.
+        const nextG = activeSeriesContext.next_game_number || (games.length + 1);
         const isHotAvg  = Number(activeSeriesContext.total_runs_avg || 0) > 12;
+        // Line-aware counts (fallback to derived counts if backend didn't send them).
+        const overCount  = activeSeriesContext.over_count  ?? games.filter(g => Number(g.total_runs) >  refLine).length;
+        const underCount = activeSeriesContext.under_count ?? games.filter(g => Number(g.total_runs) <  refLine).length;
+        const limitedSample = nValid < 3;
         return (
           <div
             className={`rounded-md border px-2.5 py-1.5 text-[11.5px] leading-snug space-y-1 ${
@@ -277,6 +324,7 @@ export function MLBScriptPanel({
                 : 'border-amber-500/30 bg-amber-500/5 text-amber-200'
             }`}
             data-testid={`${testId || 'mlb-script'}-series-context`}
+            data-series-state={state}
           >
             <div className="flex items-center gap-1.5 font-semibold">
               <span aria-hidden>📊</span>
@@ -296,9 +344,9 @@ export function MLBScriptPanel({
             </div>
             {/* Per-game breakdown — G1, G2, ... with home/away score + total. */}
             {games.length > 0 && (
-              <ul className="text-[10.5px] font-mono-tabular space-y-0.5 pl-1">
+              <ul className="text-[10.5px] font-mono-tabular space-y-0.5 pl-1" data-testid={`${testId || 'mlb-script'}-series-games-list`}>
                 {games.map((g) => (
-                  <li key={g.game_number} className="flex items-baseline gap-1">
+                  <li key={g.game_number} className="flex items-baseline gap-1" data-testid={`${testId || 'mlb-script'}-series-game-${g.game_number}`}>
                     <span className="text-foreground/90 font-semibold">G{g.game_number}:</span>
                     <span className="truncate">
                       {g.home_team} <span className="font-bold">{g.home}</span>
@@ -315,14 +363,28 @@ export function MLBScriptPanel({
                 Promedio:{' '}
                 <span className={`font-bold tabular-nums ${
                   isHotAvg ? 'text-rose-100' : ''
-                }`}>
+                }`} data-testid={`${testId || 'mlb-script'}-series-avg`}>
                   {Number(activeSeriesContext.total_runs_avg).toFixed(1)} carreras
                 </span>
               </span>
-              {!isRunLine && activeSeriesContext.over_rate != null && (
-                <span>· Over rate: <span className="font-semibold">{(activeSeriesContext.over_rate * 100).toFixed(0)}%</span></span>
-              )}
+              <span className="opacity-70">· Partidos válidos: <span className="font-semibold tabular-nums">{nValid}</span></span>
             </div>
+            {!isRunLine && (
+              <div className="text-[10.5px] flex items-center gap-2 flex-wrap opacity-95" data-testid={`${testId || 'mlb-script'}-series-line-counts`}>
+                <span>
+                  Over {refLine}: <span className="font-semibold tabular-nums">{overCount} de {nValid}</span>
+                </span>
+                <span className="opacity-60">·</span>
+                <span>
+                  Under {refLine}: <span className="font-semibold tabular-nums">{underCount} de {nValid}</span>
+                </span>
+              </div>
+            )}
+            {limitedSample && (
+              <div className="text-[10.5px] italic opacity-90" data-testid={`${testId || 'mlb-script'}-series-limited-sample`}>
+                Muestra limitada — señal contextual, no concluyente.
+              </div>
+            )}
             {seriesDegradation && (
               <div className="text-[10.5px] opacity-95">
                 ⚠ {seriesDegradation.game_in_series === 3 ? 'Tercer juego' : seriesDegradation.game_in_series === 2 ? 'Segundo juego' : `Juego ${seriesDegradation.game_in_series}`}: ER ajustado
@@ -337,7 +399,7 @@ export function MLBScriptPanel({
             )}
           </div>
         );
-      })()}
+      })() : null}
 
       {/* GAP #1 — IL impact ribbon. Refactor 2026-06-02:
             * Solo renderiza cuando hay >0 APLICADOS (no detected raw).

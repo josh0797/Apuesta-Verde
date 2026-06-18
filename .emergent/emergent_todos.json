@@ -1,18 +1,22 @@
 [
   {
-    "content": "Block A CERRADO: fix fixtures_last_n + propagación a corners_history + data_ingestion auto-detect nacionales, 8 tests verdes",
+    "content": "D9.3-A.1 — Refactor _extract_runs y _extract_per_team_runs en mlb_active_series_analyzer.py (no defaults a 0; validar status final; guard MLB 0-0)",
     "status": "completed"
   },
   {
-    "content": "Block B CERRADO: cascada xG real (Understat→FBref→footystats→TheStatsAPI) + cache Mongo 7d + 22 tests verdes",
+    "content": "D9.3-A.2 — Añadir estados series_state (CONFIRMED/NO_COMPLETED_GAMES/SCORE_MISSING/UNRESOLVED) en payload de get_active_series_context",
     "status": "completed"
   },
   {
-    "content": "Zero-regression confirmada: 3791 tests passing (+30 esta sesión), índices XG_REAL creados al startup",
+    "content": "D9.3-A.3 — Frontend MLBScriptPanel.jsx: no renderizar 0.0 carreras/Over rate cuando games_in_series==0; over/under line-aware (X de N); badge muestra limitada cuando <3",
     "status": "completed"
   },
   {
-    "content": "Block C pendiente: Residual Model con xG real (compute_xg_features_l15 → backtest D9.1)",
-    "status": "pending"
+    "content": "D9.3-A.4 — Crear backend/tests/test_mlb_active_series_analyzer.py con casos: missing keys, 0-0 MLB sospechoso, status no-final, happy path",
+    "status": "completed"
+  },
+  {
+    "content": "D9.3-A.5 — Validar pytest backend completo sin regresiones (baseline 3791) + esbuild FE clean",
+    "status": "completed"
   }
 ]
