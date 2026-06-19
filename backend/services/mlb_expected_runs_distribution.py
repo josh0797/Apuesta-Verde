@@ -181,12 +181,20 @@ def _compute_effective_dispersion(
     defensive_breakdown_score: Optional[float],
     bullpen_fatigue: Optional[float],
     series_familiarity_score: Optional[float],
+    overlay_dispersion_multiplier: Optional[float] = None,
+    overlay_verdict: Optional[str] = None,
 ) -> tuple[float, list[str]]:
     """Apply qualitative signals to widen/narrow the dispersion ratio.
 
     Returns ``(effective_ratio, reason_codes)``. The effective ratio is
-    clamped to [0.90, 2.50] so the distribution never collapses to a
+    clamped to [0.90, 3.00] so the distribution never collapses to a
     delta nor explodes to nonsense widths.
+
+    D12 hook: `overlay_dispersion_multiplier` (from
+    `mlb_total_risk_overlay.compute_total_risk_overlay`) is applied
+    last when the overlay verdict is `AVOID` or `BLOCK`. This ensures
+    the tail-risk recalibration only kicks in for Under picks that
+    triggered the high-risk gate.
     """
     reasons: list[str] = []
     # Base ratio: Poisson if missing.
@@ -231,7 +239,18 @@ def _compute_effective_dispersion(
         r *= 0.92
         reasons.append(RC_LOW_UNCERTAINTY_STABLE_SCRIPT)
 
-    r = _clamp(r, 0.90, 2.50)
+    # ── D12 — Total Risk Overlay recalibration ─────────────────────
+    # Only apply when the overlay verdict gated the pick (AVOID/BLOCK).
+    # `overlay_dispersion_multiplier` is the dispersion bump proposed
+    # by `mlb_total_risk_overlay.compute_total_risk_overlay`:
+    #   1.0 LOW · 1.15 MEDIUM · 1.35 HIGH · 1.80 EXTREME.
+    mult = _safe_float(overlay_dispersion_multiplier)
+    verdict = (overlay_verdict or "").upper()
+    if mult is not None and mult > 1.0 and verdict in ("AVOID", "BLOCK"):
+        r *= float(mult)
+        reasons.append("UNDER_TAIL_RISK_RECALIBRATED")
+
+    r = _clamp(r, 0.90, 3.00)
     return r, reasons
 
 
@@ -328,6 +347,8 @@ def compute_expected_runs_distribution(
     park_factor:               Optional[float] = None,
     weather_factor:            Optional[float] = None,
     line_learning_feedback:    Optional[dict] = None,
+    overlay_dispersion_multiplier: Optional[float] = None,
+    overlay_verdict:           Optional[str] = None,
 ) -> dict:
     """Build the full expected-runs distribution payload.
 
