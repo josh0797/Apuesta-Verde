@@ -1,30 +1,14 @@
 [
   {
-    "content": "D10-A.1 — Crear football_total_signal.py módulo puro (37 tests)",
+    "content": "D11.1 — Crear mlb_under_explosion_risk.py con 4 sub-scores (starter_volatility, first_inning_collapse, recent_offensive_quality, lineup_explosiveness) + aggregator",
     "status": "completed"
   },
   {
-    "content": "D10-A.2 — Tests del módulo D10-A (37 tests verdes)",
+    "content": "D11.2 — Tests cubriendo 3 escenarios mínimos: (a) starter estable + lineup frío + bullpen fresco, (b) starter volátil + lineup explosivo, (c) first inning collapse alto (23 tests verdes)",
     "status": "completed"
   },
   {
-    "content": "D10-B.1 — Crear football_total_market_value.py (26 tests)",
-    "status": "completed"
-  },
-  {
-    "content": "D10-B.2 — Tests market value (26 tests verdes)",
-    "status": "completed"
-  },
-  {
-    "content": "D10-C.1 — Backend: orquestador football_manual_odds_reprice.py + endpoint POST /api/football/manual-odds/preview (curl verificado FOOTBALL_REPRICED)",
-    "status": "completed"
-  },
-  {
-    "content": "D10-C.2 — UI: FootballTotalSignalPanel.jsx (resumida + expandida) + cableado en InlineManualOddsInput.jsx con fetch al endpoint cuando pickContext trae football_total_signal_preview_inputs",
-    "status": "completed"
-  },
-  {
-    "content": "D10-final — Pytest backend completo (3915 passed, 0 regresiones) + esbuild FE clean",
+    "content": "D11.3 — Pytest backend completo sin regresiones (3938 passed, 0 regresiones)",
     "status": "completed"
   }
 ]
