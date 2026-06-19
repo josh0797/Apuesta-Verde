@@ -1,14 +1,14 @@
 [
   {
-    "content": "D11.1 — Crear mlb_under_explosion_risk.py con 4 sub-scores (starter_volatility, first_inning_collapse, recent_offensive_quality, lineup_explosiveness) + aggregator",
+    "content": "D11-wire — Cableado mlb_day_orchestrator M5.5: invoca aggregate_under_explosion_risk solo para picks UNDER, escribe pick_payload['under_explosion_risk'] + reason_codes + verdict + log estructurado",
     "status": "completed"
   },
   {
-    "content": "D11.2 — Tests cubriendo 3 escenarios mínimos: (a) starter estable + lineup frío + bullpen fresco, (b) starter volátil + lineup explosivo, (c) first inning collapse alto (23 tests verdes)",
+    "content": "D10-wire — Helper puro football_total_signal_inputs.py + integración en enrich_football_match para emitir match['football_total_signal_preview_inputs'] cuando lambdas estén disponibles (14 tests verdes)",
     "status": "completed"
   },
   {
-    "content": "D11.3 — Pytest backend completo sin regresiones (3938 passed, 0 regresiones)",
+    "content": "Validación final: pytest backend 3952 passed (0 regresiones) + backend healthy tras restart",
     "status": "completed"
   }
 ]

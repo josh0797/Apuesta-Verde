@@ -3407,6 +3407,103 @@ async def analyze_mlb_day(
             except Exception as exc_pf:
                 log.debug("park_factor_live compute failed: %s", exc_pf)
 
+            # ── M5.5 (D11): Under Explosion Risk overlay ───────────────
+            # Layered ONLY for UNDER picks. Observe-only by default —
+            # writes its verdict and proposed adjustments into the
+            # payload but does NOT mutate the existing pipeline state.
+            # The downstream code can read pick_payload["under_explosion_risk"]
+            # and decide to apply BLOCK_UNDER / DEGRADE_UNDER. The UI
+            # already renders the existing fragility/survival fields.
+            try:
+                _rec = pick_payload.get("recommendation") or {}
+                _sel = str(_rec.get("selection") or "").upper()
+                _market = str(_rec.get("market") or "").upper()
+                _is_under = ("UNDER" in _sel) or ("UNDER" in _market)
+                if _is_under:
+                    from .mlb_under_explosion_risk import (
+                        aggregate_under_explosion_risk,
+                    )
+                    _bp_home_q = None
+                    # Read scoring_ctx pieces that are in scope from
+                    # the picks loop (h_q/a_q/bull defined earlier).
+                    _h_pitch = locals().get("home_pitcher_profile") or {}
+                    _a_pitch = locals().get("away_pitcher_profile") or {}
+                    _h_lineup = locals().get("home_lineup_profile") or {}
+                    _a_lineup = locals().get("away_lineup_profile") or {}
+                    _h_off = locals().get("home_offense_profile") or {}
+                    _a_off = locals().get("away_offense_profile") or {}
+                    _bull_obj = locals().get("bull") or {}
+                    _bull_score = _bull_obj.get("score") if isinstance(_bull_obj, dict) else None
+                    # Existing fragility / tail_risk / survival in payload.
+                    _base_frag = (pick_payload.get("fragility_score")
+                                    or pick_payload.get("fragility")
+                                    or 0)
+                    _base_tail = (pick_payload.get("explosive_tail_risk")
+                                    or pick_payload.get("tail_risk")
+                                    or "LOW")
+                    _base_surv = (pick_payload.get("survival_score")
+                                    or pick_payload.get("survival"))
+                    _line_val = None
+                    try:
+                        _line_val = float(v2_block.get("smartTotalsLine") or 0) or None
+                    except (TypeError, ValueError):
+                        _line_val = None
+                    _exp_runs = None
+                    try:
+                        _exp_runs = float(v2_block.get("expectedRuns")
+                                            or v2_block.get("expectedRunsRaw") or 0) or None
+                    except (TypeError, ValueError):
+                        _exp_runs = None
+
+                    risk = aggregate_under_explosion_risk(
+                        home_starter=_h_pitch or None,
+                        away_starter=_a_pitch or None,
+                        home_lineup=_h_lineup or None,
+                        away_lineup=_a_lineup or None,
+                        home_offense=_h_off or None,
+                        away_offense=_a_off or None,
+                        home_bullpen_fatigue=(
+                            float(_bull_score) if _bull_score is not None else None
+                        ),
+                        away_bullpen_fatigue=(
+                            float(_bull_score) if _bull_score is not None else None
+                        ),
+                        base_fragility=float(_base_frag) if _base_frag else 0.0,
+                        base_explosive_tail_risk=_base_tail,
+                        base_survival_score=float(_base_surv) if _base_surv else None,
+                        line=_line_val,
+                        expected_runs=_exp_runs,
+                        selection="UNDER",
+                    )
+                    pick_payload["under_explosion_risk"] = risk
+                    log.info(
+                        "[D11_UNDER_RISK] match=%s sel=%s verdict=%s reasons=%s frag_delta=%s",
+                        pick_payload.get("matchId") or pick_payload.get("match_id"),
+                        _sel,
+                        risk.get("verdict"),
+                        risk.get("reason_codes"),
+                        risk.get("fragility_delta"),
+                    )
+                    # ── Verdict propagation (observe + degrade only) ─
+                    # We do NOT silently drop picks. We mark them so the
+                    # UI/curator can downgrade/block. Apply the proposed
+                    # fragility/tail/survival overlays as separate keys
+                    # to preserve the original engine values.
+                    pick_payload["under_explosion_risk_applied"] = {
+                        "verdict":                       risk.get("verdict"),
+                        "adjusted_fragility":            risk.get("adjusted_fragility"),
+                        "adjusted_explosive_tail_risk":  risk.get("adjusted_explosive_tail_risk"),
+                        "adjusted_survival_score":       risk.get("adjusted_survival_score"),
+                        "reason_codes":                  risk.get("reason_codes") or [],
+                    }
+                    # Soft-attach reason codes into the canonical list.
+                    if isinstance(pick_payload.get("reason_codes"), list):
+                        for rc in (risk.get("reason_codes") or []):
+                            if rc not in pick_payload["reason_codes"]:
+                                pick_payload["reason_codes"].append(rc)
+            except Exception as exc_risk:
+                log.debug("under_explosion_risk compute failed: %s", exc_risk)
+
             # ── Recalibración NB por bucket (PASIVO en OBSERVING) ────
             # Phase 1: bucket dispersion ratio always overrides the global
             # ratio when an apply-eligible whitelisted bucket matches.

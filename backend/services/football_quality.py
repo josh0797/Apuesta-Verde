@@ -415,6 +415,19 @@ def enrich_football_match(match: dict) -> dict:
     match["football_tier"] = fq["tier"]
     match["football_selection_state"] = fq["state"]
     match["football_selection_score"] = fq["score"]
+
+    # ── D10 wiring: attach Football Total Signal preview inputs ─────
+    # Pure helper — fail-soft: returns None if no base lambdas can be
+    # resolved, in which case the UI panel simply won't render.
+    try:
+        from .football_total_signal_inputs import (
+            build_football_total_signal_preview_inputs,
+        )
+        preview = build_football_total_signal_preview_inputs(match)
+        if preview is not None:
+            match["football_total_signal_preview_inputs"] = preview
+    except Exception:  # noqa: BLE001 — never break the enrichment path
+        pass
     return match
 
 
