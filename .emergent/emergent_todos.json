@@ -1,14 +1,22 @@
 [
   {
-    "content": "D11-wire — Cableado mlb_day_orchestrator M5.5: invoca aggregate_under_explosion_risk solo para picks UNDER, escribe pick_payload['under_explosion_risk'] + reason_codes + verdict + log estructurado",
+    "content": "D12.1 — mlb_bullpen_stress.py con compute_bullpen_stress + assess_reliever_availability",
     "status": "completed"
   },
   {
-    "content": "D10-wire — Helper puro football_total_signal_inputs.py + integración en enrich_football_match para emitir match['football_total_signal_preview_inputs'] cuando lambdas estén disponibles (14 tests verdes)",
+    "content": "D12.2 — mlb_domino_risk.py con compute_domino_risk + HIGH/EXTREME por starter_vol + bullpen_stress + long_relief",
     "status": "completed"
   },
   {
-    "content": "Validación final: pytest backend 3952 passed (0 regresiones) + backend healthy tras restart",
+    "content": "D12.3 — mlb_total_risk_overlay.py: aggregator final con verdict (ALLOW/WARN/AVOID/BLOCK) + dispersion calibration (1.0/1.15/1.35/1.80) + 6 reason codes + editorial_summary + debug",
+    "status": "completed"
+  },
+  {
+    "content": "D12.4 — Tests Nivel 2: 31 tests verdes (6 reliever availability, 8 bullpen stress, 4 domino risk, 13 total overlay con verdicts, dispersion, reason codes y editorial)",
+    "status": "completed"
+  },
+  {
+    "content": "D12.5 — Pytest backend completo (3983 passed, 0 regresiones)",
     "status": "completed"
   }
 ]
