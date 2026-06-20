@@ -159,6 +159,55 @@ async def _job_settle_finished_baseball(db):
         log.warning("settle_finished_baseball failed: %s", exc)
 
 
+async def _job_settle_finished_football(db):
+    """F95.4 — Persist final_score for recently finished football matches.
+
+    Iterates ``football_match_learning_snapshots`` candidates whose
+    kickoff is in the last 36h and which do NOT yet carry the
+    ``POST_MATCH_RESULT_SETTLED`` reason code, and hydrates the final
+    score via the provider cascade:
+      TheStatsAPI → TheSportsDB → API-Sports.
+
+    The job NEVER raises (any error is logged + counted as `errors`),
+    so the rest of the scheduler is unaffected.
+    """
+    log.info("Scheduler: settle_finished_football starting")
+    started = datetime.now(timezone.utc)
+    try:
+        from .football_finished_game_settler import (
+            settle_recent_finished_football,
+        )
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            summary = await settle_recent_finished_football(
+                db,
+                hours_back=36,
+                max_matches=50,
+                http_client=client,
+            )
+        _status["last_run"]["settle_finished_football"] = {
+            "started_at":  started.isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            **(summary or {}),
+        }
+        log.info(
+            "Scheduler: settle_finished_football done — attempted=%d "
+            "full=%d partial=%d no_data=%d errors=%d",
+            (summary or {}).get("attempted", 0),
+            (summary or {}).get("settled_full", 0),
+            (summary or {}).get("settled_partial", 0),
+            (summary or {}).get("no_data", 0),
+            (summary or {}).get("errors", 0),
+        )
+    except Exception as exc:
+        log.warning("settle_finished_football failed: %s", exc)
+        _status["last_run"]["settle_finished_football"] = {
+            "started_at":  started.isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "ok":          False,
+            "error":       str(exc),
+        }
+
+
 async def _job_recompute_feedback_weights(db):
     """Tick the MLB feedback loop. Fires `recompute_weights_if_due` which
     no-ops unless there are ≥ FEEDBACK_BATCH_SIZE (40) unconsumed settled
@@ -410,6 +459,19 @@ def start_scheduler(db) -> None:
         trigger=IntervalTrigger(minutes=15),
         id="settle_finished_baseball",
         next_run_time=datetime.now(timezone.utc) + timedelta(minutes=3),
+        max_instances=1,
+        coalesce=True,
+    )
+    # F95.4 — Football finished-game settler every 20 min — hydrates
+    # final_score onto football_match_learning_snapshots via the
+    # cascade TheStatsAPI → TheSportsDB → API-Sports. Closes the
+    # POST_MATCH_RESULT_SETTLED gap that left finished matches lingering
+    # in "Generar picks del día".
+    sch.add_job(
+        _job_settle_finished_football, args=[db],
+        trigger=IntervalTrigger(minutes=20),
+        id="settle_finished_football",
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=4),
         max_instances=1,
         coalesce=True,
     )

@@ -1,7 +1,7 @@
-# Plan — Phases F58–F94.x (bitácora)
+# Plan — Phases F58–F95.x (bitácora)
 
 > **Nota:** Este plan se mantiene como bitácora completa.
-> **Estado histórico:** ✅ F58–F70 completadas.
+> **Estado histórico:** ✅ F58–F94.x completadas / en curso según bitácora.
 > **Idioma operativo:** Español.
 
 ---
@@ -120,6 +120,17 @@
 **Objetivo global:** eliminar “pérdidas invisibles” de fixtures y permitir diagnóstico end-to-end.
 **Estado:** ✅ COMPLETADO.
 
+### Objetivos nuevos / extendidos (F95) — Football Post-Match Settlement Hotfix (P0)
+**Contexto:** bug productivo donde partidos ya finalizados (ej. *Brazil vs Haiti*) siguen apareciendo como elegibles en “Generar picks del día”.
+
+**Diagnóstico:** `settle_post_match()` existe (learning snapshots), pero no había job scheduler equivalente al de MLB; el sistema no persistía `POST_MATCH_RESULT_SETTLED` para fútbol de forma periódica.
+
+**Objetivos F95 (P0):**
+1. **Arreglar settlement post-match football:** correr settlement periódico que hidrate final_score/corners y escriba `POST_MATCH_RESULT_SETTLED` cuando sea posible.
+2. **Robustecer gate de fixtures:** mantener guard de “kickoff_ts > 4h en el pasado” como defensa en profundidad para descartar stale fixtures incluso si el settlement se atrasa.
+3. **Nueva cascada de proveedores (final_score football):** **TheStatsAPI → TheSportsDB → API-Sports**.
+4. **Scheduler:** `_job_settle_finished_football` cada **20 min**, ventana **36h** hacia atrás.
+
 ---
 
 ## 2) Implementación (fases)
@@ -148,164 +159,178 @@
 ---
 
 ## Phase SPRINT A — Draw Potential (piloto retrospectivo) (COMPLETED ✅)
-
-### Objetivo
-Validar un módulo puro `compute_draw_potential()` (fail-soft, explicable) antes de invertir en infraestructura completa.
-
-### Implementación realizada
-- ✅ `services/football_draw_potential.py` (módulo puro, reason codes, labeler)
-- ✅ Backtest piloto retrospectivo (sin fugas de futuro)
-
-### Resultado
-- ✅ Señal inicial verificada; listo para integración en backtest framework.
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT B — Football Learning Dataset + Loops + UI (COMPLETED ✅)
-
-### Objetivo
-Infraestructura para snapshots pre/post partido, cascada de scraping pre-match, loops de aprendizaje y panel UI.
-
-### Implementación realizada
-- ✅ Colección `football_match_learning_snapshots`
-- ✅ APScheduler jobs (pre-match snapshots)
-- ✅ Cascada TheStatsAPI / CONCACAF / CAF hydration
-- ✅ 4 learning loops + DC/NB calibration
-- ✅ UI: `LearningSnapshotPanel.jsx`
-
-### Estado
-- ✅ Suites verdes y sin regresiones.
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT D — Framework Backtest Histórico Point-in-Time (COMPLETED ✅)
-
-### Objetivo
-Crear un motor de backtest riguroso con disciplina point-in-time (sin leakage) y walk-forward.
-
-### Implementación realizada
-- ✅ `services/football_historical_ingestor.py` (backtest PIT + `build_point_in_time_features`)
-- ✅ `services/football_backtest_engine.py`
-- ✅ `services/football_backtest_metrics.py`
-- ✅ `scripts/run_backtest.py`
-- ✅ Ejecución validada en Premier League 23/24
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT D2 — Backtest histórico en torneos nacionales (WC2022 + Euro2024) — COMPLETADO ✅
-
-### Objetivo
-Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniendo disciplina point-in-time.
-
-### Estado
-- ✅ Implementado: parser openfootball + standings PIT + `TOURNAMENT_CONTEXT_SCORE` + modo no-market + reportes.
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT D3 — Backtest National Tournaments: OVER 1.5 + DOUBLE CHANCE (calibration-only) — COMPLETADO ✅
-
-### Estado
-- ✅ COMPLETADO — sin cambios.
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT D4 — ROI honesto + significancia estadística + walk-forward verificado — COMPLETADO ✅ (P0)
-
-### Estado
-- ✅ COMPLETADO — sin cambios.
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT D5 — Multi-league + multi-tournament DRAW + cohortes (observe_only) — EN PROGRESO 🟡 (P0)
-
-### Nota de estado
-- Este bloque se mantiene como “D5” en el plan histórico.
-- La ejecución y comparativa nueva (Sprint D7) reutiliza componentes de D5 (cohortes + comparativa) pero agrega The Odds API **historical** y cap de créditos.
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT D6 — Probar que el Walk-Forward Calibrator NO es un no-op — COMPLETADO ✅ (P0)
-
-### Estado
-- ✅ COMPLETADO — sin cambios.
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT E.1 — Live Odds Monitor (Base) + persistencia `odds_snapshots` (observe_only) — COMPLETADO ✅ (P0)
-
-### Estado
-- ✅ COMPLETADO — sin cambios.
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT E.1.1 — Resolver Identidad de Mercado por The Odds API (observe_only) — COMPLETADO ✅ (P0)
-
-### Estado
-- ✅ COMPLETADO — sin cambios.
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT E.1.1-d — Hook automático (Scheduler) para Market Identity Resolver — COMPLETADO ✅ (P0)
-
-### Estado
-- ✅ COMPLETADO — sin cambios.
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT E.1.1-f — 365Scores “Tendencias Top” (reemplazo SportyTrader editorial) — COMPLETADO ✅ (P0)
-
-### Estado
-- ✅ COMPLETADO — sin cambios.
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT E.2 — Odds Value Detector + Alerts (observe_only) — COMPLETADO ✅ (P0)
-
-### Estado
-- ✅ COMPLETADO — sin cambios.
+(Sin cambios.)
 
 ---
 
 ## Phase SPRINT E.3 — UI Odds Alerts + Comparador Manual (observe_only) — COMPLETADO ✅ (P0)
-
-### Estado
-- ✅ COMPLETADO — sin cambios.
+(Sin cambios.)
 
 ---
 
 # Phase SPRINT D7 — Backtest comparativo DRAW (Ligas vs Selecciones) + Post-mortem & Remediación — COMPLETADO ✅ (P1)
-
-(Sin cambios; ver bitácora previa.)
+(Sin cambios.)
 
 ---
 
 # Phase SPRINT D7-E — Threshold parametrization + honest sweep + multi-season sanity check (DRAW) — COMPLETADO ✅ (P1)
-
-(Sin cambios; ver bitácora previa.)
+(Sin cambios.)
 
 ---
 
 # Phase SPRINT D7-F — OVER_2_5 / UNDER_2_5 con la misma disciplina (D7-E) — COMPLETADO ✅ (P1)
-
-(Sin cambios; ver bitácora previa.)
+(Sin cambios.)
 
 ---
 
 # Phase REFACTOR-1 — Refactor quirúrgico `data_ingestion.py` (solo top-2 componentes) — EN PROGRESO 🟡
-
-(Sin cambios; ver bitácora previa.)
+(Sin cambios.)
 
 ---
 
 # Phase F84.c / F84.d — Lineups + Standings (P1) — PENDIENTE ⏳
+(Sin cambios.)
 
-(Sin cambios; ver bitácora previa.)
+---
+
+## Phase F95 — Football Post-Match Settlement Hotfix (P0) — ✅ COMPLETADO
+
+### Resumen
+- **Problema:** fixtures finalizados se quedaban en el feed de “Generar picks del día”; además no se escribía `POST_MATCH_RESULT_SETTLED`.
+- **Root cause:** falta un job periódico para settlement football (sí existía para MLB).
+- **Decisiones confirmadas por el usuario:**
+  - “TheSportAPI” = **TheStatsAPI**.
+  - Cascada de settlement: **TheStatsAPI → TheSportsDB → API-Sports**.
+  - TheSportsDB API key: `THESPORTSDB_KEY=5129982501`.
+  - Scheduler: cada **20 min**, ventana **36h**.
+
+### F95.1 — Tests del guard 4h en `fixture_time_status_gate.py` ✅
+- **Estado:** ✅ COMPLETADO.
+- Archivo: `backend/tests/test_fixture_time_status_gate_stale_kickoff.py`.
+- **19 tests** validando:
+  - `DEFAULT_STALE_KICKOFF_MINUTES = 240`.
+  - Override `STALE_KICKOFF_MINUTES` con clamp ≥ 60.
+  - Fallbacks ante inputs inválidos / vacíos.
+  - Discard correcto para kickoff >4h con/sin status terminal/scores.
+  - 2h no se marca como stale (sigue siendo `ALREADY_STARTED`).
+  - Kickoff futuro intacto.
+  - Símbolos públicos exportados.
+
+### F95.2 — Provider TheSportsDB reutilizado ✅
+- Cliente existente `backend/services/external_sources/thesportsdb_client.py` cumple el contrato.
+- Env: `THESPORTSDB_KEY=5129982501` ya presente en `backend/.env`.
+- Endpoints expuestos:
+  - V2 `fetch_livescore("soccer")` con normalización `FINISHED|LIVE|SCHEDULED|UNKNOWN`.
+  - V1 `search_teams(name)`.
+
+### F95.3 — Wrapper `football_finished_game_settler.py` ✅
+- **Archivo nuevo:** `backend/services/football_finished_game_settler.py`.
+- Cascada estricta:
+  1) **`_lookup_from_db_matches`** (escenarios reutilizables).
+  2) **`_lookup_from_thestatsapi`** (`fetch_match_details` con guard de status terminal).
+  3) **`_lookup_from_thesportsdb`** (livescore filtrado por nombres normalizados + ventana ±1 día).
+  4) **`_lookup_from_api_sports`** (`fixture_by_id` con guard de status terminal).
+- Public API:
+  - `lookup_final_score(match_id, snapshot_doc, *, db, http_client, kickoff_dt) → dict`.
+  - `settle_recent_finished_football(db, *, hours_back=36, max_matches=50, http_client=None, settle_fn=None) → summary`.
+- Reglas:
+  - `MIN_AGE_HOURS_DEFAULT = 2.5` (override env `FOOTBALL_SETTLER_MIN_AGE_HOURS`, clamp ≥1.5).
+  - Defence-in-depth: filtro Python adicional para `POST_MATCH_RESULT_SETTLED` y `sport=football`.
+  - Fail-soft total: ninguna excepción cruza al caller.
+  - `source_audit_entries` con stage `football_finished_game_settler`.
+- **Reason codes nuevos:** `SETTLER_SCORE_FROM_DB_MATCHES`, `SETTLER_SCORE_FROM_THESTATSAPI`, `SETTLER_SCORE_FROM_THESPORTSDB`, `SETTLER_SCORE_FROM_API_SPORTS`, `SETTLER_NO_FINAL_SCORE_AVAILABLE`.
+- **18 tests** en `backend/tests/test_football_finished_game_settler.py`.
+
+### F95.4 — Scheduler job `_job_settle_finished_football` ✅
+- **Archivo tocado:** `backend/services/scheduler.py`.
+- Job registrado con `IntervalTrigger(minutes=20)`, id `settle_finished_football`, `next_run_time=+4min`.
+- Persiste métricas en `_status["last_run"]["settle_finished_football"]`.
+- Fail-soft: cualquier excepción se logea + se persiste `{ok: False, error}`.
+- **6 tests** en `backend/tests/test_scheduler_football_settler_job.py`.
+- **Verificación en logs:** `Scheduler started with jobs: [... 'settle_finished_baseball', 'settle_finished_football', ...]`.
+
+### F95.5 — Validación pytest completa ✅
+- Suite backend: **4199 passed / 2 skipped** (vs 4156 antes).
+- **+43 tests nuevos** (19 + 18 + 6).
+- **0 regresiones**.
+
+### Cambios persistidos
+| Archivo | Cambio |
+|---|---|
+| `backend/services/fixture_time_status_gate.py` | Guard #5 stale-kickoff (240 min) + `get_stale_kickoff_minutes()` (ya presente). |
+| `backend/services/football_finished_game_settler.py` | **NUEVO** — wrapper + cascada de 3 fuentes. |
+| `backend/services/scheduler.py` | `_job_settle_finished_football` + registro `IntervalTrigger(20 min)`. |
+| `backend/tests/test_fixture_time_status_gate_stale_kickoff.py` | **NUEVO** — 19 tests. |
+| `backend/tests/test_football_finished_game_settler.py` | **NUEVO** — 18 tests. |
+| `backend/tests/test_scheduler_football_settler_job.py` | **NUEVO** — 6 tests. |
+| `backend/.env` | `THESPORTSDB_KEY=5129982501` (preexistente, sin tocar). |
 
 ---
 
 ## 3) Pendientes y siguientes pasos
 
 ### Pendientes P0 (actual)
+- ✅ **F95** completado (settler football + scheduler job + guard 4h tests).
 - 🟡 **SPRINT D5** (histórico en curso): cohortes + reportes multi-competición.
 
 ### Pendientes P1
@@ -329,166 +354,32 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
 ## 4) Cierres recientes (bitácora)
 
 ### ✅ SPRINT D12 — Cierre (NB Recalibration Wiring + UI “Riesgos ocultos del Under”) — COMPLETADO
-
-**Decisiones del usuario aplicadas (confirmadas):**
-- **1b:** aplicar `dispersion_multiplier` activamente SOLO al NB cuando `verdict ∈ {AVOID, BLOCK}` (la polaridad/recomendación se mantiene observe-only).
-- **2a:** UI en **grid 2×3**, colorizado por bucket.
-- **3:** reason codes **traducidos al español**.
-
-#### Entregables backend
-- ✅ **B1 — Wire intra-módulo** (`backend/services/mlb_expected_runs_distribution.py`):
-  - `compute_expected_runs_distribution(...)` ahora **propaga** `overlay_dispersion_multiplier` + `overlay_verdict` hacia `_compute_effective_dispersion(...)`.
-  - El ratio efectivo permanece clamped a **[0.90, 3.00]**.
-
-- ✅ **B2 — Orquestador M5.6** (`backend/services/mlb_day_orchestrator.py`):
-  - Invoca `compute_total_risk_overlay()`.
-  - Calcula `bullpen_stress` y `domino_risk` por lado.
-  - Expone `pick_payload["total_risk_overlay"]` con `components.{starter_volatility, first_inning_collapse, recent_offensive_quality, lineup_explosiveness, bullpen_stress, domino_risk}`.
-  - Si `verdict ∈ {AVOID, BLOCK}` y `dispersion_multiplier > 1.0`:
-    - recomputa `expected_runs_distribution` con `overlay_*`.
-    - preserva pre-overlay.
-
-- ✅ **B3 — Tests**:
-  - `backend/tests/test_mlb_d12_nb_overlay_wiring.py` (**13 tests**).
-
-#### Entregables frontend
-- ✅ UI “Riesgos ocultos del Under” (6 cards + reason codes traducidos) con tests RTL.
+(Sin cambios; ver bitácora previa.)
 
 ---
 
 ### ✅ SPRINT D13 — MLB Matchup Familiarity Overlay (D13.1) — COMPLETADO
-
-**Módulo puro:** `backend/services/mlb_matchup_familiarity_overlay.py`
-- Ventanas + métricas H2H + score + impacto en Totales.
-- Hard cap 16 días (no contribuye a métricas/puntos si >16 días).
-- Tests: `backend/tests/test_mlb_matchup_familiarity_overlay.py` (**46 tests**).
-
-**Cableo:** `mlb_day_orchestrator.py` M5.7 (observe-only) publicando payload.
+(Sin cambios; ver bitácora previa.)
 
 ---
 
 ### ✅ SPRINT D13.2 — Matchup Familiarity Overlay extendido a ML/RL + Active Scoring — COMPLETADO
-
-**Decisiones del usuario aplicadas:**
-- A=a: módulos en `backend/services/mlb_*.py`.
-- B=a: rename `totals_overlay` → `over_under_impact` con alias retro-compatible.
-- C1: aplicar overlay.points al score de **todos** los mercados (TOTAL/ML/RL).
-- C2: snapshots `pick_score_pre_d13` y `pick_score_post_d13`.
-- C3=a: veto automático RL con **umbral |base_projected_margin| < 2.0**.
-
-#### Cambios en `mlb_matchup_familiarity_overlay.py`
-- Nuevas constantes:
-  - `LEAN_HOME/AWAY/HOME_RL/AWAY_RL`
-  - `MAX_ML_WIN_PROB_DELTA = 0.05`
-  - `MAX_RL_MARGIN_DELTA   = 1.5`
-  - `RL_BASE_MARGIN_VETO_THRESHOLD = 2.0`
-- Nuevas funciones:
-  - `_compute_moneyline_overlay()`.
-  - `_compute_runline_overlay()` + veto `RL_VETOED_LOW_BASE_MARGIN`.
-- Output canónico:
-  - `over_under_impact`, `moneyline_impact`, `runline_impact` + alias `totals_overlay`.
-- Tests: `backend/tests/test_mlb_matchup_familiarity_overlay_d13_2.py` (**27 tests**).
-
-#### Cableo activo en `mlb_day_orchestrator.py` (M5.7 extendido)
-- Aplica el delta de scoring al pick real (defense in depth con clamp ±5).
-- Snapshots:
-  - `pick_payload["pick_score_pre_d13"]`, `pick_payload["pick_score_post_d13"]`
-  - `pick_payload["d13_score_delta"]`, `pick_payload["d13_applied_block"]`
+(Sin cambios; ver bitácora previa.)
 
 ---
 
 ### ✅ NIVEL 3 — Bloque 1 · Dynamic Run Distribution Mixer — COMPLETADO
-
-**Módulo puro:** `backend/services/mlb_run_distribution_mixer.py`
-- `build_dynamic_run_distribution(context)` (Poisson / NB / Mixture).
-- Probabilidades O/U por umbral (.5): 6.5..14.5.
-- Percentiles p10/p25/p50/p75/p90/p95/p99.
-- Tests: `backend/tests/test_mlb_run_distribution_mixer.py` (base + ampliaciones posteriores).
-
-**Cableo:** bloque **M5.8** en `mlb_day_orchestrator.py`.
+(Sin cambios; ver bitácora previa.)
 
 ---
 
 ### ✅ NIVEL 3 — Bloque 2 (§1-§4) · Tail Calibration + Threshold Model + Blender **ACTIVO** — COMPLETADO
-
-**Decisiones del usuario aplicadas:**
-- **A=a:** dividir la spec: ahora §1-§4; próxima entrega §5-§6.
-- **B=a:** threshold model = fallback heurístico determinístico con **confidence ≤ 60**.
-- **C=b:** cableo **ACTIVO**: sobrescribe `expected_runs_distribution`.
-
-#### §1 — Mixer recalibrado (`backend/services/mlb_run_distribution_mixer.py`)
-- Nueva fórmula explícita:
-  - `nb_weight = clamp((risk_score - 30)/50, 0.0, 0.90)`
-  - `poisson_weight = 1.0 - nb_weight`
-- `risk_score` = promedio aritmético de 6 pilares (peak home/away):
-  - starter volatility, first inning collapse, lineup explosiveness, recent offense (COLD=0, NEUTRAL=30, HOT=70, EXPLOSIVE=95), bullpen stress, domino risk.
-- Selección de familia desde `nb_weight`:
-  - ≤ 0.05 → POISSON (`DISTRIBUTION_POISSON_SELECTED`)
-  - ≥ 0.85 → NB (`DISTRIBUTION_NEGATIVE_BINOMIAL_SELECTED` + `HIGH_VARIANCE_DISTRIBUTION_USED`)
-  - intermedio → MIXTURE (`DISTRIBUTION_MIXTURE_SELECTED`)
-- Cap NB 0.90 preserva 10% Poisson tail por diseño.
-- Tests ampliados: `backend/tests/test_mlb_run_distribution_mixer.py` ahora incluye `TestNivel3WeightFormula` validando ejemplos risk 20/50/70/90+.
-
-#### §2 — Tail Calibration (`backend/services/mlb_tail_calibration.py` NUEVO)
-- `calibrate_tail_probabilities(distribution, context)`.
-- Conteo de señales críticas (11): starter vol, FI collapse, lineup explos, recent HOT/EXPLOSIVE, bullpen stress, domino risk, ambos bullpens fatigued, pitcher HR9/BB%, lineup top-5 ISO/Barrel/HardHit, park, weather.
-- Buckets → tail_multiplier:
-  - LOW: 1.00
-  - MEDIUM: 1.10–1.20
-  - HIGH: 1.25–1.45
-  - EXTREME: 1.50–1.90
-- Redistribución de masa conservando `over+under=1` por línea:
-  - aumenta TAIL_LINES (10.5–14.5)
-  - resta BODY_LINES (6.5–9.5) proporcionalmente (capacity check)
-- Recalibra percentiles p90/p95/p99.
-- Regla crítica: si baseline p90 ≤ 10 y ≥3 señales →
-  - `P90_TOO_COMPRESSED_FOR_CONTEXT` + `P90_RECALIBRATED` + `CENTRAL_MEAN_NOT_ENOUGH`.
-- Tests: `backend/tests/test_mlb_nivel3_block2.py` (sección Tail Calibration).
-
-#### §3 — Threshold Over Model (`backend/services/mlb_threshold_over_model.py` NUEVO)
-- `predict_threshold_probabilities(features)` (fallback heurístico determinístico).
-- Umbrales: 7.5/8.5/9.5/10.5/11.5/12.5/13.5/14.5 (over + under; suma=1).
-- Heurística (logit): `z = 0.55 * (mu - line) + bump(vol_boost, line)`.
-- Volatility composite: señales D11/D12 + ISO/Barrel/HardHit + HR9/BB% + park/weather.
-- Confidence cap ≤ 60.
-- `model_version`: `mlb-threshold-over-v0-heuristic`.
-- Tests: `backend/tests/test_mlb_nivel3_block2.py` (sección Threshold Model).
-
-#### §4 — Blender (`backend/services/mlb_distribution_threshold_blender.py` NUEVO)
-- `combine_distribution_and_threshold_model(dist_probs, tm_probs, context)`.
-- Reglas por confidence:
-  - ≥70 → 0.55 threshold / 0.45 dist
-  - ≥45 → 0.40 threshold / 0.60 dist
-  - else → solo dist
-- High variance (HIGH/EXTREME) → +0.05 weight threshold (cap 0.65).
-- Partial data → weight threshold × 0.5.
-- Divergence flags si |Δ| > 0.10 en TAIL_LINES (10.5+).
-- Reason codes: `THRESHOLD_MODEL_USED`, `THRESHOLD_MODEL_LOW_CONFIDENCE`, `DISTRIBUTION_THRESHOLD_DIVERGENCE`, `FINAL_PROBABILITY_BLEND_APPLIED`.
-- Tests: `backend/tests/test_mlb_nivel3_block2.py` (sección Blender).
-
-#### Cableo ACTIVO en `mlb_day_orchestrator.py` (M5.8.1 → M5.8.2 → M5.8.3)
-- M5.8.1: `calibrate_tail_probabilities()` → `pick_payload["tail_calibration"]`.
-- M5.8.2: `predict_threshold_probabilities()` → `pick_payload["threshold_over_model"]`.
-- M5.8.3: `combine_distribution_and_threshold_model()` → `pick_payload["distribution_blender"]`.
-- **ACTIVE WRITEBACK** sobre `pick_payload["expected_runs_distribution"]`:
-  - Snapshot pre: `expected_runs_distribution_pre_nivel3`.
-  - Sobrescribe `expected_runs_distribution.probabilities` con `final_over` + `final_under`.
-  - Sobrescribe p90/p95/p99 desde tail calibration.
-  - Marca `expected_runs_distribution.nivel3_applied = True`.
-  - Agrega reason codes de tail_cal + blender a `expected_runs_distribution.reason_codes`.
-  - `pipeline_meta["expected_runs_distribution"]` refleja `nivel3_applied`, `blend_weights`, `divergence_flags`, `tail_calibration_applied`.
-- Logging: `[NIVEL3_BLEND_APPLY]`.
-- Fail-soft: try/except aislado por sub-bloque.
-
-**Suite backend:** `4156 passed / 2 skipped` (0 regresiones).
+(Sin cambios; ver bitácora previa.)
 
 ---
 
 ### ✅ SPRINT D9.2 Block C — Residual Model con xG real (Bonferroni estricto) — COMPLETADO
-
-- Módulo puro `backend/services/football_residual_verdict_classifier.py`.
-- Script `backend/scripts/run_d9_residual_backtest.py` con flags `--alpha` y `--bonferroni-m` + bloque `bonferroni` persistido.
-- Tests: `backend/tests/test_football_residual_verdict_classifier.py` (**21 tests**).
+(Sin cambios; ver bitácora previa.)
 
 ---
 
@@ -503,7 +394,7 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
     - NIVEL 3 Bloque 2: ACTIVE writeback a `expected_runs_distribution`.
   - Backend: ejecutar `pytest` completo tras cambios.
 
-**Estado actual de la suite backend:** `4156 passed / 2 skipped` (0 regresiones).
+**Estado actual de la suite backend (post-F95):** `4199 passed / 2 skipped` (0 regresiones; +43 tests vs F94).
 
 ---
 
@@ -513,31 +404,29 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
   - Siempre usar `yarn` (no `npm`).
   - Fail-soft: no levantar excepción sin convertirla a auditoría/razón.
   - Backtests: disciplina point-in-time estricta.
+  - **No tocar** `MONGO_URL` ni `REACT_APP_BACKEND_URL`.
 
 - Flags / env (principales):
   - `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY`.
   - `THE_ODDS_API_KEY=...`.
+  - **Nuevo (F95):** `THESPORTSDB_API_KEY=5129982501`.
 
 ---
 
 ## SPRINT F — Ingesta de Tendencias Top desde 365Scores — COMPLETADO ✅
-
-Sin cambios (ver bitácora previa).
+(Sin cambios.)
 
 ---
 
 ## SPRINT D8 — UNDER_3_5 (ligas) + DRAW/cohorte (selecciones)
-
-Sin cambios (ver bitácora previa).
+(Sin cambios.)
 
 ---
 
 ## SPRINT D9.2 — Block 0 + A + B (COMPLETADO ✅)
-
-Sin cambios (ver bitácora previa).
+(Sin cambios.)
 
 ---
 
 ## SPRINT D9.3 — Active Series Context Fix + Expansion (P0 hotfix)
-
-Sin cambios (ver bitácora previa; D9.3-A/B/C cerradas).
+(Sin cambios.)

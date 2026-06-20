@@ -1,26 +1,22 @@
 [
   {
-    "content": "Verificar que h2h_source fix exista en preview (UnboundLocalError) — confirmado, requiere redeploy a prod",
+    "content": "F95.1 — Crear tests unitarios para guard 4h (STALE_KICKOFF_MINUTES) en fixture_time_status_gate.py",
     "status": "completed"
   },
   {
-    "content": "Robustecer fixture_time_status_gate: agregar guard 'kickoff_ts > 4h en el pasado' → RC_ALREADY_FINISHED",
-    "status": "in_progress"
+    "content": "F95.2 — Provider TheSportsDB existente reutilizado (key ya en .env como THESPORTSDB_KEY=5129982501); el cliente expone fetch_livescore('soccer') y search_teams()",
+    "status": "completed"
   },
   {
-    "content": "Tests del nuevo guard de la gate",
-    "status": "pending"
+    "content": "F95.3 — Crear wrapper football_finished_game_settler.py con cascada TheStatsAPI → TheSportsDB → API-Sports + tests (18 tests passing)",
+    "status": "completed"
   },
   {
-    "content": "Crear scheduler job _job_settle_finished_football que invoque settle_post_match para partidos terminados",
-    "status": "pending"
+    "content": "F95.4 — _job_settle_finished_football(db) cada 20 min en backend/services/scheduler.py + 6 tests passing",
+    "status": "completed"
   },
   {
-    "content": "Test del nuevo job (smoke + integration)",
-    "status": "pending"
-  },
-  {
-    "content": "Validación final: pytest backend completo 0 regresiones",
-    "status": "pending"
+    "content": "F95.5 — Suite completa pytest: 4199 passed / 2 skipped (vs 4156 antes). 0 regresiones. +43 tests nuevos.",
+    "status": "completed"
   }
 ]
