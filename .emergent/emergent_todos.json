@@ -1,42 +1,42 @@
 [
   {
-    "content": "PASO 0: Cerrar OVER_3_5/UNDER_3_5 con veredicto MARKET_DATA_UNAVAILABLE_FOR_3_5 (reusa AUC model-only)",
+    "content": "Verificar URLs openfootball + estructura JSON (wc2022, euro2024) + descargar Copa América 2024",
     "status": "completed"
   },
   {
-    "content": "PASO 1.A: Crear módulo football_corners_diagnostic.py (instrumenta fetch_game_detail + fetch_game_stats)",
+    "content": "Agregar verify_sport_keys_available() al cliente (endpoint FREE /v4/sports)",
     "status": "completed"
   },
   {
-    "content": "PASO 1.B: Script CLI + identificar EPL 24/25 finished game con córners conocidos",
+    "content": "Obtener FIFA ranking points (descarga estática) + fallback documentado a implied-prob gap",
     "status": "completed"
   },
   {
-    "content": "PASO 1.C: Test diagnóstico con fixture mockeado",
+    "content": "Construir services/football_selecciones_ingestor.py (odds + ground truth + features prematch)",
     "status": "completed"
   },
   {
-    "content": "PASO 2.A: Módulo puro football_cards_potential.py (Poisson, pesos fijos, fail-soft)",
+    "content": "Construir scripts/run_selecciones_draw_backtest.py con dry-run preflight + tope MAX_CREDITS=2500",
     "status": "completed"
   },
   {
-    "content": "PASO 2.B: Ingestor football_cards_ingestor.py (PIT estricto: referee_cards_avg solo partidos < D)",
+    "content": "Tests (credit_cap, prematch_timestamp, settlement_openfootball, cohort_prematch_only, n<30, unavailable_key, h2h_draw_outcome)",
     "status": "completed"
   },
   {
-    "content": "PASO 2.C: Script POC con ~150 Premier últimos 4 meses + ablación con/sin árbitro",
-    "status": "completed"
+    "content": "Ejecutar backtest contra The Odds API real con tope 2500 créditos (si key disponible)",
+    "status": "in_progress"
   },
   {
-    "content": "PASO 2.D: Tests (in_range, monotonic, PIT no-leakage, low-sample fallback, ablation, diagnostic layer)",
-    "status": "completed"
+    "content": "Reusar diagnósticos cacheados de ligas para cross-tab DOMINANT_FAVORITE",
+    "status": "pending"
   },
   {
-    "content": "Validación: pytest completo (esperando 4348+ tests, 0 regresiones)",
-    "status": "completed"
+    "content": "Validación pytest completo (4395+ tests, 0 regresiones)",
+    "status": "pending"
   },
   {
-    "content": "Actualizar plan.md con Sprint-D8/E completado + reportar resultados",
-    "status": "completed"
+    "content": "Actualizar plan.md + reportar veredicto Bonferroni final",
+    "status": "pending"
   }
 ]

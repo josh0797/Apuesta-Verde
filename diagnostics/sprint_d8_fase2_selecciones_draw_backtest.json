@@ -1,0 +1,80 @@
+{
+  "_meta": {
+    "sprint": "D8-FASE2",
+    "started_at_utc": "2026-06-20T19:41:52.903520+00:00",
+    "max_credits": 2500,
+    "dry_run_only": false,
+    "has_api_key": true,
+    "abort_reason": "no records built \u2014 see per_tournament reason_codes"
+  },
+  "preflight": {
+    "dry_run": {
+      "per_tournament": [
+        {
+          "name": "wc2022",
+          "openfootball_n": 64,
+          "est_credits_floor": 641,
+          "est_credits_ceiling": 704
+        },
+        {
+          "name": "euro2024",
+          "openfootball_n": 51,
+          "est_credits_floor": 511,
+          "est_credits_ceiling": 561
+        },
+        {
+          "name": "copa_america_2024",
+          "openfootball_n": 32,
+          "est_credits_floor": 321,
+          "est_credits_ceiling": 352
+        }
+      ],
+      "total_estimate_floor": 1473,
+      "total_estimate_ceiling": 1617
+    },
+    "sport_keys_verification": {
+      "available": true,
+      "reason_code": "OK",
+      "valid_keys": [
+        "soccer_fifa_world_cup",
+        "soccer_uefa_european_championship",
+        "soccer_conmebol_copa_america"
+      ],
+      "missing_keys": [],
+      "raw_count": 169
+    }
+  },
+  "ingestion": {
+    "per_tournament": [
+      {
+        "name": "wc2022",
+        "credits_used": 2506,
+        "n_matches_in_odds_run": 250,
+        "n_matches_resolved": 250,
+        "n_records_built": 0,
+        "aborted": true,
+        "reason_codes": [
+          "MAX_CREDITS_REACHED",
+          "MAX_CREDITS_REACHED"
+        ]
+      },
+      {
+        "name": "euro2024",
+        "skipped": true,
+        "reason": "INSUFFICIENT_CREDITS_REMAINING"
+      },
+      {
+        "name": "copa_america_2024",
+        "skipped": true,
+        "reason": "INSUFFICIENT_CREDITS_REMAINING"
+      }
+    ],
+    "credits_used_total": 2506,
+    "credits_remaining": -6,
+    "n_records_total": 0
+  },
+  "diagnostics": {},
+  "cohorts": {},
+  "cross_tab": {},
+  "verdict": {}
+}

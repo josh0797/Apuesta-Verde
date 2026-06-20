@@ -216,6 +216,12 @@ async def fetch_tournament_pit_odds(
     tracker = CreditTracker(max_credits=max_credits)
     out_events: list[dict] = []
     reasons: list[str] = []
+    # The historical /events?date= endpoint returns ALL events available
+    # at the given snapshot timestamp — not just events that kick off
+    # on that day. As we sweep daily snapshots the same event_id appears
+    # multiple times. We must dedup BEFORE issuing the 10-credit /odds
+    # call to avoid burning credits on duplicates.
+    seen_event_ids: set[str] = set()
     for date_iso in dates_iso:
         if tracker.must_abort():
             tracker.aborted = True
@@ -237,10 +243,23 @@ async def fetch_tournament_pit_odds(
                 tracker.aborted = True
                 reasons.append(RC_CREDITS_EXHAUSTED)
                 break
+            ev_id = ev.get("id")
+            if ev_id is not None and ev_id in seen_event_ids:
+                continue
+            if ev_id is not None:
+                seen_event_ids.add(ev_id)
             commence = ev.get("commence_time")
+            # Skip events whose kickoff is NOT on the requested date —
+            # this dramatically reduces overlap while keeping PIT
+            # discipline (we still query odds at commence-3h, not at
+            # the listing's date).
+            commence_day = commence[:10] if commence else None
+            listing_day = date_iso[:10]
+            if commence_day and commence_day != listing_day:
+                continue
             snap = _t_minus_3h_iso(commence) or date_iso
             odds_res = await fetch_event_odds_pit(
-                sport_key=sport_key, event_id=ev.get("id"),
+                sport_key=sport_key, event_id=ev_id,
                 snapshot_iso=snap, tracker=tracker,
                 regions=regions, markets=markets,
                 api_key=api_key, http=http,
@@ -274,6 +293,76 @@ async def fetch_tournament_pit_odds(
     }
 
 
+async def verify_sport_keys_available(
+    sport_keys: Iterable[str],
+    *,
+    api_key: Optional[str] = None,
+    http: Optional[Callable[..., Awaitable[dict]]] = None,
+) -> dict:
+    """Verify which ``sport_keys`` exist in The Odds API catalog.
+
+    Uses ``GET /v4/sports?all=true`` which is **FREE** (does not consume
+    historical credits — the request is metered against the regular
+    monthly quota but not against the historical purse).
+
+    Returns:
+      ``{"available": bool, "valid_keys": [...], "missing_keys": [...],
+         "reason_code": "...", "raw_count": int}``
+    """
+    api_key = api_key or _api_key()
+    if not api_key:
+        return {"available": False, "reason_code": RC_TOKEN_MISSING,
+                "valid_keys": [], "missing_keys": list(sport_keys),
+                "raw_count": 0}
+    transport = http or _http_get
+    res = await transport(
+        f"{BASE_URL}/sports",
+        {"apiKey": api_key, "all": "true"},
+    )
+    if not res.get("ok"):
+        return {"available": False,
+                "reason_code": RC_HTTP_ERROR,
+                "valid_keys": [], "missing_keys": list(sport_keys),
+                "raw_count": 0,
+                "status": res.get("status"),
+                "_error": res.get("error")}
+    body = res.get("json") or []
+    # /v4/sports returns a flat list of {key, group, title, ...}.
+    catalog = {item.get("key") for item in body if isinstance(item, dict)}
+    keys = list(sport_keys)
+    valid   = [k for k in keys if k in catalog]
+    missing = [k for k in keys if k not in catalog]
+    return {
+        "available":   bool(valid),
+        "reason_code": RC_OK if valid else RC_UNAVAILABLE,
+        "valid_keys":  valid,
+        "missing_keys": missing,
+        "raw_count":   len(catalog),
+    }
+
+
+def estimate_credit_cost(*, n_matches: int) -> dict:
+    """Estimate the worst-case credit cost for fetching point-in-time
+    odds for ``n_matches`` events.
+
+    Pricing (per The Odds API documentation):
+      * 1 credit per ``/historical/sports/{key}/events?date=...`` call
+      * 10 credits per ``/historical/sports/{key}/events/{id}/odds`` call
+
+    Each unique match-day triggers 1 listing call; each event triggers
+    1 odds call. A safe upper bound assumes every match falls on its
+    own day (worst case): ``n_matches × 11``.
+
+    Returns ``{n_matches, est_credits_floor, est_credits_ceiling}``.
+    """
+    n = max(0, int(n_matches))
+    return {
+        "n_matches":            n,
+        "est_credits_floor":    n * 10 + 1,   # all matches on same day
+        "est_credits_ceiling":  n * 11,        # each match on its own day
+    }
+
+
 __all__ = [
     "DEFAULT_MAX_CREDITS", "BASE_URL",
     "RC_TOKEN_MISSING", "RC_CREDITS_EXHAUSTED", "RC_HTTP_ERROR",
@@ -281,4 +370,5 @@ __all__ = [
     "CreditTracker", "_parse_used", "_t_minus_3h_iso",
     "fetch_events_for_date", "fetch_event_odds_pit",
     "fetch_tournament_pit_odds",
+    "verify_sport_keys_available", "estimate_credit_cost",
 ]
