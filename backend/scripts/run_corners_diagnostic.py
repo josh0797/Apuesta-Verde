@@ -29,6 +29,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# Load backend/.env so SCRAPEDO_TOKEN/THESPORTSDB_KEY/etc. are visible.
+_env_path = Path(__file__).resolve().parents[1] / ".env"
+if _env_path.exists():
+    for _line in _env_path.read_text().splitlines():
+        _line = _line.strip()
+        if not _line or _line.startswith("#") or "=" not in _line:
+            continue
+        _k, _, _v = _line.partition("=")
+        import os as _os
+        _os.environ.setdefault(_k.strip(),
+                                _v.strip().strip('"').strip("'"))
+
 from services.external_sources.score365_client import (              # noqa: E402
     fetch_game_stats, normalize_365scores_match_stats,
     resolve_game_id_by_date_and_names,

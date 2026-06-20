@@ -352,6 +352,77 @@
 
 ---
 
+## Phase Sprint-D8/E-LIVE — Corners diagnostic real + Cards Fase 1 AUC ablation real (P1) — ✅ COMPLETADO
+
+Ejecución en vivo de los dos pendientes del Sprint-D8/E ahora que scrape.do está habilitado y los datos de Premier están disponibles.
+
+### PASO 1 (LIVE) · Corners diagnostic — VEREDICTO REAL: `PARSER_FAILURE`
+Corrida contra **Manchester United vs Fulham (2024-08-16, EPL 24/25)**, game_id 365Scores = **4147020** (resuelto manualmente; el resolver por nombre+fecha tuvo timeout en la 3ª llamada de scan, no crítico).
+
+**Veredicto por capa**:
+| Capa | Detail (`/web/game/`) | Stats (`/web/game/stats/`) |
+|---|---|---|
+| Transport | ✅ OK (133 KB, 2.3 s) | ❌ **TIMEOUT 35 s** |
+| Endpoint (alias córner) | ⚠️ 1 match (chartEvents.eventSubTypes — etiqueta, no estadística) | — (sin payload) |
+| Parser | ❌ `available=false`, `total_corners=null` | — |
+
+**Diagnóstico fino**:
+- El endpoint `/web/game/?gameId=` SÍ responde rápido, pero **no contiene** el bloque `statistics[]` con córners/posesión/etc. — solo eventos discretos (cards, goals, subs), referee, lineups.
+- El endpoint `/web/game/stats/?gameId=` (que históricamente traía las stats agregadas) está **bloqueado o deprecado** — timeout consistente a 35 s.
+- Bonus que SÍ se puede extraer del `/game/?`: **referee** (`officials[0].name`) y **tarjetas** (`events[*].eventType.id == 2 → Yellow`, `id == 3 → Red`) por equipo (vía `competitorId`).
+
+**Acción para producción** (no incluida en este sprint; lista para próximo):
+1. Investigar si 365Scores cambió el path de stats (probar `/web/games/stats/`, `/web/game-stats/`, o un parámetro adicional como `&includeStatistics=true` en `/web/game/`).
+2. Mientras tanto, ajustar `normalize_365scores_match_stats` para que LEA del `events[]` cuando solo el detail está disponible (cards parciales).
+3. Como alternativa para córners: completar la cascada con TheStatsAPI / TheSportsDB / football-data.co.uk (que sí tiene HC/AC).
+
+---
+
+### PASO 2 (LIVE) · Cards Fase 1 AUC ablation real — VEREDICTO: `AUC_MARGINAL`
+**Decisión clave (ahorro de créditos)**: en lugar de scrape.do en 150 partidos × 365Scores (~270 créditos), descubrí que **football-data.co.uk E0_2425.csv ya tiene TODOS los campos requeridos GRATIS**:
+- `Referee`, `HF/AF` (fouls), `HY/AY` (yellows), `HR/AR` (reds) — 380 partidos EPL 24/25 completos.
+
+**Dataset construido**: 380 partidos (24/25 entero); evaluación enfocada en los últimos 150 (`2025-02-01 → 2025-05-25`); 23 árbitros distintos; avg cards/partido = 3.69.
+
+**Tabla AUC ablation por línea (entregable estrella)**:
+| Línea | base_rate | AUC sin árbitro | AUC con árbitro | Δ AUC | ¿Árbitro ayuda? |
+|---|---|---|---|---|---|
+| **3.5** | 0.6053 | 0.5597 | 0.5541 | **−0.0056** | No |
+| **4.5** | 0.4079 | 0.5502 | 0.5637 | **+0.0135** | Sí (marginal) |
+| **5.5** | 0.2526 | 0.5848 | 0.5877 | **+0.0029** | No |
+
+**Verdict tags**: `REFEREE_FACTOR_MIXED_SIGNAL`.
+
+**Categoría por línea** (rubric del usuario):
+- 3.5: AUC=0.55 — `AUC_MARGINAL_INVESTIGATE_BEFORE_PHASE_2`
+- 4.5: AUC=0.56 — `AUC_MARGINAL_INVESTIGATE_BEFORE_PHASE_2`
+- 5.5: AUC=0.59 — `AUC_MARGINAL_INVESTIGATE_BEFORE_PHASE_2`
+
+**Recomendación: NO pasar a Fase 2** (cuotas históricas + CLV).
+Razones:
+1. **Ningún line cruza el umbral 0.60** de "el modelo discrimina claramente; justifica gastar créditos contra el mercado".
+2. **El factor árbitro NO añade señal robusta**: ayuda solo +0.0135 en una línea (4.5), neutral/negativo en las otras dos. La hipótesis "el árbitro es la señal dominante" queda **no confirmada** con esta muestra (n=380).
+3. **Patrón consistente con los demás mercados ya cerrados**:
+   - DRAW ligas: AUC ≈ 0.50 → cerrado.
+   - DRAW selecciones: AUC=0.55, modelo PIERDE al devigged → cerrado.
+   - OVER/UNDER 2.5/3.5: AUC 0.50-0.56 → cerrados.
+   - Cards 3.5/4.5/5.5: AUC 0.55-0.59 → mismo régimen → **CERRAR**.
+
+**Reason codes finales**:
+- `CARDS_MODEL_NO_LINE_CROSSES_0_60_THRESHOLD`
+- `REFEREE_FACTOR_NOT_ROBUST_ACROSS_LINES`
+- `MARKET_TARJETAS_NOT_BEATABLE_WITHOUT_PHASE_2_BUT_NOT_WORTH_PROBE`
+- `RECOMMEND_CLOSE_CARDS_DEFINITIVELY`
+
+### Entregables
+- ✅ `/app/diagnostics/sprint_d8e_corners_diagnostic.json` — veredicto real `PARSER_FAILURE` con audit completo por capa.
+- ✅ `backend/scripts/build_premier_cards_dataset_from_csv.py` — builder gratis desde CSV.
+- ✅ `/app/data/cards_history/premier_last_4_months.json` — 380 partidos EPL 24/25.
+- ✅ `/app/diagnostics/cards_phase1_modelonly.json` — tabla AUC ablation real.
+- ✅ Créditos consumidos: ~5 scrape.do (corners diagnostic) + 0 The Odds API.
+
+---
+
 ## Phase Sprint-D8-Fase2 — DRAW + DOMINANT_FAVORITE en selecciones + Cascada TheSportsDB primaria (P1) — ✅ COMPLETADO
 
 ### Resumen ejecutivo
