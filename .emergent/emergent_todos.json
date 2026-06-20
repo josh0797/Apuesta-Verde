@@ -1,26 +1,26 @@
 [
   {
-    "content": "§1 Recalibrar mixer + tests (39 verdes)",
+    "content": "Verificar que h2h_source fix exista en preview (UnboundLocalError) — confirmado, requiere redeploy a prod",
     "status": "completed"
   },
   {
-    "content": "§2 mlb_tail_calibration.py + tests",
-    "status": "completed"
+    "content": "Robustecer fixture_time_status_gate: agregar guard 'kickoff_ts > 4h en el pasado' → RC_ALREADY_FINISHED",
+    "status": "in_progress"
   },
   {
-    "content": "§3 mlb_threshold_over_model.py + tests",
-    "status": "completed"
+    "content": "Tests del nuevo guard de la gate",
+    "status": "pending"
   },
   {
-    "content": "§4 mlb_distribution_threshold_blender.py + tests",
-    "status": "completed"
+    "content": "Crear scheduler job _job_settle_finished_football que invoque settle_post_match para partidos terminados",
+    "status": "pending"
   },
   {
-    "content": "Cableo ACTIVO en orquestador: aplica tail calibration + blender, sobrescribe expected_runs_distribution",
-    "status": "completed"
+    "content": "Test del nuevo job (smoke + integration)",
+    "status": "pending"
   },
   {
-    "content": "Validación final: pytest backend 4156 passed / 0 regresiones",
-    "status": "completed"
+    "content": "Validación final: pytest backend completo 0 regresiones",
+    "status": "pending"
   }
 ]

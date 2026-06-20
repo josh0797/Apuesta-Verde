@@ -84,6 +84,14 @@ STAGE = "fixture_time_status_gate"
 
 DEFAULT_PREMATCH_BUFFER_MIN = 10
 
+# When the canonical kickoff is more than this many MINUTES in the past
+# AND the document still carries no terminal status / no persisted final
+# score (i.e. the settle job hasn't caught up yet), we conclude the
+# match is effectively finished. Empirically a football match never
+# runs longer than ~3h (90' + ET 30' + PEN 15' + buffers). The default
+# of 240 minutes (4h) is conservative.
+DEFAULT_STALE_KICKOFF_MINUTES = 240
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Env access
@@ -105,6 +113,30 @@ def get_prematch_buffer_minutes() -> int:
                   raw, DEFAULT_PREMATCH_BUFFER_MIN)
         return DEFAULT_PREMATCH_BUFFER_MIN
     return max(0, v)
+
+
+def get_stale_kickoff_minutes() -> int:
+    """Read ``STALE_KICKOFF_MINUTES`` env at call time.
+
+    Used by the kickoff-staleness safety net: if a fixture's canonical
+    kickoff is older than this many minutes AND no terminal status or
+    final score is persisted yet (e.g. the post-match settle job is
+    behind), the gate concludes the match is effectively finished.
+
+    Falls back to :data:`DEFAULT_STALE_KICKOFF_MINUTES` for any invalid
+    / missing value. Values below 60 are clamped to 60 to avoid
+    discarding genuinely in-play matches before extra time / penalties.
+    """
+    raw = os.environ.get("STALE_KICKOFF_MINUTES")
+    if raw is None or not str(raw).strip():
+        return DEFAULT_STALE_KICKOFF_MINUTES
+    try:
+        v = int(str(raw).strip())
+    except (TypeError, ValueError):
+        log.debug("[fixture_gate] STALE_KICKOFF_MINUTES=%r invalid → default %s",
+                  raw, DEFAULT_STALE_KICKOFF_MINUTES)
+        return DEFAULT_STALE_KICKOFF_MINUTES
+    return max(60, v)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -334,6 +366,22 @@ def check_fixture_gate(
 
     if start_dt <= now_dt:
         base["discard_reason"] = RC_ALREADY_STARTED
+        return base
+
+    # 5) Stale-kickoff safety net — defence-in-depth when the post-match
+    # settle job is behind (so a finished match still has its pre-game
+    # status / no final score persisted). If the canonical kickoff is
+    # older than STALE_KICKOFF_MINUTES the fixture cannot be pre-match.
+    # NOTE: this branch is actually unreachable from guard #4 above
+    # (which already catches start_dt <= now_dt), but we keep an
+    # explicit elapsed-minutes check here so future code that bypasses
+    # guard #4 (e.g. relaxed grace windows) still benefits from this
+    # safety net.
+    stale_min = get_stale_kickoff_minutes()
+    elapsed_min = (now_dt - start_dt).total_seconds() / 60.0
+    if elapsed_min >= stale_min:
+        base["discard_reason"] = RC_ALREADY_FINISHED
+        base["status"]         = base["status"] or "STALE_KICKOFF"
         return base
 
     minutes_to_kickoff = (start_dt - now_dt).total_seconds() / 60.0
