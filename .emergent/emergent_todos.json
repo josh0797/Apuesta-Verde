@@ -1,22 +1,18 @@
 [
   {
-    "content": "F99.1 — Identificado: bloque MLB STATCAST DEEP INTEGRATION Phase 9 (lines 2579-2689, ~110 líneas, self-contained)",
+    "content": "Verificar estado actual de mlb_day_orchestrator.py y mlb_day_context_builder.py",
     "status": "completed"
   },
   {
-    "content": "F99.2 — mlb_day_context_builder.py creado con apply_statcast_phase9_adjustments() (181 líneas)",
+    "content": "Ejecutar pytest completo del backend (esperando 4348+ tests passing)",
     "status": "completed"
   },
   {
-    "content": "F99.3 — Bloque inline sustituido: orchestrator pasó de 6359 → 6259 líneas (−100)",
+    "content": "Marcar F99 como COMPLETED en plan.md (en español)",
     "status": "completed"
   },
   {
-    "content": "F99.4 — Tests F99 completos: 15/15 passing (golden equivalence + smoke + football/basketball intactos + idempotencia + fail-soft)",
-    "status": "completed"
-  },
-  {
-    "content": "F99.5 — pytest completo: 4348 passed / 2 skipped (+15 vs F98; 0 regresiones)",
+    "content": "Reportar resultado final al usuario",
     "status": "completed"
   }
 ]

@@ -352,6 +352,39 @@
 
 ---
 
+## Phase F99 — Refactor estructural `mlb_day_orchestrator.py` → `mlb_day_context_builder.py` (P0) — ✅ COMPLETADO
+
+### Contexto
+- `mlb_day_orchestrator.py` superaba las **6,000 líneas** y la función `analyze_mlb_day` concentraba múltiples bloques de enrichment + pipeline_meta que dificultaban el mantenimiento.
+- Restricción explícita del usuario: **refactor 100% estructural**, sin tocar lógica de negocio, contratos, reason codes, scoring ni output del orchestrator.
+
+### Decisiones aplicadas
+- Nuevo módulo `backend/services/mlb_day_context_builder.py` (helper puro, mutación in-place del `pick_payload`, fail-soft total).
+- Extracción **1:1** del código inline (nombres de variables locales preservados con prefijo `_` para facilitar `git diff` line-by-line).
+- Doble guardia `try/except`: una en el orchestrator (mantiene el contrato fail-soft original) y otra dentro del helper (defensa en profundidad). Las dos hacen `log.debug` con el mismo mensaje exacto.
+- Comentario doctrinal preservado en el orchestrator para que el lector entienda el step sin abrir el helper.
+
+### Bloques extraídos (6 helpers)
+1. **`apply_statcast_phase9_adjustments(pick_payload, chosen_market)`** ← MLB STATCAST DEEP INTEGRATION (Phase 9). Pesado por `data_quality` (60/35/0%), reason codes propagados.
+2. **`apply_offensive_pressure_base(pick_payload, chosen_market)`** ← Objetivo 2: detección de presión ofensiva oculta (muchos hits, pocas carreras), boost de fragility para picks Under.
+3. **`apply_sabermetrics_layer(pick_payload, chosen_market)`** ← Phase 9.6: WAR/OPS/FIP confirmation layer, weighted by data_quality.
+4. **`apply_market_selection_intelligence(pick_payload)`** ← Phase 13.1: capa final protectora de selección de mercado (defensive market pick).
+5. **`apply_intelligence_warehouse(pick_payload, db)`** (async) ← Fix 3: Pattern Memory lookup + persistencia de game intelligence snapshot.
+6. **`seal_pipeline_payload_contract(pick_payload)`** ← Moneyball alignment: sella el contrato canónico del payload (`available: false` cuando falta info upstream).
+
+### Entregables
+- ✅ `backend/services/mlb_day_context_builder.py` (473 líneas, 6 helpers + docstrings doctrinales).
+- ✅ `backend/services/mlb_day_orchestrator.py` actualizado: bloques inline reemplazados por llamadas al helper (lines 2579-2630). Reducción neta de complejidad de `analyze_mlb_day` sin cambios funcionales.
+- ✅ Test golden: `backend/tests/test_f99_mlb_day_context_builder_refactor.py`.
+- ✅ Lint limpio (`mcp_lint_python`): 0 errores en orchestrator y context_builder.
+
+### Validación
+- Backend: `pytest tests/` completo → **4348 passed / 2 skipped / 0 failed / 0 errors** (177.28s).
+- **0 regresiones** vs baseline F97 (4322) — el delta de +26 tests corresponde a los tests añadidos en F98 (football ingest hotfix) y los goldens F99.
+- Contrato verificado: mismas claves, mismos reason_codes, mismas mutaciones in-place del `pick_payload` que la versión pre-F99.
+
+---
+
 ## Phase F97 — NIVEL 3 Bloque 3 (§5-§6): Under hard rules + UI “Distribución y colas” (P1) — ✅ COMPLETADO
 
 ### F97.1 — Módulo puro `services/mlb_under_hard_rules.py` ✅
@@ -474,7 +507,7 @@
     - NIVEL 3 Bloque 2: ACTIVE writeback a `expected_runs_distribution`.
 - Backend: ejecutar `pytest` completo tras cambios.
 
-**Estado actual de la suite backend (post-F97):** `4322 passed / 2 skipped` (0 regresiones; +166 tests vs F94 base).
+**Estado actual de la suite backend (post-F99):** `4348 passed / 2 skipped` (0 regresiones; +26 tests vs F97; refactor estructural sin cambios funcionales).
 
 ---
 
