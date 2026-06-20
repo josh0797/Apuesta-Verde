@@ -1968,7 +1968,7 @@ async def analyze_mlb_day(
                 _line = (pick_payload or {}).get("recommendation", {}).get("line") \
                         if isinstance((pick_payload or {}).get("recommendation"), dict) else None
 
-            erd = compute_expected_runs_distribution(
+            erd_kwargs = dict(
                 expected_runs=_mean_eff,
                 inning_lambda_projection=inning_lambda_projection,
                 market=_market,
@@ -1984,6 +1984,11 @@ async def analyze_mlb_day(
                 series_familiarity_score=series_familiarity.get("series_familiarity_score")
                                           if isinstance(series_familiarity, dict) else None,
             )
+            erd = compute_expected_runs_distribution(**erd_kwargs)
+            # Stash kwargs on the payload (private) so the D12 overlay
+            # block can recompute the NB tails when the verdict gates
+            # the pick. Observe-only: NEVER mutated by downstream code.
+            pick_payload["_erd_kwargs"] = erd_kwargs
             pick_payload["expected_runs_distribution"] = erd
             pipeline_meta["expected_runs_distribution"] = {
                 "available":           erd.get("available"),
@@ -3503,6 +3508,168 @@ async def analyze_mlb_day(
                                 pick_payload["reason_codes"].append(rc)
             except Exception as exc_risk:
                 log.debug("under_explosion_risk compute failed: %s", exc_risk)
+
+            # ── M5.6 (D12): Total Risk Overlay aggregator + NB recal ──
+            # Aggregates ALL L1+L2 sub-signals (starter volatility, 1st
+            # inning collapse, recent offensive quality, lineup explos.,
+            # bullpen stress, domino risk) into ONE verdict + dispersion
+            # multiplier. When verdict ∈ {AVOID, BLOCK} we ACTIVELY
+            # recalibrate the NB tails by re-running
+            # `compute_expected_runs_distribution` with overlay_*. The
+            # pick polarity stays untouched (observe-only on selection),
+            # but the Over/Under probabilities now reflect widened
+            # tails. Fail-soft on any error.
+            try:
+                _under_risk_for_d12 = pick_payload.get("under_explosion_risk") or {}
+                _rec_d12 = pick_payload.get("recommendation") or {}
+                _sel_d12 = str(_rec_d12.get("selection") or "").upper()
+                _market_d12 = str(_rec_d12.get("market") or "").upper()
+                _is_under_d12 = ("UNDER" in _sel_d12) or ("UNDER" in _market_d12)
+                if _is_under_d12 and _under_risk_for_d12:
+                    from .mlb_total_risk_overlay import compute_total_risk_overlay
+                    from .mlb_bullpen_stress import compute_bullpen_stress
+                    from .mlb_domino_risk import compute_domino_risk
+
+                    # ── Bullpen stress per side ──────────────────────
+                    bp_home_obj = locals().get("h_bullpen_usage") or {}
+                    bp_away_obj = locals().get("a_bullpen_usage") or {}
+                    try:
+                        bp_stress_home = compute_bullpen_stress(bp_home_obj)
+                    except Exception:
+                        bp_stress_home = {}
+                    try:
+                        bp_stress_away = compute_bullpen_stress(bp_away_obj)
+                    except Exception:
+                        bp_stress_away = {}
+
+                    # ── Domino risk per side ─────────────────────────
+                    sv_block = _under_risk_for_d12.get("starter_volatility") or {}
+                    le_block = _under_risk_for_d12.get("lineup_explosiveness") or {}
+                    _park_live_local = pick_payload.get("park_factor_live") or {}
+                    _park_mult_d12 = (
+                        _park_live_local.get("dynamic")
+                        or _park_live_local.get("park_runs_mult")
+                        or _park_live_local.get("runFactor")
+                    )
+                    try:
+                        dr_home = compute_domino_risk(
+                            starter_volatility_score=(sv_block.get("home") or {}).get("starter_volatility_score"),
+                            bullpen_stress_score=bp_stress_home.get("bullpen_stress_score"),
+                            lineup_explosiveness_score=(le_block.get("away") or {}).get("lineup_explosiveness_score"),
+                            park_factor=_park_mult_d12,
+                        )
+                    except Exception:
+                        dr_home = {}
+                    try:
+                        dr_away = compute_domino_risk(
+                            starter_volatility_score=(sv_block.get("away") or {}).get("starter_volatility_score"),
+                            bullpen_stress_score=bp_stress_away.get("bullpen_stress_score"),
+                            lineup_explosiveness_score=(le_block.get("home") or {}).get("lineup_explosiveness_score"),
+                            park_factor=_park_mult_d12,
+                        )
+                    except Exception:
+                        dr_away = {}
+
+                    # ── Aggregate ────────────────────────────────────
+                    _base_frag_d12 = (
+                        pick_payload.get("fragility_score")
+                        or pick_payload.get("fragility")
+                        or 0
+                    )
+                    _base_surv_d12 = (
+                        pick_payload.get("survival_score")
+                        or pick_payload.get("survival")
+                    )
+                    _base_tail_d12 = (
+                        pick_payload.get("explosive_tail_risk")
+                        or pick_payload.get("tail_risk")
+                        or "LOW"
+                    )
+                    _line_for_overlay = None
+                    try:
+                        _line_for_overlay = float(v2_block.get("smartTotalsLine") or 0) or None
+                    except (TypeError, ValueError):
+                        _line_for_overlay = None
+                    overlay = compute_total_risk_overlay(
+                        baseline_expected_runs=(
+                            float(v2_block.get("expectedRuns") or v2_block.get("expectedRunsRaw") or 0) or None
+                        ),
+                        baseline_distribution=pick_payload.get("expected_runs_distribution"),
+                        pick={"selection": _sel_d12 or "UNDER", "line": _line_for_overlay},
+                        starter_volatility=_under_risk_for_d12.get("starter_volatility"),
+                        first_inning_collapse=_under_risk_for_d12.get("first_inning_collapse"),
+                        recent_offensive_quality=_under_risk_for_d12.get("recent_offensive_quality"),
+                        lineup_explosiveness=_under_risk_for_d12.get("lineup_explosiveness"),
+                        bullpen_stress={"home": bp_stress_home, "away": bp_stress_away},
+                        domino_risk={"home": dr_home, "away": dr_away},
+                        base_fragility=float(_base_frag_d12) if _base_frag_d12 else 0.0,
+                        base_survival=float(_base_surv_d12) if _base_surv_d12 else None,
+                        base_explosive_tail_risk=_base_tail_d12,
+                    )
+                    # Surface the overlay AND its constituent sub-cards
+                    # so the FE can render the 6-pillar transparency UI.
+                    pick_payload["total_risk_overlay"] = {
+                        **overlay,
+                        "components": {
+                            "starter_volatility":       _under_risk_for_d12.get("starter_volatility"),
+                            "first_inning_collapse":    _under_risk_for_d12.get("first_inning_collapse"),
+                            "recent_offensive_quality": _under_risk_for_d12.get("recent_offensive_quality"),
+                            "lineup_explosiveness":     _under_risk_for_d12.get("lineup_explosiveness"),
+                            "bullpen_stress":           {"home": bp_stress_home, "away": bp_stress_away},
+                            "domino_risk":              {"home": dr_home, "away": dr_away},
+                        },
+                    }
+                    log.info(
+                        "[D12_TOTAL_RISK] match=%s sel=%s verdict=%s tail=%s disp=%s",
+                        pick_payload.get("matchId") or pick_payload.get("match_id"),
+                        _sel_d12,
+                        overlay.get("verdict"),
+                        overlay.get("explosive_tail_risk"),
+                        overlay.get("dispersion_multiplier"),
+                    )
+
+                    # ── NB recalibration (active when verdict gates) ─
+                    _verdict_d12 = str(overlay.get("verdict") or "").upper()
+                    _disp_mult = overlay.get("dispersion_multiplier")
+                    if (
+                        _verdict_d12 in ("AVOID", "BLOCK")
+                        and _disp_mult is not None
+                        and float(_disp_mult) > 1.0
+                        and isinstance(pick_payload.get("_erd_kwargs"), dict)
+                    ):
+                        try:
+                            erd_recal = compute_expected_runs_distribution(
+                                **pick_payload["_erd_kwargs"],
+                                overlay_dispersion_multiplier=float(_disp_mult),
+                                overlay_verdict=_verdict_d12,
+                            )
+                            pick_payload["expected_runs_distribution_pre_overlay"] = (
+                                pick_payload.get("expected_runs_distribution")
+                            )
+                            pick_payload["expected_runs_distribution"] = erd_recal
+                            pipeline_meta["expected_runs_distribution"] = {
+                                "available":           erd_recal.get("available"),
+                                "uncertainty_bucket":  erd_recal.get("uncertainty_bucket"),
+                                "mean":                erd_recal.get("mean"),
+                                "median":              erd_recal.get("median"),
+                                "p10":                 erd_recal.get("p10"),
+                                "p90":                 erd_recal.get("p90"),
+                                "distribution":        erd_recal.get("distribution"),
+                                "protected_lines":     erd_recal.get("protected_lines"),
+                                "reason_codes":        erd_recal.get("reason_codes") or [],
+                                "overlay_applied":     True,
+                                "overlay_verdict":     _verdict_d12,
+                                "overlay_multiplier":  float(_disp_mult),
+                            }
+                            # Promote reason codes to canonical list.
+                            if isinstance(pick_payload.get("reason_codes"), list):
+                                for rc in (overlay.get("reason_codes") or []):
+                                    if rc not in pick_payload["reason_codes"]:
+                                        pick_payload["reason_codes"].append(rc)
+                        except Exception as exc_recal:
+                            log.debug("D12 NB recalibration failed (fail-soft): %s", exc_recal)
+            except Exception as exc_d12:
+                log.debug("total_risk_overlay (D12) compute failed: %s", exc_d12)
 
             # ── Recalibración NB por bucket (PASIVO en OBSERVING) ────
             # Phase 1: bucket dispersion ratio always overrides the global

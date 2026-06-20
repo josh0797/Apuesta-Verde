@@ -719,6 +719,7 @@ export function MatchCard({ pick, idx = 0, sport = 'football', runId = null }) {
           activeSeriesContext={m.active_series_context || null}
           seriesDegradation={m.series_degradation || null}
           seriesTotalSignal={m.series_total_signal || null}
+          totalRiskOverlay={m.total_risk_overlay || null}
           modelVerification={m.model_verification || null}
           activeSeriesBlock={m.active_series_block || null}
           chosenMarket={m.recommendation?.market || null}

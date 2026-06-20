@@ -366,6 +366,10 @@ def compute_expected_runs_distribution(
         return _unavailable("missing_or_invalid_expected_runs")
 
     # Apply qualitative modulation to the dispersion ratio.
+    # D12 hook: overlay_dispersion_multiplier + overlay_verdict are
+    # forwarded so the Total Risk Overlay can widen NB tails when the
+    # Under verdict is AVOID/BLOCK (observe-only on pick polarity,
+    # active on Over/Under probabilities).
     effective_ratio, modulation_reasons = _compute_effective_dispersion(
         nb_dispersion_ratio,
         fragility_score=fragility_score,
@@ -374,6 +378,8 @@ def compute_expected_runs_distribution(
         defensive_breakdown_score=defensive_breakdown_score,
         bullpen_fatigue=bullpen_fatigue,
         series_familiarity_score=series_familiarity_score,
+        overlay_dispersion_multiplier=overlay_dispersion_multiplier,
+        overlay_verdict=overlay_verdict,
     )
 
     # Choose distribution.

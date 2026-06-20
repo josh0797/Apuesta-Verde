@@ -253,192 +253,31 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
 
 # Phase SPRINT D7 — Backtest comparativo DRAW (Ligas vs Selecciones) + Post-mortem & Remediación — COMPLETADO ✅ (P1)
 
-## Contexto
-- Se ejecutó `scripts/run_backtest_d7_comparative.py` con cap estricto de créditos.
-- El sondeo histórico (WC2022, 2022-11-27) devolvió eventos (p.ej. 24).
-- El reporte inicial resultó con 0 picks/0 matches domésticos y bloque nacional no disponible.
-
-## Hallazgos (post-mortem) — RESUELTOS ✅
-- **BUG #1 (crítico, confirmado):** el orquestador pasaba la **ruta** del CSV a `parse_football_data_csv`, pero el parser espera el **texto del CSV**. Resultado: `n_matches=0` en todas las ligas.
-- **BUG #2 (crítico):** faltaba `/app/data/openfootball/` (y JSON de ground truth). Resultado: el bloque nacional gastaba créditos (cobertura existía) pero no podía liquidar → `GROUND_TRUTH_MISSING`.
-- **BUG #3 (visibilidad):** el orquestador hardcodeaba `UNAVAILABLE_NO_COVERAGE` en lugar de propagar `reason_codes` reales (`MAX_CREDITS_REACHED`, etc.).
-
-## Fase A — Fix del orquestador (0 créditos) — COMPLETADO ✅
-- ✅ A1: leer **contenido** del CSV (`Path.read_text()`) antes del parser.
-- ✅ A2: propagar `reason_codes`/`reason_code` reales en el bloque nacional.
-- ✅ A3: logging visible por liga/torneo (n_matches, n_picks, créditos, motivo).
-- ✅ A4: tests de regresión (parser texto vs ruta; parse_empty; skip).
-- ✅ A5: flags CLI `--min-edge-pp`, `--skip-national`, `--out`.
-
-## Fase B — Ground truth openfootball (0 créditos) — COMPLETADO ✅ (parcial)
-- ✅ Creado `/app/data/openfootball/`.
-- ✅ Descargados:
-  - WC 2022 → `/app/data/openfootball/wc2022.json` (64 partidos)
-  - Euro 2024 → `/app/data/openfootball/euro2024.json` (51 partidos)
-- ⏳ Copa América 2024/2021: aplazado (repo openfootball provee `copa.txt` y requeriría un parser distinto).
-
-## Fase C — Re-ejecución doméstica (0 créditos) — COMPLETADO ✅
-- ✅ C1: corrida `min_edge_pp=4.0` → `/app/backtest_d7_domestic_edge4.json`.
-- ✅ C2: corrida `min_edge_pp=3.0` → `/app/backtest_d7_domestic_edge3.json`.
-
-**Nota:** inicialmente ambas corridas daban resultados idénticos por un gate aguas arriba (ver Sprint D7-E). Tras parametrización, el flag deja de ser inerte.
-
-## Fase D — Validación — COMPLETADO ✅
-- ✅ `pytest` backend completo (incluyendo nuevos tests) sin regresiones.
+(Sin cambios; ver bitácora previa.)
 
 ---
 
 # Phase SPRINT D7-E — Threshold parametrization + honest sweep + multi-season sanity check (DRAW) — COMPLETADO ✅ (P1)
 
-## Contexto
-Se detectó un bug de diseño: `--min-edge-pp` del CLI era **inoperante** porque el threshold real (`EDGE_VALUE_THRESHOLD_PP=4.0`) estaba hardcodeado dentro de `football_draw_potential.py` y el motor filtraba por `label in (VALUE_DRAW, STRONG_VALUE)`, descartando picks con edge ∈ [3,4)pp “en silencio”.
-
-## Fase E1–E3 — Parametrización end-to-end (0 créditos) — COMPLETADO ✅
-- ✅ `compute_draw_potential` ahora acepta:
-  - `value_threshold_pp` (opt-in; default preserva legacy 4.0)
-  - `strong_threshold_pp` (opt-in; default preserva legacy 8.0)
-  - Auditoría en `debug`: `value_threshold_pp_effective`, `strong_threshold_pp_effective`.
-- ✅ `football_backtest_engine`:
-  - `_predict_draw` acepta thresholds.
-  - `run_backtest` propaga `min_edge_pp` como threshold del label.
-  - Deriva `_effective_strong_pp = min(12.0, 2*min_edge_pp) si min_edge_pp>8; si no, 8.0`.
-  - Elimina hardcodes 4.0/8.0 en el re-label post-calibración.
-- ✅ Tests nuevos:
-  - override cambia label
-  - bajar `min_edge_pp` aumenta picks
-  - back-compat: Premier 24/25 mantiene 149 picks a 4pp.
-
-## Fase E4 — Barrido honesto de thresholds (5 ligas, 24/25) — COMPLETADO ✅
-Script: `scripts/run_backtest_d7_threshold_sweep.py`.
-
-Resultado (agregado 5 ligas, weighted por n_bets):
-
-| edge_pp | n_bets | w_ROI | spread inter-liga (roi_max - roi_min) |
-|---:|---:|---:|---:|
-| 2.0 | 596 | -2.9% | 61.6 pp |
-| 3.0 | 510 | -3.9% | 73.8 pp |
-| 4.0 | 419 | -1.4% | 87.3 pp |
-| 5.0 | 353 | -8.2% | 91.6 pp |
-| 6.0 | 279 | -2.5% | 81.7 pp |
-| 8.0 | 187 | -10.3% | 99.5 pp |
-
-Observaciones:
-- ROI agregado **siempre negativo** y errático (no robusto al threshold).
-- Spread inter-liga aumenta al elevar el threshold → firma de ruido.
-- Hit-rate decae con threshold (≈21.1% → ≈16.0%).
-
-## Fase E5–E6 — Multi-season Premier League (4 temporadas) — COMPLETADO ✅
-- ✅ Descargados CSV gratuitos:
-  - `/app/data/football_data_co_uk/E0_2122.csv`
-  - `/app/data/football_data_co_uk/E0_2223.csv`
-  - `/app/data/football_data_co_uk/E0_2324.csv`
-  - (ya existía) `/app/data/football_data_co_uk/E0_2425.csv`
-- ✅ Script: `scripts/run_backtest_d7_premier_multiseason.py`.
-
-Tabla clave (edge≥4pp):
-
-| Season | edge≥4pp ROI |
-|---|---:|
-| 2021-22 | -6.69% |
-| 2022-23 | -6.76% |
-| 2023-24 | -20.97% |
-| 2024-25 | +27.96% |
-| **MEAN** | **-1.61%** |
-| **STDEV** | **20.83%** |
-
-Conclusión: el +27.96% 24/25 fue un outlier; el promedio colapsa cerca de 0 con gran varianza inter-temporada.
-
-## Fase E7 — Validación — COMPLETADO ✅
-- ✅ `pytest` backend completo: **3632 passing**, 2 skipped, 0 regresiones.
-
-## Veredicto científico (D7-E)
-**No hay evidencia de edge real** en el módulo Draw Potential para mercado DRAW en ligas domésticas bajo este horizonte.
+(Sin cambios; ver bitácora previa.)
 
 ---
 
 # Phase SPRINT D7-F — OVER_2_5 / UNDER_2_5 con la misma disciplina (D7-E) — COMPLETADO ✅ (P1)
 
-## Objetivo
-Aplicar la misma disciplina de validación que en D7-E (parametrización end-to-end, barrido de thresholds multi-liga, multi-season) a los mercados **OVER_2_5** y **UNDER_2_5**, manteniendo:
-- point-in-time correctness,
-- fail-soft,
-- `observe_only`,
-- 0 regresiones en la suite.
-
-## Trabajo realizado (todo offline, 0 créditos) — COMPLETADO ✅
-
-### F1 — Predictor `compute_score_grid_potential` (Dixon-Coles bivariate score grid 9×9)
-- ✅ Nuevo módulo: `services/football_score_grid_potential.py`.
-- ✅ Grid 0..8 goles por equipo (masa cubierta típica 99.78–99.99%).
-- ✅ OVER_2_5 y UNDER_2_5 calculados **sumando SUS celdas** (no como complemento) para preservar la τ-correction asimétrica en 0–0 / 0–1 / 1–0 / 1–1.
-- ✅ BTTS_YES/NO también disponibles en el módulo (pero aplazado en backtests por falta de cuotas históricas gratis en football-data.co.uk).
-
-### F2 — Parser + PIT features
-- ✅ `parse_football_data_csv` extendido para:
-  - Opening: `B365>2.5` / `B365<2.5`
-  - Closing: `B365C>2.5` / `B365C<2.5`
-  - Fallback cascade: B365 → Pinnacle (P/PC) → Avg/AvgC → BbAv.
-  - Nuevos campos: `odd_over25`, `odd_under25`, `*_open`, `*_close`.
-- ✅ `build_point_in_time_features` ahora expone:
-  - `market_implied_over25_prob = 1/odd_over25`
-  - `market_implied_under25_prob = 1/odd_under25`
-  - Nota: NO se deriva under = 1−over; se preserva overround asimétrico.
-
-### F3 — Engine market-aware generalizado
-- ✅ `MARKET_AWARE_SUPPORTED = ("DRAW", "OVER_2_5", "UNDER_2_5")`.
-- ✅ Nuevos predictors/hit_fns:
-  - `_predict_over25`, `_predict_under25`
-  - `_hit_over25`, `_hit_under25`
-- ✅ `_extract_prob_pct` y `_store_prob_pct` soportan los nuevos mercados.
-- ✅ Inyección de `market_implied` / `edge` / `label` (GENERIC) en el verdict **pre y post calibración**.
-- ✅ Gate de fire generalizado: acepta `LABEL_VALUE_GENERIC` / `LABEL_STRONG_VALUE_GENERIC` además de los labels legacy de DRAW.
-- ✅ Pick rows en modo con-odds ahora exponen:
-  - `odd` (canónico por mercado)
-  - `odd_draw` se preserva solo por back-compat cuando market=DRAW.
-- ✅ `compute_backtest_metrics` generalizado para usar `odd` (fallback a `odd_draw`).
-
-### F4 — Scripts
-- ✅ `scripts/run_backtest_d7_threshold_sweep.py` ahora acepta `--market {DRAW, OVER_2_5, UNDER_2_5}` y escribe por defecto `..._<market>.json`.
-- ✅ `scripts/run_backtest_d7_premier_multiseason.py` ahora acepta `--market` y escribe por defecto `..._<market>.json`.
-
-### F5 — Tests
-- ✅ Nuevo archivo: `tests/test_sprint_d7_phaseF_score_grid_markets.py` (16 tests).
-
-### F6 — Ejecución de barridos (artefactos)
-Artefactos (D7-F):
-- `/app/backtest_d7_threshold_sweep_over_2_5.json`
-- `/app/backtest_d7_threshold_sweep_under_2_5.json`
-- `/app/backtest_d7_premier_multiseason_over_2_5.json`
-- `/app/backtest_d7_premier_multiseason_under_2_5.json`
-
-### F7 — Validación
-- ✅ `pytest` backend completo: **3650 passing**, 2 skipped, 0 regresiones.
-
-## Veredicto científico (D7-F)
-- OVER_2_5 y UNDER_2_5: sesgo negativo estable; sin edge demostrable.
+(Sin cambios; ver bitácora previa.)
 
 ---
 
 # Phase REFACTOR-1 — Refactor quirúrgico `data_ingestion.py` (solo top-2 componentes) — EN PROGRESO 🟡
 
-## Objetivo
-Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambiar comportamiento.
-
-## Progreso actual
-- ✅ Paso 1/3 completado: extracción de odds cascade a `services/_ingestion_helpers/football_odds_cascade.py`.
-
-## Pendiente
-- ⏳ Paso 2/3: extraer deep enrichment.
-- ⏳ Paso 3/3: extraer live stats hydration.
-- ⏳ Refactor `ingest_upcoming`.
+(Sin cambios; ver bitácora previa.)
 
 ---
 
 # Phase F84.c / F84.d — Lineups + Standings (P1) — PENDIENTE ⏳
 
-## Plan
-- Lineups: TheStatsAPI primary, API-Sports fallback.
-- Standings: TheStatsAPI primary, API-Sports fallback.
+(Sin cambios; ver bitácora previa.)
 
 ---
 
@@ -446,7 +285,6 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 
 ### Pendientes P0 (actual)
 - 🟡 **SPRINT D5** (histórico en curso): cohortes + reportes multi-competición.
-- 🟡 **SPRINT D9.3-A** (hotfix MLB): corregir “Contexto de serie activa” (impacta proyección y UI).
 
 ### Pendientes P1
 - 🟡 **SPRINT D9.2 — Block C** Residual Model con xG real (después de D9.3).
@@ -463,14 +301,74 @@ Reducir complejidad y riesgo de regresiones en el pipeline de ingesta sin cambia
 
 ---
 
+## 4) Cierres recientes (bitácora)
+
+### ✅ SPRINT D12 — Cierre (NB Recalibration Wiring + UI “Riesgos ocultos del Under”) — COMPLETADO
+
+**Decisiones del usuario aplicadas (confirmadas):**
+- **1b:** aplicar `dispersion_multiplier` activamente SOLO al NB cuando `verdict ∈ {AVOID, BLOCK}` (la polaridad/recomendación se mantiene observe-only).
+- **2a:** UI en **grid 2×3**, colorizado por bucket.
+- **3:** reason codes **traducidos al español**.
+
+#### Entregables backend
+- ✅ **B1 — Wire intra-módulo** (`backend/services/mlb_expected_runs_distribution.py`):
+  - `compute_expected_runs_distribution(...)` ahora **propaga** `overlay_dispersion_multiplier` + `overlay_verdict` hacia `_compute_effective_dispersion(...)`.
+  - El ratio efectivo permanece clamped a **[0.90, 3.00]** (invariante), evitando “colas absurdas”.
+
+- ✅ **B2 — Orquestador M5.6** (`backend/services/mlb_day_orchestrator.py`):
+  - Invoca `compute_total_risk_overlay()`.
+  - Calcula `bullpen_stress` (por lado) y `domino_risk` (por lado) usando datos ya en scope.
+  - Expone `pick_payload["total_risk_overlay"]` incluyendo:
+    - `components.{starter_volatility, first_inning_collapse, recent_offensive_quality, lineup_explosiveness, bullpen_stress, domino_risk}` para UI.
+  - Si `verdict ∈ {AVOID, BLOCK}` y `dispersion_multiplier > 1.0`:
+    - **recomputa** `expected_runs_distribution` pasando `overlay_*`.
+    - preserva el anterior en `expected_runs_distribution_pre_overlay`.
+    - promueve `reason_codes` del overlay al listado canónico.
+    - `pipeline_meta["expected_runs_distribution"]` refleja:
+      - `overlay_applied=True`, `overlay_verdict`, `overlay_multiplier`.
+
+- ✅ **B3 — Tests**:
+  - Nuevo archivo: `backend/tests/test_mlb_d12_nb_overlay_wiring.py` (**13 tests**).
+  - Suite backend total: **3996 passed / 2 skipped** (0 regresiones).
+
+#### Entregables frontend
+- ✅ **F1 — UI “Riesgos ocultos del Under”**
+  - Nuevo componente: `frontend/src/components/UnderHiddenRisksCard.jsx`:
+    - 6 tarjetas (grid 2×3):
+      1) Volatilidad starter
+      2) Riesgo 1ª entrada
+      3) Ofensiva reciente
+      4) Explosividad lineup
+      5) Estrés bullpen
+      6) Riesgo dominó
+    - Badges:
+      - veredicto: Permitido/Precaución/Evitar/Bloqueado,
+      - cola: baja/media/alta/extrema,
+      - `NB ×multiplier` cuando aplica.
+    - `editorial_summary` + chips de `reason_codes` traducidos.
+    - `data-testid` por tarjeta y por badge.
+  - Integración:
+    - `MLBScriptPanel.jsx` (nuevo prop `totalRiskOverlay`).
+    - `MatchCard.jsx` y `pages/MatchDetailPage.jsx` pasan `m.total_risk_overlay`.
+  - Tests:
+    - `frontend/src/components/__tests__/UnderHiddenRisksCard.test.jsx` (**16 tests**, verdes).
+  - Build/lint:
+    - `esbuild` manual (via `npx esbuild`) y lint JS: OK.
+
+#### Nota sobre tests frontend
+- La suite FE global tiene **2 fallos pre-existentes** en `InlineManualOddsInputF93_1.test.jsx` (no relacionados con D12).
+
+---
+
 ## 6) Validación esperada (estado actual)
 
 - Reglas:
   - Cero regresión post-cada cambio.
   - Fail-soft y back-compat.
   - Point-in-time correctness en backtests.
-  - `observe_only` (sin apuestas automáticas).
+  - `observe_only` (sin apuestas automáticas) — **excepto** recalibración NB: afecta solo probabilidades/colas (no pick-binding).
   - Backend: ejecutar `pytest` completo tras cambios.
+  - Frontend: `yarn` + `esbuild` tras cambios; RTL tests por componente cuando aplique.
 
 ---
 
@@ -496,213 +394,22 @@ Sin cambios (ver bitácora previa).
 
 ## SPRINT D8 — UNDER_3_5 (ligas) + DRAW/cohorte (selecciones)
 
-### D8 Fase 1 — UNDER_3_5 / OVER_3_5 en ligas (CERRADA)
 Sin cambios (ver bitácora previa).
 
 ---
 
 ## SPRINT D9.2 — Block 0 + A + B (COMPLETADO ✅)
 
-Sin cambios (Block 0: UI manual odds; Block A: corners friendlies; Block B: xG real cascada + cache + features).
+Sin cambios (ver bitácora previa).
 
 ---
 
 ## SPRINT D9.3 — Active Series Context Fix + Expansion (P0 hotfix)
 
-### Contexto / Bug visible en producción
-Captura del usuario (Texas Rangers @ Minnesota Twins, Joe Ryan vs Jack Leiter):
-- "Familiaridad de serie: media (56/100) — 3d:2, 5d:2, 15d:2" → **correcto**.
-- "Contexto de serie activa (G2): G1 Texas Rangers 0 - 0 Minnesota Twins = 0 carreras. Promedio: 0.0 carreras · Over rate: 0%" → **bug**.
-- "Segundo juego: ER ajustado 7.2 → 7.9 (+0.7)" → **consecuencia del bug** (contamina proyección).
-
-### Causa raíz (confirmada en código)
-`services/mlb_active_series_analyzer.py`:
-- `_extract_runs` usa `path.get("home", 0)` / `path.get("away", 0)` y similares; cuando faltan keys, produce **0** y lo interpreta como score válido.
-- No hay filtro estricto de `status` final.
-- Resultado: `runs_list` incluye un juego fantasma 0 carreras → `next_game_number=2` → `apply_series_degradation` suma +0.4..+0.8 ER → proyección contaminada.
-
-### Plan en fases
-- **D9.3-A (hotfix, prioridad P0):** validación estricta de marcadores válidos + estados + UI honesta.
-- **D9.3-B (señal matemática):** weighted runs, shrinkage, CV, over/under line-aware.
-- **D9.3-C (interacciones):** slope, pitching/bullpen delta, anti-double-counting con familiaridad H2H.
-
-### Sub-fase D9.3-A — Validación + estados + UI honesta (CERRADO ✅ 2026-06-18)
-
-#### Resultado de cierre
-- ✅ `mlb_active_series_analyzer.py` reescrito:
-  - `_parse_int_strict` y `_read_scores_strict` eliminan defaults a 0 → keys faltantes ahora producen `None`.
-  - `_doc_status` + `_is_status_final` clasifican explícitamente `FINAL/COMPLETED/GAME_OVER/...` vs `POSTPONED/SUSPENDED/LIVE/...`.
-  - Guard MLB 0-0: excluye partidos 0-0 a menos que `score_confirmed=True`.
-  - Estados `series_state` expuestos: `ACTIVE_SERIES_CONFIRMED`, `ACTIVE_SERIES_NO_COMPLETED_GAMES`, `ACTIVE_SERIES_SCORE_MISSING`, `ACTIVE_SERIES_UNRESOLVED`.
-  - Auditoría `excluded_docs[]` por partido descartado (con `reason`, `status`, scores).
-  - `reason_codes` siempre presentes (incl. `LIMITED_SAMPLE_SERIES_SIGNAL` cuando n<3).
-  - Conteo line-aware: `over_count`, `under_count`, `push_count` + `reference_line`. `over_rate` mantenido por back-compat.
-- ✅ `frontend/MLBScriptPanel.jsx` actualizado:
-  - Estado degradado: "La serie actual todavía no tiene partidos finalizados." (sin promedio falso ni Over rate 0%).
-  - Estado confirmado: "Promedio · Partidos válidos: N · Over {line}: X de N · Under {line}: Y de N".
-  - Badge "Muestra limitada — señal contextual, no concluyente" cuando n<3.
-  - `data-testid` adicionales para QA: `-series-state-badge`, `-series-empty-message`, `-series-line-counts`, `-series-limited-sample`, `-series-avg`, `-series-games-list`, `-series-game-{n}`.
-- ✅ Tests: nuevo `backend/tests/test_mlb_active_series_analyzer.py` con **15 tests** cubriendo:
-  - Bug regression `final_score={}` → `SCORE_MISSING` (no fabrica G1 0-0).
-  - `final_score={"home":None,"away":None}` → `SCORE_MISSING`.
-  - Suspicious 0-0 sin confirmar → excluido + `SUSPICIOUS_ZERO_ZERO_EXCLUDED`.
-  - 0-0 con `score_confirmed=True` → aceptado.
-  - `status=Postponed` → excluido.
-  - `status=Live` → excluido.
-  - Status missing + scores válidos → soft-final.
-  - Happy path 2 juegos confirmados con over/under counts correctos.
-  - Reorientación home/away cuando el doc tiene equipos invertidos.
-  - `live_stats.score = {home, away}` shape soportado (back-compat).
-  - Sin matchup en ventana → `NO_COMPLETED_GAMES`.
-  - `db=None` → `UNRESOLVED`.
-  - n≥3 → no emite `LIMITED_SAMPLE_SERIES_SIGNAL`.
-  - Mix válido + inválido → solo los válidos cuentan, los demás aparecen en `excluded_docs`.
-  - High-scoring series → triggers `series_override=True` + `lean=OVER`.
-- ✅ Pytest backend completo: **3806 passed / 2 skipped** (3791 base + 15 nuevos), 0 regresiones.
-- ✅ Build FE (`esbuild MLBScriptPanel.jsx`) clean, sin errores.
-
-#### Efecto sobre el bug visible
-Para el caso Texas Rangers @ Minnesota Twins (Joe Ryan vs Jack Leiter):
-- Antes: G1 fantasma 0-0 → `games_in_series=1` → `apply_series_degradation(g=2)` sumaba +0.7 ER (7.2 → 7.9).
-- Ahora: el doc con `final_score={}` (o sin scores válidos) cae en `SCORE_MISSING` → `games_in_series=0` → guard `if base_er and series_ctx.get("games_in_series", 0) >= 1` en `mlb_day_orchestrator.py:3273` no activa la degradación → ER permanece intacta.
-- UI: muestra "La serie actual todavía no tiene partidos finalizados." en vez de "G1: 0-0, Promedio 0.0, Over rate 0%".
-
-### Sub-fase D9.3-B — Señal matemática weighted + shrinkage + CV (CERRADO ✅ 2026-06-18)
-
-#### Implementación entregada
-- ✅ Nuevo módulo puro: **`backend/services/mlb_series_total_signal.py`** con `calculate_series_total_signal(...)`.
-  - Pesos por recencia: `(1.00, 0.75, 0.55, 0.40, 0.30)` — el más reciente recibe 1.0.
-  - Pesos por bloque: `ACTIVE_SERIES_WEIGHT=1.0` vs `PREVIOUS_SERIES_H2H_WEIGHT=0.45`.
-  - Shrinkage: `reliability = n_effective / (n_effective + 3)` donde `n_effective = n_active * 1.0 + n_h2h * 0.45`.
-  - Cap de influencia sobre proyección base: **30 %**. Clamp final del ajuste a **±1.25 carreras**.
-  - `series_edge_runs = adjusted_expected_runs - market_total`, con bandas `STRONG_UNDER / MODERATE_UNDER / NEUTRAL / MODERATE_OVER / STRONG_OVER`.
-  - Variabilidad: `mean / median / std / min / max / cv` + bandas `STABLE (<0.20) / MEDIUM (0.20–0.35) / VOLATILE (>0.35)`.
-  - `series_slope`: regresión lineal por mínimos cuadrados sólo con la serie activa; guard `INSUFFICIENT_SAMPLE_FOR_SERIES_TREND` si n<3.
-  - **`series_context_score ∈ [-10, +10]`** con desglose por componente:
-    - `edge_runs = clamp(series_edge_runs * 2.5, -4, +4)`
-    - `slope = clamp(series_slope, -2, +2)` (0 si n<3)
-    - `bullpen_fatigue` (input opt-in, clamp ±3)
-    - `pitching_matchup` (input opt-in, clamp ±3)
-    - `variance` (atenuación según CV: STABLE→×0.80, MEDIUM→×0.60, VOLATILE→×0.30; clamp ±2)
-    - score final clampado a ±10.
-  - `confidence_modifier = clamp(score * 0.5, -5, +5)` — respeta el cap explícito del usuario.
-  - Reason codes: `LIMITED_SAMPLE_SERIES_SIGNAL`, `INSUFFICIENT_SAMPLE_FOR_SERIES_TREND`, `NO_BASE_EXPECTED_RUNS`, `NO_MARKET_TOTAL`, `NO_SERIES_SAMPLE`.
-  - `observe_only: True` siempre.
-- ✅ Cableado en `mlb_day_orchestrator.py` como observe_only:
-  - Sub-bloque **M3.5** después de M3 (`series_degradation`).
-  - Sólo se computa cuando `series_ctx.series_state == "ACTIVE_SERIES_CONFIRMED"` (evita la clase de bug del 0-0 fantasma).
-  - **NO** mutamos `_mlb_script_v2.expectedRuns` con la señal: el adjusted_er viaja sólo en `pick_payload["series_total_signal"]` como audit/info. Las interacciones con el pipeline final llegan en D9.3-C.
-- ✅ Frontend `MLBScriptPanel.jsx` extendido:
-  - Nuevo prop `seriesTotalSignal`.
-  - Sub-bloque visual dentro del card "Contexto de serie activa" con:
-    - Badge `Score serie: <signo>N.N · {Apoya Over | Apoya Under | Neutral}` (tone rose/sky/slate).
-    - "ER ajustado por serie: X.XX · vs línea: ±Y.Y" con color según signo.
-    - Lista desglose: "Promedio ajustado de serie / Tendencia de carreras / Bullpen fatigado / Abridores de hoy / Variabilidad (Estable|Media|Volátil)".
-    - Si `|confidence_modifier| ≥ 0.5` → muestra "Conf: ±N pts".
-  - `data-testid`: `-series-signal`, `-series-score`, `-series-adjusted-er`, `-series-score-breakdown`.
-- ✅ Wiring desde `MatchCard.jsx` y `MatchDetailPage.jsx` con prop `seriesTotalSignal={m.series_total_signal || null}`.
-- ✅ Tests: **26 tests nuevos** en `backend/tests/test_mlb_series_total_signal.py`:
-  - Fail-soft: inputs vacíos / None / inválidos.
-  - Pesos por recencia + pesos por bloque (active vs H2H).
-  - Shrinkage: `1/(1+3)=0.25`, crecimiento con n, clamp ±1.25 al extremo.
-  - Edge bands: NEUTRAL, STRONG_UNDER; None cuando falta market_total.
-  - Slope: INSUFFICIENT_SAMPLE_FOR_SERIES_TREND con n<3, EXPANSION_STRONG con tendencia +, CONTRACTION_STRONG con tendencia −.
-  - CV bandas: STABLE, VOLATILE.
-  - Score: desglose con todas las keys, clamp a ±10 con bullpen+pitching saturados, score negativo cuando edge negativo + contracción + bullpen negativo, confidence_modifier = score/2 en rango lineal, capeado a ±5.
-  - Reason codes: LIMITED_SAMPLE_SERIES_SIGNAL, NO_BASE_EXPECTED_RUNS, observe_only siempre.
-
-#### Validación
-- ✅ pytest backend completo: **3832 passed / 2 skipped** (3806 base + 26 nuevos), 0 regresiones.
-- ✅ esbuild MLBScriptPanel.jsx, MatchCard.jsx, MatchDetailPage.jsx: clean.
-- ✅ Supervisor: backend + frontend + mongodb RUNNING.
-
-#### Pendiente para D9.3-C
-- Computar `bullpen_fatigue_component` y `pitching_matchup_component` a partir de datos reales (no defaults a 0).
-- Slope-aware policy en el motor (escalonar `series_degradation` con la pendiente).
-- Anti-double-counting con familiaridad H2H: si `active_series_games` ∩ `recent_h2h_games` ≠ ∅ → no contar dos veces.
-
-### Sub-fase D9.3-C — Interacciones pitching/bullpen + slope + anti-double-counting (CERRADO ✅ 2026-06-18)
-
-#### Entregables
-- ✅ **`mlb_pitcher_series_degradation.py`** ahora acepta `slope_band` opcional:
-  - Multiplica sólo `in_series_component` (no toca `starter_component` físiológico):
-    - `CONTRACTION_STRONG` → 0.50 (corta a la mitad la inflación G2/G3)
-    - `CONTRACTION_LIGHT`  → 0.75
-    - `STABLE / INSUFFICIENT / UNKNOWN` → 1.00 (back-compat)
-    - `EXPANSION_LIGHT`    → 1.10
-    - `EXPANSION_STRONG`   → 1.25
-  - Nuevas keys en el output: `in_series_component`, `starter_component`, `slope_band`, `slope_multiplier`.
-- ✅ **`mlb_series_total_signal.py`** anti-double-counting:
-  - Nuevo helper `_deduplicate_h2h_against_active(active, h2h)` que normaliza kickoff/date a `YYYY-MM-DD` y elimina H2H que comparten día con la serie activa.
-  - Surface en payload: `n_h2h_removed_for_overlap` + reason code `H2H_OVERLAP_DEDUPED`.
-  - `_normalise_games` preserva `kickoff/date/gameDate` para detectar overlap.
-- ✅ **`mlb_day_orchestrator.py` M3.5** ahora deriva los componentes desde datos reales:
-  - `bullpen_fatigue_component = (50 - bull.score) / 50 * 3` → ∈ [-3, +3]; fresh ⇒ -3 (suprime Over), fatigado ⇒ +3.
-  - `pitching_matchup_component = (50 - (h_q.score + a_q.score)/2) / 50 * 3` → élite vs élite ⇒ -3, abridores malos ⇒ +3.
-  - `sig["_inputs"]` expone los scores crudos para QA.
-  - Nuevo paso post-señal: **slope-aware degradation re-apply** — usa `expectedRunsRaw` (pre-M3) y re-calcula `apply_series_degradation(slope_band=sig.slope_band)`, propagando al `v2_block.expectedRuns` final. Sólo se activa cuando el slope es informativo (no STABLE/INSUFFICIENT/UNKNOWN).
-- ✅ **Tests nuevos** (`backend/tests/test_mlb_d9_3_c_interactions.py`, 20 tests):
-  - Back-compat sin `slope_band`.
-  - Cada banda CONTRACTION/STABLE/EXPANSION con su multiplicador exacto.
-  - `starter_component` NO se ve afectado por slope.
-  - G1 inalterado independiente del slope.
-  - Constantes `SLOPE_MULTIPLIERS` validadas.
-  - Dedup H2H con mismo día, con timestamp ISO, sin kickoff (no-op), active sin kickoff (no-op).
-  - Reason code `H2H_OVERLAP_DEDUPED` y `n_h2h_removed_for_overlap`.
-  - Fórmulas de componentes bullpen/pitching validadas en los 3 extremos (fresh/neutral/fatigado) y propagación al score_breakdown.
-
-#### Validación
-- ✅ pytest backend: **3852 passed / 2 skipped** (3832 base + 20 nuevos), 0 regresiones.
-- ✅ esbuild FE: clean.
-
-### Sub-fase D9.3-C (deprecated planning header) — DEPRECATED
-- Implementar `calculate_series_total_signal(current_expected_runs, market_total, active_series_games, recent_h2h_games, starting_pitching_projection, bullpen_projection)`.
-- Weighted runs:
-  - pesos por recencia: 1.00 / 0.75 / 0.55 / 0.40 / 0.30.
-  - peso de juegos de serie activa: 1.0.
-  - peso de H2H de series previas: 0.45.
-- Shrinkage:
-  - `series_reliability = n/(n+3)`.
-  - cap de influencia: máx 30% de la proyección.
-  - clamp de ajuste: [-1.25, +1.25].
-- `series_edge_runs = adjusted_expected_runs - market_total` con bandas interpretables.
-- Métricas: mean, median, std, min, max, CV.
-
-### Sub-fase D9.3-C (deprecated planning header 2) — DEPRECATED
-- Tendencia:
-  - `series_slope = linear_regression_slope(game_number, total_runs)`.
-  - Guard: `INSUFFICIENT_SAMPLE_FOR_SERIES_TREND` si n<3.
-- Interacciones:
-  - `pitching_delta`, `bullpen_delta` y reason codes explicativos.
-- Evitar doble conteo:
-  - si hay overlap `active_series_games` vs `recent_h2h_games` → `do_not_double_count=True`.
+Sin cambios (ver bitácora previa; D9.3-A/B/C cerradas).
 
 ---
 
 ## SPRINT D9.2 — Block C: Residual Model con xG real (CONFIRMADO, PENDIENTE)
 
-### Decisión usuario (confirmada)
-- Estrategia: **cache-first agresivo** (fetch 1× por equipo+temporada en Mongo `football_team_xg_history`), y **PIT-filter en memoria** por `match_date < target_date`.
-- Scope: **top5_2425** únicamente.
-- Cobertura parcial: añadir feature `xg_real_available` (0/1).
-- Criterio Bonferroni estricto: **AUC > 0.55 ∧ delta_brier < 0 ∧ roi_ci_low > 0**.
-
-### Plan (a ejecutar después de D9.3)
-1) Añadir wrapper PIT-safe:
-   - Dado `team_xg_history.matches[]` (fecha,xG), filtrar **solo** `dt < match_dt` antes de `compute_xg_features_l15`.
-2) Expandir `FEATURE_NAMES` en `backend/scripts/run_d9_residual_backtest.py`:
-   - `xg_l15_mean`, `xg_l15_std`, `xg_l15_dispersion`, `xg_real_available`.
-3) Modificar `_gather_records`:
-   - hidratar xG real por equipo+temporada (cache-first),
-   - calcular features PIT por cada match,
-   - mantener fail-soft (si no hay xG: features None + flag 0).
-4) Reportar coverage en `train_audit`:
-   - % de filas con `xg_real_available=1` (train/holdout).
-5) Clasificación/veredicto:
-   - aplicar criterio Bonferroni (nuevo tag `NO_INCREMENTAL_SIGNAL_WITH_XG_REAL` si falla).
-6) Ejecutar backtest:
-   - generar `/app/diagnostics/residual_d9_2c_over_2_5_top5_2425.json`.
-7) Tests:
-   - wrapper PIT-filter (no usa partidos futuros),
-   - coverage flag,
-   - criterio Bonferroni aplicado correctamente.
+Sin cambios (ver bitácora previa).

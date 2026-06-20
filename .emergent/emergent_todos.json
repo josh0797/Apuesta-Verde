@@ -1,22 +1,22 @@
 [
   {
-    "content": "D12.1 — mlb_bullpen_stress.py con compute_bullpen_stress + assess_reliever_availability",
+    "content": "B1: Fix wire intra-módulo en compute_expected_runs_distribution (pasar overlay_* a _compute_effective_dispersion)",
     "status": "completed"
   },
   {
-    "content": "D12.2 — mlb_domino_risk.py con compute_domino_risk + HIGH/EXTREME por starter_vol + bullpen_stress + long_relief",
+    "content": "B2: Invocar compute_total_risk_overlay en orquestador M5.6 + recalcular distribution NB con overlay_* cuando verdict AVOID/BLOCK",
     "status": "completed"
   },
   {
-    "content": "D12.3 — mlb_total_risk_overlay.py: aggregator final con verdict (ALLOW/WARN/AVOID/BLOCK) + dispersion calibration (1.0/1.15/1.35/1.80) + 6 reason codes + editorial_summary + debug",
+    "content": "B3: Tests unitarios distribution + integration test orquestador (sin regresiones)",
     "status": "completed"
   },
   {
-    "content": "D12.4 — Tests Nivel 2: 31 tests verdes (6 reliever availability, 8 bullpen stress, 4 domino risk, 13 total overlay con verdicts, dispersion, reason codes y editorial)",
+    "content": "F1: Componente 'Riesgos ocultos del Under' en MLBScriptPanel.jsx (6 cards grid 2x3 + verdict + reason codes ES)",
     "status": "completed"
   },
   {
-    "content": "D12.5 — Pytest backend completo (3983 passed, 0 regresiones)",
+    "content": "Validación final: backend 3996 passed / FE 16 nuevos + 198 prev verdes / 2 fallos pre-existentes no relacionados",
     "status": "completed"
   }
 ]

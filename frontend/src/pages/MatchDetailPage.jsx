@@ -332,6 +332,7 @@ export default function MatchDetailPage() {
                   activeSeriesContext={llmPick.active_series_context || null}
                   seriesDegradation={llmPick.series_degradation || null}
                   seriesTotalSignal={llmPick.series_total_signal || null}
+                  totalRiskOverlay={llmPick.total_risk_overlay || null}
                   modelVerification={llmPick.model_verification || null}
                   activeSeriesBlock={llmPick.active_series_block || null}
                   chosenMarket={llmPick.recommendation?.market || null}

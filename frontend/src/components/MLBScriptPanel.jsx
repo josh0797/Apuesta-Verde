@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, Target, Activity, Gauge, Link as LinkIcon, AlertTriangle, Shield } from 'lucide-react';
+import { UnderHiddenRisksCard } from './UnderHiddenRisksCard';
 
 /**
  * MLBScriptPanel — visualises the v2 Margin & Total Script Engine output.
@@ -77,6 +78,7 @@ export function MLBScriptPanel({
   activeSeriesContext = null,
   seriesDegradation = null,
   seriesTotalSignal = null,    // D9.3-B — quantitative signal + score breakdown
+  totalRiskOverlay = null,     // D12 — Under hidden risks overlay (6 pillars + verdict)
   modelVerification = null,
   activeSeriesBlock = null,
   chosenMarket = null,        // e.g. "Run Line", "Total Runs Over", etc.
@@ -867,6 +869,14 @@ export function MLBScriptPanel({
               ) : null}
             </div>
           ) : null}
+
+          {/* D12 — "Riesgos ocultos del Under" overlay (6-pillar card).
+              Solo se renderiza cuando el orquestador adjuntó el payload
+              (UNDER picks con under_explosion_risk activo). Read-only. */}
+          <UnderHiddenRisksCard
+            totalRiskOverlay={totalRiskOverlay}
+            testId={`${testId || 'mlb-script'}-under-hidden-risks`}
+          />
         </div>
       )}
     </div>
