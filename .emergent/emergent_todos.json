@@ -1,26 +1,18 @@
 [
   {
-    "content": "Sub-fase 1.1: Descargar 3 temporadas adicionales",
+    "content": "Sprint Corner-2 / Sub-fase C2.1: Ingestor Understat (12/12 jobs OK, 4338 matches)",
     "status": "completed"
   },
   {
-    "content": "Sub-fase 1.1b: Liga MX excluida (sin HC/AC)",
+    "content": "Sub-fase C2.2+C2.3: Matching fuzzy 99.91% (4334/4338). Dataset enriquecido creado",
     "status": "completed"
   },
   {
-    "content": "Sub-fase 1.2: Dataset unificado 4338 partidos creado",
+    "content": "Sub-fase C2.4: Pipeline cuantitativo Fase 1.5 ejecutado. 0/58 features cruzan |r|>=0.15. R² conjunto 0.0211. PERO DOMINANT_FAVORITE→Most Corners revalidado con n=851, win_rate=83.65%, z=25.65",
     "status": "completed"
   },
   {
-    "content": "Sub-fase 1.3: Estudio cuantitativo ejecutado. Hallazgo: 0/46 features supervivientes, R² conjunto top-10 = 0.0210",
-    "status": "completed"
-  },
-  {
-    "content": "Sub-fase 1.4: Reporte markdown + stats JSON generados",
-    "status": "completed"
-  },
-  {
-    "content": "Sub-fase 1.5: pytest 4421 passed / 2 skipped / 0 failures — cero regresiones confirmadas",
+    "content": "Sub-fase C2.5: pytest 4421 passed / 0 failures - cero regresiones",
     "status": "completed"
   }
 ]

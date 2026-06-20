@@ -263,6 +263,48 @@
 
 ---
 
+## Phase Sprint Corner-2 — Datos ricos (Understat) — **✅ COMPLETADA (P0)**
+
+> **Alcance:** ingerir datos avanzados (xG, xGA, npxG, deep, PPDA, forecast) desde Understat y re-evaluar el techo del modelo. Pivote propuesto: validar DOMINANT_FAVORITE → Most Corners sobre el dataset ampliado.
+
+### Resumen ejecutivo
+
+- **Ingesta Understat**: 12/12 jobs OK (4 ligas × 3 temporadas), 4338 partidos con 100% de cobertura en xG/xGA/npxG/deep/PPDA/forecast.
+- **Merge con dataset base**: 99.91% match rate (4334/4338) tras aplicar alias canónico de equipos (Man United, Dortmund, RB Leipzig, etc.).
+- **Re-evaluación cuantitativa**: 0/58 features (clásicas + ricas) cruzan |r| ≥ 0.15 para `total_corners`. R² conjunto top-10 OLS = **0.0211** (Fase 1: 0.0210). **Los datos ricos NO mueven la aguja en regresión sobre total_corners.**
+- **Top feature global**: `sum_deep_allowed_L15` con r=0.0925 (rich), apenas supera a las clásicas.
+
+### Validación DOMINANT_FAVORITE → Most Corners (revalidación del Sprint D8)
+
+| Métrica                       | Sprint D8 original | Sprint Corner-2 (ahora) |
+|-------------------------------|--------------------|--------------------------|
+| Tamaño de muestra             | 90                 | **851**                  |
+| Win rate Most Corners         | 81.11%             | **83.65%**               |
+| Estadística                   | t=9.68             | **z=25.65**              |
+| Diff promedio de córners      | 4.63               | **3.82** (σ=4.28)        |
+| Consistencia por liga         | n/d                | **78–86%** (EPL 85.34%, Serie A 86.17%, La Liga 83.54%, Bundesliga 78.69%) |
+| Por venue del favorito        | n/d                | **home 84.58% / away 80.12%** |
+
+**Hallazgo robustísimo y replicado**. Es la base del Sprint Corner-1 (motor Most Corners).
+
+### Entregables
+
+- `/app/backend/scripts/ingest_understat_corners.py` — ingestor (12 jobs, cache local en `/app/data/corners_history/understat_raw/`).
+- `/app/data/corners_history/understat_matches_consolidated.json` — 4338 matches Understat.
+- `/app/backend/scripts/merge_corners_with_understat.py` — merger con alias canónico (99.91% cobertura).
+- `/app/data/corners_history/all_leagues_enriched_dataset.json` — dataset enriquecido final.
+- `/app/backend/scripts/run_corner_momentum_study_phase15.py` — pipeline cuantitativo extendido.
+- `/app/diagnostics/corner_momentum_study_phase15_stats.json` y `corner_momentum_study_phase15_report.md`.
+
+### Restricciones cumplidas
+
+- ✅ Cero cambios al código de producción.
+- ✅ Cero APIs de pago (Understat es gratis, scraping de endpoint AJAX legítimo con 1s entre requests).
+- ✅ Pytest backend completo: **4421 passed / 2 skipped / 0 failures**.
+
+---
+
+
 ## Phase Corner Momentum Study — Fase 1 (Opción B) — **✅ COMPLETADA**
 
 > **Alcance:** SOLO evidencia cuantitativa (no diseño de motor, no heurísticas, no integración). Fuentes gratis. Sin consumo de créditos.
@@ -435,7 +477,11 @@ Tres caminos posibles, ordenados por costo/beneficio:
 ## 3) Pendientes y siguientes pasos
 
 ### Pendientes P0 (actual)
-- ✅ **Corner Momentum Study — Fase 1 (Opción B)** completada. Esperando decisión del usuario sobre cómo proceder: (a) relajar umbral a 0.10, (b) cambiar a fuente con xG, (c) pivotear el mercado.
+- ✅ **Corner Momentum Study — Fase 1 (Opción B)** completada.
+- ✅ **Sprint Corner-2 (datos ricos)** completada. Hallazgos:
+  - 0/58 features (clásicas+ricas) cruzan |r| ≥ 0.15 para `total_corners` (techo R²≈2%, no se mueve con datos ricos).
+  - **DOMINANT_FAVORITE → Most Corners REVALIDADO** sobre n=851 (vs n=90 original): win_rate=83.65%, z=25.65, consistencia por liga 78-86%, por venue 80-85%.
+- ⏳ Esperando decisión del usuario para Sprint C1 (motor Most Corners) y/o Sprint C3 (mercados específicos: Team Corners Over X, Asian Corners).
 
 ### Pendientes P1
 - 🟡 **SPRINT D5** (histórico en curso): cohortes + reportes multi-competición.
