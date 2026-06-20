@@ -1,14 +1,22 @@
 [
   {
-    "content": "F98 — Football ingest hotfix COMPLETO (utc_date mapping + purge job + UI filter + 11 tests + 4333 passed)",
+    "content": "F99.1 — Identificado: bloque MLB STATCAST DEEP INTEGRATION Phase 9 (lines 2579-2689, ~110 líneas, self-contained)",
     "status": "completed"
   },
   {
-    "content": "F98.6 — Screenshot full-page del UI post-fix: 10 partidos reales analizados (vs stale del mes pasado)",
+    "content": "F99.2 — mlb_day_context_builder.py creado con apply_statcast_phase9_adjustments() (181 líneas)",
     "status": "completed"
   },
   {
-    "content": "F99 — Propuesta concreta para refactor controlado (analyze_mlb_day = 5,943 líneas monólito; ejecutar como turno separado)",
+    "content": "F99.3 — Bloque inline sustituido: orchestrator pasó de 6359 → 6259 líneas (−100)",
+    "status": "completed"
+  },
+  {
+    "content": "F99.4 — Tests F99 completos: 15/15 passing (golden equivalence + smoke + football/basketball intactos + idempotencia + fail-soft)",
+    "status": "completed"
+  },
+  {
+    "content": "F99.5 — pytest completo: 4348 passed / 2 skipped (+15 vs F98; 0 regresiones)",
     "status": "completed"
   }
 ]
