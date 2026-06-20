@@ -3671,6 +3671,120 @@ async def analyze_mlb_day(
             except Exception as exc_d12:
                 log.debug("total_risk_overlay (D12) compute failed: %s", exc_d12)
 
+            # ── M5.7 (D13): Matchup Familiarity Overlay ──────────────
+            # Observe-only contextual overlay (TOTALS market). Fetches
+            # H2H games over a 15-day window via the active-series
+            # analyzer and feeds them to the pure overlay module. NEVER
+            # mutates the pick: only publishes the audit payload on
+            # `pick_payload["matchup_familiarity_overlay"]`.
+            try:
+                from .mlb_matchup_familiarity_overlay import (
+                    calculate_matchup_familiarity_overlay,
+                )
+                # Pull a 15-day H2H window (uses the same query path as
+                # M1 active-series, but with extended lookback).
+                _h2h_ctx_15d = await get_active_series_context(
+                    db, home_name, away_name, date_str,
+                    days_back=15,
+                    model_expected_runs=base_er,
+                    over_under_line=float(v2_block.get("smartTotalsLine") or 9.5),
+                )
+                _recent_h2h_games = (
+                    _h2h_ctx_15d.get("games_detail") or []
+                    if isinstance(_h2h_ctx_15d, dict) else []
+                )
+                # Enrich each game with bullpen pitch counts at the
+                # series level (available on the context, not per-game).
+                _bullpen_home_series = (
+                    _h2h_ctx_15d.get("bullpen_pitches_home") or 0
+                    if isinstance(_h2h_ctx_15d, dict) else 0
+                )
+                _bullpen_away_series = (
+                    _h2h_ctx_15d.get("bullpen_pitches_away") or 0
+                    if isinstance(_h2h_ctx_15d, dict) else 0
+                )
+                _enriched_games = []
+                for _ig, _g in enumerate(_recent_h2h_games):
+                    _gd = dict(_g) if isinstance(_g, dict) else {}
+                    # Only stamp bullpen totals on the LATEST game so we
+                    # don't double-count across all entries.
+                    if _ig == len(_recent_h2h_games) - 1:
+                        if _bullpen_home_series:
+                            _gd.setdefault("bullpen_pitch_count_home", _bullpen_home_series)
+                        if _bullpen_away_series:
+                            _gd.setdefault("bullpen_pitch_count_away", _bullpen_away_series)
+                    _enriched_games.append(_gd)
+
+                _rec_mfo = pick_payload.get("recommendation") or {}
+                _sel_mfo = str(_rec_mfo.get("selection") or "").upper()
+                _market_mfo = str(_rec_mfo.get("market") or "").upper()
+                if "UNDER" in _sel_mfo or "UNDER" in _market_mfo:
+                    _pick_side_mfo = "UNDER"
+                    _pick_market_mfo = "TOTAL"
+                elif "OVER" in _sel_mfo or "OVER" in _market_mfo:
+                    _pick_side_mfo = "OVER"
+                    _pick_market_mfo = "TOTAL"
+                elif "RUN LINE" in _market_mfo or "RUNLINE" in _market_mfo:
+                    _pick_side_mfo = "HOME_RL" if "HOME" in _sel_mfo else "AWAY_RL"
+                    _pick_market_mfo = "RUNLINE"
+                elif "MONEYLINE" in _market_mfo or "ML" in _market_mfo:
+                    _pick_side_mfo = "HOME" if "HOME" in _sel_mfo else "AWAY"
+                    _pick_market_mfo = "MONEYLINE"
+                else:
+                    _pick_side_mfo = "OVER"
+                    _pick_market_mfo = "TOTAL"
+
+                _mfo_ctx = {
+                    "home_team":           home_name,
+                    "away_team":           away_name,
+                    "game_date":           date_str,
+                    "current_pick_market": _pick_market_mfo,
+                    "current_pick_side":   _pick_side_mfo,
+                    "current_line":        float(v2_block.get("smartTotalsLine") or 9.5),
+                    "recent_h2h_games":    _enriched_games,
+                    "bullpen_usage": {
+                        "home": locals().get("h_bullpen_usage") or {},
+                        "away": locals().get("a_bullpen_usage") or {},
+                    },
+                    "starter_info": {
+                        "home_starter": (conf.get("home_starter") or {}).get("name")
+                                          if isinstance(conf.get("home_starter"), dict) else None,
+                        "away_starter": (conf.get("away_starter") or {}).get("name")
+                                          if isinstance(conf.get("away_starter"), dict) else None,
+                    },
+                    "lineups":             {},  # populated in a later sprint
+                }
+                _mfo_out = calculate_matchup_familiarity_overlay(_mfo_ctx)
+                pick_payload["matchup_familiarity_overlay"] = _mfo_out
+                pipeline_meta["matchup_familiarity_overlay"] = {
+                    "available":         _mfo_out.get("available"),
+                    "recent_h2h_found":  _mfo_out.get("recent_h2h_found"),
+                    "h2h_window":        _mfo_out.get("h2h_window"),
+                    "games_count":       _mfo_out.get("games_count"),
+                    "bucket":            _mfo_out.get("bucket"),
+                    "familiarity_score": _mfo_out.get("familiarity_score"),
+                    "totals_lean":       (_mfo_out.get("totals_overlay") or {}).get("lean"),
+                    "totals_points":     (_mfo_out.get("totals_overlay") or {}).get("points"),
+                    "reason_codes":      _mfo_out.get("reason_codes") or [],
+                }
+                if _mfo_out.get("recent_h2h_found"):
+                    log.info(
+                        "[D13_MFO] match=%s window=%s bucket=%s score=%.1f"
+                        " lean=%s pts=%.2f",
+                        pick_payload.get("matchId") or pick_payload.get("match_id"),
+                        _mfo_out.get("h2h_window"),
+                        _mfo_out.get("bucket"),
+                        float(_mfo_out.get("familiarity_score") or 0),
+                        (_mfo_out.get("totals_overlay") or {}).get("lean"),
+                        float((_mfo_out.get("totals_overlay") or {}).get("points") or 0),
+                    )
+            except Exception as exc_mfo:
+                log.debug("matchup_familiarity_overlay (D13) compute failed: %s", exc_mfo)
+                pick_payload["matchup_familiarity_overlay"] = {
+                    "available": False,
+                    "error": f"{type(exc_mfo).__name__}",
+                }
+
             # ── Recalibración NB por bucket (PASIVO en OBSERVING) ────
             # Phase 1: bucket dispersion ratio always overrides the global
             # ratio when an apply-eligible whitelisted bucket matches.

@@ -52,6 +52,9 @@ from services.football_historical_ingestor import (                         # no
 from services.football_residual_model import (                              # noqa: E402
     fit_residual_model, identity_model,
 )
+from services.football_residual_verdict_classifier import (                 # noqa: E402
+    classify_residual_verdict, DEFAULT_ALPHA,
+)
 
 log = logging.getLogger("d9_residual_backtest")
 
@@ -84,7 +87,8 @@ def _gather_records(market: str, files: list[tuple[str, str]]) -> list[dict]:
     for fn, comp in files:
         path = CSV_DIR / fn
         if not path.exists():
-            log.warning("Missing CSV %s — skipping", fn); continue
+            log.warning("Missing CSV %s — skipping", fn)
+            continue
         matches = parse_football_data_csv(path.read_text(), competition=comp)
         bt = run_backtest(
             matches, market=market, no_market=False,
@@ -275,57 +279,37 @@ def _diagnostics_for(preds: list[dict], which: str) -> dict:
 
 
 def _classify(diag_resid: dict, diag_market: dict, diag_dc: dict,
-                boot_brier: dict, train_audit: dict) -> dict:
-    """Apply the rubric requested by the user."""
-    tags: list[str] = []
-    br_r = diag_resid["model_vs_market"]["brier_model"]
-    br_d = diag_resid["model_vs_market"]["brier_market_devig"]
-    ll_r = diag_resid["model_vs_market"]["logloss_model"]
-    ll_d = diag_resid["model_vs_market"]["logloss_market_devig"]
-    cal  = diag_resid["calibration"]
-    # Overfit signal: residual model is much better on train than holdout.
-    overfit_signal = False
-    if isinstance(train_audit, dict):
-        # Iterate possible nesting.
-        leaves = []
-        if "pooled" in train_audit:
-            leaves = [train_audit["pooled"]]
-        else:
-            leaves = list(train_audit.values())
-        for leaf in leaves:
-            if not isinstance(leaf, dict):
-                continue
-            dt = leaf.get("delta_train_brier")
-            if dt is not None and dt < -0.01 \
-                    and br_r is not None and br_d is not None \
-                    and (br_r - br_d) > 0.005:
-                overfit_signal = True
-                break
-    # Decide.
-    boot_p = boot_brier.get("p_below_zero")
-    if (br_r is not None and br_d is not None
-            and br_r < br_d
-            and ll_r is not None and ll_d is not None and ll_r < ll_d
-            and boot_p is not None and boot_p >= 0.95):
-        tags.append("RESIDUAL_BEATS_MARKET_OUT_OF_SAMPLE")
-    elif (cal.get("slope") is not None
-            and 0.85 <= cal["slope"] <= 1.15
-            and abs(cal.get("intercept") or 0) < 0.05
-            and br_r is not None and br_d is not None
-            and br_r >= br_d):
-        tags.append("RESIDUAL_IMPROVES_CALIBRATION_ONLY")
-    else:
-        tags.append("NO_INCREMENTAL_SIGNAL_WITH_CURRENT_FEATURES")
-    if overfit_signal:
-        tags.append("RESIDUAL_OVERFIT_DETECTED")
-    return {"tags": tags}
+                boot_brier: dict, train_audit: dict,
+                boot_logloss: dict = None,
+                *,
+                alpha: float = DEFAULT_ALPHA,
+                m_tests: int = 1) -> dict:
+    """Delegate to the pure verdict classifier with Bonferroni-strict
+    multiple-testing correction (Sprint D9.2-C).
+
+    Backward compatible: if `boot_logloss` is None (legacy callers),
+    Bonferroni still applies to Brier and LogLoss is reported as
+    unavailable.
+    """
+    return classify_residual_verdict(
+        diag_residual=diag_resid,
+        diag_market=diag_market,
+        diag_dc=diag_dc,
+        boot_brier=boot_brier or {},
+        boot_logloss=boot_logloss or {},
+        train_audit=train_audit,
+        alpha=alpha,
+        m_tests=m_tests,
+    )
 
 
 def _run_one(scope_name: str, files: list[tuple[str, str]],
               market: str, *, lambda_l2: float,
-              out_dir: Path, multi_season_holdout: str = None) -> dict:
-    log.info("=== scope=%s market=%s lambda=%s ===",
-              scope_name, market, lambda_l2)
+              out_dir: Path, multi_season_holdout: str = None,
+              alpha: float = DEFAULT_ALPHA,
+              m_tests: int = 1) -> dict:
+    log.info("=== scope=%s market=%s lambda=%s alpha=%s m=%s ===",
+              scope_name, market, lambda_l2, alpha, m_tests)
     records = _gather_records(market, files)
     if not records:
         return {"scope": scope_name, "market": market,
@@ -355,7 +339,8 @@ def _run_one(scope_name: str, files: list[tuple[str, str]],
         [int(p["hit"]) for p in preds], "logloss",
     )
     verdict = _classify(diag_resid, diag_market, diag_dc, boot_brier,
-                          train_audit)
+                          train_audit, boot_logloss=boot_logloss,
+                          alpha=alpha, m_tests=m_tests)
     report = {
         "scope":           scope_name,
         "market":          market,
@@ -369,6 +354,9 @@ def _run_one(scope_name: str, files: list[tuple[str, str]],
         "bootstrap_brier_resid_vs_market":   boot_brier,
         "bootstrap_logloss_resid_vs_market": boot_logloss,
         "verdict":         verdict,
+        # D9.2-C: surface the Bonferroni audit block at the top-level
+        # of the report for easy downstream consumption.
+        "bonferroni":      verdict.get("bonferroni") or {},
         "observe_only":    True,
         # Persist the per-row triplet for downstream UI plotting.
         "rows": [
@@ -389,14 +377,29 @@ def _run_one(scope_name: str, files: list[tuple[str, str]],
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="D9.1 — Residual model backtest (offline)")
+        description="D9.1 / D9.2-C — Residual model backtest with "
+                    "Bonferroni-strict multiple-testing correction.")
     p.add_argument("--markets", default="OVER_2_5",
                     help="Coma-separados (default OVER_2_5).")
     p.add_argument("--lambda-l2", type=float, default=LAMBDA_L2_DEFAULT)
     p.add_argument("--out-dir", default=str(OUT_DIR))
+    # ── D9.2-C: Bonferroni controls ──────────────────────────────────
+    p.add_argument(
+        "--alpha", type=float, default=DEFAULT_ALPHA,
+        help=("Familywise type-I error rate (default 0.05). With "
+              "Bonferroni this is divided by the total number of "
+              "hypothesis tests in the sweep."),
+    )
+    p.add_argument(
+        "--bonferroni-m", type=int, default=None,
+        help=("Override the total number of simultaneous tests "
+              "(m). If omitted, m is auto-computed as "
+              "n_combinations × 2 (Brier + LogLoss)."),
+    )
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
     markets = [m.strip() for m in args.markets.split(",") if m.strip()]
 
     scopes_single = {
@@ -417,21 +420,38 @@ def main() -> int:
         ], "24-25"),
     }
 
+    # ── D9.2-C: Auto-compute m_tests for Bonferroni ──────────────────
+    n_combinations = len(markets) * (len(scopes_single) + len(scopes_multi))
+    # Each combination runs 2 tests: ΔBrier + ΔLogLoss.
+    auto_m = max(1, n_combinations * 2)
+    m_tests = args.bonferroni_m if args.bonferroni_m is not None else auto_m
+    log.info(
+        "[D9.2-C] Bonferroni: alpha=%.4f m_tests=%d (auto=%d) → "
+        "alpha_adjusted=%.6f cutoff=%.6f",
+        args.alpha, m_tests, auto_m,
+        args.alpha / m_tests, 1.0 - args.alpha / m_tests,
+    )
+
     index: list[dict] = []
     for market in markets:
         for scope, files in scopes_single.items():
             rep = _run_one(scope, files, market,
-                              lambda_l2=args.lambda_l2, out_dir=out_dir)
+                              lambda_l2=args.lambda_l2, out_dir=out_dir,
+                              alpha=args.alpha, m_tests=m_tests)
             index.append({"scope": scope, "market": market,
                             "verdict": rep.get("verdict", {}).get("tags")})
         for scope, (files, hold) in scopes_multi.items():
             rep = _run_one(scope, files, market,
                               lambda_l2=args.lambda_l2, out_dir=out_dir,
-                              multi_season_holdout=hold)
+                              multi_season_holdout=hold,
+                              alpha=args.alpha, m_tests=m_tests)
             index.append({"scope": scope, "market": market,
                             "verdict": rep.get("verdict", {}).get("tags")})
     (out_dir / "_d9_1_index.json").write_text(json.dumps(index, indent=2))
-    print("\n=== D9.1 verdicts ===")
+    print("\n=== D9.1 / D9.2-C verdicts ===")
+    print(f"Bonferroni: alpha={args.alpha} m={m_tests} "
+          f"alpha_adj={args.alpha/m_tests:.6f} "
+          f"cutoff={1.0 - args.alpha/m_tests:.6f}")
     for r in index:
         print(f"  {r['market']:<10} {r['scope']:<22} → {r['verdict']}")
     return 0

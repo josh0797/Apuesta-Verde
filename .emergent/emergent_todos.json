@@ -1,22 +1,34 @@
 [
   {
-    "content": "B1: Fix wire intra-módulo en compute_expected_runs_distribution (pasar overlay_* a _compute_effective_dispersion)",
+    "content": "D13.1 Explorar mlb_active_series_analyzer + mlb_day_orchestrator para H2H data disponible (input/cableo)",
     "status": "completed"
   },
   {
-    "content": "B2: Invocar compute_total_risk_overlay en orquestador M5.6 + recalcular distribution NB con overlay_* cuando verdict AVOID/BLOCK",
+    "content": "D13.2 Crear módulo puro backend/services/mlb_matchup_familiarity_overlay.py (4 secciones: detección + métricas + score + totals_overlay)",
     "status": "completed"
   },
   {
-    "content": "B3: Tests unitarios distribution + integration test orquestador (sin regresiones)",
+    "content": "D13.3 Tests unitarios extensivos (46 tests, todos verdes)",
     "status": "completed"
   },
   {
-    "content": "F1: Componente 'Riesgos ocultos del Under' en MLBScriptPanel.jsx (6 cards grid 2x3 + verdict + reason codes ES)",
+    "content": "D13.4 Cableo en mlb_day_orchestrator exponiendo pick_payload['matchup_familiarity_overlay'] (observe-only, fail-soft)",
     "status": "completed"
   },
   {
-    "content": "Validación final: backend 3996 passed / FE 16 nuevos + 198 prev verdes / 2 fallos pre-existentes no relacionados",
+    "content": "D13.5 pytest backend completo: 4042 passed / 0 regresiones tras D13",
+    "status": "completed"
+  },
+  {
+    "content": "D9.2-C.1 Revisar /app/backend/scripts/run_d9_residual_backtest.py + entender corpus residual xG real",
+    "status": "completed"
+  },
+  {
+    "content": "D9.2-C.2 Módulo puro football_residual_verdict_classifier.py + Bonferroni estricto + CLI flags --alpha y --bonferroni-m + bloque bonferroni en reporte",
+    "status": "completed"
+  },
+  {
+    "content": "D9.2-C.3 Tests classifier (21 tests) + pytest backend completo: 4063 passed / 0 regresiones",
     "status": "completed"
   }
 ]

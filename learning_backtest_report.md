@@ -1,6 +1,6 @@
 # Learning Backtest Report — Sprint A · Football Pilot
 
-_Generated: 2026-06-20T03:02:32.594010+00:00_
+_Generated: 2026-06-20T03:49:08.309067+00:00_
 
 
 ## Scope
@@ -367,8 +367,8 @@ Retrospective validation of the Draw-Potential + simplified Over/BTTS/Corners he
 
 - ⚠️  Engine triggered `OVER_25_WOULD_TRIGGER` but the market `over_25` was not in the user's hit list.
 - ⚠️  Engine triggered `OVER_8_CORNERS_WOULD_TRIGGER` but the market `over_8_corners` was not in the user's hit list.
-- ❌ FALSE NEGATIVE — market `over_45_corners_1h` actually hit but engine did NOT trigger.
 - ❌ FALSE NEGATIVE — market `over_15_1h` actually hit but engine did NOT trigger.
+- ❌ FALSE NEGATIVE — market `over_45_corners_1h` actually hit but engine did NOT trigger.
 
 ## Global summary
 

@@ -94,6 +94,18 @@
 - Detectar discrepancias entre calidad de contacto ofensivo vs vulnerabilidad del abridor vs percepción por ERA.
 - **No generar picks automáticos**: solo output explicable con señales.
 
+### Objetivos nuevos / extendidos (D13) — MLB Matchup Familiarity Overlay (secundario, observe-only)
+- Implementar una capa contextual para MLB basada en enfrentamientos recientes (preferencia: últimos 15 días) que:
+  - NO sea pick principal.
+  - Aporte puntos secundarios (solo Totales en esta entrega) y auditabilidad total.
+  - Sea puro/fail-soft y cableado observe-only.
+
+### Objetivos nuevos / extendidos (D9.2-C) — Residual Model con xG real (Bonferroni estricto)
+- Fortalecer el backtest residual para evitar falsos positivos por múltiples comparaciones:
+  - Clasificador puro y testeable.
+  - Corrección Bonferroni estricta en el criterio de significancia.
+  - Auditoría explícita del umbral ajustado y resultados por métrica.
+
 ### Objetivos nuevos / extendidos (F87.1) — Fixture Discovery Contract Fix + Visible Audit (con Parte 1.5 upstream)
 **Objetivo global:** eliminar “pérdidas invisibles” de fixtures y permitir diagnóstico end-to-end.
 **Estado:** ✅ COMPLETADO.
@@ -287,10 +299,11 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
 - 🟡 **SPRINT D5** (histórico en curso): cohortes + reportes multi-competición.
 
 ### Pendientes P1
-- 🟡 **SPRINT D9.2 — Block C** Residual Model con xG real (después de D9.3).
 - 🟡 **REFACTOR-1** (pasos 2/3 y 3/3 + ingest_upcoming).
 - ⏳ **F84.c/F84.d** Lineups + Standings.
 - ⏳ **D8 Fase 2** — selecciones (DRAW + cohorte favorito-dominante) con MAX_CREDITS=2500 (bloqueado por ground truth Copa América 2024).
+- ⏳ (Opcional futuro) **D13.2** — extender familiaridad a **Moneyline/Runline** con reglas explícitas.
+- ⏳ (Opcional futuro) UI para “Familiaridad reciente” si se decide exponer (por ahora observe-only backend).
 
 ### Pendientes P2
 - ⏳ Expandir `team_name_translations.py`.
@@ -329,22 +342,12 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
 
 - ✅ **B3 — Tests**:
   - Nuevo archivo: `backend/tests/test_mlb_d12_nb_overlay_wiring.py` (**13 tests**).
-  - Suite backend total: **3996 passed / 2 skipped** (0 regresiones).
 
 #### Entregables frontend
 - ✅ **F1 — UI “Riesgos ocultos del Under”**
   - Nuevo componente: `frontend/src/components/UnderHiddenRisksCard.jsx`:
-    - 6 tarjetas (grid 2×3):
-      1) Volatilidad starter
-      2) Riesgo 1ª entrada
-      3) Ofensiva reciente
-      4) Explosividad lineup
-      5) Estrés bullpen
-      6) Riesgo dominó
-    - Badges:
-      - veredicto: Permitido/Precaución/Evitar/Bloqueado,
-      - cola: baja/media/alta/extrema,
-      - `NB ×multiplier` cuando aplica.
+    - 6 tarjetas (grid 2×3): Volatilidad starter / Riesgo 1ª entrada / Ofensiva reciente / Explosividad lineup / Estrés bullpen / Riesgo dominó.
+    - Badges: veredicto, cola (tail risk), `NB ×multiplier`.
     - `editorial_summary` + chips de `reason_codes` traducidos.
     - `data-testid` por tarjeta y por badge.
   - Integración:
@@ -352,11 +355,71 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
     - `MatchCard.jsx` y `pages/MatchDetailPage.jsx` pasan `m.total_risk_overlay`.
   - Tests:
     - `frontend/src/components/__tests__/UnderHiddenRisksCard.test.jsx` (**16 tests**, verdes).
-  - Build/lint:
-    - `esbuild` manual (via `npx esbuild`) y lint JS: OK.
 
 #### Nota sobre tests frontend
 - La suite FE global tiene **2 fallos pre-existentes** en `InlineManualOddsInputF93_1.test.jsx` (no relacionados con D12).
+
+---
+
+### ✅ SPRINT D13 — MLB Matchup Familiarity Overlay — COMPLETADO
+
+**Módulo nuevo (puro, fail-soft):** `backend/services/mlb_matchup_familiarity_overlay.py`
+- Implementadas las 4 secciones del spec:
+  1) **Detección** de enfrentamientos recientes con clasificación de ventana:
+     `LAST_3_DAYS | LAST_5_DAYS | LAST_15_DAYS | CURRENT_SEASON | LAST_2_YEARS | NONE`.
+  2) **Métricas H2H**:
+     - avg/median/max/min de carreras totales,
+     - over/under rates por línea (7.5/8.5/9.5/10.5/11.5),
+     - win rates home/away,
+     - runline cover rates (−1.5) home/away.
+  3) **Familiarity score** 0–100 + buckets `NONE/LOW/MEDIUM/HIGH`,
+     `confidence`, `drivers`, y degradación por `missing_fields`.
+  4) **Impacto en Totales O/U** (`totals_overlay`):
+     `lean OVER/UNDER/NEUTRAL`, puntos con **clamping ±5**, reason codes, summary.
+- **Hard date cap 16 días**: juegos más antiguos no contribuyen a métricas ni a puntos.
+- Alineación de polaridad home/away (si en juegos pasados los equipos estaban invertidos).
+- Compatible con input shape `games_detail` del `mlb_active_series_analyzer`.
+- ✅ Tests: `backend/tests/test_mlb_matchup_familiarity_overlay.py` (**46 tests**).
+
+**Cableo (observe-only):** bloque **M5.7 (D13)** en `backend/services/mlb_day_orchestrator.py`
+- Ubicación: inmediatamente después de D12.
+- Obtiene H2H via `get_active_series_context(..., days_back=15)`.
+- Publica en:
+  - `pick_payload["matchup_familiarity_overlay"]`
+  - `pipeline_meta["matchup_familiarity_overlay"]`
+- Fail-soft: ante error, payload `available=False` con `error`.
+
+**Decisiones del usuario aplicadas:**
+- A=a (ubicación en `backend/services/`).
+- B=a (solo Totales en esta entrega).
+- C=b (cableo observe-only, sin modificar pick).
+- D=a (sin UI en D13).
+- E=a (reutiliza `active_series`/colecciones existentes).
+
+---
+
+### ✅ SPRINT D9.2 Block C — Residual Model con xG real (Bonferroni estricto) — COMPLETADO
+
+**Módulo nuevo (puro, fail-soft):** `backend/services/football_residual_verdict_classifier.py`
+- `compute_bonferroni_cutoff(alpha, m_tests)` — corrección estricta.
+- `classify_residual_verdict(...)` — veredictos con auditoría:
+  - `RESIDUAL_BEATS_MARKET_OUT_OF_SAMPLE` (requiere Bonferroni-significance en **Brier y LogLoss** + dominancia en holdout).
+  - `RESIDUAL_IMPROVES_CALIBRATION_ONLY`.
+  - `NO_INCREMENTAL_SIGNAL_WITH_CURRENT_FEATURES`.
+  - `RESIDUAL_OVERFIT_DETECTED`.
+  - `BONFERRONI_NOT_SIGNIFICANT` (pasa naïve 0.95 pero no Bonferroni).
+  - `INSUFFICIENT_DIAGNOSTICS` (fail-soft).
+- ✅ Tests: `backend/tests/test_football_residual_verdict_classifier.py` (**21 tests**).
+
+**Script actualizado:** `backend/scripts/run_d9_residual_backtest.py`
+- Delega `_classify` al módulo puro.
+- Auto-cómputo `m_tests = n_combinations × 2` (Brier + LogLoss) por sweep.
+- Nuevas flags CLI:
+  - `--alpha` (default 0.05)
+  - `--bonferroni-m` (override manual)
+- Persiste `bonferroni` a nivel top-level en el reporte JSON:
+  `alpha, m, alpha_adjusted, cutoff, naive_cutoff, p-values y passes_* por métrica`.
+- Limpieza de 2 warnings ruff E702 pre-existentes (semicolons).
 
 ---
 
@@ -369,6 +432,8 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
   - `observe_only` (sin apuestas automáticas) — **excepto** recalibración NB: afecta solo probabilidades/colas (no pick-binding).
   - Backend: ejecutar `pytest` completo tras cambios.
   - Frontend: `yarn` + `esbuild` tras cambios; RTL tests por componente cuando aplique.
+
+**Estado actual de la suite backend:** `4063 passed / 2 skipped` (0 regresiones).
 
 ---
 
@@ -407,9 +472,3 @@ Sin cambios (ver bitácora previa).
 ## SPRINT D9.3 — Active Series Context Fix + Expansion (P0 hotfix)
 
 Sin cambios (ver bitácora previa; D9.3-A/B/C cerradas).
-
----
-
-## SPRINT D9.2 — Block C: Residual Model con xG real (CONFIRMADO, PENDIENTE)
-
-Sin cambios (ver bitácora previa).
