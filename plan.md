@@ -352,6 +352,153 @@
 
 ---
 
+## Phase Sprint-D8/E — Cierre goles 3.5 + Diagnóstico córners + Predictor de tarjetas (P1) — ✅ COMPLETADO
+
+### Contexto
+Sprint compuesto por **3 pasos independientes** ejecutados en una sola iteración:
+1. **PASO 0** — Cerrar definitivamente el mercado de goles 3.5 ligas (model-only).
+2. **PASO 1** — Diagnóstico de capas del scraper de córners (transport / endpoint / parser).
+3. **PASO 2** — Predictor de tarjetas Fase 1 (model-only, factor árbitro PIT) con ablación.
+
+### Disciplina aplicada
+- **observe_only**: ninguna nueva integración productiva, ningún cambio de scoring.
+- **Cero créditos The Odds API**: confirmado.
+- **Cero hits scrape.do en este entorno**: confirmado (scrape.do deshabilitado en preview).
+- **Fail-soft total**: cada módulo tolera entradas missing/garbage con reason codes.
+- **PIT estricto**: el ingestor de tarjetas filtra rigurosamente todo dato con fecha ≥ target_date.
+
+---
+
+### PASO 0 · Cierre goles 3.5 — ✅ CERRADO DEFINITIVAMENTE
+**Decisión del usuario aplicada**: opción (a) — usar AUC model-only ya obtenido.
+
+**Datos reusados** (de Sprint-D8 Fase 1 model-only diagnostics):
+```
+              premier_2425   top5_2425   premier_multiseason
+OVER_3_5       0.4819         0.5523       0.5344
+UNDER_3_5      0.4640         0.5609       0.5319
+```
+
+**Heurísticas aplicadas** (módulo `services/football_goals_3_5_closure.py`):
+- **Dispersión inter-scope**: Δ(max-min) > 0.05 ⇒ no robusto. OVER=0.0704, UNDER=0.0969 → AMBOS fallan.
+- **Tope absoluto del AUC máximo**: max < 0.58 ⇒ no justifica chase de créditos. OVER max=0.5523, UNDER max=0.5609 → AMBOS fallan.
+
+**Veredicto**: `CLOSED` con reason codes:
+- `MARKET_DATA_UNAVAILABLE_FOR_3_5`
+- `LEAGUE_GOALS_3_5_CLOSED_DEFINITIVELY`
+- `AUC_DISPERSION_HIGH_ACROSS_SCOPES`
+- `MAX_AUC_BELOW_CHASE_THRESHOLD`
+- `MODEL_DISCRIMINATION_NOT_ROBUST`
+
+**Entregables**:
+- `backend/services/football_goals_3_5_closure.py` (módulo puro, 8 tests).
+- `backend/scripts/run_goals_3_5_close.py` (CLI runner).
+- `/app/diagnostics/sprint_d8e_goals_3_5_closure.json` (veredicto persistido).
+- 8/8 tests passing (`test_sprint_d8e_goals_3_5_closure.py`).
+
+---
+
+### PASO 1 · Diagnóstico de córners (3 capas) — ✅ MÓDULO LISTO
+**Decisión del usuario aplicada**: opción (b) — instrumentar **ambos** endpoints.
+
+**Endpoints instrumentados**:
+- `fetch_game_detail` → `webws.365scores.com/web/game/?gameId=...`
+- `fetch_game_stats`  → `webws.365scores.com/web/game/stats/?gameId=...`
+
+**3 niveles de instrumentación** (módulo `services/football_corners_diagnostic.py`):
+- **Level 1 (Transport)**: `ok`, `raw_size`, `elapsed_ms`, timeouts.
+- **Level 2 (Endpoint)**: búsqueda recursiva de keys que contengan alias de córner (`corner`, `córner`, `corner kicks`, etc.).
+- **Level 3 (Parser)**: ejecuta `normalize_365scores_match_stats` y reporta total/home/away córners. Opcional: compara contra ground truth real.
+
+**Verdicts soportados**:
+- `TRANSPORT_FAILURE` → ambos endpoints fallaron o devolvieron payload vacío.
+- `ENDPOINT_NO_CORNERS_KEY` → transport OK pero ningún payload contiene alias de córner.
+- `PARSER_FAILURE` → keys presentes pero el parser no extrae canonical home/away/total.
+- `OK` → al menos un endpoint funciona; `winning_endpoint` identifica cuál (detail|stats).
+
+**Ground truth canónico** (verificado contra `football-data.co.uk/E0_2425.csv`):
+- **Manchester United vs Fulham, 2024-08-16** — HC=7, AC=8, total=15 córners.
+
+**Estado en preview**: el script CLI requiere `SCRAPEDO_TOKEN` (no presente aquí). Sale limpio con código 3 sin gastar créditos. Tests con mocks (13/13 passing) validan la lógica.
+
+**Entregables**:
+- `backend/services/football_corners_diagnostic.py` (función pura DI, 270 líneas).
+- `backend/scripts/run_corners_diagnostic.py` (CLI con `--home/--away/--date` o `--game-id`).
+- `/app/diagnostics/sprint_d8e_corners_diagnostic.json` (placeholder con instrucciones de uso en prod).
+- 13/13 tests passing (`test_sprint_d8e_corners_diagnostic.py`).
+
+---
+
+### PASO 2 · Predictor de tarjetas Fase 1 (model-only, ablación árbitro) — ✅ MÓDULOS LISTOS
+**Decisiones del usuario aplicadas**:
+- POC inicial: ~150 partidos Premier últimos 4 meses (opción c — disciplina de costo).
+- Ablación: solo árbitro on/off (opción a — una variable, una conclusión).
+- Pesos: fijos documentados (opción i — sin grid search).
+
+**Modelo Poisson** (`services/football_cards_potential.py`):
+- λ_cards = `0.55·referee + 0.30·team_cards_for + 0.10·team_fouls + 0.05·derby_bump` (suma=1.0).
+- Re-normalización proporcional cuando features missing.
+- Fallback `LEAGUE_DEFAULT_LAMBDA=4.2` cuando todo está missing.
+- Output: `over_cards_probability`, `under_cards_probability`, `expected_total_cards`, `reason_codes`, `audit`.
+
+**Ingestor PIT** (`services/football_cards_ingestor.py`):
+- `referee_cards_avg_pit(target_date, referee, history, ...)` — filtra ESTRICTO `row_dt < target_dt`.
+- Low-sample fallback: si `n_prior < min_sample` (default 5), usa promedio de liga PIT.
+- `team_cards_for_avg_pit`, `team_fouls_avg_pit`: mismas reglas.
+- Test crítico de no-leakage incluye un partido objetivo con `cards=99` en history; el avg PIT debe ignorarlo.
+
+**Pipeline de evaluación + ablación** (`scripts/run_cards_phase1_modelonly.py`):
+- Métricas puras (sin scipy): AUC vía Mann-Whitney U, Brier, reliability curve (10 buckets).
+- Run A (`use_referee_factor=False`) vs Run B (`use_referee_factor=True`).
+- Tabla `AUC sin árbitro vs AUC con árbitro` por línea (3.5/4.5/5.5) → entregable estrella.
+- Verdict tags por AUC:
+  - `>= 0.60` → `AUC_GOOD_JUSTIFIES_PHASE_2`
+  - `0.55–0.60` → `AUC_MARGINAL_INVESTIGATE_BEFORE_PHASE_2`
+  - `0.52–0.55` → `AUC_WEAK_DO_NOT_PROCEED`
+  - `< 0.52` → `AUC_CHANCE_LEVEL_STOP`
+
+**Validación con dataset sintético** (n=150, refs con señal real Poisson 6 vs 3):
+```
+   Line   AUC (no ref)   AUC (with ref)   Δ AUC   Referee helps?
+    3.5         0.4622           0.7278   0.2656   True
+    4.5         0.4369           0.7611   0.3242   True
+    5.5         0.4842           0.7491   0.2649   True
+   Verdict: REFEREE_FACTOR_ADDS_SIGNAL_ALL_LINES
+```
+La metodología recupera la señal del árbitro cuando existe — confirmando que el experimento real (con dataset 365Scores) producirá conclusiones diagnósticas válidas.
+
+**Estado en preview**: el dataset `/app/data/cards_history/premier_last_4_months.json` no existe en este entorno (requiere scrape.do habilitado). El script CLI emite placeholder con instrucciones. Tests sintéticos (9/9 passing) validan toda la metodología.
+
+**Entregables**:
+- `backend/services/football_cards_potential.py` (función pura, 240 líneas).
+- `backend/services/football_cards_ingestor.py` (PIT estricto, 290 líneas).
+- `backend/scripts/run_cards_phase1_modelonly.py` (CLI + métricas + ablación).
+- `/app/diagnostics/cards_phase1_modelonly.json` (placeholder con instrucciones).
+- 17/17 tests del predictor + ingestor passing (`test_sprint_d8e_cards_predictor.py`).
+- 9/9 tests del pipeline + ablación passing (`test_sprint_d8e_cards_phase1_pipeline.py`).
+
+---
+
+### Validación global del Sprint
+- Backend: `pytest tests/` completo → **4395 passed / 2 skipped / 0 failed / 0 errors** (224.94s).
+- **+47 tests añadidos** vs baseline post-F99 (4348). 0 regresiones.
+- Lint limpio en los 7 archivos nuevos (`mcp_lint_python`: 0 errores).
+
+### Criterios de aceptación verificados
+- [x] Goles 3.5 cerrado con veredicto auditado y persistido en `/app/diagnostics/`.
+- [x] Diagnóstico de córners con identificación de capa (transport/endpoint/parser) basada en conteos, no conjetura.
+- [x] Predictor de tarjetas con factor árbitro PIT-correct (test de no-leakage incluido).
+- [x] AUC ablation por línea (3.5/4.5/5.5) implementado y validado contra dataset sintético.
+- [x] observe_only; sin producción; cero créditos Odds API en esta fase.
+- [x] Sin regresiones (4395 passed).
+
+### Próximos pasos (cuando scrape.do esté disponible)
+1. Correr el script CLI de córners contra `Manchester United vs Fulham 2024-08-16` (game_id real) para obtener el veredicto definitivo (¿transport / endpoint / parser?).
+2. Scrapear ~150 partidos Premier últimos 4 meses (con árbitro + tarjetas + faltas) y depositar en `/app/data/cards_history/premier_last_4_months.json`.
+3. Correr `run_cards_phase1_modelonly.py` → leer la tabla de ablación real → decidir si pasar a Fase 2 (cuotas históricas + CLV).
+
+---
+
 ## Phase F99 — Refactor estructural `mlb_day_orchestrator.py` → `mlb_day_context_builder.py` (P0) — ✅ COMPLETADO
 
 ### Contexto
@@ -507,7 +654,7 @@
     - NIVEL 3 Bloque 2: ACTIVE writeback a `expected_runs_distribution`.
 - Backend: ejecutar `pytest` completo tras cambios.
 
-**Estado actual de la suite backend (post-F99):** `4348 passed / 2 skipped` (0 regresiones; +26 tests vs F97; refactor estructural sin cambios funcionales).
+**Estado actual de la suite backend (post-Sprint-D8/E):** `4395 passed / 2 skipped` (0 regresiones; +47 tests vs F99; observe_only, sin cambios funcionales).
 
 ---
 

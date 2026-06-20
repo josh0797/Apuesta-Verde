@@ -1,0 +1,108 @@
+{
+  "verdict": "CLOSED",
+  "reason_codes": [
+    "MARKET_DATA_UNAVAILABLE_FOR_3_5",
+    "LEAGUE_GOALS_3_5_CLOSED_DEFINITIVELY",
+    "AUC_DISPERSION_HIGH_ACROSS_SCOPES",
+    "MAX_AUC_BELOW_CHASE_THRESHOLD",
+    "MODEL_DISCRIMINATION_NOT_ROBUST"
+  ],
+  "market_data_available": false,
+  "constraint_reason": "football-data.co.uk does not publish 3.5 over/under odds in the cached season CSVs. Closure relies on model-only AUC robustness across scopes.",
+  "decision_rubric": {
+    "auc_dispersion_max_robust": 0.05,
+    "auc_max_threshold_for_chase": 0.58,
+    "rule": "If, for BOTH OVER and UNDER, the AUC range across scopes exceeds 0.05 OR the maximum AUC across scopes is below 0.58, the league-goals-3.5 market is closed definitively."
+  },
+  "over_summary": {
+    "n_scopes": 3,
+    "auc_values": [
+      0.4819,
+      0.5523,
+      0.5344
+    ],
+    "auc_max": 0.5523,
+    "auc_min": 0.4819,
+    "auc_dispersion": 0.0704,
+    "auc_mean": 0.5229,
+    "auc_dispersion_high": true,
+    "auc_max_below_chase": true,
+    "reason_codes": [
+      "AUC_DISPERSION_HIGH_ACROSS_SCOPES",
+      "MAX_AUC_BELOW_CHASE_THRESHOLD",
+      "MODEL_DISCRIMINATION_NOT_ROBUST"
+    ],
+    "per_scope": [
+      {
+        "scope": "premier_2425",
+        "n": 370,
+        "auc_model": 0.4819,
+        "base_rate": 0.3514,
+        "brier": 0.2423
+      },
+      {
+        "scope": "top5_2425",
+        "n": 1704,
+        "auc_model": 0.5523,
+        "base_rate": 0.3204,
+        "brier": 0.2281
+      },
+      {
+        "scope": "premier_multiseason",
+        "n": 1480,
+        "auc_model": 0.5344,
+        "base_rate": 0.3588,
+        "brier": 0.246
+      }
+    ]
+  },
+  "under_summary": {
+    "n_scopes": 3,
+    "auc_values": [
+      0.464,
+      0.5609,
+      0.5319
+    ],
+    "auc_max": 0.5609,
+    "auc_min": 0.464,
+    "auc_dispersion": 0.0969,
+    "auc_mean": 0.5189,
+    "auc_dispersion_high": true,
+    "auc_max_below_chase": true,
+    "reason_codes": [
+      "AUC_DISPERSION_HIGH_ACROSS_SCOPES",
+      "MAX_AUC_BELOW_CHASE_THRESHOLD",
+      "MODEL_DISCRIMINATION_NOT_ROBUST"
+    ],
+    "per_scope": [
+      {
+        "scope": "premier_2425",
+        "n": 370,
+        "auc_model": 0.464,
+        "base_rate": 0.6486,
+        "brier": 0.245
+      },
+      {
+        "scope": "top5_2425",
+        "n": 1704,
+        "auc_model": 0.5609,
+        "base_rate": 0.6796,
+        "brier": 0.2293
+      },
+      {
+        "scope": "premier_multiseason",
+        "n": 1480,
+        "auc_model": 0.5319,
+        "base_rate": 0.6412,
+        "brier": 0.2484
+      }
+    ]
+  },
+  "input_records_validated": 6,
+  "_meta": {
+    "generated_at_utc": "2026-06-20T18:46:59.157796+00:00",
+    "diag_dir": "/app/diagnostics",
+    "sprint": "D8E-PASO-0",
+    "records_read": 6
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "_meta": {
+    "sprint": "D8E-PASO-1",
+    "status": "PENDING_LIVE_EXECUTION",
+    "reason": "SCRAPEDO_TOKEN no está habilitado en este entorno preview. El módulo de diagnóstico y el script CLI están listos y probados con mocks (13/13 tests passing). Para obtener el veredicto real, ejecutar en producción/staging con SCRAPEDO_TOKEN configurado.",
+    "how_to_run": [
+      "1) Asegurar SCRAPEDO_TOKEN en .env (variable backend).",
+      "2) Identificar un partido EPL 24/25 finalizado con córners conocidos. Ejemplo recomendado: Manchester United vs Fulham, 2024-08-16, HC=7 AC=8 (total=15). Validado contra football-data.co.uk E0_2425.csv.",
+      "3) Correr: python scripts/run_corners_diagnostic.py --home \"Manchester United\" --away \"Fulham\" --date 2024-08-16 --gt-home 7 --gt-away 8 --gt-total 15",
+      "4) Alternativa con game_id directo: --game-id <id> en lugar de --home/--away/--date.",
+      "5) El JSON real se persistirá aquí mismo, reemplazando este placeholder."
+    ],
+    "verdict_meanings": {
+      "TRANSPORT_FAILURE": "Ambos fetchers (game_detail y game_stats) fallaron o devolvieron payload vacío. Revisar SCRAPEDO_TOKEN/geo/timeout.",
+      "ENDPOINT_NO_CORNERS_KEY": "Ambos endpoints respondieron OK pero ningún payload contiene alias de córners. Probable: 365Scores cambió el endpoint, o requiere un parámetro adicional (ej. ?stats=true).",
+      "PARSER_FAILURE": "Los endpoints SÍ contienen alias de córners (Level 2 OK) pero el normalizer no logró extraerlos. Revisar normalize_365scores_match_stats en score365_client.py.",
+      "OK": "Al menos un endpoint entrega córners correctamente. El campo winning_endpoint indica cuál (detail|stats); ese es el que producción debe llamar."
+    },
+    "ground_truth_canonical": {
+      "match": "Manchester United vs Fulham",
+      "date": "2024-08-16",
+      "competition": "Premier League 2024/25",
+      "source": "football-data.co.uk/E0_2425.csv",
+      "home_corners": 7,
+      "away_corners": 8,
+      "total_corners": 15
+    }
+  }
+}

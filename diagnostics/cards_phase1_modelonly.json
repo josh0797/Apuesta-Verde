@@ -1,0 +1,19 @@
+{
+  "_meta": {
+    "sprint": "D8E-PASO-2",
+    "status": "PENDING_DATASET",
+    "reason": "No dataset found at /app/data/cards_history/premier_last_4_months.json. The cards predictor and ingestor modules are unit-tested (17/17 passing) and ready to run as soon as a Premier last-4-months dataset (home_cards, away_cards, referee, home/away_fouls per finished match) is provided. POC sample target: ~150 matches.",
+    "how_to_run": [
+      "1) Build/scrape the dataset JSON with shape documented at the top of run_cards_phase1_modelonly.py",
+      "2) Place it at /app/data/cards_history/premier_last_4_months.json",
+      "3) Re-run: python scripts/run_cards_phase1_modelonly.py",
+      "4) The script will write the AUC ablation table to /app/diagnostics/cards_phase1_modelonly.json"
+    ],
+    "verdict_thresholds": {
+      "AUC_GOOD_JUSTIFIES_PHASE_2": ">= 0.60",
+      "AUC_MARGINAL_INVESTIGATE_BEFORE_PHASE_2": "0.55\u20130.60",
+      "AUC_WEAK_DO_NOT_PROCEED": "0.52\u20130.55",
+      "AUC_CHANCE_LEVEL_STOP": "< 0.52"
+    }
+  }
+}

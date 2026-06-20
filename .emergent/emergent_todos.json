@@ -1,18 +1,42 @@
 [
   {
-    "content": "Verificar estado actual de mlb_day_orchestrator.py y mlb_day_context_builder.py",
+    "content": "PASO 0: Cerrar OVER_3_5/UNDER_3_5 con veredicto MARKET_DATA_UNAVAILABLE_FOR_3_5 (reusa AUC model-only)",
     "status": "completed"
   },
   {
-    "content": "Ejecutar pytest completo del backend (esperando 4348+ tests passing)",
+    "content": "PASO 1.A: Crear módulo football_corners_diagnostic.py (instrumenta fetch_game_detail + fetch_game_stats)",
     "status": "completed"
   },
   {
-    "content": "Marcar F99 como COMPLETED en plan.md (en español)",
+    "content": "PASO 1.B: Script CLI + identificar EPL 24/25 finished game con córners conocidos",
     "status": "completed"
   },
   {
-    "content": "Reportar resultado final al usuario",
+    "content": "PASO 1.C: Test diagnóstico con fixture mockeado",
+    "status": "completed"
+  },
+  {
+    "content": "PASO 2.A: Módulo puro football_cards_potential.py (Poisson, pesos fijos, fail-soft)",
+    "status": "completed"
+  },
+  {
+    "content": "PASO 2.B: Ingestor football_cards_ingestor.py (PIT estricto: referee_cards_avg solo partidos < D)",
+    "status": "completed"
+  },
+  {
+    "content": "PASO 2.C: Script POC con ~150 Premier últimos 4 meses + ablación con/sin árbitro",
+    "status": "completed"
+  },
+  {
+    "content": "PASO 2.D: Tests (in_range, monotonic, PIT no-leakage, low-sample fallback, ablation, diagnostic layer)",
+    "status": "completed"
+  },
+  {
+    "content": "Validación: pytest completo (esperando 4348+ tests, 0 regresiones)",
+    "status": "completed"
+  },
+  {
+    "content": "Actualizar plan.md con Sprint-D8/E completado + reportar resultados",
     "status": "completed"
   }
 ]
