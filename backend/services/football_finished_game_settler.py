@@ -75,12 +75,32 @@ PROVIDER_THESTATSAPI    = "thestatsapi"
 PROVIDER_THESPORTSDB    = "thesportsdb"
 PROVIDER_API_SPORTS     = "api_sports"
 
-# Reason codes específicos del settler
+# Reason codes específicos del settler (final score)
 RC_SETTLER_NO_DATA              = "SETTLER_NO_FINAL_SCORE_AVAILABLE"
 RC_SETTLER_FROM_DB              = "SETTLER_SCORE_FROM_DB_MATCHES"
 RC_SETTLER_FROM_THESTATSAPI     = "SETTLER_SCORE_FROM_THESTATSAPI"
 RC_SETTLER_FROM_THESPORTSDB     = "SETTLER_SCORE_FROM_THESPORTSDB"
 RC_SETTLER_FROM_API_SPORTS      = "SETTLER_SCORE_FROM_API_SPORTS"
+
+# Reason codes específicos del settler (corners)
+RC_CORNERS_FROM_THESTATSAPI         = "CORNERS_FROM_THESTATSAPI"
+RC_CORNERS_FROM_THESPORTSDB         = "CORNERS_FROM_THESPORTSDB"
+RC_THESPORTSDB_CORNERS_NOT_AVAILABLE = "THESPORTSDB_CORNERS_NOT_AVAILABLE"
+RC_PARTIAL_CORNERS_DATA              = "PARTIAL_CORNERS_DATA"
+RC_CORNERS_NOT_AVAILABLE             = "CORNERS_NOT_AVAILABLE"
+
+# Normalised candidate names for "corners" stats coming from any provider.
+# Comparison is done on stripped, lowercased, underscore-removed strings.
+CORNER_STAT_ALIASES: tuple[str, ...] = (
+    "corners",
+    "corner kicks",
+    "corner_kicks",
+    "cornerkicks",
+    "total corners",
+    "corners total",
+    "totalcorners",
+    "cornerstotal",
+)
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -101,6 +121,43 @@ def _safe_int(value: Any) -> Optional[int]:
             return int(f)
         except (TypeError, ValueError):
             return None
+
+
+def _normalise_stat_name(raw: Any) -> str:
+    """Normalize a stat name for fuzzy lookup against CORNER_STAT_ALIASES.
+
+    Lowercases, strips, collapses underscores/dashes, removes parentheses
+    and excess whitespace. Returns ``""`` for invalid input.
+    """
+    if not isinstance(raw, str):
+        return ""
+    s = raw.strip().lower()
+    if not s:
+        return ""
+    # Drop trailing/inner parenthesised qualifiers like "Corners (Total)".
+    while "(" in s and ")" in s:
+        a = s.find("(")
+        b = s.find(")", a)
+        if a >= 0 and b > a:
+            s = (s[:a] + s[b + 1:]).strip()
+        else:
+            break
+    s = s.replace("_", " ").replace("-", " ")
+    s = " ".join(s.split())
+    return s
+
+
+def _name_matches_corner(raw: Any) -> bool:
+    norm = _normalise_stat_name(raw)
+    if not norm:
+        return False
+    if norm in CORNER_STAT_ALIASES:
+        return True
+    # Compact comparison too (drop spaces).
+    compact = norm.replace(" ", "")
+    if compact in CORNER_STAT_ALIASES:
+        return True
+    return False
 
 
 def _get_min_age_hours() -> float:
@@ -409,6 +466,384 @@ async def _lookup_from_api_sports(
 
 
 # ───────────────────────────────────────────────────────────────────────
+# F96.1 — Corners extraction (TheStatsAPI + future TheSportsDB)
+# ───────────────────────────────────────────────────────────────────────
+def _extract_corners_from_payload(payload: Any) -> tuple[Optional[int], Optional[int], list[str]]:
+    """Multi-shape defensive extractor for football corners.
+
+    Tries several common shapes used by TheStatsAPI / API-Sports /
+    TheSportsDB and returns ``(home_corners, away_corners, raw_names)``.
+    ``raw_names`` is the list of stat names actually observed in the
+    payload (useful for debug logging).
+
+    Recognised shapes (in priority order):
+      1. ``{"home_corners": int, "away_corners": int}`` (flat).
+      2. ``{"corners": {"home": int, "away": int}}``.
+      3. ``{"corners": int}`` interpreted as ``total_corners`` only
+         (we return ``(None, None)`` for sides and stash the total
+         via reason — caller may still settle with total only).
+      4. ``{"stats": [{"name": "Corners", "home": int, "away": int}, ...]}``.
+      5. ``{"stats": [{"type": "...", "value": ...}]}`` per side.
+      6. ``{"home_team": {"stats": {"corners": int}}, "away_team": {...}}``.
+    """
+    if not isinstance(payload, dict):
+        return (None, None, [])
+
+    raw_names: list[str] = []
+
+    # Shape 1 — flat keys.
+    hc, ac = payload.get("home_corners"), payload.get("away_corners")
+    hi, ai = _safe_int(hc), _safe_int(ac)
+    if hi is not None and ai is not None:
+        raw_names.extend(["home_corners", "away_corners"])
+        return (hi, ai, raw_names)
+
+    # Shape 2 — nested ``corners`` dict.
+    corners = payload.get("corners")
+    if isinstance(corners, dict):
+        ch, ca = corners.get("home"), corners.get("away")
+        hi2, ai2 = _safe_int(ch), _safe_int(ca)
+        raw_names.append("corners")
+        if hi2 is not None and ai2 is not None:
+            return (hi2, ai2, raw_names)
+        # Shape 3 — total only.
+        ct = corners.get("total")
+        if ct is not None and _safe_int(ct) is not None:
+            # Caller can detect this as "partial".
+            return (None, None, raw_names)
+    elif corners is not None:
+        # Shape 3b — corners is a scalar total.
+        raw_names.append("corners")
+        # Cannot split into home/away → partial.
+        if _safe_int(corners) is not None:
+            return (None, None, raw_names)
+
+    # Shape 4 — list of stats with name/home/away.
+    stats = payload.get("stats")
+    if isinstance(stats, list):
+        for entry in stats:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name") or entry.get("type") or entry.get("label")
+            if isinstance(name, str):
+                raw_names.append(name)
+            if not _name_matches_corner(name):
+                continue
+            # Shape 4a — entry has home/away.
+            sh = entry.get("home")
+            sa = entry.get("away")
+            hi3, ai3 = _safe_int(sh), _safe_int(sa)
+            if hi3 is not None and ai3 is not None:
+                return (hi3, ai3, raw_names)
+            # Shape 4b — entry has a single value (total).
+            v = entry.get("value") or entry.get("total")
+            if v is not None and _safe_int(v) is not None:
+                # Total only — caller treats as partial unless we can
+                # cross-reference per-side values.
+                return (None, None, raw_names)
+
+    # Shape 5/6 — per-side nested team stats.
+    home_team = payload.get("home_team") or payload.get("home")
+    away_team = payload.get("away_team") or payload.get("away")
+    if isinstance(home_team, dict) and isinstance(away_team, dict):
+        # Try a few common keys for nested stats.
+        for ht_key in ("stats", "statistics"):
+            ht_stats = home_team.get(ht_key)
+            at_stats = away_team.get(ht_key)
+            if isinstance(ht_stats, dict) and isinstance(at_stats, dict):
+                # Scan for a corner-like key.
+                for k_h, v_h in ht_stats.items():
+                    if not _name_matches_corner(k_h):
+                        continue
+                    raw_names.append(k_h)
+                    # Find matching key on away side.
+                    for k_a, v_a in at_stats.items():
+                        if not _name_matches_corner(k_a):
+                            continue
+                        hi4, ai4 = _safe_int(v_h), _safe_int(v_a)
+                        if hi4 is not None and ai4 is not None:
+                            return (hi4, ai4, raw_names)
+    return (None, None, raw_names)
+
+
+async def _lookup_corners_from_thestatsapi(
+    match_id, *, http_client,
+) -> dict:
+    """F96.1 — Try to hydrate corners via TheStatsAPI ``/matches/{id}/stats``.
+
+    Returns canonical envelope::
+
+        {
+          "available":    bool,
+          "home_corners": int | None,
+          "away_corners": int | None,
+          "total_corners": int | None,
+          "source":       str | None,
+          "raw_names":    list[str],
+          "reason_codes": list[str],
+        }
+    """
+    try:
+        from .external_sources import thestatsapi_client as ts_client
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[settler/corners] thestatsapi import failed: %s", exc)
+        return {"available": False, "home_corners": None,
+                "away_corners": None, "total_corners": None,
+                "source": None, "raw_names": [],
+                "reason_codes": ["THESTATSAPI_IMPORT_FAILED"]}
+    if not ts_client.is_enabled():
+        return {"available": False, "home_corners": None,
+                "away_corners": None, "total_corners": None,
+                "source": None, "raw_names": [],
+                "reason_codes": ["THESTATSAPI_DISABLED"]}
+    try:
+        stats = await ts_client.fetch_match_stats(http_client, match_id)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[settler/corners] thestatsapi fetch_match_stats failed "
+                  "match_id=%s: %s", match_id, exc)
+        return {"available": False, "home_corners": None,
+                "away_corners": None, "total_corners": None,
+                "source": None, "raw_names": [],
+                "reason_codes": ["THESTATSAPI_FETCH_FAILED"]}
+    if not isinstance(stats, dict) or not stats:
+        return {"available": False, "home_corners": None,
+                "away_corners": None, "total_corners": None,
+                "source": None, "raw_names": [],
+                "reason_codes": []}
+    h, a, raw_names = _extract_corners_from_payload(stats)
+    if h is not None and a is not None:
+        return {
+            "available":     True,
+            "home_corners":  h,
+            "away_corners":  a,
+            "total_corners": h + a,
+            "source":        PROVIDER_THESTATSAPI,
+            "raw_names":     raw_names,
+            "reason_codes":  [RC_CORNERS_FROM_THESTATSAPI],
+        }
+    # No corners or only total (partial) → not enough to settle.
+    return {"available": False, "home_corners": None,
+            "away_corners": None, "total_corners": None,
+            "source": None, "raw_names": raw_names,
+            "reason_codes": []}
+
+
+async def lookup_total_corners(
+    match_id,
+    snapshot_doc: dict,
+    *,
+    http_client=None,
+) -> dict:
+    """Cascada de lookup de corners para fútbol post-match.
+
+    Orden:
+      1) **TheStatsAPI** (primario): `match_stats` con extractor defensivo.
+      2) **TheSportsDB** (secundario, experimental): `lookup_event_stats`
+         (cableado en F96.2; este paso siempre devuelve "no disponible"
+         hasta que F96.2 esté completo).
+
+    Retorna SIEMPRE un dict canónico, nunca raise.
+    """
+    audit: list[str] = []
+    raw_names_audit: list[str] = []
+
+    # 1) TheStatsAPI
+    try:
+        ts_res = await _lookup_corners_from_thestatsapi(
+            match_id, http_client=http_client,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[settler/corners] thestatsapi raised match_id=%s: %s",
+                  match_id, exc)
+        ts_res = {"available": False, "home_corners": None,
+                  "away_corners": None, "total_corners": None,
+                  "source": None, "raw_names": [], "reason_codes": []}
+    audit.extend(ts_res.get("reason_codes") or [])
+    raw_names_audit.extend(ts_res.get("raw_names") or [])
+    if ts_res.get("available"):
+        ts_res["reason_codes"] = list(audit)
+        ts_res["raw_names"]    = list(raw_names_audit)
+        return ts_res
+
+    # 2) TheSportsDB experimental (F96.2 wiring).
+    try:
+        sdb_res = await _lookup_corners_from_thesportsdb(
+            snapshot_doc, http_client=http_client,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[settler/corners] thesportsdb raised match_id=%s: %s",
+                  match_id, exc)
+        sdb_res = {"available": False, "home_corners": None,
+                   "away_corners": None, "total_corners": None,
+                   "source": None, "raw_names": [], "reason_codes": []}
+    audit.extend(sdb_res.get("reason_codes") or [])
+    raw_names_audit.extend(sdb_res.get("raw_names") or [])
+    if sdb_res.get("available"):
+        sdb_res["reason_codes"] = list(audit)
+        sdb_res["raw_names"]    = list(raw_names_audit)
+        return sdb_res
+
+    audit.append(RC_CORNERS_NOT_AVAILABLE)
+    return {
+        "available":     False,
+        "home_corners":  None,
+        "away_corners":  None,
+        "total_corners": None,
+        "source":        None,
+        "raw_names":     list(raw_names_audit),
+        "reason_codes":  list(audit),
+    }
+
+
+async def _lookup_corners_from_thesportsdb(
+    snapshot_doc: dict, *, http_client,
+) -> dict:
+    """F96.2 — Experimental secondary source for post-match corners.
+
+    Strategy:
+      1) Resolve a TheSportsDB ``event_id`` for the snapshot:
+         a) prefer ``snapshot_doc["thesportsdb_event_id"]`` if present.
+         b) else, call ``fetch_livescore("soccer")`` and match by team
+            names + finished status (same as final_score lookup).
+      2) Call :func:`thesportsdb_client.lookup_event_stats(event_id)`.
+      3) Run the defensive parser on the returned ``raw_stats`` list.
+      4) Reason codes:
+         * ``CORNERS_FROM_THESPORTSDB`` — full home+away values found.
+         * ``PARTIAL_CORNERS_DATA`` — only total / single side present.
+         * ``THESPORTSDB_CORNERS_NOT_AVAILABLE`` — no usable stats.
+
+    Returns canonical envelope; never raises.
+    """
+    empty = {
+        "available":     False,
+        "home_corners":  None,
+        "away_corners":  None,
+        "total_corners": None,
+        "source":        None,
+        "raw_names":     [],
+        "reason_codes":  [],
+    }
+    try:
+        from .external_sources import thesportsdb_client as tsdb_client
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[settler/corners/sdb] import failed: %s", exc)
+        return empty
+    if not tsdb_client.is_enabled():
+        empty["reason_codes"] = ["THESPORTSDB_DISABLED"]
+        return empty
+
+    # Step 1 — resolve event_id.
+    event_id: Optional[str] = None
+    for k in ("thesportsdb_event_id", "tsdb_event_id"):
+        v = snapshot_doc.get(k)
+        if isinstance(v, (str, int)) and str(v).strip():
+            event_id = str(v).strip()
+            break
+    if event_id is None:
+        home_name, away_name = _extract_team_names(snapshot_doc)
+        if home_name and away_name:
+            try:
+                envelope = await tsdb_client.fetch_livescore(
+                    "soccer", client=http_client,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.debug("[settler/corners/sdb] livescore raised: %s", exc)
+                envelope = None
+            if isinstance(envelope, dict) and envelope.get("available"):
+                for it in envelope.get("items") or []:
+                    if not isinstance(it, dict):
+                        continue
+                    ih = (it.get("home_team") or {}).get("name") \
+                        if isinstance(it.get("home_team"), dict) else None
+                    ia = (it.get("away_team") or {}).get("name") \
+                        if isinstance(it.get("away_team"), dict) else None
+                    if _names_match(home_name, ih) and _names_match(away_name, ia):
+                        event_id = str(it.get("match_id") or "").strip() or None
+                        if event_id:
+                            break
+    if not event_id:
+        empty["reason_codes"] = [RC_THESPORTSDB_CORNERS_NOT_AVAILABLE]
+        return empty
+
+    # Step 2 — call lookup_event_stats.
+    try:
+        stats_env = await tsdb_client.lookup_event_stats(
+            event_id, client=http_client,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.debug("[settler/corners/sdb] lookup_event_stats raised: %s", exc)
+        empty["reason_codes"] = [RC_THESPORTSDB_CORNERS_NOT_AVAILABLE]
+        return empty
+    if not isinstance(stats_env, dict) or not stats_env.get("available"):
+        empty["reason_codes"] = [RC_THESPORTSDB_CORNERS_NOT_AVAILABLE]
+        empty["raw_names"]   = (stats_env or {}).get("raw_names") or []
+        return empty
+
+    raw_stats = stats_env.get("raw_stats") or []
+    raw_names_full: list[str] = list(stats_env.get("raw_names") or [])
+
+    # Step 3 — defensive parse over each row.
+    # The provider typically returns one row per stat with intHome/intAway
+    # (V1) or home/away (V2). We map any corner-aliased name and extract.
+    h_corners: Optional[int] = None
+    a_corners: Optional[int] = None
+    seen_partial = False
+    for row in raw_stats:
+        if not isinstance(row, dict):
+            continue
+        name = (
+            row.get("strStat") or row.get("name")
+            or row.get("type")  or row.get("stat")
+        )
+        if not _name_matches_corner(name):
+            continue
+        # Try multiple key combos for home/away.
+        for h_key, a_key in (
+            ("intHome", "intAway"),
+            ("home", "away"),
+            ("homeValue", "awayValue"),
+        ):
+            hv = row.get(h_key)
+            av = row.get(a_key)
+            hi, ai = _safe_int(hv), _safe_int(av)
+            if hi is not None and ai is not None:
+                h_corners, a_corners = hi, ai
+                break
+        # Fallback: single value (total only) → partial.
+        if h_corners is None or a_corners is None:
+            for tk in ("value", "total", "intValue"):
+                if row.get(tk) is not None and _safe_int(row.get(tk)) is not None:
+                    seen_partial = True
+                    break
+        if h_corners is not None and a_corners is not None:
+            break
+
+    if h_corners is not None and a_corners is not None:
+        return {
+            "available":     True,
+            "home_corners":  h_corners,
+            "away_corners":  a_corners,
+            "total_corners": h_corners + a_corners,
+            "source":        PROVIDER_THESPORTSDB,
+            "raw_names":     raw_names_full,
+            "reason_codes":  [RC_CORNERS_FROM_THESPORTSDB],
+        }
+
+    # Not enough data → reason code that distinguishes "partial" vs "none".
+    rc = RC_PARTIAL_CORNERS_DATA if seen_partial \
+        else RC_THESPORTSDB_CORNERS_NOT_AVAILABLE
+    return {
+        "available":     False,
+        "home_corners":  None,
+        "away_corners":  None,
+        "total_corners": None,
+        "source":        None,
+        "raw_names":     raw_names_full,
+        "reason_codes":  [rc],
+    }
+
+
+# ───────────────────────────────────────────────────────────────────────
 # Public — lookup orchestrator
 # ───────────────────────────────────────────────────────────────────────
 async def lookup_final_score(
@@ -592,6 +1027,12 @@ async def settle_recent_finished_football(
         "no_data":         0,
         "errors":          0,
         "providers":       {},
+        "corners":         {
+            "attempted":     0,
+            "hydrated":      0,
+            "not_available": 0,
+            "providers":     {},
+        },
     }
 
     for snap in candidates:
@@ -619,22 +1060,69 @@ async def settle_recent_finished_football(
             summary["no_data"] += 1
             continue
 
-        outputs = {
+        outputs: dict[str, Any] = {
             "home_goals": result.get("home_goals"),
             "away_goals": result.get("away_goals"),
         }
+        audit_entries: list[dict] = [{
+            "stage":  "football_finished_game_settler",
+            "source": provider,
+            "status": "COMPLETE",
+            "reason_codes": result.get("reason_codes") or [],
+            "settled_at": _utcnow().isoformat(),
+        }]
+
+        # F96.1 — Best-effort corners hydration (does NOT block the
+        # final_score settle if it fails or returns no data).
+        try:
+            corners_res = await lookup_total_corners(
+                match_id, snap, http_client=http_client,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[settler/corners] lookup raised match_id=%s: %s",
+                      match_id, exc)
+            corners_res = {"available": False, "home_corners": None,
+                           "away_corners": None, "total_corners": None,
+                           "source": None, "raw_names": [],
+                           "reason_codes": []}
+        summary["corners"]["attempted"] += 1
+        c_provider = corners_res.get("source") or "none"
+        summary["corners"]["providers"][c_provider] = (
+            summary["corners"]["providers"].get(c_provider, 0) + 1
+        )
+        if corners_res.get("available"):
+            summary["corners"]["hydrated"] += 1
+            outputs["total_corners"] = corners_res.get("total_corners")
+            audit_entries.append({
+                "stage":  "football_finished_game_settler:corners",
+                "source": c_provider,
+                "status": "COMPLETE",
+                "home_corners":  corners_res.get("home_corners"),
+                "away_corners":  corners_res.get("away_corners"),
+                "raw_names":     corners_res.get("raw_names") or [],
+                "reason_codes":  corners_res.get("reason_codes") or [],
+                "settled_at":    _utcnow().isoformat(),
+            })
+        else:
+            summary["corners"]["not_available"] += 1
+            # Surface debug audit even when corners are missing — keeps
+            # the raw_names visible for triage.
+            if corners_res.get("raw_names") or corners_res.get("reason_codes"):
+                audit_entries.append({
+                    "stage":  "football_finished_game_settler:corners",
+                    "source": c_provider,
+                    "status": "PARTIAL",
+                    "raw_names":    corners_res.get("raw_names") or [],
+                    "reason_codes": corners_res.get("reason_codes") or [],
+                    "settled_at":   _utcnow().isoformat(),
+                })
+
         try:
             settled = await settle_fn(
                 db,
                 match_id=match_id,
                 outputs=outputs,
-                source_audit_entries=[{
-                    "stage":  "football_finished_game_settler",
-                    "source": provider,
-                    "status": "COMPLETE",
-                    "reason_codes": result.get("reason_codes") or [],
-                    "settled_at": _utcnow().isoformat(),
-                }],
+                source_audit_entries=audit_entries,
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("[settler] settle_post_match failed match_id=%s: %s",
@@ -649,9 +1137,11 @@ async def settle_recent_finished_football(
             summary["settled_partial"] += 1
 
     log.info(
-        "[settler] football: attempted=%d full=%d partial=%d no_data=%d errors=%d providers=%s",
+        "[settler] football: attempted=%d full=%d partial=%d no_data=%d "
+        "errors=%d providers=%s corners=%s",
         summary["attempted"], summary["settled_full"], summary["settled_partial"],
         summary["no_data"], summary["errors"], summary["providers"],
+        summary["corners"],
     )
     return summary
 
@@ -659,6 +1149,7 @@ async def settle_recent_finished_football(
 __all__ = [
     "settle_recent_finished_football",
     "lookup_final_score",
+    "lookup_total_corners",
     "MIN_AGE_HOURS_DEFAULT",
     "DEFAULT_HOURS_BACK",
     "DEFAULT_MAX_MATCHES",
@@ -671,4 +1162,10 @@ __all__ = [
     "RC_SETTLER_FROM_THESTATSAPI",
     "RC_SETTLER_FROM_THESPORTSDB",
     "RC_SETTLER_FROM_API_SPORTS",
+    "RC_CORNERS_FROM_THESTATSAPI",
+    "RC_CORNERS_FROM_THESPORTSDB",
+    "RC_THESPORTSDB_CORNERS_NOT_AVAILABLE",
+    "RC_PARTIAL_CORNERS_DATA",
+    "RC_CORNERS_NOT_AVAILABLE",
+    "CORNER_STAT_ALIASES",
 ]

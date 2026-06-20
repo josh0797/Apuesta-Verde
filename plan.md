@@ -1,7 +1,7 @@
-# Plan — Phases F58–F95.x (bitácora)
+# Plan — Phases F58–F97.x (bitácora)
 
 > **Nota:** Este plan se mantiene como bitácora completa.
-> **Estado histórico:** ✅ F58–F94.x completadas / en curso según bitácora.
+> **Estado histórico:** ✅ F58–F97 completadas / en curso según bitácora.
 > **Idioma operativo:** Español.
 
 ---
@@ -108,7 +108,7 @@
 - **Bloques (estado actual):**
   - **Bloque 1 (Mixer):** mezcla Poisson/NB dinámica ✅
   - **Bloque 2 (§1-§4):** fórmula de pesos + tail calibration + threshold model + blender **(ACTIVO)** ✅
-  - **Bloque 3 (§5-§6):** reglas hard de Under + UI “Distribución y colas” ⏳
+  - **Bloque 3 (§5-§6):** reglas hard de Under + UI “Distribución y colas” ✅
 
 ### Objetivos nuevos / extendidos (D9.2-C) — Residual Model con xG real (Bonferroni estricto)
 - Fortalecer el backtest residual para evitar falsos positivos por múltiples comparaciones:
@@ -121,15 +121,54 @@
 **Estado:** ✅ COMPLETADO.
 
 ### Objetivos nuevos / extendidos (F95) — Football Post-Match Settlement Hotfix (P0)
-**Contexto:** bug productivo donde partidos ya finalizados (ej. *Brazil vs Haiti*) siguen apareciendo como elegibles en “Generar picks del día”.
+**Contexto:** bug productivo donde partidos ya finalizados (ej. *Brazil vs Haiti*) seguían apareciendo como elegibles en “Generar picks del día”.
 
 **Diagnóstico:** `settle_post_match()` existe (learning snapshots), pero no había job scheduler equivalente al de MLB; el sistema no persistía `POST_MATCH_RESULT_SETTLED` para fútbol de forma periódica.
 
 **Objetivos F95 (P0):**
-1. **Arreglar settlement post-match football:** correr settlement periódico que hidrate final_score/corners y escriba `POST_MATCH_RESULT_SETTLED` cuando sea posible.
-2. **Robustecer gate de fixtures:** mantener guard de “kickoff_ts > 4h en el pasado” como defensa en profundidad para descartar stale fixtures incluso si el settlement se atrasa.
-3. **Nueva cascada de proveedores (final_score football):** **TheStatsAPI → TheSportsDB → API-Sports**.
-4. **Scheduler:** `_job_settle_finished_football` cada **20 min**, ventana **36h** hacia atrás.
+1. Arreglar settlement post-match football (final_score).
+2. Robustecer gate de fixtures (guard de 4h stale-kickoff).
+3. Cascada de proveedores (final_score football): TheStatsAPI → TheSportsDB → API-Sports.
+4. Scheduler cada 20 min (ventana 36h).
+
+### Objetivos nuevos / extendidos (F96) — Football: Settler corners + TheSportsDB experimental + ingest fallback (P1)
+**Contexto:** tras F95, cerrar el bucle de corners post-match y ampliar el rol de TheSportsDB como fallback.
+
+**Decisiones del usuario aplicadas:**
+- **Corners (post-match):**
+  - Fuente primaria: **TheStatsAPI** `match_stats`.
+  - Fuente secundaria experimental: **TheSportsDB** event stats:
+    - V1: `lookupeventstats.php?id={idEvent}`
+    - V2: `/lookup/event_stats/{idEvent}` (si premium; usar solo si disponible)
+  - Parser defensivo de nombres de stats (normalización + matching):
+    - `"corners"`, `"corner kicks"`, `"corner_kicks"`, `"total corners"`, `"corners total"`
+  - Si TheSportsDB no trae corners o trae solo 1 lado:
+    - **NO forzar settle**
+    - mantener `POST_MATCH_CORNERS_MISSING`
+    - reason codes: `THESPORTSDB_CORNERS_NOT_AVAILABLE`, `PARTIAL_CORNERS_DATA`
+  - Debug obligatorio: logear **raw stat names** recibidos desde TheSportsDB.
+- **Fixtures/enrichment (fútbol):**
+  - TheSportsDB también se usa para:
+    - fallback de **discovery de fixtures upcoming**
+    - enrichment (logos/badges/nombres de liga + IDs cruzados)
+  - Prioridad: **TheStatsAPI > TheSportsDB fallback**
+
+### Objetivos nuevos / extendidos (F97) — NIVEL 3 Bloque 3 (§5-§6): Under hard rules + UI “Distribución y colas” (P1)
+**Contexto:** completar Nivel 3 con reglas duras específicas para picks de Under y UI diagnóstica.
+
+**Decisiones del usuario aplicadas:**
+- Reglas hard sobre `final_over_probabilities` (post-NIVEL3):
+  - `over_risk >= 0.55` → **BLOCK**
+  - `0.48 <= over_risk < 0.55` → **AVOID**
+  - `0.42 <= over_risk < 0.48` → **WARN**
+  - `tail == HIGH` y `line <= 9.5` → **AVOID**
+  - `tail == EXTREME` → **BLOCK**
+  - Gana siempre la acción más severa (OR).
+- Impacto scoring y feed:
+  - WARN: `score -= 3` + warning visible.
+  - AVOID: `score -= 10`, no puede salir como **MÁXIMA**, flag `under_recommendation_degraded=true`.
+  - BLOCK: `is_blocked=true`, excluido del feed principal, preservado en categoría **"debug"**.
+- UI nueva “Distribución y colas”: card dedicado en detalle MLB, mostrando warnings + métricas clave.
 
 ---
 
@@ -260,87 +299,123 @@
 - **Root cause:** falta un job periódico para settlement football (sí existía para MLB).
 - **Decisiones confirmadas por el usuario:**
   - “TheSportAPI” = **TheStatsAPI**.
-  - Cascada de settlement: **TheStatsAPI → TheSportsDB → API-Sports**.
-  - TheSportsDB API key: `THESPORTSDB_KEY=5129982501`.
+  - Cascada: **TheStatsAPI → TheSportsDB → API-Sports**.
+  - TheSportsDB key en env: `THESPORTSDB_KEY=...`.
   - Scheduler: cada **20 min**, ventana **36h**.
 
-### F95.1 — Tests del guard 4h en `fixture_time_status_gate.py` ✅
-- **Estado:** ✅ COMPLETADO.
-- Archivo: `backend/tests/test_fixture_time_status_gate_stale_kickoff.py`.
-- **19 tests** validando:
-  - `DEFAULT_STALE_KICKOFF_MINUTES = 240`.
-  - Override `STALE_KICKOFF_MINUTES` con clamp ≥ 60.
-  - Fallbacks ante inputs inválidos / vacíos.
-  - Discard correcto para kickoff >4h con/sin status terminal/scores.
-  - 2h no se marca como stale (sigue siendo `ALREADY_STARTED`).
-  - Kickoff futuro intacto.
-  - Símbolos públicos exportados.
+### Estado técnico (entregables)
+- ✅ Guard stale-kickoff + tests.
+- ✅ `football_finished_game_settler.py` (final_score) + tests.
+- ✅ `_job_settle_finished_football` en `scheduler.py` + tests.
+- ✅ pytest completo sin regresiones.
 
-### F95.2 — Provider TheSportsDB reutilizado ✅
-- Cliente existente `backend/services/external_sources/thesportsdb_client.py` cumple el contrato.
-- Env: `THESPORTSDB_KEY=5129982501` ya presente en `backend/.env`.
-- Endpoints expuestos:
-  - V2 `fetch_livescore("soccer")` con normalización `FINISHED|LIVE|SCHEDULED|UNKNOWN`.
-  - V1 `search_teams(name)`.
+---
 
-### F95.3 — Wrapper `football_finished_game_settler.py` ✅
-- **Archivo nuevo:** `backend/services/football_finished_game_settler.py`.
-- Cascada estricta:
-  1) **`_lookup_from_db_matches`** (escenarios reutilizables).
-  2) **`_lookup_from_thestatsapi`** (`fetch_match_details` con guard de status terminal).
-  3) **`_lookup_from_thesportsdb`** (livescore filtrado por nombres normalizados + ventana ±1 día).
-  4) **`_lookup_from_api_sports`** (`fixture_by_id` con guard de status terminal).
-- Public API:
-  - `lookup_final_score(match_id, snapshot_doc, *, db, http_client, kickoff_dt) → dict`.
-  - `settle_recent_finished_football(db, *, hours_back=36, max_matches=50, http_client=None, settle_fn=None) → summary`.
-- Reglas:
-  - `MIN_AGE_HOURS_DEFAULT = 2.5` (override env `FOOTBALL_SETTLER_MIN_AGE_HOURS`, clamp ≥1.5).
-  - Defence-in-depth: filtro Python adicional para `POST_MATCH_RESULT_SETTLED` y `sport=football`.
-  - Fail-soft total: ninguna excepción cruza al caller.
-  - `source_audit_entries` con stage `football_finished_game_settler`.
-- **Reason codes nuevos:** `SETTLER_SCORE_FROM_DB_MATCHES`, `SETTLER_SCORE_FROM_THESTATSAPI`, `SETTLER_SCORE_FROM_THESPORTSDB`, `SETTLER_SCORE_FROM_API_SPORTS`, `SETTLER_NO_FINAL_SCORE_AVAILABLE`.
-- **18 tests** en `backend/tests/test_football_finished_game_settler.py`.
+## Phase F96 — Football: Settler corners + TheSportsDB experimental + ingest fallback (P1) — ✅ COMPLETADO
 
-### F95.4 — Scheduler job `_job_settle_finished_football` ✅
-- **Archivo tocado:** `backend/services/scheduler.py`.
-- Job registrado con `IntervalTrigger(minutes=20)`, id `settle_finished_football`, `next_run_time=+4min`.
-- Persiste métricas en `_status["last_run"]["settle_finished_football"]`.
-- Fail-soft: cualquier excepción se logea + se persiste `{ok: False, error}`.
-- **6 tests** en `backend/tests/test_scheduler_football_settler_job.py`.
-- **Verificación en logs:** `Scheduler started with jobs: [... 'settle_finished_baseball', 'settle_finished_football', ...]`.
+### F96.1 — TheStatsAPI `match_stats` corners extractor + integración ✅
+- `football_finished_game_settler.py` extendido con:
+  - `_extract_corners_from_payload(payload)` (6+ shapes: flat, dict home/away, scalar total, stats list, qualifiers con paréntesis, nested team stats).
+  - `_lookup_corners_from_thestatsapi(match_id)` usando `fetch_match_stats` (fail-soft).
+  - `lookup_total_corners(match_id, snapshot_doc, *, http_client)` como orquestador de cascada.
+  - Integración en `settle_recent_finished_football`: hydration best-effort (NO bloquea final_score).
+- Tests: `backend/tests/test_football_settler_corners.py`.
 
-### F95.5 — Validación pytest completa ✅
-- Suite backend: **4199 passed / 2 skipped** (vs 4156 antes).
-- **+43 tests nuevos** (19 + 18 + 6).
-- **0 regresiones**.
+### F96.2 — TheSportsDB corners experimental (event stats) + debug ✅
+- `thesportsdb_client.py` extendido con `lookup_event_stats(event_id)`:
+  - V1: `/v1/json/{key}/lookupeventstats.php?id=...`
+  - V2: `/v2/json/lookup/event_stats/{idEvent}` (si está disponible)
+- Parser defensivo + matching por alias (`CORNER_STAT_ALIASES`).
+- Resolución de `event_id`:
+  - directo vía `snapshot_doc["thesportsdb_event_id"]` cuando existe
+  - fallback por `fetch_livescore("soccer")` si falta
+- Reason codes corners:
+  - `CORNERS_FROM_THESPORTSDB`
+  - `THESPORTSDB_CORNERS_NOT_AVAILABLE`
+  - `PARTIAL_CORNERS_DATA`
+- Debug obligatorio: log `raw_names` en `lookup_event_stats`.
+- Tests: `backend/tests/test_thesportsdb_event_stats.py`.
 
-### Cambios persistidos
-| Archivo | Cambio |
-|---|---|
-| `backend/services/fixture_time_status_gate.py` | Guard #5 stale-kickoff (240 min) + `get_stale_kickoff_minutes()` (ya presente). |
-| `backend/services/football_finished_game_settler.py` | **NUEVO** — wrapper + cascada de 3 fuentes. |
-| `backend/services/scheduler.py` | `_job_settle_finished_football` + registro `IntervalTrigger(20 min)`. |
-| `backend/tests/test_fixture_time_status_gate_stale_kickoff.py` | **NUEVO** — 19 tests. |
-| `backend/tests/test_football_finished_game_settler.py` | **NUEVO** — 18 tests. |
-| `backend/tests/test_scheduler_football_settler_job.py` | **NUEVO** — 6 tests. |
-| `backend/.env` | `THESPORTSDB_KEY=5129982501` (preexistente, sin tocar). |
+### F96.3 — TheSportsDB fixtures fallback + enrichment ✅
+- Fixtures fallback (observe-only):
+  - `fetch_upcoming_events_by_date(date, sport)` (V1 `eventsday.php`).
+  - `fetch_next_events_by_league(league_id)` (V1 `eventsnextleague.php`).
+  - Normalización canónica `_normalize_event_item`.
+- Enrichment:
+  - `enrich_team_badge(team_name)` (prefiere soccer, fallback a primer match).
+  - `search_leagues(country, sport)`.
+  - `lookup_league(league_id)`.
+- Tests: `backend/tests/test_thesportsdb_fixtures_enrichment.py`.
+
+### F96.4 — Validación ✅
+- Backend: `pytest` completo **4273 passed / 2 skipped** (+74 vs F95), 0 regresiones.
+
+---
+
+## Phase F97 — NIVEL 3 Bloque 3 (§5-§6): Under hard rules + UI “Distribución y colas” (P1) — ✅ COMPLETADO
+
+### F97.1 — Módulo puro `services/mlb_under_hard_rules.py` ✅
+- `evaluate_under_hard_rules(*, final_over_probabilities, line, tail_bucket, pick_side, market) -> dict`.
+- Thresholds:
+  - WARN: `[0.42, 0.48)`
+  - AVOID: `[0.48, 0.55)`
+  - BLOCK: `>= 0.55`
+- Tail rules:
+  - `EXTREME` → BLOCK
+  - `HIGH` y `line <= 9.5` → AVOID
+- Score deltas:
+  - WARN = −3, AVOID = −10, BLOCK = 0 (BLOCK excluye del feed, sin doble penalización).
+- 39 tests: `backend/tests/test_mlb_under_hard_rules.py`.
+
+### F97.2 — Cableo en `mlb_day_orchestrator.py` (M5.8.4) ✅
+- Inserción justo después de M5.8.3 (blender) y dentro del try del mixer.
+- Resolución de inputs:
+  - `final_over_probabilities` desde `_blend_out` o fallback desde `expected_runs_distribution.probabilities`.
+  - `tail_bucket` desde `tail_calibration` o fallback desde `mixer_out.tail_risk.bucket`.
+- Mutaciones del `pick_payload`:
+  - Snapshots: `pick_score_pre_under_rules` / `pick_score_post_under_rules`.
+  - WARN: `score -= 3` + `under_warning`.
+  - AVOID: `score -= 10` + `under_recommendation_degraded=true` + `block_max_pick=true` + `under_avoid`.
+  - BLOCK: `is_blocked=true` + `exclude_from_main_feed=true` + `category="debug"` + `under_block`.
+- Propagación de `reason_codes` a `expected_runs_distribution.reason_codes`.
+- Diagnóstico en `pipeline_meta["expected_runs_distribution"]["under_hard_rules"]`.
+- Log marker: `[UNDER_HARD_RULES]`.
+- 10 tests: `backend/tests/test_orchestrator_under_hard_rules_wiring.py`.
+
+### F97.3 — Frontend UI: `UnderDistributionTailsCard.jsx` ✅
+- Nuevo card en detalle MLB, cableado en `MLBScriptPanel.jsx` debajo de `UnderHiddenRisksCard`.
+- Render condicional (solo con datos NIVEL 3).
+- Muestra:
+  - distribución usada + pesos Poisson/NB
+  - dispersión efectiva
+  - bucket de cola
+  - percentiles P90/P95/P99
+  - over_risk + línea seleccionada
+  - acción final WARN/AVOID/BLOCK + signals
+- Warnings (badges inline):
+  - P90 comprimido (`P90_TOO_COMPRESSED_FOR_CONTEXT` / `CENTRAL_MEAN_NOT_ENOUGH`)
+  - Cola recalibrada (`P90_RECALIBRATED`)
+  - Divergencia dist vs threshold model (`distributionBlender.divergence_flags`)
+  - Under degradado (acción AVOID/BLOCK)
+- 15 tests RTL: `frontend/src/components/__tests__/UnderDistributionTailsCard.test.jsx`.
+
+### F97.4 — Validación ✅
+- Backend: **4322 passed / 2 skipped** (+49 vs F96; 0 regresiones).
+- Frontend: tests Under **31/31** passing.
+- Build: esbuild bundle OK.
+- Runtime: restart backend+frontend OK; scheduler muestra `settle_finished_football` activo.
 
 ---
 
 ## 3) Pendientes y siguientes pasos
 
 ### Pendientes P0 (actual)
-- ✅ **F95** completado (settler football + scheduler job + guard 4h tests).
 - 🟡 **SPRINT D5** (histórico en curso): cohortes + reportes multi-competición.
 
 ### Pendientes P1
 - 🟡 **REFACTOR-1** (pasos 2/3 y 3/3 + ingest_upcoming).
 - ⏳ **F84.c/F84.d** Lineups + Standings.
-- ⏳ **D8 Fase 2** — selecciones (DRAW + cohorte favorito-dominante) con MAX_CREDITS=2500 (bloqueado por ground truth Copa América 2024).
-- ⏳ **NIVEL 3 Bloque 3 (§5-§6):** reglas hard de Under + UI “Distribución y colas”.
-- ⏳ (Opcional) UI para exponer:
-  - `matchup_familiarity_overlay` (impact + snapshots)
-  - `run_distribution_mixer` + `tail_calibration` + `threshold_over_model` + `distribution_blender` (comparación vs NB canónico y blend final)
+- ⏳ **D8 Fase 2** — selecciones (DRAW + cohorte favorito-dominante) con MAX_CREDITS=2500.
 
 ### Pendientes P2
 - ⏳ Expandir `team_name_translations.py`.
@@ -378,6 +453,11 @@
 
 ---
 
+### ✅ NIVEL 3 — Bloque 3 (§5-§6) · Under hard rules + UI “Distribución y colas” — COMPLETADO
+(Ver fases F97.1–F97.4.)
+
+---
+
 ### ✅ SPRINT D9.2 Block C — Residual Model con xG real (Bonferroni estricto) — COMPLETADO
 (Sin cambios; ver bitácora previa.)
 
@@ -392,9 +472,9 @@
   - Observe-only por defecto; excepciones explícitas:
     - D13.2: scoring activo con clamps + snapshots.
     - NIVEL 3 Bloque 2: ACTIVE writeback a `expected_runs_distribution`.
-  - Backend: ejecutar `pytest` completo tras cambios.
+- Backend: ejecutar `pytest` completo tras cambios.
 
-**Estado actual de la suite backend (post-F95):** `4199 passed / 2 skipped` (0 regresiones; +43 tests vs F94).
+**Estado actual de la suite backend (post-F97):** `4322 passed / 2 skipped` (0 regresiones; +166 tests vs F94 base).
 
 ---
 
@@ -409,7 +489,7 @@
 - Flags / env (principales):
   - `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY`.
   - `THE_ODDS_API_KEY=...`.
-  - **Nuevo (F95):** `THESPORTSDB_API_KEY=5129982501`.
+  - TheSportsDB: `THESPORTSDB_KEY=...`.
 
 ---
 

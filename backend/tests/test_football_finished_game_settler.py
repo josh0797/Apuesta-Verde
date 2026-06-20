@@ -482,11 +482,13 @@ class TestSettlerOrchestration:
         assert captured["outputs"]["home_goals"] == 2
         assert captured["outputs"]["away_goals"] == 0
         # source_audit_entries debe ser una lista NO vacía con stage correcto.
-        assert len(captured["audit"]) == 1
-        entry = captured["audit"][0]
-        assert entry["stage"]  == "football_finished_game_settler"
-        assert entry["source"] == fgs.PROVIDER_THESTATSAPI
-        assert "settled_at" in entry
+        # F96.1: además del entry de final_score, ahora siempre se añade un
+        # entry de corners (puede ser PARTIAL si no se hidrataron).
+        assert len(captured["audit"]) >= 1
+        score_entry = captured["audit"][0]
+        assert score_entry["stage"]  == "football_finished_game_settler"
+        assert score_entry["source"] == fgs.PROVIDER_THESTATSAPI
+        assert "settled_at" in score_entry
 
     @pytest.mark.asyncio
     async def test_settle_fn_raises_increments_errors(self):

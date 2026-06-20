@@ -1,22 +1,26 @@
 [
   {
-    "content": "F95.1 — Crear tests unitarios para guard 4h (STALE_KICKOFF_MINUTES) en fixture_time_status_gate.py",
+    "content": "F96.1+F96.2+F96.3 — Settler corners + TheSportsDB experimental + fixtures/enrichment fallback (55 tests nuevos)",
     "status": "completed"
   },
   {
-    "content": "F95.2 — Provider TheSportsDB existente reutilizado (key ya en .env como THESPORTSDB_KEY=5129982501); el cliente expone fetch_livescore('soccer') y search_teams()",
+    "content": "F96.4 — pytest completo: 4273 passed / 2 skipped (vs 4199). +74 tests, 0 regresiones.",
     "status": "completed"
   },
   {
-    "content": "F95.3 — Crear wrapper football_finished_game_settler.py con cascada TheStatsAPI → TheSportsDB → API-Sports + tests (18 tests passing)",
+    "content": "F97.1 — Módulo puro mlb_under_hard_rules.py + 39 tests passing",
     "status": "completed"
   },
   {
-    "content": "F95.4 — _job_settle_finished_football(db) cada 20 min en backend/services/scheduler.py + 6 tests passing",
+    "content": "F97.2 — Cableo en mlb_day_orchestrator.py (M5.8.4) + 10 tests integración passing",
     "status": "completed"
   },
   {
-    "content": "F95.5 — Suite completa pytest: 4199 passed / 2 skipped (vs 4156 antes). 0 regresiones. +43 tests nuevos.",
+    "content": "F97.3 — UI UnderDistributionTailsCard.jsx + 15 tests RTL passing + cableado en MLBScriptPanel",
+    "status": "completed"
+  },
+  {
+    "content": "F97.4 — Validación final: backend 4322 passed / 2 skipped (+49 vs F96), frontend 31 Under tests passing, esbuild OK, supervisord restart OK",
     "status": "completed"
   }
 ]

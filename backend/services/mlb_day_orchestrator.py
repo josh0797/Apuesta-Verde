@@ -4106,6 +4106,186 @@ async def analyze_mlb_day(
                             )
                 except Exception as exc_blend:
                     log.debug("distribution blender (NIVEL3 §4) compute failed: %s", exc_blend)
+
+                # ── M5.8.4 (NIVEL 3 §5-§6): Under hard rules ────────
+                # Apply WARN / AVOID / BLOCK rules based on the post-NIVEL3
+                # `final_over_probabilities` and `tail_calibration` bucket.
+                # See F97.1 / `mlb_under_hard_rules`.
+                #
+                # Effects on the pick payload:
+                #   * WARN  → score -= 3,  `under_warning` flag.
+                #   * AVOID → score -= 10, `under_recommendation_degraded`,
+                #             cannot be MÁXIMA pick.
+                #   * BLOCK → `is_blocked=True`, `exclude_from_main_feed`,
+                #             `category="debug"`.
+                #
+                # Snapshots `pick_score_pre_under_rules` / `pick_score_post_under_rules`
+                # are persisted regardless of action so the audit trail
+                # remains complete.
+                try:
+                    from .mlb_under_hard_rules import (
+                        evaluate_under_hard_rules,
+                        ACTION_NONE,
+                        ACTION_WARN,
+                        ACTION_AVOID,
+                        ACTION_BLOCK,
+                    )
+                    # Resolve final_over_probabilities — prefer the
+                    # explicit blender output, fall back to the active
+                    # ERD probabilities (post-writeback).
+                    _final_over = {}
+                    try:
+                        _final_over = dict(
+                            (_blend_out.get("final_over_probabilities") or {})
+                            if "_blend_out" in dir() and _blend_out else {}
+                        )
+                    except Exception:
+                        _final_over = {}
+                    if not _final_over:
+                        _erd_now = pick_payload.get("expected_runs_distribution") or {}
+                        _probs   = _erd_now.get("probabilities") or {}
+                        _final_over = {
+                            k: v for k, v in _probs.items()
+                            if isinstance(k, str) and k.startswith("over_")
+                        }
+                    # Tail bucket from tail calibration.
+                    _tail_bucket = None
+                    try:
+                        _tail_bucket = (_tail_cal_out or {}).get("tail_risk_bucket")
+                        if not _tail_bucket:
+                            _tail_bucket = ((_mixer_out or {}).get("tail_risk") or {}).get("bucket")
+                    except Exception:
+                        _tail_bucket = None
+
+                    # Pick context (market/selection/line/score).
+                    _pick_market    = pick_payload.get("market") or (
+                        (pick_payload.get("market_selection") or {}).get("market")
+                    )
+                    _pick_selection = pick_payload.get("selection") or (
+                        (pick_payload.get("market_selection") or {}).get("selection")
+                    )
+                    _pick_side = None
+                    if isinstance(_pick_selection, str) and _pick_selection:
+                        _ps_u = _pick_selection.strip().upper()
+                        if _ps_u in ("UNDER", "OVER"):
+                            _pick_side = _ps_u
+                    if _pick_side is None and isinstance(_pick_market, str):
+                        if "under" in _pick_market.strip().lower():
+                            _pick_side = "UNDER"
+                        elif "over" in _pick_market.strip().lower():
+                            _pick_side = "OVER"
+
+                    _pick_line = pick_payload.get("line")
+                    if _pick_line is None:
+                        _pick_line = _extract_line_number_from_market(_pick_market)
+
+                    _rules_out = evaluate_under_hard_rules(
+                        final_over_probabilities=_final_over,
+                        line=_pick_line,
+                        tail_bucket=_tail_bucket,
+                        pick_side=_pick_side,
+                        market=_pick_market,
+                    )
+
+                    # Persist the rules envelope for UI/audit.
+                    pick_payload["under_hard_rules"] = _rules_out
+
+                    if _rules_out.get("applicable"):
+                        # Snapshots pre/post (always, even if action == NONE).
+                        _score_pre  = (
+                            pick_payload.get("pick_score_post_d13")
+                            or pick_payload.get("score")
+                            or 0
+                        )
+                        try:
+                            _score_pre = float(_score_pre)
+                        except (TypeError, ValueError):
+                            _score_pre = 0.0
+                        _action = _rules_out.get("action") or ACTION_NONE
+                        _delta  = int(_rules_out.get("score_delta") or 0)
+                        _score_post = _score_pre + _delta
+
+                        pick_payload["pick_score_pre_under_rules"]  = round(_score_pre, 4)
+                        pick_payload["pick_score_post_under_rules"] = round(_score_post, 4)
+                        pick_payload["under_rules_score_delta"]     = _delta
+                        pick_payload["under_rules_action"]          = _action
+
+                        # Mutate the live `score` field when a delta applies.
+                        if _delta != 0 and isinstance(pick_payload.get("score"), (int, float)):
+                            pick_payload["score"] = max(0.0, float(pick_payload["score"]) + _delta)
+
+                        # Action-specific flags consumed by the frontend
+                        # and by feed filtering downstream.
+                        if _action == ACTION_WARN:
+                            pick_payload["under_warning"] = {
+                                "reason_codes": _rules_out.get("reason_codes") or [],
+                                "signals":      _rules_out.get("signals") or [],
+                                "over_risk":    _rules_out.get("over_risk"),
+                                "tail_bucket":  _rules_out.get("tail_bucket"),
+                            }
+                        elif _action == ACTION_AVOID:
+                            pick_payload["under_recommendation_degraded"] = True
+                            pick_payload["block_max_pick"] = True
+                            pick_payload["under_avoid"] = {
+                                "reason_codes": _rules_out.get("reason_codes") or [],
+                                "signals":      _rules_out.get("signals") or [],
+                                "over_risk":    _rules_out.get("over_risk"),
+                                "tail_bucket":  _rules_out.get("tail_bucket"),
+                            }
+                        elif _action == ACTION_BLOCK:
+                            pick_payload["under_recommendation_degraded"] = True
+                            pick_payload["block_max_pick"] = True
+                            pick_payload["is_blocked"]              = True
+                            pick_payload["exclude_from_main_feed"]  = True
+                            pick_payload["category"]                = "debug"
+                            pick_payload["under_block"] = {
+                                "reason_codes": _rules_out.get("reason_codes") or [],
+                                "signals":      _rules_out.get("signals") or [],
+                                "over_risk":    _rules_out.get("over_risk"),
+                                "tail_bucket":  _rules_out.get("tail_bucket"),
+                            }
+
+                        # Surface reason codes on the canonical ERD list too.
+                        _erd_now = pick_payload.get("expected_runs_distribution")
+                        if isinstance(_erd_now, dict):
+                            _existing = _erd_now.get("reason_codes") or []
+                            for rc in (_rules_out.get("reason_codes") or []):
+                                if rc not in _existing:
+                                    _existing.append(rc)
+                            _erd_now["reason_codes"] = _existing
+
+                        # Pipeline meta for diagnostics.
+                        _pm_block = pipeline_meta.get("expected_runs_distribution") or {}
+                        _pm_block["under_hard_rules"] = {
+                            "action":               _action,
+                            "applicable":           True,
+                            "score_delta":          _delta,
+                            "is_blocked":           bool(_rules_out.get("is_blocked")),
+                            "exclude_from_main_feed": bool(
+                                _rules_out.get("exclude_from_main_feed")
+                            ),
+                            "category":             _rules_out.get("category"),
+                            "over_risk":            _rules_out.get("over_risk"),
+                            "tail_bucket":          _rules_out.get("tail_bucket"),
+                            "triggered_rules":      list(_rules_out.get("triggered_rules") or []),
+                        }
+                        pipeline_meta["expected_runs_distribution"] = _pm_block
+
+                        log.info(
+                            "[UNDER_HARD_RULES] match=%s action=%s over_risk=%s "
+                            "tail=%s line=%s delta=%d",
+                            pick_payload.get("matchId") or pick_payload.get("match_id"),
+                            _action,
+                            _rules_out.get("over_risk"),
+                            _rules_out.get("tail_bucket"),
+                            _rules_out.get("line_used"),
+                            _delta,
+                        )
+                except Exception as exc_under_rules:
+                    log.debug(
+                        "mlb_under_hard_rules (NIVEL3 §5-§6) compute failed: %s",
+                        exc_under_rules,
+                    )
             except Exception as exc_mixer:
                 log.debug("run_distribution_mixer (NIVEL3) compute failed: %s", exc_mixer)
                 pick_payload["run_distribution_mixer"] = {

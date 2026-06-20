@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, Target, Activity, Gauge, Link as LinkIcon, AlertTriangle, Shield } from 'lucide-react';
 import { UnderHiddenRisksCard } from './UnderHiddenRisksCard';
+import { UnderDistributionTailsCard } from './UnderDistributionTailsCard';
 
 /**
  * MLBScriptPanel — visualises the v2 Margin & Total Script Engine output.
@@ -79,6 +80,12 @@ export function MLBScriptPanel({
   seriesDegradation = null,
   seriesTotalSignal = null,    // D9.3-B — quantitative signal + score breakdown
   totalRiskOverlay = null,     // D12 — Under hidden risks overlay (6 pillars + verdict)
+  expectedRunsDistribution = null,  // F97.3 — NIVEL 3: ERD post-writeback
+  runDistributionMixer     = null,  // F97.3 — NIVEL 3 §1 mixer
+  tailCalibration          = null,  // F97.3 — NIVEL 3 §2 tail calibration
+  distributionBlender      = null,  // F97.3 — NIVEL 3 §4 blender
+  underHardRules           = null,  // F97.1/F97.2 — under WARN/AVOID/BLOCK rules
+  selectedLine             = null,  // F97.3 — line used for over_risk lookup
   modelVerification = null,
   activeSeriesBlock = null,
   chosenMarket = null,        // e.g. "Run Line", "Total Runs Over", etc.
@@ -876,6 +883,20 @@ export function MLBScriptPanel({
           <UnderHiddenRisksCard
             totalRiskOverlay={totalRiskOverlay}
             testId={`${testId || 'mlb-script'}-under-hidden-risks`}
+          />
+
+          {/* F97.3 — "Distribución y colas" card (NIVEL 3).
+              Render condicional: solo si el orquestador adjuntó datos
+              de NIVEL 3 (mixer / tail calibration / blender / under_hard_rules).
+              Read-only / observe-only. */}
+          <UnderDistributionTailsCard
+            expectedRunsDistribution={expectedRunsDistribution}
+            runDistributionMixer={runDistributionMixer}
+            tailCalibration={tailCalibration}
+            distributionBlender={distributionBlender}
+            underHardRules={underHardRules}
+            selectedLine={selectedLine}
+            testId={`${testId || 'mlb-script'}-under-distribution-tails`}
           />
         </div>
       )}
