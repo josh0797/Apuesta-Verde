@@ -102,9 +102,23 @@ BUCKET_HIGH   = "HIGH"
 LEAN_OVER    = "OVER"
 LEAN_UNDER   = "UNDER"
 LEAN_NEUTRAL = "NEUTRAL"
+LEAN_HOME    = "HOME"
+LEAN_AWAY    = "AWAY"
+LEAN_HOME_RL = "HOME_RL"
+LEAN_AWAY_RL = "AWAY_RL"
 
 # Hard cap on overlay impact (per spec — Section 4 safety rules).
 MAX_OVERLAY_POINTS = 5.0
+# Hard caps on ML win-prob adjustment and RL projected-margin adjustment
+# (per Sections 5 & 6 safety rules).
+MAX_ML_WIN_PROB_DELTA = 0.05   # ±5 %
+MAX_RL_MARGIN_DELTA   = 1.5    # ±1.5 carreras
+
+# D13.2 — RL "no-strong-pick" guard: when the base projected margin is
+# below this threshold, the RL overlay points get vetoed (clamped to 0)
+# to ensure familiarity cannot turn a weak runline projection into a
+# strong recommendation. Per user feedback, raised from <1.0 → <2.0.
+RL_BASE_MARGIN_VETO_THRESHOLD = 2.0
 
 # Hard date cap: games older than this from `game_date` are EXCLUDED
 # from all metric computations (per spec — "No implementar partidos
@@ -808,6 +822,419 @@ def _compute_totals_overlay(
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Section 5 — Moneyline overlay (D13.2)
+# ─────────────────────────────────────────────────────────────────────
+def _count_wins_with_margin(
+    games: List[Dict[str, Any]],
+    ctx_home_l: str,
+    ctx_away_l: str,
+    margin_threshold: int,
+) -> Tuple[int, int]:
+    """Returns (home_wins_with_margin, away_wins_with_margin) where wins
+    are re-aligned to the CURRENT matchup orientation and the margin
+    must be ≥ margin_threshold.
+    """
+    h_wins = 0
+    a_wins = 0
+    for g in games:
+        gh_l = (g.get("home_team") or "").lower().strip()
+        if gh_l == ctx_home_l:
+            r_for_home = g["home_score"]
+            r_for_away = g["away_score"]
+        elif gh_l == ctx_away_l:
+            r_for_home = g["away_score"]
+            r_for_away = g["home_score"]
+        else:
+            r_for_home = g["home_score"]
+            r_for_away = g["away_score"]
+        margin = r_for_home - r_for_away
+        if margin >= margin_threshold:
+            h_wins += 1
+        elif -margin >= margin_threshold:
+            a_wins += 1
+    return h_wins, a_wins
+
+
+def _compute_moneyline_overlay(
+    games: List[Dict[str, Any]],
+    metrics: Dict[str, Any],
+    ctx_home: str,
+    ctx_away: str,
+    current_pick_market: str,
+    bullpen_usage: Optional[Dict[str, Any]],
+    starter_info: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Compute the Moneyline overlay block (Section 5 of the spec).
+
+    Output:
+      {
+        "lean":                "HOME" | "AWAY" | "NEUTRAL",
+        "points":              float in [-5, +5],
+        "win_prob_adjustment": float in [-0.05, +0.05],
+        "reason_codes":        [str],
+        "summary":             str,
+      }
+
+    NOTE: Points are signed in favor of HOME (positive) or AWAY
+    (negative). Consumers can apply absolute value with the lean key.
+    """
+    if (current_pick_market or "").upper() != "MONEYLINE":
+        return {
+            "lean":                LEAN_NEUTRAL,
+            "points":              0.0,
+            "win_prob_adjustment": 0.0,
+            "reason_codes":        [],
+            "summary":             "Overlay solo activo en mercados Moneyline.",
+        }
+    if not games or metrics.get("avg_total_runs_h2h") is None:
+        return {
+            "lean":                LEAN_NEUTRAL,
+            "points":              0.0,
+            "win_prob_adjustment": 0.0,
+            "reason_codes":        [],
+            "summary":             "Sin enfrentamientos recientes — overlay neutral.",
+        }
+
+    ctx_home_l = (ctx_home or "").lower().strip()
+    ctx_away_l = (ctx_away or "").lower().strip()
+
+    home_points = 0.0
+    away_points = 0.0
+    reasons: List[str] = []
+    has_support_metric = {"home": False, "away": False}
+
+    # ── R1: 2+ wins with clear margin (≥2 runs) ──────────────────────
+    h_clear, a_clear = _count_wins_with_margin(games, ctx_home_l, ctx_away_l, 2)
+    if h_clear >= 2:
+        home_points += 2.0
+        reasons.append("RECENT_H2H_SUPPORTS_HOME_ML")
+        has_support_metric["home"] = True
+    if a_clear >= 2:
+        away_points += 2.0
+        reasons.append("RECENT_H2H_SUPPORTS_AWAY_ML")
+        has_support_metric["away"] = True
+
+    # ── R2: avg margin ≥ 2 runs in favor of one side ─────────────────
+    avg_home = metrics.get("avg_home_runs_scored")
+    avg_away = metrics.get("avg_away_runs_scored")
+    if avg_home is not None and avg_away is not None:
+        diff = float(avg_home) - float(avg_away)
+        if diff >= 2.0:
+            home_points += 2.0
+            if "RECENT_H2H_SUPPORTS_HOME_ML" not in reasons:
+                reasons.append("RECENT_H2H_SUPPORTS_HOME_ML")
+            has_support_metric["home"] = True
+        elif -diff >= 2.0:
+            away_points += 2.0
+            if "RECENT_H2H_SUPPORTS_AWAY_ML" not in reasons:
+                reasons.append("RECENT_H2H_SUPPORTS_AWAY_ML")
+            has_support_metric["away"] = True
+
+    # ── R3: bullpen edge — opposing bullpen was exposed AND we are in
+    #          an active series (consecutive recent games).
+    #          Escalates from +1 to +3 based on current bullpen fatigue.
+    bp_exposed_recent = _bullpen_exposed_in_h2h(games)
+    if bp_exposed_recent and isinstance(bullpen_usage, dict):
+        fat_h = (bullpen_usage.get("home") or {}).get("bullpen_fatigue") if isinstance(bullpen_usage.get("home"), dict) else None
+        fat_a = (bullpen_usage.get("away") or {}).get("bullpen_fatigue") if isinstance(bullpen_usage.get("away"), dict) else None
+        try:
+            fat_h_f = float(fat_h or 0)
+            fat_a_f = float(fat_a or 0)
+        except (TypeError, ValueError):
+            fat_h_f = 0.0
+            fat_a_f = 0.0
+        # Side with the MORE-tired bullpen is the side whose
+        # opponent gets the edge.
+        if fat_h_f > fat_a_f and fat_h_f >= 0.40:
+            edge = 3.0 if fat_h_f >= 0.70 else (2.0 if fat_h_f >= 0.55 else 1.0)
+            away_points += edge
+            if "SERIES_BULLPEN_EDGE_AWAY" not in reasons:
+                reasons.append("SERIES_BULLPEN_EDGE_AWAY")
+            has_support_metric["away"] = True
+        elif fat_a_f > fat_h_f and fat_a_f >= 0.40:
+            edge = 3.0 if fat_a_f >= 0.70 else (2.0 if fat_a_f >= 0.55 else 1.0)
+            home_points += edge
+            if "SERIES_BULLPEN_EDGE_HOME" not in reasons:
+                reasons.append("SERIES_BULLPEN_EDGE_HOME")
+            has_support_metric["home"] = True
+
+    # ── R4: starter-seen-recently edge: if either side has seen the
+    #          opposing starter recently AND produced ≥4 runs in that
+    #          game, that side gets +1..+2 points.
+    if isinstance(starter_info, dict):
+        home_starter = starter_info.get("home_starter") or (
+            (starter_info.get("home") or {}).get("name")
+            if isinstance(starter_info.get("home"), dict) else None
+        )
+        away_starter = starter_info.get("away_starter") or (
+            (starter_info.get("away") or {}).get("name")
+            if isinstance(starter_info.get("away"), dict) else None
+        )
+        # Look for games where the AWAY team (in CURRENT context) faced
+        # the home starter and scored ≥4 → AWAY edge.
+        for g in games:
+            gh_l = (g.get("home_team") or "").lower().strip()
+            game_home_starter = (g.get("starter_home") or "").strip().lower()
+            game_away_starter = (g.get("starter_away") or "").strip().lower()
+            # Re-align scoring to current orientation.
+            if gh_l == ctx_home_l:
+                r_home = g["home_score"]
+                r_away = g["away_score"]
+                hs = game_home_starter
+                as_ = game_away_starter
+            elif gh_l == ctx_away_l:
+                r_home = g["away_score"]
+                r_away = g["home_score"]
+                hs = game_away_starter
+                as_ = game_home_starter
+            else:
+                continue
+            # Home faced AWAY starter and scored ≥4 → HOME edge.
+            if (away_starter
+                    and as_ == str(away_starter).strip().lower()
+                    and r_home >= 4):
+                edge = 2.0 if r_home >= 6 else 1.0
+                home_points += edge
+                if "STARTER_SEEN_RECENTLY_EDGE" not in reasons:
+                    reasons.append("STARTER_SEEN_RECENTLY_EDGE")
+                has_support_metric["home"] = True
+            # Away faced HOME starter and scored ≥4 → AWAY edge.
+            if (home_starter
+                    and hs == str(home_starter).strip().lower()
+                    and r_away >= 4):
+                edge = 2.0 if r_away >= 6 else 1.0
+                away_points += edge
+                if "STARTER_SEEN_RECENTLY_EDGE" not in reasons:
+                    reasons.append("STARTER_SEEN_RECENTLY_EDGE")
+                has_support_metric["away"] = True
+
+    # ── Safety rule: do not award points when ONLY "won yesterday" is
+    #          the signal (no supporting metric beyond a single win).
+    # We model this by requiring at least one of: margin, avg runs,
+    # bullpen, starter-seen. If the only contributor is `_count_wins_with_margin`
+    # with h_clear==1 OR a_clear==1 AND no other metric, drop those points.
+    if not has_support_metric["home"] and home_points > 0:
+        # Only single "won yesterday" reached — drop.
+        home_points = 0.0
+        # Remove the lone HOME_ML reason if it stood alone.
+        reasons = [r for r in reasons if r != "RECENT_H2H_SUPPORTS_HOME_ML"
+                                          or "RECENT_H2H_SUPPORTS_AWAY_ML" in reasons]
+    if not has_support_metric["away"] and away_points > 0:
+        away_points = 0.0
+        reasons = [r for r in reasons if r != "RECENT_H2H_SUPPORTS_AWAY_ML"
+                                          or "RECENT_H2H_SUPPORTS_HOME_ML" in reasons]
+
+    # ── Aggregate (signed: positive favors HOME). ─────────────────────
+    net = home_points - away_points
+    net = max(-MAX_OVERLAY_POINTS, min(MAX_OVERLAY_POINTS, net))
+
+    # Win-prob adjustment: map points → prob (1 point ≈ 1% by default).
+    # Capped at ±5 %.
+    win_prob_adj = max(
+        -MAX_ML_WIN_PROB_DELTA,
+        min(MAX_ML_WIN_PROB_DELTA, net / 100.0),
+    )
+
+    if net > 0.5:
+        lean = LEAN_HOME
+    elif net < -0.5:
+        lean = LEAN_AWAY
+    else:
+        lean = LEAN_NEUTRAL
+
+    if lean == LEAN_HOME:
+        summary = (
+            f"Familiaridad reciente favorece {ctx_home}: "
+            f"avg diff = {(avg_home or 0) - (avg_away or 0):+.2f} carreras."
+        )
+    elif lean == LEAN_AWAY:
+        summary = (
+            f"Familiaridad reciente favorece {ctx_away}: "
+            f"avg diff = {(avg_home or 0) - (avg_away or 0):+.2f} carreras."
+        )
+    else:
+        summary = "Familiaridad reciente: señal neutral en moneyline."
+
+    return {
+        "lean":                lean,
+        "points":              round(net, 2),
+        "home_points":         round(home_points, 2),
+        "away_points":         round(away_points, 2),
+        "win_prob_adjustment": round(win_prob_adj, 4),
+        "reason_codes":        reasons,
+        "summary":             summary,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Section 6 — Runline overlay (D13.2)
+# ─────────────────────────────────────────────────────────────────────
+def _has_late_inning_scoring(games: List[Dict[str, Any]]) -> bool:
+    """Heuristic: any game has innings_breakdown showing total runs
+    after the 5th inning (innings 6-9+) > 0. Without innings detail,
+    returns False (the feature is opt-in).
+    """
+    for g in games:
+        innings = g.get("innings_breakdown")
+        if isinstance(innings, list) and len(innings) >= 6:
+            late = sum(innings[5:])
+            if late >= 2:
+                return True
+    return False
+
+
+def _compute_runline_overlay(
+    games: List[Dict[str, Any]],
+    metrics: Dict[str, Any],
+    ctx_home: str,
+    ctx_away: str,
+    current_pick_market: str,
+    bullpen_usage: Optional[Dict[str, Any]],
+    base_projected_margin: Optional[float],
+) -> Dict[str, Any]:
+    """Compute the Runline overlay block (Section 6 of the spec).
+
+    The "no-strong-pick from familiarity alone" guard (per user spec):
+    if the base projected margin is below RL_BASE_MARGIN_VETO_THRESHOLD
+    (2.0 — raised per user feedback from 1.0), the overlay points get
+    clamped to 0 regardless of the H2H signal. The veto fires as the
+    reason code RL_VETOED_LOW_BASE_MARGIN.
+    """
+    if (current_pick_market or "").upper() != "RUNLINE":
+        return {
+            "lean":                         LEAN_NEUTRAL,
+            "points":                       0.0,
+            "projected_margin_adjustment":  0.0,
+            "reason_codes":                 [],
+            "summary":                      "Overlay solo activo en mercados Runline.",
+        }
+    if not games or metrics.get("avg_total_runs_h2h") is None:
+        return {
+            "lean":                         LEAN_NEUTRAL,
+            "points":                       0.0,
+            "projected_margin_adjustment":  0.0,
+            "reason_codes":                 [],
+            "summary":                      "Sin enfrentamientos recientes — overlay neutral.",
+        }
+
+    ctx_home_l = (ctx_home or "").lower().strip()
+    ctx_away_l = (ctx_away or "").lower().strip()
+
+    home_points = 0.0
+    away_points = 0.0
+    reasons: List[str] = []
+
+    # ── R1: 2+ wins by ≥2 runs.
+    h_clear, a_clear = _count_wins_with_margin(games, ctx_home_l, ctx_away_l, 2)
+    if h_clear >= 2:
+        home_points += 2.0
+        reasons.append("RECENT_H2H_RUNLINE_SUPPORT")
+    if a_clear >= 2:
+        away_points += 2.0
+        if "RECENT_H2H_RUNLINE_SUPPORT" not in reasons:
+            reasons.append("RECENT_H2H_RUNLINE_SUPPORT")
+
+    # ── R2: avg_margin ≥ 2.0 in favor of one side.
+    avg_margin = metrics.get("avg_margin")
+    if avg_margin is not None:
+        if float(avg_margin) >= 2.0:
+            home_points += 2.0
+            if "SERIES_MARGIN_EDGE" not in reasons:
+                reasons.append("SERIES_MARGIN_EDGE")
+        elif float(avg_margin) <= -2.0:
+            away_points += 2.0
+            if "SERIES_MARGIN_EDGE" not in reasons:
+                reasons.append("SERIES_MARGIN_EDGE")
+
+    # ── R3: late-inning scoring edge (after 5th inning).
+    if _has_late_inning_scoring(games):
+        if avg_margin is not None and float(avg_margin) > 0:
+            home_points += 1.0
+            if "LATE_INNING_SCORING_EDGE" not in reasons:
+                reasons.append("LATE_INNING_SCORING_EDGE")
+        elif avg_margin is not None and float(avg_margin) < 0:
+            away_points += 1.0
+            if "LATE_INNING_SCORING_EDGE" not in reasons:
+                reasons.append("LATE_INNING_SCORING_EDGE")
+
+    # ── R4: bullpen fatigue → opposing side's RL edge.
+    if isinstance(bullpen_usage, dict):
+        fat_h = (bullpen_usage.get("home") or {}).get("bullpen_fatigue") if isinstance(bullpen_usage.get("home"), dict) else None
+        fat_a = (bullpen_usage.get("away") or {}).get("bullpen_fatigue") if isinstance(bullpen_usage.get("away"), dict) else None
+        try:
+            fat_h_f = float(fat_h or 0)
+            fat_a_f = float(fat_a or 0)
+        except (TypeError, ValueError):
+            fat_h_f = 0.0
+            fat_a_f = 0.0
+        if fat_h_f > fat_a_f and fat_h_f >= 0.40:
+            edge = 3.0 if fat_h_f >= 0.70 else (2.0 if fat_h_f >= 0.55 else 1.0)
+            away_points += edge
+            if "BULLPEN_FATIGUE_RUNLINE_EDGE" not in reasons:
+                reasons.append("BULLPEN_FATIGUE_RUNLINE_EDGE")
+        elif fat_a_f > fat_h_f and fat_a_f >= 0.40:
+            edge = 3.0 if fat_a_f >= 0.70 else (2.0 if fat_a_f >= 0.55 else 1.0)
+            home_points += edge
+            if "BULLPEN_FATIGUE_RUNLINE_EDGE" not in reasons:
+                reasons.append("BULLPEN_FATIGUE_RUNLINE_EDGE")
+
+    # ── Aggregate.
+    net = home_points - away_points
+    net = max(-MAX_OVERLAY_POINTS, min(MAX_OVERLAY_POINTS, net))
+
+    # Projected margin adjustment: 1 RL point ≈ 0.3 carreras de margen.
+    # Capped at ±1.5 carreras.
+    margin_adj = max(
+        -MAX_RL_MARGIN_DELTA,
+        min(MAX_RL_MARGIN_DELTA, net * 0.3),
+    )
+
+    # ── VETO automático: si margen base < 2.0, no permitir que
+    #     familiaridad ascienda el pick.
+    vetoed = False
+    if base_projected_margin is not None:
+        try:
+            if abs(float(base_projected_margin)) < RL_BASE_MARGIN_VETO_THRESHOLD:
+                vetoed = True
+                net = 0.0
+                margin_adj = 0.0
+                reasons.append("RL_VETOED_LOW_BASE_MARGIN")
+        except (TypeError, ValueError):
+            pass
+
+    if not vetoed and net > 0.5:
+        lean = LEAN_HOME_RL
+    elif not vetoed and net < -0.5:
+        lean = LEAN_AWAY_RL
+    else:
+        lean = LEAN_NEUTRAL
+
+    if vetoed:
+        summary = (
+            f"Veto runline: margen base {base_projected_margin:.2f} "
+            f"< {RL_BASE_MARGIN_VETO_THRESHOLD} — familiaridad no "
+            f"escala pick débil."
+        )
+    elif lean == LEAN_HOME_RL:
+        summary = f"Familiaridad favorece runline {ctx_home}: avg margin = {avg_margin or 0:+.2f}."
+    elif lean == LEAN_AWAY_RL:
+        summary = f"Familiaridad favorece runline {ctx_away}: avg margin = {avg_margin or 0:+.2f}."
+    else:
+        summary = "Familiaridad reciente: señal neutral en runline."
+
+    return {
+        "lean":                        lean,
+        "points":                      round(net, 2),
+        "home_points":                 round(home_points, 2),
+        "away_points":                 round(away_points, 2),
+        "projected_margin_adjustment": round(margin_adj, 3),
+        "vetoed":                      vetoed,
+        "reason_codes":                reasons,
+        "summary":                     summary,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Confidence
 # ─────────────────────────────────────────────────────────────────────
 def _compute_confidence(
@@ -837,6 +1264,27 @@ def _neutral_payload(
     window: str = WINDOW_NONE,
     reason_codes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
+    neutral_to = {
+        "lean":         LEAN_NEUTRAL,
+        "points":       0.0,
+        "reason_codes": [],
+        "summary":      "Sin enfrentamientos recientes — overlay neutral.",
+    }
+    neutral_ml = {
+        "lean":                LEAN_NEUTRAL,
+        "points":              0.0,
+        "win_prob_adjustment": 0.0,
+        "reason_codes":        [],
+        "summary":             "Sin enfrentamientos recientes — overlay neutral.",
+    }
+    neutral_rl = {
+        "lean":                         LEAN_NEUTRAL,
+        "points":                       0.0,
+        "projected_margin_adjustment":  0.0,
+        "vetoed":                       False,
+        "reason_codes":                 [],
+        "summary":                      "Sin enfrentamientos recientes — overlay neutral.",
+    }
     return {
         "available":         True,
         "recent_h2h_found":  False,
@@ -849,12 +1297,12 @@ def _neutral_payload(
         "confidence":        0.0,
         "drivers":           [],
         "missing_fields":    list(missing_fields or []),
-        "totals_overlay": {
-            "lean":         LEAN_NEUTRAL,
-            "points":       0.0,
-            "reason_codes": [],
-            "summary":      "Sin enfrentamientos recientes — overlay neutral.",
-        },
+        # D13.2 — canonical multi-market block names.
+        "over_under_impact": neutral_to,
+        "moneyline_impact":  neutral_ml,
+        "runline_impact":    neutral_rl,
+        # Back-compat alias from D13.1.
+        "totals_overlay":    neutral_to,
         "reason_codes":      list(reason_codes or []),
     }
 
@@ -931,7 +1379,7 @@ def calculate_matchup_familiarity_overlay(
             relevant, ref_date, older, context,
         )
 
-        # Section 4 — totals overlay.
+        # Section 4 — totals overlay (OVER/UNDER).
         totals_overlay = _compute_totals_overlay(
             relevant,
             metrics,
@@ -939,6 +1387,28 @@ def calculate_matchup_familiarity_overlay(
             current_pick_side,
             current_line,
             context.get("bullpen_usage"),
+        )
+
+        # Section 5 — moneyline overlay (D13.2).
+        moneyline_overlay = _compute_moneyline_overlay(
+            relevant,
+            metrics,
+            home_team,
+            away_team,
+            current_pick_market,
+            context.get("bullpen_usage"),
+            context.get("starter_info"),
+        )
+
+        # Section 6 — runline overlay (D13.2).
+        runline_overlay = _compute_runline_overlay(
+            relevant,
+            metrics,
+            home_team,
+            away_team,
+            current_pick_market,
+            context.get("bullpen_usage"),
+            _safe_float(context.get("base_projected_margin")),
         )
 
         # Confidence.
@@ -950,6 +1420,12 @@ def calculate_matchup_familiarity_overlay(
             if rc not in flat_reasons:
                 flat_reasons.append(rc)
         for rc in totals_overlay.get("reason_codes", []):
+            if rc not in flat_reasons:
+                flat_reasons.append(rc)
+        for rc in moneyline_overlay.get("reason_codes", []):
+            if rc not in flat_reasons:
+                flat_reasons.append(rc)
+        for rc in runline_overlay.get("reason_codes", []):
             if rc not in flat_reasons:
                 flat_reasons.append(rc)
 
@@ -965,6 +1441,12 @@ def calculate_matchup_familiarity_overlay(
             "confidence":        confidence,
             "drivers":           score_block.get("drivers", []),
             "missing_fields":    missing_fields,
+            # D13.2 — canonical multi-market block names.
+            "over_under_impact": totals_overlay,
+            "moneyline_impact":  moneyline_overlay,
+            "runline_impact":    runline_overlay,
+            # Back-compat alias from D13.1 — same content as
+            # over_under_impact for any existing consumer.
             "totals_overlay":    totals_overlay,
             "reason_codes":      flat_reasons,
         }
@@ -988,6 +1470,13 @@ __all__ = [
     "LEAN_OVER",
     "LEAN_UNDER",
     "LEAN_NEUTRAL",
+    "LEAN_HOME",
+    "LEAN_AWAY",
+    "LEAN_HOME_RL",
+    "LEAN_AWAY_RL",
     "MAX_OVERLAY_POINTS",
+    "MAX_ML_WIN_PROB_DELTA",
+    "MAX_RL_MARGIN_DELTA",
+    "RL_BASE_MARGIN_VETO_THRESHOLD",
     "HARD_DATE_CAP_DAYS",
 ]

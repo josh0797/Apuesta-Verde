@@ -3753,6 +3753,16 @@ async def analyze_mlb_day(
                                           if isinstance(conf.get("away_starter"), dict) else None,
                     },
                     "lineups":             {},  # populated in a later sprint
+                    # ── D13.2 — base projected margin (heuristic) ──
+                    # Used by the RL overlay's "no-strong-pick-from-
+                    # familiarity-alone" veto guard. We approximate the
+                    # margin from the quality-score differential (one
+                    # quality point ≈ 0.04 carreras). When the magnitude
+                    # is < 2.0 carreras, the RL overlay zeroes out.
+                    "base_projected_margin": (
+                        ((locals().get("h_q") or {}).get("score") or 0)
+                        - ((locals().get("a_q") or {}).get("score") or 0)
+                    ) / 25.0,
                 }
                 _mfo_out = calculate_matchup_familiarity_overlay(_mfo_ctx)
                 pick_payload["matchup_familiarity_overlay"] = _mfo_out
@@ -3763,26 +3773,181 @@ async def analyze_mlb_day(
                     "games_count":       _mfo_out.get("games_count"),
                     "bucket":            _mfo_out.get("bucket"),
                     "familiarity_score": _mfo_out.get("familiarity_score"),
-                    "totals_lean":       (_mfo_out.get("totals_overlay") or {}).get("lean"),
-                    "totals_points":     (_mfo_out.get("totals_overlay") or {}).get("points"),
+                    "totals_lean":       (_mfo_out.get("over_under_impact") or {}).get("lean"),
+                    "totals_points":     (_mfo_out.get("over_under_impact") or {}).get("points"),
+                    "ml_lean":           (_mfo_out.get("moneyline_impact") or {}).get("lean"),
+                    "ml_points":         (_mfo_out.get("moneyline_impact") or {}).get("points"),
+                    "rl_lean":           (_mfo_out.get("runline_impact") or {}).get("lean"),
+                    "rl_points":         (_mfo_out.get("runline_impact") or {}).get("points"),
+                    "rl_vetoed":         (_mfo_out.get("runline_impact") or {}).get("vetoed"),
                     "reason_codes":      _mfo_out.get("reason_codes") or [],
                 }
+
+                # ── D13.2 — Apply overlay points to chosen_market.score
+                #          (active scoring for ALL markets: TOTAL/ML/RL)
+                # We compute a signed score delta from the overlay's
+                # lean vs the pick side and apply it. Snapshots
+                # pre/post are persisted for audit.
+                try:
+                    if isinstance(chosen_market, dict) and chosen_market.get("score") is not None:
+                        _score_pre = float(chosen_market["score"])
+                        _score_delta = 0.0
+                        _applied_block = None
+
+                        if _pick_market_mfo == "TOTAL":
+                            _to = _mfo_out.get("over_under_impact") or {}
+                            _pts = float(_to.get("points") or 0)
+                            _lean = _to.get("lean")
+                            if _lean == "OVER" and _pick_side_mfo == "OVER":
+                                _score_delta = _pts
+                            elif _lean == "UNDER" and _pick_side_mfo == "UNDER":
+                                _score_delta = _pts  # already non-negative magnitude when aligned
+                            elif _lean == "OVER" and _pick_side_mfo == "UNDER":
+                                _score_delta = -_pts
+                            elif _lean == "UNDER" and _pick_side_mfo == "OVER":
+                                _score_delta = -_pts
+                            # NEUTRAL → 0.
+                            _applied_block = "over_under_impact"
+                        elif _pick_market_mfo == "MONEYLINE":
+                            _ml = _mfo_out.get("moneyline_impact") or {}
+                            _pts_signed = float(_ml.get("points") or 0)  # positive=HOME
+                            if _pick_side_mfo == "HOME":
+                                _score_delta = _pts_signed
+                            elif _pick_side_mfo == "AWAY":
+                                _score_delta = -_pts_signed
+                            _applied_block = "moneyline_impact"
+                        elif _pick_market_mfo == "RUNLINE":
+                            _rl = _mfo_out.get("runline_impact") or {}
+                            _pts_signed = float(_rl.get("points") or 0)  # positive=HOME_RL
+                            # If vetoed, points are already 0.0.
+                            if _pick_side_mfo == "HOME_RL":
+                                _score_delta = _pts_signed
+                            elif _pick_side_mfo == "AWAY_RL":
+                                _score_delta = -_pts_signed
+                            _applied_block = "runline_impact"
+
+                        # Hard clamp per market (defense in depth — the
+                        # overlay already clamps internally, but we
+                        # re-clamp at apply time as safety net).
+                        _score_delta = max(-5.0, min(5.0, _score_delta))
+                        _score_post = max(0.0, _score_pre + _score_delta)
+                        chosen_market["score"] = _score_post
+                        best_score = max(0.0, (best_score or 0) + _score_delta)
+
+                        # Persist snapshots for audit + downstream UI.
+                        pick_payload["pick_score_pre_d13"]  = round(_score_pre, 4)
+                        pick_payload["pick_score_post_d13"] = round(_score_post, 4)
+                        pick_payload["d13_score_delta"]     = round(_score_delta, 4)
+                        pick_payload["d13_applied_block"]   = _applied_block
+                        pipeline_meta["matchup_familiarity_overlay"]["score_pre"]   = round(_score_pre, 4)
+                        pipeline_meta["matchup_familiarity_overlay"]["score_post"]  = round(_score_post, 4)
+                        pipeline_meta["matchup_familiarity_overlay"]["score_delta"] = round(_score_delta, 4)
+                        pipeline_meta["matchup_familiarity_overlay"]["applied_block"] = _applied_block
+
+                        if abs(_score_delta) > 0:
+                            log.info(
+                                "[D13.2_APPLY] match=%s market=%s side=%s "
+                                "pre=%.3f delta=%+.3f post=%.3f block=%s",
+                                pick_payload.get("matchId") or pick_payload.get("match_id"),
+                                _pick_market_mfo, _pick_side_mfo,
+                                _score_pre, _score_delta, _score_post,
+                                _applied_block,
+                            )
+                except Exception as exc_apply:
+                    log.debug("D13.2 score-apply failed (fail-soft): %s", exc_apply)
+
                 if _mfo_out.get("recent_h2h_found"):
                     log.info(
                         "[D13_MFO] match=%s window=%s bucket=%s score=%.1f"
-                        " lean=%s pts=%.2f",
+                        " to_lean=%s to_pts=%.2f ml_pts=%.2f rl_pts=%.2f"
+                        " rl_vetoed=%s",
                         pick_payload.get("matchId") or pick_payload.get("match_id"),
                         _mfo_out.get("h2h_window"),
                         _mfo_out.get("bucket"),
                         float(_mfo_out.get("familiarity_score") or 0),
-                        (_mfo_out.get("totals_overlay") or {}).get("lean"),
-                        float((_mfo_out.get("totals_overlay") or {}).get("points") or 0),
+                        (_mfo_out.get("over_under_impact") or {}).get("lean"),
+                        float((_mfo_out.get("over_under_impact") or {}).get("points") or 0),
+                        float((_mfo_out.get("moneyline_impact") or {}).get("points") or 0),
+                        float((_mfo_out.get("runline_impact") or {}).get("points") or 0),
+                        (_mfo_out.get("runline_impact") or {}).get("vetoed"),
                     )
             except Exception as exc_mfo:
                 log.debug("matchup_familiarity_overlay (D13) compute failed: %s", exc_mfo)
                 pick_payload["matchup_familiarity_overlay"] = {
                     "available": False,
                     "error": f"{type(exc_mfo).__name__}",
+                }
+
+            # ── M5.8 (NIVEL 3 · Block 1): Dynamic Run Distribution Mixer ─
+            # Observe-only auxiliary distribution that mixes Poisson +
+            # NB based on a volatility score derived from D11/D12
+            # sub-signals. Publishes its payload to
+            # `pick_payload["run_distribution_mixer"]` for downstream
+            # comparison vs the canonical NB engine. NEVER mutates the
+            # pick or the canonical `expected_runs_distribution`.
+            try:
+                from .mlb_run_distribution_mixer import (
+                    build_dynamic_run_distribution,
+                )
+                _ur_block_for_mixer = pick_payload.get("under_explosion_risk") or {}
+                _tr_block_for_mixer = pick_payload.get("total_risk_overlay") or {}
+                _components = _tr_block_for_mixer.get("components") or {}
+                _mixer_ctx = {
+                    "baseline_expected_runs": float(
+                        v2_block.get("expectedRuns") or v2_block.get("expectedRunsRaw") or 0
+                    ) or None,
+                    "baseline_distribution":  pick_payload.get("expected_runs_distribution") or {},
+                    "starter_volatility":      _components.get("starter_volatility")
+                                                  or _ur_block_for_mixer.get("starter_volatility"),
+                    "first_inning_collapse":   _components.get("first_inning_collapse")
+                                                  or _ur_block_for_mixer.get("first_inning_collapse"),
+                    "recent_offense_home":     (
+                        (_components.get("recent_offensive_quality") or {}).get("home")
+                        or (_ur_block_for_mixer.get("recent_offensive_quality") or {}).get("home")
+                    ),
+                    "recent_offense_away":     (
+                        (_components.get("recent_offensive_quality") or {}).get("away")
+                        or (_ur_block_for_mixer.get("recent_offensive_quality") or {}).get("away")
+                    ),
+                    "lineup_explosiveness":    _components.get("lineup_explosiveness")
+                                                  or _ur_block_for_mixer.get("lineup_explosiveness"),
+                    "bullpen_stress":          _components.get("bullpen_stress"),
+                    "domino_risk":             _components.get("domino_risk"),
+                    "park_factor":             pick_payload.get("park_factor_live") or {},
+                    "weather":                 pick_payload.get("weather_signal") or {},
+                    "market_total":            float(v2_block.get("smartTotalsLine") or 0) or None,
+                    "game_id":                 pick_payload.get("matchId") or pick_payload.get("match_id"),
+                    "debug":                   False,
+                }
+                _mixer_out = build_dynamic_run_distribution(_mixer_ctx)
+                pick_payload["run_distribution_mixer"] = _mixer_out
+                pipeline_meta["run_distribution_mixer"] = {
+                    "available":           _mixer_out.get("available"),
+                    "distribution_family": _mixer_out.get("distribution_family"),
+                    "lambda":              _mixer_out.get("lambda"),
+                    "dispersion":          _mixer_out.get("dispersion"),
+                    "volatility_score":    _mixer_out.get("volatility_score"),
+                    "mixture_weights":     _mixer_out.get("mixture_weights"),
+                    "tail_risk":           (_mixer_out.get("tail_risk") or {}).get("bucket"),
+                    "tail_score":          (_mixer_out.get("tail_risk") or {}).get("score"),
+                    "reason_codes":        _mixer_out.get("reason_codes") or [],
+                }
+                if _mixer_out.get("available"):
+                    log.info(
+                        "[NIVEL3_MIXER] match=%s family=%s lam=%.3f disp=%.3f "
+                        "vol=%.1f tail=%s",
+                        pick_payload.get("matchId") or pick_payload.get("match_id"),
+                        _mixer_out.get("distribution_family"),
+                        float(_mixer_out.get("lambda") or 0),
+                        float(_mixer_out.get("dispersion") or 0),
+                        float(_mixer_out.get("volatility_score") or 0),
+                        (_mixer_out.get("tail_risk") or {}).get("bucket"),
+                    )
+            except Exception as exc_mixer:
+                log.debug("run_distribution_mixer (NIVEL3) compute failed: %s", exc_mixer)
+                pick_payload["run_distribution_mixer"] = {
+                    "available": False,
+                    "error": f"{type(exc_mixer).__name__}",
                 }
 
             # ── Recalibración NB por bucket (PASIVO en OBSERVING) ────

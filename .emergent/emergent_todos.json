@@ -1,34 +1,34 @@
 [
   {
-    "content": "D13.1 Explorar mlb_active_series_analyzer + mlb_day_orchestrator para H2H data disponible (input/cableo)",
+    "content": "F1.A Extender mlb_matchup_familiarity_overlay.py con _compute_moneyline_overlay + _compute_runline_overlay (con veto automático RL <2.0)",
     "status": "completed"
   },
   {
-    "content": "D13.2 Crear módulo puro backend/services/mlb_matchup_familiarity_overlay.py (4 secciones: detección + métricas + score + totals_overlay)",
+    "content": "F1.B Renombrar key 'totals_overlay' → 'over_under_impact' con alias retro-compatible + añadir 'moneyline_impact' y 'runline_impact'",
     "status": "completed"
   },
   {
-    "content": "D13.3 Tests unitarios extensivos (46 tests, todos verdes)",
+    "content": "F1.C Tests nuevos para ML overlay + RL overlay + veto rule + clamps (27 tests verdes)",
     "status": "completed"
   },
   {
-    "content": "D13.4 Cableo en mlb_day_orchestrator exponiendo pick_payload['matchup_familiarity_overlay'] (observe-only, fail-soft)",
+    "content": "F2 Cableo D13.2 en orquestador: apply score, snapshots pre/post, veto automático",
     "status": "completed"
   },
   {
-    "content": "D13.5 pytest backend completo: 4042 passed / 0 regresiones tras D13",
+    "content": "F3.A Crear mlb_run_distribution_mixer.py con build_dynamic_run_distribution (Poisson + NB + Mixture)",
     "status": "completed"
   },
   {
-    "content": "D9.2-C.1 Revisar /app/backend/scripts/run_d9_residual_backtest.py + entender corpus residual xG real",
+    "content": "F3.B Tests del mixer (33 tests verdes)",
     "status": "completed"
   },
   {
-    "content": "D9.2-C.2 Módulo puro football_residual_verdict_classifier.py + Bonferroni estricto + CLI flags --alpha y --bonferroni-m + bloque bonferroni en reporte",
+    "content": "F3.C Cableo observe-only del mixer en orquestador (publicar pick_payload['run_distribution_mixer'])",
     "status": "completed"
   },
   {
-    "content": "D9.2-C.3 Tests classifier (21 tests) + pytest backend completo: 4063 passed / 0 regresiones",
+    "content": "Validación final: pytest backend completo 4123 passed / 0 regresiones",
     "status": "completed"
   }
 ]

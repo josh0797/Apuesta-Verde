@@ -94,17 +94,27 @@
 - Detectar discrepancias entre calidad de contacto ofensivo vs vulnerabilidad del abridor vs percepción por ERA.
 - **No generar picks automáticos**: solo output explicable con señales.
 
-### Objetivos nuevos / extendidos (D13) — MLB Matchup Familiarity Overlay (secundario, observe-only)
-- Implementar una capa contextual para MLB basada en enfrentamientos recientes (preferencia: últimos 15 días) que:
+### Objetivos nuevos / extendidos (D13) — MLB Matchup Familiarity Overlay (secundario)
+- Implementar una capa contextual MLB basada en enfrentamientos recientes (preferencia: últimos 15 días) que:
   - NO sea pick principal.
-  - Aporte puntos secundarios (solo Totales en esta entrega) y auditabilidad total.
-  - Sea puro/fail-soft y cableado observe-only.
+  - Sea puro/fail-soft, auditable.
+  - **D13.1:** Totales (O/U) ✅
+  - **D13.2:** extender a Moneyline + Runline y **permitir impacto en scoring real** con límites y veto ✅
+
+### Objetivos nuevos / extendidos (NIVEL 3) — MLB Totals: Distribution Mixing + Tail Calibration + Threshold Models
+- Agregar una capa compatible/auditable que NO reemplace el sistema actual, pero mejore:
+  - probas O/U por umbral (7.5/8.5/…)
+  - juegos de alta varianza (colas)
+- **Bloques:**
+  - **Bloque 1 (Mixer):** mezcla Poisson/NB dinámica ✅
+  - Bloque 2: `tail_calibration` (pendiente)
+  - Bloque 3: `threshold_probability_model` (pendiente)
 
 ### Objetivos nuevos / extendidos (D9.2-C) — Residual Model con xG real (Bonferroni estricto)
 - Fortalecer el backtest residual para evitar falsos positivos por múltiples comparaciones:
-  - Clasificador puro y testeable.
-  - Corrección Bonferroni estricta en el criterio de significancia.
-  - Auditoría explícita del umbral ajustado y resultados por métrica.
+  - Clasificador puro y testeable ✅
+  - Corrección Bonferroni estricta ✅
+  - Auditoría explícita de umbral ajustado y resultados por métrica ✅
 
 ### Objetivos nuevos / extendidos (F87.1) — Fixture Discovery Contract Fix + Visible Audit (con Parte 1.5 upstream)
 **Objetivo global:** eliminar “pérdidas invisibles” de fixtures y permitir diagnóstico end-to-end.
@@ -302,8 +312,11 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
 - 🟡 **REFACTOR-1** (pasos 2/3 y 3/3 + ingest_upcoming).
 - ⏳ **F84.c/F84.d** Lineups + Standings.
 - ⏳ **D8 Fase 2** — selecciones (DRAW + cohorte favorito-dominante) con MAX_CREDITS=2500 (bloqueado por ground truth Copa América 2024).
-- ⏳ (Opcional futuro) **D13.2** — extender familiaridad a **Moneyline/Runline** con reglas explícitas.
-- ⏳ (Opcional futuro) UI para “Familiaridad reciente” si se decide exponer (por ahora observe-only backend).
+- ⏳ **NIVEL 3 Bloque 2:** Tail calibration.
+- ⏳ **NIVEL 3 Bloque 3:** Threshold probability model.
+- ⏳ (Opcional) UI para exponer:
+  - `matchup_familiarity_overlay` (impact + snapshots)
+  - `run_distribution_mixer` (comparación vs NB canónico)
 
 ### Pendientes P2
 - ⏳ Expandir `team_name_translations.py`.
@@ -326,100 +339,104 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
 #### Entregables backend
 - ✅ **B1 — Wire intra-módulo** (`backend/services/mlb_expected_runs_distribution.py`):
   - `compute_expected_runs_distribution(...)` ahora **propaga** `overlay_dispersion_multiplier` + `overlay_verdict` hacia `_compute_effective_dispersion(...)`.
-  - El ratio efectivo permanece clamped a **[0.90, 3.00]** (invariante), evitando “colas absurdas”.
+  - El ratio efectivo permanece clamped a **[0.90, 3.00]**.
 
 - ✅ **B2 — Orquestador M5.6** (`backend/services/mlb_day_orchestrator.py`):
   - Invoca `compute_total_risk_overlay()`.
-  - Calcula `bullpen_stress` (por lado) y `domino_risk` (por lado) usando datos ya en scope.
-  - Expone `pick_payload["total_risk_overlay"]` incluyendo:
-    - `components.{starter_volatility, first_inning_collapse, recent_offensive_quality, lineup_explosiveness, bullpen_stress, domino_risk}` para UI.
+  - Calcula `bullpen_stress` y `domino_risk` por lado.
+  - Expone `pick_payload["total_risk_overlay"]` con `components.{starter_volatility, first_inning_collapse, recent_offensive_quality, lineup_explosiveness, bullpen_stress, domino_risk}`.
   - Si `verdict ∈ {AVOID, BLOCK}` y `dispersion_multiplier > 1.0`:
-    - **recomputa** `expected_runs_distribution` pasando `overlay_*`.
-    - preserva el anterior en `expected_runs_distribution_pre_overlay`.
-    - promueve `reason_codes` del overlay al listado canónico.
-    - `pipeline_meta["expected_runs_distribution"]` refleja:
-      - `overlay_applied=True`, `overlay_verdict`, `overlay_multiplier`.
+    - recomputa `expected_runs_distribution` con `overlay_*`.
+    - preserva pre-overlay.
 
 - ✅ **B3 — Tests**:
-  - Nuevo archivo: `backend/tests/test_mlb_d12_nb_overlay_wiring.py` (**13 tests**).
+  - `backend/tests/test_mlb_d12_nb_overlay_wiring.py` (**13 tests**).
 
 #### Entregables frontend
-- ✅ **F1 — UI “Riesgos ocultos del Under”**
-  - Nuevo componente: `frontend/src/components/UnderHiddenRisksCard.jsx`:
-    - 6 tarjetas (grid 2×3): Volatilidad starter / Riesgo 1ª entrada / Ofensiva reciente / Explosividad lineup / Estrés bullpen / Riesgo dominó.
-    - Badges: veredicto, cola (tail risk), `NB ×multiplier`.
-    - `editorial_summary` + chips de `reason_codes` traducidos.
-    - `data-testid` por tarjeta y por badge.
-  - Integración:
-    - `MLBScriptPanel.jsx` (nuevo prop `totalRiskOverlay`).
-    - `MatchCard.jsx` y `pages/MatchDetailPage.jsx` pasan `m.total_risk_overlay`.
-  - Tests:
-    - `frontend/src/components/__tests__/UnderHiddenRisksCard.test.jsx` (**16 tests**, verdes).
-
-#### Nota sobre tests frontend
-- La suite FE global tiene **2 fallos pre-existentes** en `InlineManualOddsInputF93_1.test.jsx` (no relacionados con D12).
+- ✅ UI “Riesgos ocultos del Under” (6 cards + reason codes traducidos) con tests RTL.
 
 ---
 
-### ✅ SPRINT D13 — MLB Matchup Familiarity Overlay — COMPLETADO
+### ✅ SPRINT D13 — MLB Matchup Familiarity Overlay (D13.1) — COMPLETADO
 
-**Módulo nuevo (puro, fail-soft):** `backend/services/mlb_matchup_familiarity_overlay.py`
-- Implementadas las 4 secciones del spec:
-  1) **Detección** de enfrentamientos recientes con clasificación de ventana:
-     `LAST_3_DAYS | LAST_5_DAYS | LAST_15_DAYS | CURRENT_SEASON | LAST_2_YEARS | NONE`.
-  2) **Métricas H2H**:
-     - avg/median/max/min de carreras totales,
-     - over/under rates por línea (7.5/8.5/9.5/10.5/11.5),
-     - win rates home/away,
-     - runline cover rates (−1.5) home/away.
-  3) **Familiarity score** 0–100 + buckets `NONE/LOW/MEDIUM/HIGH`,
-     `confidence`, `drivers`, y degradación por `missing_fields`.
-  4) **Impacto en Totales O/U** (`totals_overlay`):
-     `lean OVER/UNDER/NEUTRAL`, puntos con **clamping ±5**, reason codes, summary.
-- **Hard date cap 16 días**: juegos más antiguos no contribuyen a métricas ni a puntos.
-- Alineación de polaridad home/away (si en juegos pasados los equipos estaban invertidos).
-- Compatible con input shape `games_detail` del `mlb_active_series_analyzer`.
-- ✅ Tests: `backend/tests/test_mlb_matchup_familiarity_overlay.py` (**46 tests**).
+**Módulo puro:** `backend/services/mlb_matchup_familiarity_overlay.py`
+- Ventanas + métricas H2H + score + impacto en Totales.
+- Hard cap 16 días (no contribuye a métricas/puntos si 16 días).
+- Tests: `backend/tests/test_mlb_matchup_familiarity_overlay.py` (**46 tests**).
 
-**Cableo (observe-only):** bloque **M5.7 (D13)** en `backend/services/mlb_day_orchestrator.py`
-- Ubicación: inmediatamente después de D12.
-- Obtiene H2H via `get_active_series_context(..., days_back=15)`.
-- Publica en:
-  - `pick_payload["matchup_familiarity_overlay"]`
-  - `pipeline_meta["matchup_familiarity_overlay"]`
-- Fail-soft: ante error, payload `available=False` con `error`.
+**Cableo:** `mlb_day_orchestrator.py` M5.7 (observe-only) publicando payload.
+
+---
+
+### ✅ SPRINT D13.2 — Matchup Familiarity Overlay extendido a ML/RL + Active Scoring — COMPLETADO
 
 **Decisiones del usuario aplicadas:**
-- A=a (ubicación en `backend/services/`).
-- B=a (solo Totales en esta entrega).
-- C=b (cableo observe-only, sin modificar pick).
-- D=a (sin UI en D13).
-- E=a (reutiliza `active_series`/colecciones existentes).
+- A=a: módulos en `backend/services/mlb_*.py`.
+- B=a: rename `totals_overlay` → `over_under_impact` con alias retro-compatible.
+- C1: aplicar overlay.points al score de **todos** los mercados (TOTAL/ML/RL).
+- C2: snapshots `pick_score_pre_d13` y `pick_score_post_d13`.
+- C3=a: veto automático RL con **umbral |base_projected_margin| < 2.0**.
+- D=a: NIVEL 3 solo Bloque 1 en esta entrega.
+
+#### Cambios en `mlb_matchup_familiarity_overlay.py`
+- Nuevas constantes:
+  - `LEAN_HOME/AWAY/HOME_RL/AWAY_RL`
+  - `MAX_ML_WIN_PROB_DELTA = 0.05`
+  - `MAX_RL_MARGIN_DELTA   = 1.5`
+  - `RL_BASE_MARGIN_VETO_THRESHOLD = 2.0`
+- Nuevas funciones:
+  - `_compute_moneyline_overlay()`:
+    - 2+ wins con margen ≥2; avg diff ≥2 carreras; bullpen edge (1..3); starter seen recently (1..2).
+    - Safety: no premia “ganó ayer” como señal única.
+    - Clamps: puntos ±5; ajuste de probabilidad ±5%.
+  - `_compute_runline_overlay()`:
+    - 2+ wins por ≥2; avg_margin ≥|2.0|; late-inning scoring; bullpen fatigue.
+    - Veto automático si |margen base| < 2.0 → puntos=0, `RL_VETOED_LOW_BASE_MARGIN`.
+    - Clamps: puntos ±5; ajuste de margen ±1.5.
+- Output canónico:
+  - `over_under_impact`, `moneyline_impact`, `runline_impact`
+  - alias `totals_overlay` (back-compat D13.1).
+- Tests: `backend/tests/test_mlb_matchup_familiarity_overlay_d13_2.py` (**27 tests**).
+
+#### Cableo activo en `mlb_day_orchestrator.py` (M5.7 extendido)
+- Pasa `base_projected_margin` al overlay:
+  - heurística: `(h_q.score - a_q.score) / 25.0`.
+- Aplica el delta de scoring al pick real (defense in depth con clamp ±5):
+  - TOTAL: por alineación lean vs side.
+  - ML: por HOME/AWAY.
+  - RL: por HOME_RL/AWAY_RL (si vetoed → 0).
+- Snapshots:
+  - `pick_payload["pick_score_pre_d13"]`, `pick_payload["pick_score_post_d13"]`
+  - `pick_payload["d13_score_delta"]`, `pick_payload["d13_applied_block"]`
+- Log `[D13.2_APPLY]` solo cuando delta ≠ 0.
+
+---
+
+### ✅ NIVEL 3 — Bloque 1 · Dynamic Run Distribution Mixer — COMPLETADO
+
+**Módulo puro:** `backend/services/mlb_run_distribution_mixer.py`
+- `build_dynamic_run_distribution(context)`:
+  - Lambda desde baseline + park_factor + weather (clamped [2, 22]).
+  - Volatility score 0..100 desde señales D11/D12.
+  - Selección dinámica: POISSON / NB / MIXTURE; mixture forzado si datos parciales.
+  - Dispersión mapeada a [1.0, 3.0].
+  - Probabilidades O/U por umbral (.5): 6.5..14.5.
+  - Percentiles p10/p25/p50/p75/p90/p95/p99.
+  - Tail risk score/bucket + drivers.
+  - NB PMF estable con log-gamma + renormalización tras truncamiento (MAX_RUNS=40).
+- Tests: `backend/tests/test_mlb_run_distribution_mixer.py` (**33 tests**).
+
+**Cableo observe-only:** bloque **M5.8** en `mlb_day_orchestrator.py`
+- Publica `pick_payload["run_distribution_mixer"]` y `pipeline_meta["run_distribution_mixer"]`.
+- NO muta el `expected_runs_distribution` canónico ni el pick.
 
 ---
 
 ### ✅ SPRINT D9.2 Block C — Residual Model con xG real (Bonferroni estricto) — COMPLETADO
 
-**Módulo nuevo (puro, fail-soft):** `backend/services/football_residual_verdict_classifier.py`
-- `compute_bonferroni_cutoff(alpha, m_tests)` — corrección estricta.
-- `classify_residual_verdict(...)` — veredictos con auditoría:
-  - `RESIDUAL_BEATS_MARKET_OUT_OF_SAMPLE` (requiere Bonferroni-significance en **Brier y LogLoss** + dominancia en holdout).
-  - `RESIDUAL_IMPROVES_CALIBRATION_ONLY`.
-  - `NO_INCREMENTAL_SIGNAL_WITH_CURRENT_FEATURES`.
-  - `RESIDUAL_OVERFIT_DETECTED`.
-  - `BONFERRONI_NOT_SIGNIFICANT` (pasa naïve 0.95 pero no Bonferroni).
-  - `INSUFFICIENT_DIAGNOSTICS` (fail-soft).
-- ✅ Tests: `backend/tests/test_football_residual_verdict_classifier.py` (**21 tests**).
-
-**Script actualizado:** `backend/scripts/run_d9_residual_backtest.py`
-- Delega `_classify` al módulo puro.
-- Auto-cómputo `m_tests = n_combinations × 2` (Brier + LogLoss) por sweep.
-- Nuevas flags CLI:
-  - `--alpha` (default 0.05)
-  - `--bonferroni-m` (override manual)
-- Persiste `bonferroni` a nivel top-level en el reporte JSON:
-  `alpha, m, alpha_adjusted, cutoff, naive_cutoff, p-values y passes_* por métrica`.
-- Limpieza de 2 warnings ruff E702 pre-existentes (semicolons).
+- Módulo puro `backend/services/football_residual_verdict_classifier.py`.
+- Script `backend/scripts/run_d9_residual_backtest.py` con flags `--alpha` y `--bonferroni-m` + bloque `bonferroni` persistido.
+- Tests: `backend/tests/test_football_residual_verdict_classifier.py` (**21 tests**).
 
 ---
 
@@ -429,11 +446,10 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
   - Cero regresión post-cada cambio.
   - Fail-soft y back-compat.
   - Point-in-time correctness en backtests.
-  - `observe_only` (sin apuestas automáticas) — **excepto** recalibración NB: afecta solo probabilidades/colas (no pick-binding).
+  - Observe-only por defecto; excepciones explícitas (D13.2: scoring activo con clamps + snapshots).
   - Backend: ejecutar `pytest` completo tras cambios.
-  - Frontend: `yarn` + `esbuild` tras cambios; RTL tests por componente cuando aplique.
 
-**Estado actual de la suite backend:** `4063 passed / 2 skipped` (0 regresiones).
+**Estado actual de la suite backend:** `4123 passed / 2 skipped` (0 regresiones).
 
 ---
 
@@ -443,7 +459,6 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
   - Siempre usar `yarn` (no `npm`).
   - Fail-soft: no levantar excepción sin convertirla a auditoría/razón.
   - Backtests: disciplina point-in-time estricta.
-  - **Observe-only**: no implementar apuestas automáticas.
 
 - Flags / env (principales):
   - `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY`.
