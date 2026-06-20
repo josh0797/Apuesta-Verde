@@ -3943,6 +3943,169 @@ async def analyze_mlb_day(
                         float(_mixer_out.get("volatility_score") or 0),
                         (_mixer_out.get("tail_risk") or {}).get("bucket"),
                     )
+
+                # ── M5.8.1 (NIVEL 3 §2): Tail Calibration ──────────
+                # Redistribute mass into upper tail when ≥1 critical
+                # risk signals are present. ACTIVE: the calibrated
+                # probabilities are blended in §4 and written back to
+                # `expected_runs_distribution` below.
+                _tail_cal_out = {}
+                try:
+                    from .mlb_tail_calibration import calibrate_tail_probabilities
+                    # Pass the mixer's distribution + a flattened
+                    # context that includes bullpen / starter / lineup
+                    # quality / park / weather signals (everything the
+                    # tail calibration needs).
+                    _tc_ctx = {
+                        **_mixer_ctx,
+                        "bullpen_usage": _mfo_ctx.get("bullpen_usage") if "_mfo_ctx" in locals() else {},
+                        "starter_info":  _mfo_ctx.get("starter_info")  if "_mfo_ctx" in locals() else {},
+                        "lineup_quality": pick_payload.get("lineup_quality_snapshot") or {},
+                    }
+                    _tail_cal_out = calibrate_tail_probabilities(_mixer_out, _tc_ctx)
+                    pick_payload["tail_calibration"] = {
+                        "tail_calibration_applied": _tail_cal_out.get("tail_calibration_applied"),
+                        "tail_multiplier":          _tail_cal_out.get("tail_multiplier"),
+                        "tail_shift_runs":          _tail_cal_out.get("tail_shift_runs"),
+                        "tail_risk_bucket":         _tail_cal_out.get("tail_risk_bucket"),
+                        "reason_codes":             _tail_cal_out.get("reason_codes") or [],
+                        "drivers":                  _tail_cal_out.get("drivers") or [],
+                    }
+                except Exception as exc_tc:
+                    log.debug("tail_calibration (NIVEL3 §2) compute failed: %s", exc_tc)
+
+                # ── M5.8.2 (NIVEL 3 §3): Threshold-by-line Model ───
+                _tm_out = {}
+                try:
+                    from .mlb_threshold_over_model import predict_threshold_probabilities
+                    _ur_blk = pick_payload.get("under_explosion_risk") or {}
+
+                    def _peak_side(blk, *keys):
+                        if not isinstance(blk, dict):
+                            return None
+                        out = None
+                        for side in ("home", "away"):
+                            sb = blk.get(side)
+                            if not isinstance(sb, dict):
+                                continue
+                            cur = sb
+                            for k in keys:
+                                cur = cur.get(k) if isinstance(cur, dict) else None
+                            if cur is not None:
+                                try:
+                                    v = float(cur)
+                                    if v == v:
+                                        out = v if out is None else max(out, v)
+                                except (TypeError, ValueError):
+                                    pass
+                        return out
+
+                    _tm_features = {
+                        "baseline_expected_runs": float(v2_block.get("expectedRuns") or 0) or None,
+                        "market_total":           float(v2_block.get("smartTotalsLine") or 0) or None,
+                        "starter_volatility_home": _peak_side((_ur_blk.get("starter_volatility") or {}), "starter_volatility_score"),
+                        "starter_volatility_away": _peak_side((_ur_blk.get("starter_volatility") or {}), "starter_volatility_score"),
+                        "lineup_explosiveness_home": _peak_side((_ur_blk.get("lineup_explosiveness") or {}), "lineup_explosiveness_score"),
+                        "lineup_explosiveness_away": _peak_side((_ur_blk.get("lineup_explosiveness") or {}), "lineup_explosiveness_score"),
+                        "first_inning_collapse_home": _peak_side((_ur_blk.get("first_inning_collapse") or {}), "first_inning_collapse_score"),
+                        "first_inning_collapse_away": _peak_side((_ur_blk.get("first_inning_collapse") or {}), "first_inning_collapse_score"),
+                        "recent_offense_home":     (_ur_blk.get("recent_offensive_quality") or {}).get("home"),
+                        "recent_offense_away":     (_ur_blk.get("recent_offensive_quality") or {}).get("away"),
+                        "park_factor":             (pick_payload.get("park_factor_live") or {}).get("dynamic"),
+                        "weather_run_factor":      (pick_payload.get("weather_signal") or {}).get("runs_multiplier"),
+                    }
+                    _tm_out = predict_threshold_probabilities(_tm_features)
+                    pick_payload["threshold_over_model"] = {
+                        "model_version": _tm_out.get("model_version"),
+                        "confidence":    _tm_out.get("confidence"),
+                        "features_used": _tm_out.get("features_used"),
+                        "missing_fields": _tm_out.get("missing_fields"),
+                    }
+                except Exception as exc_tm:
+                    log.debug("threshold_over_model (NIVEL3 §3) compute failed: %s", exc_tm)
+
+                # ── M5.8.3 (NIVEL 3 §4): Blender + ACTIVE writeback ─
+                # Combina la distribución calibrada con el modelo por
+                # umbral, y SOBREESCRIBE
+                # `expected_runs_distribution.probabilities` con el
+                # blend final. Persiste pre/post snapshots para audit.
+                try:
+                    from .mlb_distribution_threshold_blender import (
+                        combine_distribution_and_threshold_model,
+                    )
+                    _blend_ctx = {
+                        "tail_risk_bucket": (_tail_cal_out or {}).get("tail_risk_bucket")
+                                              or (_mixer_out.get("tail_risk") or {}).get("bucket"),
+                        "partial_data":     "MIXTURE_DUE_TO_PARTIAL_DATA" in (_mixer_out.get("reason_codes") or []),
+                    }
+                    _blend_out = combine_distribution_and_threshold_model(
+                        _tail_cal_out if _tail_cal_out else _mixer_out,
+                        _tm_out or {},
+                        _blend_ctx,
+                    )
+                    pick_payload["distribution_blender"] = {
+                        "blend_weights":         _blend_out.get("blend_weights"),
+                        "threshold_confidence":  _blend_out.get("threshold_confidence"),
+                        "divergence_flags":      _blend_out.get("divergence_flags") or [],
+                        "reason_codes":          _blend_out.get("reason_codes") or [],
+                    }
+
+                    # ACTIVE WRITEBACK to expected_runs_distribution.
+                    _erd = pick_payload.get("expected_runs_distribution")
+                    if isinstance(_erd, dict) and _erd.get("available"):
+                        # Snapshot pre.
+                        pick_payload["expected_runs_distribution_pre_nivel3"] = {
+                            "probabilities": dict(_erd.get("probabilities") or {}),
+                            "p90": _erd.get("p90"),
+                            "p95": _erd.get("p95"),
+                        }
+                        final_over  = _blend_out.get("final_over_probabilities") or {}
+                        final_under = _blend_out.get("final_under_probabilities") or {}
+                        if final_over and final_under:
+                            new_probs = dict(_erd.get("probabilities") or {})
+                            for k, v in final_over.items():
+                                new_probs[k] = v
+                            for k, v in final_under.items():
+                                new_probs[k] = v
+                            _erd["probabilities"] = new_probs
+                            # Also update p90/p95/p99 if tail
+                            # calibration shifted them.
+                            tc_perc = (_tail_cal_out.get("after") or {}).get("percentiles") if _tail_cal_out else None
+                            if isinstance(tc_perc, dict):
+                                if tc_perc.get("p90") is not None:
+                                    _erd["p90"] = float(tc_perc["p90"])
+                                if tc_perc.get("p95") is not None:
+                                    _erd["p95"] = float(tc_perc["p95"])
+                                if tc_perc.get("p99") is not None:
+                                    _erd["p99"] = float(tc_perc["p99"])
+                            # Annotate audit codes onto the canonical
+                            # reason_codes list.
+                            existing_rcs = _erd.get("reason_codes") or []
+                            for rc in (_blend_out.get("reason_codes") or []):
+                                if rc not in existing_rcs:
+                                    existing_rcs.append(rc)
+                            for rc in (_tail_cal_out.get("reason_codes") if _tail_cal_out else []) or []:
+                                if rc not in existing_rcs:
+                                    existing_rcs.append(rc)
+                            _erd["reason_codes"] = existing_rcs
+                            _erd["nivel3_applied"] = True
+                            pick_payload["expected_runs_distribution"] = _erd
+                            pipeline_meta["expected_runs_distribution"] = {
+                                **(pipeline_meta.get("expected_runs_distribution") or {}),
+                                "nivel3_applied":   True,
+                                "blend_weights":    _blend_out.get("blend_weights"),
+                                "divergence_flags": _blend_out.get("divergence_flags") or [],
+                                "tail_calibration_applied": (_tail_cal_out or {}).get("tail_calibration_applied"),
+                            }
+                            log.info(
+                                "[NIVEL3_BLEND_APPLY] match=%s w_tm=%.2f tail_mult=%.2f div=%d",
+                                pick_payload.get("matchId") or pick_payload.get("match_id"),
+                                float((_blend_out.get("blend_weights") or {}).get("threshold_model") or 0),
+                                float((_tail_cal_out or {}).get("tail_multiplier") or 1),
+                                len(_blend_out.get("divergence_flags") or []),
+                            )
+                except Exception as exc_blend:
+                    log.debug("distribution blender (NIVEL3 §4) compute failed: %s", exc_blend)
             except Exception as exc_mixer:
                 log.debug("run_distribution_mixer (NIVEL3) compute failed: %s", exc_mixer)
                 pick_payload["run_distribution_mixer"] = {

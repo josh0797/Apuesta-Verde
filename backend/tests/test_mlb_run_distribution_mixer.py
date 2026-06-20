@@ -180,7 +180,12 @@ class TestFamilySelection:
     def test_high_volatility_selects_nb(self):
         out = build_dynamic_run_distribution(_ctx_full(volatility_high=True))
         assert out["distribution_family"] == FAMILY_NB
-        assert out["mixture_weights"]["negative_binomial"] == 1.0
+        # New formula caps nb_weight at 0.90 (preserves 10% Poisson tail).
+        assert out["mixture_weights"]["negative_binomial"] >= 0.85
+        assert out["mixture_weights"]["negative_binomial"] <= 0.90 + 1e-6
+        # Reason codes per §1 spec.
+        assert "DISTRIBUTION_NEGATIVE_BINOMIAL_SELECTED" in out["reason_codes"]
+        assert "HIGH_VARIANCE_DISTRIBUTION_USED" in out["reason_codes"]
 
     def test_mid_volatility_selects_mixture(self):
         # Hand-craft a mid-range score.
@@ -229,6 +234,91 @@ class TestFamilySelection:
         out = build_dynamic_run_distribution(ctx)
         assert out["distribution_family"] == FAMILY_MIXTURE
         assert "MIXTURE_DUE_TO_PARTIAL_DATA" in out["reason_codes"]
+
+
+class TestNivel3WeightFormula:
+    """Test exact §1 spec formula: nb_weight = clamp((risk-30)/50, 0, 0.90).
+
+    Examples from spec:
+      * risk 20  → ~Poisson (90-100%)
+      * risk 50  → mix ~60/40
+      * risk 70  → mix ~30/70
+      * risk 85+ → ~NB (85-90%)
+    """
+    def _ctx_with_risk(self, risk: float):
+        # Build a context where the 6 pillars all equal `risk` so the
+        # weighted average is exactly `risk`. Use only numeric pillars.
+        return {
+            "baseline_expected_runs": 8.5,
+            "starter_volatility": {
+                "home": {"starter_volatility_score": risk},
+                "away": {"starter_volatility_score": risk},
+            },
+            "first_inning_collapse": {
+                "home": {"first_inning_collapse_score": risk},
+                "away": {"first_inning_collapse_score": risk},
+            },
+            "lineup_explosiveness": {
+                "home": {"lineup_explosiveness_score": risk},
+                "away": {"lineup_explosiveness_score": risk},
+            },
+            "bullpen_stress": {
+                "home": {"bullpen_stress_score": risk},
+                "away": {"bullpen_stress_score": risk},
+            },
+            "domino_risk": {
+                "home": {"domino_risk_score": risk},
+                "away": {"domino_risk_score": risk},
+            },
+            "recent_offense_home": {"bucket": "NEUTRAL"},  # 30 → drags toward neutral
+            "recent_offense_away": {"bucket": "NEUTRAL"},
+        }
+
+    def test_risk_20_selects_poisson(self):
+        # risk avg ≈ (20+20+20+30+20+20)/6 ≈ 21.7 → nb_weight ≈ 0
+        out = build_dynamic_run_distribution(self._ctx_with_risk(20))
+        assert out["distribution_family"] == FAMILY_POISSON
+        assert "DISTRIBUTION_POISSON_SELECTED" in out["reason_codes"]
+        assert out["mixture_weights"]["negative_binomial"] <= 0.05
+
+    def test_risk_50_mixture_60_40_ish(self):
+        # risk avg ≈ (50*5 + 30)/6 ≈ 46.7 → nb_weight ≈ (46.7-30)/50 ≈ 0.33
+        out = build_dynamic_run_distribution(self._ctx_with_risk(50))
+        assert out["distribution_family"] == FAMILY_MIXTURE
+        nb_w = out["mixture_weights"]["negative_binomial"]
+        assert 0.20 <= nb_w <= 0.45
+
+    def test_risk_70_mixture_30_70_ish(self):
+        # risk avg ≈ (70*5 + 30)/6 ≈ 63.3 → nb_weight ≈ 0.67
+        out = build_dynamic_run_distribution(self._ctx_with_risk(70))
+        assert out["distribution_family"] == FAMILY_MIXTURE
+        nb_w = out["mixture_weights"]["negative_binomial"]
+        assert 0.55 <= nb_w <= 0.80
+        # Should also flag high variance.
+        assert "HIGH_VARIANCE_DISTRIBUTION_USED" in out["reason_codes"]
+
+    def test_risk_90_selects_nb_capped_at_90pct(self):
+        # risk avg ≈ (90*5 + 30)/6 ≈ 80 → nb_weight ≈ 1.0 → capped at 0.90
+        out = build_dynamic_run_distribution(self._ctx_with_risk(90))
+        assert out["distribution_family"] == FAMILY_NB
+        assert out["mixture_weights"]["negative_binomial"] == pytest.approx(0.90, abs=0.02)
+        assert "DISTRIBUTION_NEGATIVE_BINOMIAL_SELECTED" in out["reason_codes"]
+        assert "HIGH_VARIANCE_DISTRIBUTION_USED" in out["reason_codes"]
+
+    def test_weights_sum_exactly_to_one(self):
+        for r in (15, 35, 55, 75, 95):
+            out = build_dynamic_run_distribution(self._ctx_with_risk(r))
+            w = out["mixture_weights"]
+            assert w["poisson"] + w["negative_binomial"] == pytest.approx(1.0, abs=0.001)
+
+    def test_nb_weight_clamped_zero_low_risk(self):
+        # risk avg ≈ (5+5+5+0+5+5)/6 ≈ 4.2 → nb_weight < 0 → clamped to 0
+        ctx = self._ctx_with_risk(5)
+        ctx["recent_offense_home"] = {"bucket": "COLD"}
+        ctx["recent_offense_away"] = {"bucket": "COLD"}
+        out = build_dynamic_run_distribution(ctx)
+        assert out["distribution_family"] == FAMILY_POISSON
+        assert out["mixture_weights"]["negative_binomial"] == 0.0
 
 
 # ─────────────────────────────────────────────────────────────────────

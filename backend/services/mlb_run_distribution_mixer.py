@@ -77,7 +77,20 @@ TAIL_MEDIUM  = "MEDIUM"
 TAIL_HIGH    = "HIGH"
 TAIL_EXTREME = "EXTREME"
 
-# Volatility score thresholds for family selection.
+# NIVEL 3 — Bloque 2 (§1): explicit weight formula per spec.
+#   nb_weight = clamp((risk_score - 30) / 50, 0.0, 0.90)
+# Selection rule kept as backward-compatible buckets:
+#   * nb_weight <= 0.05  → POISSON   (low-variance regime).
+#   * nb_weight >= 0.85  → NB        (high-variance regime).
+#   * otherwise           → MIXTURE.
+NB_WEIGHT_OFFSET     = 30.0
+NB_WEIGHT_SCALE      = 50.0
+NB_WEIGHT_MAX        = 0.90
+NB_WEIGHT_POISSON_TH = 0.05
+NB_WEIGHT_NB_TH      = 0.85
+
+# Legacy thresholds (kept for back-compat with consumers reading
+# `volatility_score`; not used for selection anymore).
 VOLATILITY_POISSON_MAX = 25.0
 VOLATILITY_NB_MIN      = 65.0
 
@@ -154,101 +167,116 @@ def _peak_score(block: Any, *keys: str) -> Optional[float]:
 # Volatility scoring
 # ─────────────────────────────────────────────────────────────────────
 def _compute_volatility_score(context: Dict[str, Any]) -> Tuple[float, List[str]]:
-    """Returns (volatility_score 0..100, drivers list).
+    """Returns (risk_score 0..100, drivers list).
 
-    Aggregates sub-signals from the D11/D12 layers:
-      * starter_volatility (per side score 0..100)
-      * first_inning_collapse (per side score 0..100)
-      * lineup_explosiveness (per side score 0..100, EXPLOSIVE bucket)
-      * bullpen_stress (per side score 0..100)
-      * domino_risk (per side score 0..100)
-      * recent_offensive_quality (per side, HOT/EXPLOSIVE bucket)
+    Per NIVEL 3 — Bloque 2 §1 spec:
+        risk_score = weighted_average of the 6 peak(home, away) signals:
+            - starter_volatility
+            - first_inning_collapse
+            - lineup_explosiveness
+            - recent_offense  (categorical bucket → numeric mapping)
+            - bullpen_stress
+            - domino_risk
+
+    Weights are equal across pillars (per spec "weighted_average" —
+    we treat as uniform mean of the available pillars, with missing
+    pillars excluded from the denominator so partial-data contexts
+    don't get artificially deflated).
     """
     drivers: List[str] = []
-    score = 0.0
 
-    sv = _peak_score(context.get("starter_volatility_home"),
-                      "starter_volatility_score")
-    sv2 = _peak_score(context.get("starter_volatility_away"),
+    # ── Peak per pillar ─────────────────────────────────────────────
+    def _peak_or_none(*keys_chain: Tuple[Any, str]) -> Optional[float]:
+        """Try several lookups, return first non-None numeric."""
+        return None
+
+    # Starter volatility (two-sided block + per-side fallback).
+    sv = _peak_score(context.get("starter_volatility"),
                        "starter_volatility_score")
-    sv_peak = max(sv or 0.0, sv2 or 0.0) if (sv is not None or sv2 is not None) else None
-    # Accept also `starter_volatility` two-sided block.
-    if sv_peak is None:
-        sv_peak = _peak_score(context.get("starter_volatility"),
-                                "starter_volatility_score")
-    if sv_peak is not None and sv_peak >= 50:
-        score += min(25.0, sv_peak * 0.30)
-        if sv_peak >= 70:
-            drivers.append("HIGH_STARTER_VOLATILITY")
+    if sv is None:
+        sv_h = _get_side(context.get("starter_volatility_home"), "home",
+                          "starter_volatility_score")
+        sv_a = _get_side(context.get("starter_volatility_away"), "away",
+                          "starter_volatility_score")
+        sv = max(sv_h or 0.0, sv_a or 0.0) if (sv_h is not None or sv_a is not None) else None
 
+    # First inning collapse.
     fi = _peak_score(context.get("first_inning_collapse"),
-                      "first_inning_collapse_score")
+                       "first_inning_collapse_score")
     if fi is None:
         fi_h = _get_side(context.get("first_inning_collapse_home"), "home",
                           "first_inning_collapse_score")
         fi_a = _get_side(context.get("first_inning_collapse_away"), "away",
                           "first_inning_collapse_score")
         fi = max(fi_h or 0.0, fi_a or 0.0) if (fi_h is not None or fi_a is not None) else None
-    if fi is not None and fi >= 50:
-        score += min(20.0, fi * 0.25)
-        if fi >= 80:
-            drivers.append("EXTREME_FIRST_INNING_COLLAPSE_RISK")
 
+    # Lineup explosiveness.
     le = _peak_score(context.get("lineup_explosiveness"),
-                      "lineup_explosiveness_score")
+                       "lineup_explosiveness_score")
     if le is None:
         le_h = _get_side(context.get("lineup_explosiveness_home"), "home",
                           "lineup_explosiveness_score")
         le_a = _get_side(context.get("lineup_explosiveness_away"), "away",
                           "lineup_explosiveness_score")
         le = max(le_h or 0.0, le_a or 0.0) if (le_h is not None or le_a is not None) else None
-    if le is not None and le >= 50:
-        score += min(20.0, le * 0.25)
-        if le >= 80:
-            drivers.append("EXPLOSIVE_LINEUP")
 
+    # Recent offense: map categorical bucket → numeric (COLD=0,
+    # NEUTRAL=30, HOT=70, EXPLOSIVE=95).
+    ro_h = (context.get("recent_offense_home") or {}).get("bucket") \
+                if isinstance(context.get("recent_offense_home"), dict) else None
+    ro_a = (context.get("recent_offense_away") or {}).get("bucket") \
+                if isinstance(context.get("recent_offense_away"), dict) else None
+    _bucket_to_score = {"COLD": 0.0, "NEUTRAL": 30.0, "HOT": 70.0, "EXPLOSIVE": 95.0}
+    ro_peak = None
+    for b in (ro_h, ro_a):
+        if b in _bucket_to_score:
+            v = _bucket_to_score[b]
+            ro_peak = v if ro_peak is None else max(ro_peak, v)
+    if ro_h == "EXPLOSIVE" or ro_a == "EXPLOSIVE":
+        drivers.append("BOTH_OFFENSES_HOT")
+
+    # Bullpen stress.
     bs = _peak_score(context.get("bullpen_stress"),
-                      "bullpen_stress_score")
+                       "bullpen_stress_score")
     if bs is None:
         bs_h = _get_side(context.get("bullpen_stress_home"), "home",
                           "bullpen_stress_score")
         bs_a = _get_side(context.get("bullpen_stress_away"), "away",
                           "bullpen_stress_score")
         bs = max(bs_h or 0.0, bs_a or 0.0) if (bs_h is not None or bs_a is not None) else None
-    if bs is not None and bs >= 50:
-        score += min(15.0, bs * 0.20)
-        if bs >= 75:
-            drivers.append("BULLPEN_STRESS")
 
+    # Domino risk.
     dr = _peak_score(context.get("domino_risk"),
-                      "domino_risk_score")
+                       "domino_risk_score")
     if dr is None:
         dr_h = _get_side(context.get("domino_risk_home"), "home",
                           "domino_risk_score")
         dr_a = _get_side(context.get("domino_risk_away"), "away",
                           "domino_risk_score")
         dr = max(dr_h or 0.0, dr_a or 0.0) if (dr_h is not None or dr_a is not None) else None
-    if dr is not None and dr >= 50:
-        score += min(15.0, dr * 0.20)
-        if dr >= 75:
-            drivers.append("DOMINO_RISK")
 
-    # Recent offensive quality (categorical).
-    ro_h = (context.get("recent_offense_home") or {}).get("bucket") \
-                if isinstance(context.get("recent_offense_home"), dict) else None
-    ro_a = (context.get("recent_offense_away") or {}).get("bucket") \
-                if isinstance(context.get("recent_offense_away"), dict) else None
-    for b in (ro_h, ro_a):
-        if b == "EXPLOSIVE":
-            score += 8.0
-            if "BOTH_OFFENSES_HOT" not in drivers:
-                drivers.append("BOTH_OFFENSES_HOT")
-        elif b == "HOT":
-            score += 4.0
+    # ── Weighted (uniform) average of available pillars ──────────────
+    pillars = [sv, fi, le, ro_peak, bs, dr]
+    available = [p for p in pillars if p is not None]
+    if not available:
+        return 0.0, drivers
+    risk_score = sum(available) / len(available)
+
+    # ── Pillar-specific drivers ─────────────────────────────────────
+    if sv is not None and sv >= 70:
+        drivers.append("HIGH_STARTER_VOLATILITY")
+    if fi is not None and fi >= 80:
+        drivers.append("EXTREME_FIRST_INNING_COLLAPSE_RISK")
+    if le is not None and le >= 80:
+        drivers.append("EXPLOSIVE_LINEUP")
+    if bs is not None and bs >= 75:
+        drivers.append("BULLPEN_STRESS")
+    if dr is not None and dr >= 75:
+        drivers.append("DOMINO_RISK")
 
     # Clamp.
-    score = max(0.0, min(score, 100.0))
-    return score, drivers
+    risk_score = max(0.0, min(risk_score, 100.0))
+    return risk_score, drivers
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -444,39 +472,57 @@ def _compute_tail_risk(pmf: List[float], lam: float) -> Dict[str, Any]:
 # Family selection
 # ─────────────────────────────────────────────────────────────────────
 def _select_family(
-    volatility_score: float,
+    risk_score: float,
     has_partial_data: bool,
 ) -> Tuple[str, Dict[str, float], List[str]]:
-    """Return (family, mixture_weights, reasons)."""
-    reasons: List[str] = []
-    if has_partial_data:
-        # Force MIXTURE when data is incomplete.
-        family = FAMILY_MIXTURE
-        # Use volatility score to set NB weight but bias toward neutral.
-        if volatility_score <= VOLATILITY_POISSON_MAX:
-            w_nb = 0.15
-        elif volatility_score >= VOLATILITY_NB_MIN:
-            w_nb = 0.85
-        else:
-            w_nb = (volatility_score - VOLATILITY_POISSON_MAX) / (
-                VOLATILITY_NB_MIN - VOLATILITY_POISSON_MAX
-            )
-        reasons.append("MIXTURE_DUE_TO_PARTIAL_DATA")
-        return family, {"poisson": round(1 - w_nb, 4), "negative_binomial": round(w_nb, 4)}, reasons
+    """Per NIVEL 3 §1 spec — explicit weight formula:
+        nb_weight = clamp((risk_score - 30) / 50, 0.0, 0.90)
+        poisson_weight = 1.0 - nb_weight
 
-    if volatility_score <= VOLATILITY_POISSON_MAX:
-        return FAMILY_POISSON, {"poisson": 1.0, "negative_binomial": 0.0}, ["LOW_VOLATILITY_REGIME"]
-    if volatility_score >= VOLATILITY_NB_MIN:
-        return FAMILY_NB, {"poisson": 0.0, "negative_binomial": 1.0}, ["HIGH_VOLATILITY_REGIME"]
-    # Mixture regime.
-    w_nb = (volatility_score - VOLATILITY_POISSON_MAX) / (
-        VOLATILITY_NB_MIN - VOLATILITY_POISSON_MAX
-    )
-    return (
-        FAMILY_MIXTURE,
-        {"poisson": round(1.0 - w_nb, 4), "negative_binomial": round(w_nb, 4)},
-        ["MIXED_VOLATILITY_REGIME"],
-    )
+    Family selection from the resulting weights:
+        * nb_weight <= NB_WEIGHT_POISSON_TH  → POISSON   (clean Poisson regime).
+        * nb_weight >= NB_WEIGHT_NB_TH       → NB        (dominant variance).
+        * otherwise                          → MIXTURE.
+
+    When `has_partial_data=True` we never select pure POISSON or pure
+    NB — always MIXTURE so partial information can't drive a regime
+    decision (per spec).
+    """
+    reasons: List[str] = []
+
+    # Explicit formula.
+    nb_weight = (risk_score - NB_WEIGHT_OFFSET) / NB_WEIGHT_SCALE
+    nb_weight = max(0.0, min(NB_WEIGHT_MAX, nb_weight))
+    poisson_weight = 1.0 - nb_weight
+    weights = {
+        "poisson":           round(poisson_weight, 4),
+        "negative_binomial": round(nb_weight, 4),
+    }
+
+    if has_partial_data:
+        family = FAMILY_MIXTURE
+        reasons.append("MIXTURE_DUE_TO_PARTIAL_DATA")
+        reasons.append("DISTRIBUTION_MIXTURE_SELECTED")
+        return family, weights, reasons
+
+    if nb_weight <= NB_WEIGHT_POISSON_TH:
+        family = FAMILY_POISSON
+        # Snap to pure Poisson.
+        weights = {"poisson": 1.0, "negative_binomial": 0.0}
+        reasons.append("DISTRIBUTION_POISSON_SELECTED")
+    elif nb_weight >= NB_WEIGHT_NB_TH:
+        family = FAMILY_NB
+        # Use the formula's weight (cap is 0.90) so the NB regime isn't
+        # absolute — preserves a 10% Poisson tail by design.
+        reasons.append("DISTRIBUTION_NEGATIVE_BINOMIAL_SELECTED")
+        reasons.append("HIGH_VARIANCE_DISTRIBUTION_USED")
+    else:
+        family = FAMILY_MIXTURE
+        reasons.append("DISTRIBUTION_MIXTURE_SELECTED")
+        if nb_weight >= 0.50:
+            reasons.append("HIGH_VARIANCE_DISTRIBUTION_USED")
+
+    return family, weights, reasons
 
 
 def _has_partial_data(context: Dict[str, Any]) -> bool:

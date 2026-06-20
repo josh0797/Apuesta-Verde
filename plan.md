@@ -105,10 +105,10 @@
 - Agregar una capa compatible/auditable que NO reemplace el sistema actual, pero mejore:
   - probas O/U por umbral (7.5/8.5/…)
   - juegos de alta varianza (colas)
-- **Bloques:**
+- **Bloques (estado actual):**
   - **Bloque 1 (Mixer):** mezcla Poisson/NB dinámica ✅
-  - Bloque 2: `tail_calibration` (pendiente)
-  - Bloque 3: `threshold_probability_model` (pendiente)
+  - **Bloque 2 (§1-§4):** fórmula de pesos + tail calibration + threshold model + blender **(ACTIVO)** ✅
+  - **Bloque 3 (§5-§6):** reglas hard de Under + UI “Distribución y colas” ⏳
 
 ### Objetivos nuevos / extendidos (D9.2-C) — Residual Model con xG real (Bonferroni estricto)
 - Fortalecer el backtest residual para evitar falsos positivos por múltiples comparaciones:
@@ -312,11 +312,10 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
 - 🟡 **REFACTOR-1** (pasos 2/3 y 3/3 + ingest_upcoming).
 - ⏳ **F84.c/F84.d** Lineups + Standings.
 - ⏳ **D8 Fase 2** — selecciones (DRAW + cohorte favorito-dominante) con MAX_CREDITS=2500 (bloqueado por ground truth Copa América 2024).
-- ⏳ **NIVEL 3 Bloque 2:** Tail calibration.
-- ⏳ **NIVEL 3 Bloque 3:** Threshold probability model.
+- ⏳ **NIVEL 3 Bloque 3 (§5-§6):** reglas hard de Under + UI “Distribución y colas”.
 - ⏳ (Opcional) UI para exponer:
   - `matchup_familiarity_overlay` (impact + snapshots)
-  - `run_distribution_mixer` (comparación vs NB canónico)
+  - `run_distribution_mixer` + `tail_calibration` + `threshold_over_model` + `distribution_blender` (comparación vs NB canónico y blend final)
 
 ### Pendientes P2
 - ⏳ Expandir `team_name_translations.py`.
@@ -361,7 +360,7 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
 
 **Módulo puro:** `backend/services/mlb_matchup_familiarity_overlay.py`
 - Ventanas + métricas H2H + score + impacto en Totales.
-- Hard cap 16 días (no contribuye a métricas/puntos si 16 días).
+- Hard cap 16 días (no contribuye a métricas/puntos si >16 días).
 - Tests: `backend/tests/test_mlb_matchup_familiarity_overlay.py` (**46 tests**).
 
 **Cableo:** `mlb_day_orchestrator.py` M5.7 (observe-only) publicando payload.
@@ -376,7 +375,6 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
 - C1: aplicar overlay.points al score de **todos** los mercados (TOTAL/ML/RL).
 - C2: snapshots `pick_score_pre_d13` y `pick_score_post_d13`.
 - C3=a: veto automático RL con **umbral |base_projected_margin| < 2.0**.
-- D=a: NIVEL 3 solo Bloque 1 en esta entrega.
 
 #### Cambios en `mlb_matchup_familiarity_overlay.py`
 - Nuevas constantes:
@@ -385,50 +383,104 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
   - `MAX_RL_MARGIN_DELTA   = 1.5`
   - `RL_BASE_MARGIN_VETO_THRESHOLD = 2.0`
 - Nuevas funciones:
-  - `_compute_moneyline_overlay()`:
-    - 2+ wins con margen ≥2; avg diff ≥2 carreras; bullpen edge (1..3); starter seen recently (1..2).
-    - Safety: no premia “ganó ayer” como señal única.
-    - Clamps: puntos ±5; ajuste de probabilidad ±5%.
-  - `_compute_runline_overlay()`:
-    - 2+ wins por ≥2; avg_margin ≥|2.0|; late-inning scoring; bullpen fatigue.
-    - Veto automático si |margen base| < 2.0 → puntos=0, `RL_VETOED_LOW_BASE_MARGIN`.
-    - Clamps: puntos ±5; ajuste de margen ±1.5.
+  - `_compute_moneyline_overlay()`.
+  - `_compute_runline_overlay()` + veto `RL_VETOED_LOW_BASE_MARGIN`.
 - Output canónico:
-  - `over_under_impact`, `moneyline_impact`, `runline_impact`
-  - alias `totals_overlay` (back-compat D13.1).
+  - `over_under_impact`, `moneyline_impact`, `runline_impact` + alias `totals_overlay`.
 - Tests: `backend/tests/test_mlb_matchup_familiarity_overlay_d13_2.py` (**27 tests**).
 
 #### Cableo activo en `mlb_day_orchestrator.py` (M5.7 extendido)
-- Pasa `base_projected_margin` al overlay:
-  - heurística: `(h_q.score - a_q.score) / 25.0`.
-- Aplica el delta de scoring al pick real (defense in depth con clamp ±5):
-  - TOTAL: por alineación lean vs side.
-  - ML: por HOME/AWAY.
-  - RL: por HOME_RL/AWAY_RL (si vetoed → 0).
+- Aplica el delta de scoring al pick real (defense in depth con clamp ±5).
 - Snapshots:
   - `pick_payload["pick_score_pre_d13"]`, `pick_payload["pick_score_post_d13"]`
   - `pick_payload["d13_score_delta"]`, `pick_payload["d13_applied_block"]`
-- Log `[D13.2_APPLY]` solo cuando delta ≠ 0.
 
 ---
 
 ### ✅ NIVEL 3 — Bloque 1 · Dynamic Run Distribution Mixer — COMPLETADO
 
 **Módulo puro:** `backend/services/mlb_run_distribution_mixer.py`
-- `build_dynamic_run_distribution(context)`:
-  - Lambda desde baseline + park_factor + weather (clamped [2, 22]).
-  - Volatility score 0..100 desde señales D11/D12.
-  - Selección dinámica: POISSON / NB / MIXTURE; mixture forzado si datos parciales.
-  - Dispersión mapeada a [1.0, 3.0].
-  - Probabilidades O/U por umbral (.5): 6.5..14.5.
-  - Percentiles p10/p25/p50/p75/p90/p95/p99.
-  - Tail risk score/bucket + drivers.
-  - NB PMF estable con log-gamma + renormalización tras truncamiento (MAX_RUNS=40).
-- Tests: `backend/tests/test_mlb_run_distribution_mixer.py` (**33 tests**).
+- `build_dynamic_run_distribution(context)` (Poisson / NB / Mixture).
+- Probabilidades O/U por umbral (.5): 6.5..14.5.
+- Percentiles p10/p25/p50/p75/p90/p95/p99.
+- Tests: `backend/tests/test_mlb_run_distribution_mixer.py` (base + ampliaciones posteriores).
 
-**Cableo observe-only:** bloque **M5.8** en `mlb_day_orchestrator.py`
-- Publica `pick_payload["run_distribution_mixer"]` y `pipeline_meta["run_distribution_mixer"]`.
-- NO muta el `expected_runs_distribution` canónico ni el pick.
+**Cableo:** bloque **M5.8** en `mlb_day_orchestrator.py`.
+
+---
+
+### ✅ NIVEL 3 — Bloque 2 (§1-§4) · Tail Calibration + Threshold Model + Blender **ACTIVO** — COMPLETADO
+
+**Decisiones del usuario aplicadas:**
+- **A=a:** dividir la spec: ahora §1-§4; próxima entrega §5-§6.
+- **B=a:** threshold model = fallback heurístico determinístico con **confidence ≤ 60**.
+- **C=b:** cableo **ACTIVO**: sobrescribe `expected_runs_distribution`.
+
+#### §1 — Mixer recalibrado (`backend/services/mlb_run_distribution_mixer.py`)
+- Nueva fórmula explícita:
+  - `nb_weight = clamp((risk_score - 30)/50, 0.0, 0.90)`
+  - `poisson_weight = 1.0 - nb_weight`
+- `risk_score` = promedio aritmético de 6 pilares (peak home/away):
+  - starter volatility, first inning collapse, lineup explosiveness, recent offense (COLD=0, NEUTRAL=30, HOT=70, EXPLOSIVE=95), bullpen stress, domino risk.
+- Selección de familia desde `nb_weight`:
+  - ≤ 0.05 → POISSON (`DISTRIBUTION_POISSON_SELECTED`)
+  - ≥ 0.85 → NB (`DISTRIBUTION_NEGATIVE_BINOMIAL_SELECTED` + `HIGH_VARIANCE_DISTRIBUTION_USED`)
+  - intermedio → MIXTURE (`DISTRIBUTION_MIXTURE_SELECTED`)
+- Cap NB 0.90 preserva 10% Poisson tail por diseño.
+- Tests ampliados: `backend/tests/test_mlb_run_distribution_mixer.py` ahora incluye `TestNivel3WeightFormula` validando ejemplos risk 20/50/70/90+.
+
+#### §2 — Tail Calibration (`backend/services/mlb_tail_calibration.py` NUEVO)
+- `calibrate_tail_probabilities(distribution, context)`.
+- Conteo de señales críticas (11): starter vol, FI collapse, lineup explos, recent HOT/EXPLOSIVE, bullpen stress, domino risk, ambos bullpens fatigued, pitcher HR9/BB%, lineup top-5 ISO/Barrel/HardHit, park, weather.
+- Buckets → tail_multiplier:
+  - LOW: 1.00
+  - MEDIUM: 1.10–1.20
+  - HIGH: 1.25–1.45
+  - EXTREME: 1.50–1.90
+- Redistribución de masa conservando `over+under=1` por línea:
+  - aumenta TAIL_LINES (10.5–14.5)
+  - resta BODY_LINES (6.5–9.5) proporcionalmente (capacity check)
+- Recalibra percentiles p90/p95/p99.
+- Regla crítica: si baseline p90 ≤ 10 y ≥3 señales →
+  - `P90_TOO_COMPRESSED_FOR_CONTEXT` + `P90_RECALIBRATED` + `CENTRAL_MEAN_NOT_ENOUGH`.
+- Tests: `backend/tests/test_mlb_nivel3_block2.py` (sección Tail Calibration).
+
+#### §3 — Threshold Over Model (`backend/services/mlb_threshold_over_model.py` NUEVO)
+- `predict_threshold_probabilities(features)` (fallback heurístico determinístico).
+- Umbrales: 7.5/8.5/9.5/10.5/11.5/12.5/13.5/14.5 (over + under; suma=1).
+- Heurística (logit): `z = 0.55 * (mu - line) + bump(vol_boost, line)`.
+- Volatility composite: señales D11/D12 + ISO/Barrel/HardHit + HR9/BB% + park/weather.
+- Confidence cap ≤ 60.
+- `model_version`: `mlb-threshold-over-v0-heuristic`.
+- Tests: `backend/tests/test_mlb_nivel3_block2.py` (sección Threshold Model).
+
+#### §4 — Blender (`backend/services/mlb_distribution_threshold_blender.py` NUEVO)
+- `combine_distribution_and_threshold_model(dist_probs, tm_probs, context)`.
+- Reglas por confidence:
+  - ≥70 → 0.55 threshold / 0.45 dist
+  - ≥45 → 0.40 threshold / 0.60 dist
+  - else → solo dist
+- High variance (HIGH/EXTREME) → +0.05 weight threshold (cap 0.65).
+- Partial data → weight threshold × 0.5.
+- Divergence flags si |Δ| > 0.10 en TAIL_LINES (10.5+).
+- Reason codes: `THRESHOLD_MODEL_USED`, `THRESHOLD_MODEL_LOW_CONFIDENCE`, `DISTRIBUTION_THRESHOLD_DIVERGENCE`, `FINAL_PROBABILITY_BLEND_APPLIED`.
+- Tests: `backend/tests/test_mlb_nivel3_block2.py` (sección Blender).
+
+#### Cableo ACTIVO en `mlb_day_orchestrator.py` (M5.8.1 → M5.8.2 → M5.8.3)
+- M5.8.1: `calibrate_tail_probabilities()` → `pick_payload["tail_calibration"]`.
+- M5.8.2: `predict_threshold_probabilities()` → `pick_payload["threshold_over_model"]`.
+- M5.8.3: `combine_distribution_and_threshold_model()` → `pick_payload["distribution_blender"]`.
+- **ACTIVE WRITEBACK** sobre `pick_payload["expected_runs_distribution"]`:
+  - Snapshot pre: `expected_runs_distribution_pre_nivel3`.
+  - Sobrescribe `expected_runs_distribution.probabilities` con `final_over` + `final_under`.
+  - Sobrescribe p90/p95/p99 desde tail calibration.
+  - Marca `expected_runs_distribution.nivel3_applied = True`.
+  - Agrega reason codes de tail_cal + blender a `expected_runs_distribution.reason_codes`.
+  - `pipeline_meta["expected_runs_distribution"]` refleja `nivel3_applied`, `blend_weights`, `divergence_flags`, `tail_calibration_applied`.
+- Logging: `[NIVEL3_BLEND_APPLY]`.
+- Fail-soft: try/except aislado por sub-bloque.
+
+**Suite backend:** `4156 passed / 2 skipped` (0 regresiones).
 
 ---
 
@@ -446,10 +498,12 @@ Validar si el módulo **Draw Potential** mejora en torneos nacionales manteniend
   - Cero regresión post-cada cambio.
   - Fail-soft y back-compat.
   - Point-in-time correctness en backtests.
-  - Observe-only por defecto; excepciones explícitas (D13.2: scoring activo con clamps + snapshots).
+  - Observe-only por defecto; excepciones explícitas:
+    - D13.2: scoring activo con clamps + snapshots.
+    - NIVEL 3 Bloque 2: ACTIVE writeback a `expected_runs_distribution`.
   - Backend: ejecutar `pytest` completo tras cambios.
 
-**Estado actual de la suite backend:** `4123 passed / 2 skipped` (0 regresiones).
+**Estado actual de la suite backend:** `4156 passed / 2 skipped` (0 regresiones).
 
 ---
 
