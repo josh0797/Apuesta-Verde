@@ -101,6 +101,11 @@ def _normalise_fixture(raw: dict) -> Optional[dict]:
     mid = str(mid)
 
     # Timestamp / kickoff iso
+    # NB: TheStatsAPI returns ``utc_date`` (ISO-8601 with milliseconds) on
+    # the ``/football/matches`` endpoint; older / live endpoints use
+    # ``timestamp`` or ``kickoff_iso``. F98: ``utc_date`` was missing
+    # which silently dropped every TheStatsAPI fixture (regression after
+    # 2026-05 schema change).
     ts_raw = (
         raw.get("timestamp")
         or raw.get("kickoff_ts")
@@ -108,6 +113,7 @@ def _normalise_fixture(raw: dict) -> Optional[dict]:
         or raw.get("kickoff_at")
         or raw.get("starts_at")
         or raw.get("kickoff_iso")
+        or raw.get("utc_date")
         or raw.get("date")
     )
     ts = _coerce_ts(ts_raw)

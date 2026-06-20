@@ -141,6 +141,113 @@ async def _job_purge_context_cache(db):
     _status["last_run"]["purge"] = {"finished_at": datetime.now(timezone.utc).isoformat()}
 
 
+async def _job_purge_stale_upcoming_matches(db):
+    """F98 — Drop football fixtures whose ``kickoff_ts`` is more than 24h
+    in the past and which are NOT in a terminal status (FT/AET/PEN/CANC/PST).
+
+    Context (F98 bug — “feed servía Bournemouth vs Man City del mes pasado”):
+      * `data_ingestion.ingest_upcoming` only fetches a tiny top-league
+        subset (≈3-8 fixtures). Stale rows from prior days/months
+        accumulated in `db.matches` because nothing was purging them.
+      * The fixture_time_status_gate correctly dropped these from
+        ``/analyze-today``, but the UI surfaced them under
+        "Descartados de ligas prioritarias / Datos incompletos".
+      * Purging them removes the cosmetic noise and guarantees the
+        downstream filter cascade never re-considers them.
+
+    Safety:
+      * Only football is affected; baseball / basketball keep their
+        existing lifecycle (auto_settle_mlb + sweep_stale_live).
+      * Matches in a terminal status are KEPT (other modules — learning
+        snapshots, settlement audit — may still need them).
+      * Rows referenced by live `picks` are NEVER deleted: we only
+        flip a soft `is_archived_stale=True` flag.
+    """
+    log.info("Scheduler: purge_stale_upcoming_matches starting")
+    started   = datetime.now(timezone.utc)
+    cutoff_ts = (started - timedelta(hours=24)).timestamp()
+    cutoff_iso = (started - timedelta(hours=24)).isoformat()
+    # Terminal statuses we should NEVER soft-archive: keep them for
+    # post-match settlement / learning loops.
+    KEEP_STATUSES = {"FT", "AET", "PEN", "FT_PEN", "FINAL", "ENDED",
+                     "CANC", "CANCELLED", "CANCELED", "PST", "POSTPONED",
+                     "ABD", "ABANDONED"}
+    # F98 — Two paths to detect a stale row:
+    #   (a) `kickoff_ts` numeric and older than 24h.
+    #   (b) `kickoff_ts` missing/null but `kickoff_iso` parses to >24h ago
+    #       (some ESPN-sourced rows have ISO-only timestamps).
+    base_query = {
+        "sport":       "football",
+        "is_archived_stale": {"$ne": True},
+        "status_short": {"$nin": list(KEEP_STATUSES)},
+        "$or": [
+            {"kickoff_ts": {"$lt": cutoff_ts}},
+            {"$and": [
+                {"$or": [
+                    {"kickoff_ts": None},
+                    {"kickoff_ts": {"$exists": False}},
+                ]},
+                {"kickoff_iso": {"$lt": cutoff_iso, "$ne": None}},
+            ]},
+        ],
+    }
+    try:
+        archived = 0
+        deleted  = 0
+        total    = await db.matches.count_documents(base_query)
+        if total > 0:
+            # 1) Soft-archive everything matching base_query (safe — UI
+            #    queries filter by ``is_archived_stale`` automatically).
+            res = await db.matches.update_many(
+                base_query,
+                {"$set": {
+                    "is_archived_stale":    True,
+                    "archived_stale_at":    started.isoformat(),
+                    "archived_stale_reason": "PURGED_KICKOFF_TS_>24H",
+                }},
+            )
+            archived = int(getattr(res, "modified_count", 0) or 0)
+            # 2) Hard-delete docs older than 14 days (no value to keep
+            #    around indefinitely after archival).
+            hard_cutoff_ts  = (started - timedelta(days=14)).timestamp()
+            hard_cutoff_iso = (started - timedelta(days=14)).isoformat()
+            del_res = await db.matches.delete_many({
+                "sport":      "football",
+                "status_short": {"$nin": list(KEEP_STATUSES)},
+                "$or": [
+                    {"kickoff_ts": {"$lt": hard_cutoff_ts}},
+                    {"$and": [
+                        {"$or": [
+                            {"kickoff_ts": None},
+                            {"kickoff_ts": {"$exists": False}},
+                        ]},
+                        {"kickoff_iso": {"$lt": hard_cutoff_iso, "$ne": None}},
+                    ]},
+                ],
+            })
+            deleted = int(getattr(del_res, "deleted_count", 0) or 0)
+        _status["last_run"]["purge_stale_upcoming"] = {
+            "started_at":  started.isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "archived":    archived,
+            "deleted":     deleted,
+            "total_found": int(total or 0),
+            "ok":          True,
+        }
+        log.info(
+            "Scheduler: purge_stale_upcoming archived=%d deleted=%d total_found=%d",
+            archived, deleted, total,
+        )
+    except Exception as exc:
+        log.exception("Scheduler purge_stale_upcoming failed: %s", exc)
+        _status["last_run"]["purge_stale_upcoming"] = {
+            "started_at":  started.isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "ok":          False,
+            "error":       str(exc),
+        }
+
+
 async def _job_settle_finished_baseball(db):
     """Persist final_score + bullpen pitch counts for recently finished
     baseball matches. Feeds the active-series analyzer and any future
@@ -472,6 +579,18 @@ def start_scheduler(db) -> None:
         trigger=IntervalTrigger(minutes=20),
         id="settle_finished_football",
         next_run_time=datetime.now(timezone.utc) + timedelta(minutes=4),
+        max_instances=1,
+        coalesce=True,
+    )
+    # F98 — Purge stale football fixtures every 30 min — drops rows
+    # whose ``kickoff_ts`` is more than 24h in the past and which are not
+    # in a terminal status. Eliminates the "ghost upcoming" feed the UI
+    # showed (Bournemouth vs Man City from last month, etc.).
+    sch.add_job(
+        _job_purge_stale_upcoming_matches, args=[db],
+        trigger=IntervalTrigger(minutes=30),
+        id="purge_stale_upcoming",
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=45),
         max_instances=1,
         coalesce=True,
     )

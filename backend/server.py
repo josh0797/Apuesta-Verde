@@ -2484,9 +2484,18 @@ def _filter_upcoming_candidates(matches: list[dict], *,
     ``grace_seconds`` is accepted for back-compat but ignored (see
     :func:`_is_match_upcoming`). Pass ``audit_sink=[]`` to capture the
     structured discard payloads for diagnostics / UI surfacing.
+
+    F98 — Defense-in-depth: rows flagged ``is_archived_stale`` by
+    :func:`services.scheduler._job_purge_stale_upcoming_matches`
+    are dropped upfront so the gate, "discarded / incomplete data"
+    bucket, and any downstream UI surface never see them.
     """
     if not matches:
         return matches
+    # F98 — drop archived-stale rows BEFORE the gate so they never
+    # reach the "discarded / incomplete data" bucket in the UI.
+    if any(m.get("is_archived_stale") for m in matches):
+        matches = [m for m in matches if not m.get("is_archived_stale")]
     kept, _dropped = _filter_fixtures_through_gate(matches, audit_sink=audit_sink)
     return kept
 
