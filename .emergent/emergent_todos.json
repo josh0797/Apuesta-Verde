@@ -1,50 +1,22 @@
 [
   {
-    "content": "Verificar URLs openfootball + estructura JSON (wc2022, euro2024) + descargar Copa América 2024",
+    "content": "Construir scraper de cards para 123 selecciones (batch por fecha + detail por game_id)",
     "status": "completed"
   },
   {
-    "content": "Agregar verify_sport_keys_available() al cliente (endpoint FREE /v4/sports)",
+    "content": "Ejecutar scraping (~150-250 créditos scrape.do)",
     "status": "completed"
   },
   {
-    "content": "Obtener FIFA ranking points (descarga estática) + fallback documentado a implied-prob gap",
+    "content": "Construir análisis completo (5 partes) sobre selecciones + EPL 380",
     "status": "completed"
   },
   {
-    "content": "Construir services/football_selecciones_ingestor.py (odds + ground truth + features prematch)",
+    "content": "Generar reporte markdown final con todos los estadísticos",
     "status": "completed"
   },
   {
-    "content": "Construir scripts/run_selecciones_draw_backtest.py con dry-run preflight + tope MAX_CREDITS=2500",
-    "status": "completed"
-  },
-  {
-    "content": "Tests (credit_cap, prematch_timestamp, settlement_openfootball, cohort_prematch_only, n<30, unavailable_key, h2h_draw_outcome)",
-    "status": "completed"
-  },
-  {
-    "content": "Ejecutar backtest contra The Odds API real con tope 2500 créditos (si key disponible)",
-    "status": "completed"
-  },
-  {
-    "content": "Reusar diagnósticos cacheados de ligas para cross-tab DOMINANT_FAVORITE",
-    "status": "completed"
-  },
-  {
-    "content": "Refactor cascada: TheSportsDB primario en _discover_football_fixtures + adapter nuevo",
-    "status": "completed"
-  },
-  {
-    "content": "Test integración vivo TheSportsDB verifica Germany vs Ivory Coast 2026-06-20",
-    "status": "completed"
-  },
-  {
-    "content": "Validación pytest completo (4395+ tests, 0 regresiones)",
-    "status": "completed"
-  },
-  {
-    "content": "Actualizar plan.md + reportar veredicto Bonferroni final",
-    "status": "completed"
+    "content": "Reportar al usuario con recomendaciones priorizadas",
+    "status": "in_progress"
   }
 ]

@@ -352,6 +352,74 @@
 
 ---
 
+## Phase Sprint-D8-Research — Cards vs Corners: estudio cuantitativo para decidir qué implementar (P1) — ✅ COMPLETADO
+
+### Brief
+El usuario pidió un reporte cuantitativo (NO implementación) para validar si:
+1. Las **tarjetas** mejoran la predicción de Over/Under goles.
+2. Los **córners** justifican un nuevo motor de mercado.
+3. El **DOMINANT_FAVORITE** genera significativamente más córners que el equipo inferior.
+
+### Datos utilizados (opción B aprobada por el usuario)
+- **Selecciones** (Euro2024 + Copa América 2024): **44 partidos** con cards/referee/score (de los 123 originales, los 64 WC2022 no se pudieron recuperar de 365Scores `/allscores/` por retención).
+- **EPL 24/25**: **380 partidos** con TODAS las variables (cards, fouls, corners, shots, SoT, FTR, FTHG/FTAG, odds Pinnacle) desde football-data.co.uk gratis.
+
+### Hallazgos clave
+
+**Cards NO predicen goles**:
+- Corr(cards, goals) = −0.06 EPL, +0.13 selecciones (cerca de cero).
+- t-test high-cards (≥5) vs low (≤2): p=0.50 (no significativo).
+- Hypothetical ROI Over 4.5 cards @1.95: **−20.46%**.
+
+**Córners — base rates atractivas**:
+- Mean = 10.30, p25/p75 = 8/13.
+- Sweet spot O/U: línea **9.5** (base rate 59.7%) y **10.5** (48.4%) con cuotas reales ~1.85-2.00.
+
+**🔥 Hipótesis CENTRAL CONFIRMADA**: el DOMINANT_FAVORITE (implied_prob_devig ≥ 0.65) genera más córners que el rival inferior:
+- **81% de partidos** el favorito tuvo más córners (sobre n=90 dominant matches).
+- Fav mean=7.78 vs Dog mean=3.14 → **diff=+4.63 córners**.
+- Bootstrap 95% CI sobre la diferencia: **[3.54, 5.69]** (no incluye 0).
+- Welch t-test: **t=9.68, df=143.7, p≈0.00000**.
+
+**Feature importance (correlación con total córners)**:
+1. shots_total (+0.28) — predictor #1
+2. shots_on_target (+0.16)
+3. cards_total (+0.13)
+4. abs_implied_prob_diff (+0.09)
+5-7. fouls, home_implied, goals (todos < 0.10)
+
+Por equipo: corr(home_corners, home_shots) = **+0.54** ← señal fuerte para feature per-team.
+
+### Evaluación football-data.co.uk
+- ✅ Tiene córners (HC/AC), tarjetas, faltas, shots, SoT, refs, FTR, odds 30+ books.
+- ✅ Top-5 ligas + tier-2; histórico desde 1993 (corners desde ~2000).
+- ❌ NO cubre selecciones / Champions / copas.
+- ❌ Latencia 6-12h post-partido → no sirve para live.
+- **Veredicto**: ÓPTIMA para **training/calibración** masiva (~10,000+ matches gratis); pareada con API-Football para producción live.
+
+### Recomendaciones priorizadas
+- **P0**: Construir el motor de córners (datos calibración gratis, hipótesis confirmada con p≈0).
+- **P1**: Investigar endpoints alternativos para córners live (365Scores `/stats/` está broken; evaluar plan pagado API-Football).
+- **P2**: NO implementar predictor de cards (ROI hipo negativo, corr ≈ 0 con goles, ya cerrado AUC 0.55-0.59).
+- **P3**: Features avanzadas (Corner Pace, Pressure Score) después del modelo base.
+
+### Entregables
+- ✅ `/app/diagnostics/sprint_d8_cards_corners_research_report.md` (reporte completo, 5 partes).
+- ✅ `/app/diagnostics/sprint_d8_cards_corners_research_stats.json` (stats RAW).
+- ✅ `/app/data/cards_history/selecciones_cards_dataset.json` (44 records con cards/refs).
+- ✅ `backend/scripts/scrape_selecciones_cards.py` (scraper one-shot).
+- ✅ `backend/scripts/run_cards_corners_research.py` (análisis puro, sin scipy/sklearn).
+
+### Costo
+- ~93 créditos scrape.do (44 selecciones cards scraping).
+- 0 créditos The Odds API.
+- 0 créditos API-Football.
+
+### Estado
+Sin implementación, sin cambios productivos, sin regresiones (no se tocó código de producción). El siguiente paso (P0) requiere autorización del usuario para empezar la implementación del motor de córners.
+
+---
+
 ## Phase Sprint-D8/E-LIVE — Corners diagnostic real + Cards Fase 1 AUC ablation real (P1) — ✅ COMPLETADO
 
 Ejecución en vivo de los dos pendientes del Sprint-D8/E ahora que scrape.do está habilitado y los datos de Premier están disponibles.

@@ -1,0 +1,4900 @@
+[
+  {
+    "round": "Matchday 1",
+    "date": "2022-11-20",
+    "time": "19:00",
+    "team1": "Qatar",
+    "team2": "Ecuador",
+    "score": {
+      "ft": [
+        0,
+        2
+      ],
+      "ht": [
+        0,
+        2
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Enner Valencia",
+        "minute": 16,
+        "penalty": true
+      },
+      {
+        "name": "Enner Valencia",
+        "minute": 31
+      }
+    ],
+    "group": "Group A",
+    "ground": "Al Bayt Stadium, Al Khor",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 2",
+    "date": "2022-11-21",
+    "time": "19:00",
+    "team1": "Senegal",
+    "team2": "Netherlands",
+    "score": {
+      "ft": [
+        0,
+        2
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Cody Gakpo",
+        "minute": 84
+      },
+      {
+        "name": "Davy Klaassen",
+        "minute": 90,
+        "offset": 9
+      }
+    ],
+    "group": "Group A",
+    "ground": "Al Thumama Stadium, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 2",
+    "date": "2022-11-21",
+    "time": "16:00",
+    "team1": "England",
+    "team2": "Iran",
+    "score": {
+      "ft": [
+        6,
+        2
+      ],
+      "ht": [
+        3,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Jude Bellingham",
+        "minute": 35
+      },
+      {
+        "name": "Bukayo Saka",
+        "minute": 43
+      },
+      {
+        "name": "Bukayo Saka",
+        "minute": 62
+      },
+      {
+        "name": "Raheem Sterling",
+        "minute": 45,
+        "offset": 1
+      },
+      {
+        "name": "Marcus Rashford",
+        "minute": 71
+      },
+      {
+        "name": "Jack Grealish",
+        "minute": 90
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Mehdi Taremi",
+        "minute": 65
+      },
+      {
+        "name": "Mehdi Taremi",
+        "minute": 90,
+        "offset": 13,
+        "penalty": true
+      }
+    ],
+    "group": "Group B",
+    "ground": "Khalifa International Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 2",
+    "date": "2022-11-21",
+    "time": "22:00",
+    "team1": "USA",
+    "team2": "Wales",
+    "score": {
+      "ft": [
+        1,
+        1
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Timothy Weah",
+        "minute": 36
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Gareth Bale",
+        "minute": 82,
+        "penalty": true
+      }
+    ],
+    "group": "Group B",
+    "ground": "Ahmad bin Ali Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 3",
+    "date": "2022-11-22",
+    "time": "13:00",
+    "team1": "Argentina",
+    "team2": "Saudi Arabia",
+    "score": {
+      "ft": [
+        1,
+        2
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Lionel Messi",
+        "minute": 10,
+        "penalty": true
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Saleh Al Shehri",
+        "minute": 48
+      },
+      {
+        "name": "Salem Al Dawsari",
+        "minute": 53
+      }
+    ],
+    "group": "Group C",
+    "ground": "Lusail Iconic Stadium, Lusail",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 3",
+    "date": "2022-11-22",
+    "time": "19:00",
+    "team1": "Mexico",
+    "team2": "Poland",
+    "score": {
+      "ft": [
+        0,
+        0
+      ]
+    },
+    "group": "Group C",
+    "ground": "Stadium 974, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 3",
+    "date": "2022-11-22",
+    "time": "16:00",
+    "team1": "Denmark",
+    "team2": "Tunisia",
+    "score": {
+      "ft": [
+        0,
+        0
+      ]
+    },
+    "group": "Group D",
+    "ground": "Education City Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 3",
+    "date": "2022-11-22",
+    "time": "22:00",
+    "team1": "France",
+    "team2": "Australia",
+    "score": {
+      "ft": [
+        4,
+        1
+      ],
+      "ht": [
+        2,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Adrien Rabiot",
+        "minute": 27
+      },
+      {
+        "name": "Olivier Giroud",
+        "minute": 32
+      },
+      {
+        "name": "Olivier Giroud",
+        "minute": 71
+      },
+      {
+        "name": "Kylian Mbappé",
+        "minute": 68
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Craig Goodwin",
+        "minute": 9
+      }
+    ],
+    "group": "Group D",
+    "ground": "Al Janoub Stadium, Al Wakrah",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 4",
+    "date": "2022-11-23",
+    "time": "16:00",
+    "team1": "Germany",
+    "team2": "Japan",
+    "score": {
+      "ft": [
+        1,
+        2
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Ilkay Gündogan",
+        "minute": 33,
+        "penalty": true
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Ritsu Doan",
+        "minute": 75
+      },
+      {
+        "name": "Takuma Asano",
+        "minute": 83
+      }
+    ],
+    "group": "Group E",
+    "ground": "Khalifa International Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 4",
+    "date": "2022-11-23",
+    "time": "19:00",
+    "team1": "Spain",
+    "team2": "Costa Rica",
+    "score": {
+      "ft": [
+        7,
+        0
+      ],
+      "ht": [
+        3,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Dani Olmo",
+        "minute": 11
+      },
+      {
+        "name": "Marco Asensio",
+        "minute": 21
+      },
+      {
+        "name": "Ferran Torres",
+        "minute": 31,
+        "penalty": true
+      },
+      {
+        "name": "Ferran Torres",
+        "minute": 54
+      },
+      {
+        "name": "Gavi",
+        "minute": 74
+      },
+      {
+        "name": "Carlos Soler",
+        "minute": 90
+      },
+      {
+        "name": "Álvaro Morata",
+        "minute": 90,
+        "offset": 2
+      }
+    ],
+    "goals2": [],
+    "group": "Group E",
+    "ground": "Al Thumama Stadium, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 4",
+    "date": "2022-11-23",
+    "time": "13:00",
+    "team1": "Morocco",
+    "team2": "Croatia",
+    "score": {
+      "ft": [
+        0,
+        0
+      ]
+    },
+    "group": "Group F",
+    "ground": "Al Bayt Stadium, Al Khor",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 4",
+    "date": "2022-11-23",
+    "time": "22:00",
+    "team1": "Belgium",
+    "team2": "Canada",
+    "score": {
+      "ft": [
+        1,
+        0
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Michy Batshuayi",
+        "minute": 44
+      }
+    ],
+    "goals2": [],
+    "group": "Group F",
+    "ground": "Ahmad bin Ali Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 5",
+    "date": "2022-11-24",
+    "time": "13:00",
+    "team1": "Switzerland",
+    "team2": "Cameroon",
+    "score": {
+      "ft": [
+        1,
+        0
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Breel Embolo",
+        "minute": 48
+      }
+    ],
+    "goals2": [],
+    "group": "Group G",
+    "ground": "Al Janoub Stadium, Al Wakrah",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 5",
+    "date": "2022-11-24",
+    "time": "22:00",
+    "team1": "Brazil",
+    "team2": "Serbia",
+    "score": {
+      "ft": [
+        2,
+        0
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Richarlison",
+        "minute": 62
+      },
+      {
+        "name": "Richarlison",
+        "minute": 73
+      }
+    ],
+    "goals2": [],
+    "group": "Group G",
+    "ground": "Lusail Iconic Stadium, Lusail",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 5",
+    "date": "2022-11-24",
+    "time": "16:00",
+    "team1": "Uruguay",
+    "team2": "South Korea",
+    "score": {
+      "ft": [
+        0,
+        0
+      ]
+    },
+    "group": "Group H",
+    "ground": "Education City Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 5",
+    "date": "2022-11-24",
+    "time": "19:00",
+    "team1": "Portugal",
+    "team2": "Ghana",
+    "score": {
+      "ft": [
+        3,
+        2
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Cristiano Ronaldo",
+        "minute": 65,
+        "penalty": true
+      },
+      {
+        "name": "João Félix",
+        "minute": 78
+      },
+      {
+        "name": "Rafael Leão",
+        "minute": 80
+      }
+    ],
+    "goals2": [
+      {
+        "name": "André Ayew",
+        "minute": 73
+      },
+      {
+        "name": "Osman Bukari",
+        "minute": 89
+      }
+    ],
+    "group": "Group H",
+    "ground": "Stadium 974, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 6",
+    "date": "2022-11-25",
+    "time": "16:00",
+    "team1": "Qatar",
+    "team2": "Senegal",
+    "score": {
+      "ft": [
+        1,
+        3
+      ],
+      "ht": [
+        0,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Mohammed Muntari",
+        "minute": 78
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Boulaye Dia",
+        "minute": 41
+      },
+      {
+        "name": "Famara Diédhiou",
+        "minute": 48
+      },
+      {
+        "name": "Bamba Dieng",
+        "minute": 84
+      }
+    ],
+    "group": "Group A",
+    "ground": "Al Thumama Stadium, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 6",
+    "date": "2022-11-25",
+    "time": "19:00",
+    "team1": "Netherlands",
+    "team2": "Ecuador",
+    "score": {
+      "ft": [
+        1,
+        1
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Cody Gakpo",
+        "minute": 6
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Enner Valencia",
+        "minute": 49
+      }
+    ],
+    "group": "Group A",
+    "ground": "Khalifa International Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 6",
+    "date": "2022-11-25",
+    "time": "13:00",
+    "team1": "Wales",
+    "team2": "Iran",
+    "score": {
+      "ft": [
+        0,
+        2
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Roozbeh Cheshmi",
+        "minute": 90,
+        "offset": 8
+      },
+      {
+        "name": "Ramin Rezaeian",
+        "minute": 90,
+        "offset": 11
+      }
+    ],
+    "group": "Group B",
+    "ground": "Ahmad bin Ali Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 6",
+    "date": "2022-11-25",
+    "time": "22:00",
+    "team1": "England",
+    "team2": "USA",
+    "score": {
+      "ft": [
+        0,
+        0
+      ]
+    },
+    "group": "Group B",
+    "ground": "Al Bayt Stadium, Al Khor",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 7",
+    "date": "2022-11-26",
+    "time": "16:00",
+    "team1": "Poland",
+    "team2": "Saudi Arabia",
+    "score": {
+      "ft": [
+        2,
+        0
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Piotr Zielinski",
+        "minute": 39
+      },
+      {
+        "name": "Robert Lewandowski",
+        "minute": 82
+      }
+    ],
+    "goals2": [],
+    "group": "Group C",
+    "ground": "Education City Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 7",
+    "date": "2022-11-26",
+    "time": "22:00",
+    "team1": "Argentina",
+    "team2": "Mexico",
+    "score": {
+      "ft": [
+        2,
+        0
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Lionel Messi",
+        "minute": 64
+      },
+      {
+        "name": "Enzo Fernández",
+        "minute": 87
+      }
+    ],
+    "goals2": [],
+    "group": "Group C",
+    "ground": "Lusail Iconic Stadium, Lusail",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 7",
+    "date": "2022-11-26",
+    "time": "13:00",
+    "team1": "Tunisia",
+    "team2": "Australia",
+    "score": {
+      "ft": [
+        0,
+        1
+      ],
+      "ht": [
+        0,
+        1
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Mitchell Duke",
+        "minute": 23
+      }
+    ],
+    "group": "Group D",
+    "ground": "Al Janoub Stadium, Al Wakrah",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 7",
+    "date": "2022-11-26",
+    "time": "19:00",
+    "team1": "France",
+    "team2": "Denmark",
+    "score": {
+      "ft": [
+        2,
+        1
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Kylian Mbappé",
+        "minute": 61
+      },
+      {
+        "name": "Kylian Mbappé",
+        "minute": 86
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Andreas Christensen",
+        "minute": 68
+      }
+    ],
+    "group": "Group D",
+    "ground": "Stadium 974, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 8",
+    "date": "2022-11-27",
+    "time": "13:00",
+    "team1": "Japan",
+    "team2": "Costa Rica",
+    "score": {
+      "ft": [
+        0,
+        1
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Keysher Fuller",
+        "minute": 81
+      }
+    ],
+    "group": "Group E",
+    "ground": "Ahmad bin Ali Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 8",
+    "date": "2022-11-27",
+    "time": "22:00",
+    "team1": "Spain",
+    "team2": "Germany",
+    "score": {
+      "ft": [
+        1,
+        1
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Álvaro Morata",
+        "minute": 62
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Niclas Füllkrug",
+        "minute": 83
+      }
+    ],
+    "group": "Group E",
+    "ground": "Al Bayt Stadium, Al Khor",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 8",
+    "date": "2022-11-27",
+    "time": "16:00",
+    "team1": "Belgium",
+    "team2": "Morocco",
+    "score": {
+      "ft": [
+        0,
+        2
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Romain Saïss",
+        "minute": 73
+      },
+      {
+        "name": "Zakaria Aboukhlal",
+        "minute": 90,
+        "offset": 2
+      }
+    ],
+    "group": "Group F",
+    "ground": "Al Thumama Stadium, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 8",
+    "date": "2022-11-27",
+    "time": "19:00",
+    "team1": "Croatia",
+    "team2": "Canada",
+    "score": {
+      "ft": [
+        4,
+        1
+      ],
+      "ht": [
+        2,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Andrej Kramarić",
+        "minute": 36
+      },
+      {
+        "name": "Marko Livaja",
+        "minute": 44
+      },
+      {
+        "name": "Andrej Kramarić",
+        "minute": 70
+      },
+      {
+        "name": "Lovro Majer",
+        "minute": 90,
+        "offset": 4
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Alphonso Davies",
+        "minute": 2
+      }
+    ],
+    "group": "Group F",
+    "ground": "Khalifa International Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 9",
+    "date": "2022-11-28",
+    "time": "13:00",
+    "team1": "Cameroon",
+    "team2": "Serbia",
+    "score": {
+      "ft": [
+        3,
+        3
+      ],
+      "ht": [
+        1,
+        2
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Jean-Charles Castelletto",
+        "minute": 29
+      },
+      {
+        "name": "Vincent Aboubakar",
+        "minute": 63
+      },
+      {
+        "name": "Jean-Eric Choupo-Moting",
+        "minute": 66
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Strahinja Pavlović",
+        "minute": 45,
+        "offset": 1
+      },
+      {
+        "name": "Sergej Milinković-Savić",
+        "minute": 45,
+        "offset": 3
+      },
+      {
+        "name": "Aleksandar Mitrović",
+        "minute": 53
+      }
+    ],
+    "group": "Group G",
+    "ground": "Al Janoub Stadium, Al Wakrah",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 9",
+    "date": "2022-11-28",
+    "time": "19:00",
+    "team1": "Brazil",
+    "team2": "Switzerland",
+    "score": {
+      "ft": [
+        1,
+        0
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Casemiro",
+        "minute": 83
+      }
+    ],
+    "goals2": [],
+    "group": "Group G",
+    "ground": "Stadium 974, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 9",
+    "date": "2022-11-28",
+    "time": "16:00",
+    "team1": "South Korea",
+    "team2": "Ghana",
+    "score": {
+      "ft": [
+        2,
+        3
+      ],
+      "ht": [
+        0,
+        2
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Cho Gue-sung",
+        "minute": 58
+      },
+      {
+        "name": "Cho Gue-sung",
+        "minute": 61
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Mohammed Salisu",
+        "minute": 24
+      },
+      {
+        "name": "Mohammed Kudus",
+        "minute": 34
+      },
+      {
+        "name": "Mohammed Kudus",
+        "minute": 68
+      }
+    ],
+    "group": "Group H",
+    "ground": "Education City Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 9",
+    "date": "2022-11-28",
+    "time": "22:00",
+    "team1": "Portugal",
+    "team2": "Uruguay",
+    "score": {
+      "ft": [
+        2,
+        0
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Bruno Fernandes",
+        "minute": 54
+      },
+      {
+        "name": "Bruno Fernandes",
+        "minute": 90,
+        "offset": 3,
+        "penalty": true
+      }
+    ],
+    "goals2": [],
+    "group": "Group H",
+    "ground": "Lusail Iconic Stadium, Lusail",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 10",
+    "date": "2022-11-29",
+    "time": "18:00",
+    "team1": "Ecuador",
+    "team2": "Senegal",
+    "score": {
+      "ft": [
+        1,
+        2
+      ],
+      "ht": [
+        0,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Moisés Caicedo",
+        "minute": 67
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Ismaila Sarr",
+        "minute": 44,
+        "penalty": true
+      },
+      {
+        "name": "Koulibaly",
+        "minute": 70
+      }
+    ],
+    "group": "Group A",
+    "ground": "Khalifa International Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 10",
+    "date": "2022-11-29",
+    "time": "18:00",
+    "team1": "Netherlands",
+    "team2": "Qatar",
+    "score": {
+      "ft": [
+        2,
+        0
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Cody Gakpo",
+        "minute": 26
+      },
+      {
+        "name": "Frenkie de Jong",
+        "minute": 49
+      }
+    ],
+    "goals2": [],
+    "group": "Group A",
+    "ground": "Al Bayt Stadium, Al Khor",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 10",
+    "date": "2022-11-29",
+    "time": "22:00",
+    "team1": "Wales",
+    "team2": "England",
+    "score": {
+      "ft": [
+        0,
+        3
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Rashford",
+        "minute": 50
+      },
+      {
+        "name": "Foden",
+        "minute": 51
+      },
+      {
+        "name": "Rashford",
+        "minute": 68
+      }
+    ],
+    "group": "Group B",
+    "ground": "Ahmad bin Ali Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 10",
+    "date": "2022-11-29",
+    "time": "22:00",
+    "team1": "Iran",
+    "team2": "USA",
+    "score": {
+      "ft": [
+        0,
+        1
+      ],
+      "ht": [
+        0,
+        1
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Pulisic",
+        "minute": 38
+      }
+    ],
+    "group": "Group B",
+    "ground": "Al Thumama Stadium, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 11",
+    "date": "2022-11-30",
+    "time": "22:00",
+    "team1": "Poland",
+    "team2": "Argentina",
+    "score": {
+      "ft": [
+        0,
+        2
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Mac Allister",
+        "minute": 46
+      },
+      {
+        "name": "Julián Álvarez",
+        "minute": 67
+      }
+    ],
+    "group": "Group C",
+    "ground": "Stadium 974, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 11",
+    "date": "2022-11-30",
+    "time": "22:00",
+    "team1": "Saudi Arabia",
+    "team2": "Mexico",
+    "score": {
+      "ft": [
+        1,
+        2
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Salem Al Dawasari",
+        "minute": 90,
+        "offset": 5
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Henry Martín",
+        "minute": 47
+      },
+      {
+        "name": "Luis Chávez",
+        "minute": 52
+      }
+    ],
+    "group": "Group C",
+    "ground": "Lusail Iconic Stadium, Lusail",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 11",
+    "date": "2022-11-30",
+    "time": "18:00",
+    "team1": "Australia",
+    "team2": "Denmark",
+    "score": {
+      "ft": [
+        1,
+        0
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Mathew Leckie",
+        "minute": 60
+      }
+    ],
+    "goals2": [],
+    "group": "Group D",
+    "ground": "Al Janoub Stadium, Al Wakrah",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 11",
+    "date": "2022-11-30",
+    "time": "18:00",
+    "team1": "Tunisia",
+    "team2": "France",
+    "score": {
+      "ft": [
+        1,
+        0
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Wahbi Khazri",
+        "minute": 58
+      }
+    ],
+    "goals2": [],
+    "group": "Group D",
+    "ground": "Education City Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 12",
+    "date": "2022-12-01",
+    "time": "22:00",
+    "team1": "Japan",
+    "team2": "Spain",
+    "score": {
+      "ft": [
+        2,
+        1
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Ritsu Dōan",
+        "minute": 48
+      },
+      {
+        "name": "Ao Tanaka",
+        "minute": 51
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Álvaro Morata",
+        "minute": 11
+      }
+    ],
+    "group": "Group E",
+    "ground": "Khalifa International Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 12",
+    "date": "2022-12-01",
+    "time": "22:00",
+    "team1": "Costa Rica",
+    "team2": "Germany",
+    "score": {
+      "ft": [
+        2,
+        4
+      ],
+      "ht": [
+        0,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Yeltsin Tejeda",
+        "minute": 58
+      },
+      {
+        "name": "Juan Vargas",
+        "minute": 70
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Serge Gnabry",
+        "minute": 10
+      },
+      {
+        "name": "Kai Lukas Havertz",
+        "minute": 73
+      },
+      {
+        "name": "Kai Lukas Havertz",
+        "minute": 85
+      },
+      {
+        "name": "Niclas Füllkrug",
+        "minute": 89
+      }
+    ],
+    "group": "Group E",
+    "ground": "Al Bayt Stadium, Al Khor",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 12",
+    "date": "2022-12-01",
+    "time": "18:00",
+    "team1": "Croatia",
+    "team2": "Belgium",
+    "score": {
+      "ft": [
+        0,
+        0
+      ]
+    },
+    "group": "Group F",
+    "ground": "Ahmad bin Ali Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 12",
+    "date": "2022-12-01",
+    "time": "18:00",
+    "team1": "Canada",
+    "team2": "Morocco",
+    "score": {
+      "ft": [
+        1,
+        2
+      ],
+      "ht": [
+        1,
+        2
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Nayef Aguerd",
+        "minute": 40,
+        "owngoal": true
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Hakim Zyiech",
+        "minute": 4
+      },
+      {
+        "name": "Youssef En-Nesyri",
+        "minute": 23
+      }
+    ],
+    "group": "Group F",
+    "ground": "Al Thumama Stadium, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 13",
+    "date": "2022-12-02",
+    "time": "22:00",
+    "team1": "Serbia",
+    "team2": "Switzerland",
+    "score": {
+      "ft": [
+        2,
+        3
+      ],
+      "ht": [
+        2,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Aleksandar Mitrović",
+        "minute": 26
+      },
+      {
+        "name": "Dušan Vlahović",
+        "minute": 35
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Xherdan Shaqiri",
+        "minute": 20
+      },
+      {
+        "name": "Breel Embolo",
+        "minute": 44
+      },
+      {
+        "name": "Freuler",
+        "minute": 48
+      }
+    ],
+    "group": "Group G",
+    "ground": "Stadium 974, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 13",
+    "date": "2022-12-02",
+    "time": "22:00",
+    "team1": "Cameroon",
+    "team2": "Brazil",
+    "score": {
+      "ft": [
+        1,
+        0
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Vincent Aboubakar",
+        "minute": 90,
+        "offset": 2
+      }
+    ],
+    "goals2": [],
+    "group": "Group G",
+    "ground": "Lusail Iconic Stadium, Lusail",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 13",
+    "date": "2022-12-02",
+    "time": "18:00",
+    "team1": "Ghana",
+    "team2": "Uruguay",
+    "score": {
+      "ft": [
+        0,
+        2
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Giorgian De Arrascaeta",
+        "minute": 26
+      },
+      {
+        "name": "Giorgian De Arrascaeta",
+        "minute": 32
+      }
+    ],
+    "group": "Group H",
+    "ground": "Al Janoub Stadium, Al Wakrah",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 13",
+    "date": "2022-12-02",
+    "time": "18:00",
+    "team1": "South Korea",
+    "team2": "Portugal",
+    "score": {
+      "ft": [
+        2,
+        1
+      ],
+      "ht": [
+        1,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Kim Young-gwon",
+        "minute": 27
+      },
+      {
+        "name": "Hwang Hee-chan",
+        "minute": 90,
+        "offset": 1
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Ricardo Horta",
+        "minute": 5
+      }
+    ],
+    "group": "Group H",
+    "ground": "Lusail Iconic Stadium, Lusail",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Round of 16",
+    "date": "2022-12-03",
+    "time": "18:00",
+    "team1": "Netherlands",
+    "team2": "USA",
+    "score": {
+      "ft": [
+        3,
+        1
+      ],
+      "ht": [
+        2,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Memphis Depay",
+        "minute": 10
+      },
+      {
+        "name": "Daley Blind",
+        "minute": 45,
+        "offset": 1
+      },
+      {
+        "name": "Denzel Dumfries",
+        "minute": 81
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Haji Wright",
+        "minute": 76
+      }
+    ],
+    "ground": "Khalifa International Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Round of 16",
+    "date": "2022-12-03",
+    "time": "22:00",
+    "team1": "Argentina",
+    "team2": "Australia",
+    "score": {
+      "ft": [
+        2,
+        1
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Lionel Messi",
+        "minute": 35
+      },
+      {
+        "name": "Julián Álvarez",
+        "minute": 57
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Enzo Fernández",
+        "minute": 77,
+        "owngoal": true
+      }
+    ],
+    "ground": "Ahmad bin Ali Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Round of 16",
+    "date": "2022-12-04",
+    "time": "18:00",
+    "team1": "France",
+    "team2": "Poland",
+    "score": {
+      "ft": [
+        3,
+        1
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Olivier Giroud",
+        "minute": 44
+      },
+      {
+        "name": "Mbappé",
+        "minute": 74
+      },
+      {
+        "name": "Mbappé",
+        "minute": 90,
+        "offset": 1
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Robert Lewandowski",
+        "minute": 90,
+        "offset": 9,
+        "penalty": true
+      }
+    ],
+    "ground": "Al Thumama Stadium, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Round of 16",
+    "date": "2022-12-04",
+    "time": "22:00",
+    "team1": "England",
+    "team2": "Senegal",
+    "score": {
+      "ft": [
+        3,
+        0
+      ],
+      "ht": [
+        2,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Jordan Henderson",
+        "minute": 38
+      },
+      {
+        "name": "Harry Kane",
+        "minute": 45,
+        "offset": 3
+      },
+      {
+        "name": "Bukayo Saka",
+        "minute": 57
+      }
+    ],
+    "goals2": [],
+    "ground": "Al Bayt Stadium, Al Khor",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Round of 16",
+    "date": "2022-12-05",
+    "time": "18:00",
+    "team1": "Japan",
+    "team2": "Croatia",
+    "score": {
+      "p": [
+        1,
+        3
+      ],
+      "et": [
+        1,
+        1
+      ],
+      "ft": [
+        1,
+        1
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Daizen Maeda",
+        "minute": 43
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Ivan Perišić",
+        "minute": 55
+      }
+    ],
+    "ground": "Al Janoub Stadium, Al Wakrah",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Round of 16",
+    "date": "2022-12-05",
+    "time": "22:00",
+    "team1": "Brazil",
+    "team2": "South Korea",
+    "score": {
+      "ft": [
+        4,
+        1
+      ],
+      "ht": [
+        4,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Vinícius Jr.",
+        "minute": 7
+      },
+      {
+        "name": "Neymar",
+        "minute": 13,
+        "penalty": true
+      },
+      {
+        "name": "Richarlison",
+        "minute": 29
+      },
+      {
+        "name": "Lucas Paquetá",
+        "minute": 36
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Paik Seung-ho",
+        "minute": 76
+      }
+    ],
+    "ground": "Stadium 974, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Round of 16",
+    "date": "2022-12-06",
+    "time": "18:00",
+    "team1": "Morocco",
+    "team2": "Spain",
+    "score": {
+      "p": [
+        3,
+        0
+      ],
+      "et": [
+        0,
+        0
+      ],
+      "ft": [
+        0,
+        0
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "ground": "Education City Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Round of 16",
+    "date": "2022-12-06",
+    "time": "22:00",
+    "team1": "Portugal",
+    "team2": "Switzerland",
+    "score": {
+      "ft": [
+        6,
+        1
+      ],
+      "ht": [
+        2,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Gonçalo Ramos",
+        "minute": 17
+      },
+      {
+        "name": "Gonçalo Ramos",
+        "minute": 51
+      },
+      {
+        "name": "Gonçalo Ramos",
+        "minute": 67
+      },
+      {
+        "name": "Pepe",
+        "minute": 33
+      },
+      {
+        "name": "Raphaël Guerreiro",
+        "minute": 55
+      },
+      {
+        "name": "Rafael Leão",
+        "minute": 90,
+        "offset": 2
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Manuel Akanji",
+        "minute": 58
+      }
+    ],
+    "ground": "Lusail Iconic Stadium, Lusail",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Quarter-finals",
+    "date": "2022-12-09",
+    "time": "18:00",
+    "team1": "Croatia",
+    "team2": "Brazil",
+    "score": {
+      "p": [
+        4,
+        2
+      ],
+      "et": [
+        1,
+        1
+      ],
+      "ft": [
+        0,
+        0
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Bruno Petković",
+        "minute": 117
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Neymar",
+        "minute": 105,
+        "offset": 1
+      }
+    ],
+    "ground": "Education City Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Quarter-finals",
+    "date": "2022-12-09",
+    "time": "22:00",
+    "team1": "Netherlands",
+    "team2": "Argentina",
+    "score": {
+      "p": [
+        3,
+        4
+      ],
+      "et": [
+        2,
+        2
+      ],
+      "ft": [
+        2,
+        2
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Wout Werghost",
+        "minute": 83
+      },
+      {
+        "name": "Wout Werghost",
+        "minute": 90,
+        "offset": 11
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Nahuel Molina",
+        "minute": 35
+      },
+      {
+        "name": "Lionel Messi",
+        "minute": 73,
+        "penalty": true
+      }
+    ],
+    "ground": "Lusail Iconic Stadium, Lusail",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Quarter-finals",
+    "date": "2022-12-10",
+    "time": "18:00",
+    "team1": "Morocco",
+    "team2": "Portugal",
+    "score": {
+      "ft": [
+        1,
+        0
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Youssef En-Nesyri",
+        "minute": 42
+      }
+    ],
+    "goals2": [],
+    "ground": "Al Thumama Stadium, Doha",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Quarter-finals",
+    "date": "2022-12-10",
+    "time": "22:00",
+    "team1": "England",
+    "team2": "France",
+    "score": {
+      "ft": [
+        1,
+        2
+      ],
+      "ht": [
+        0,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Harry Kane",
+        "minute": 54,
+        "penalty": true
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Aurelién Tchouaméni",
+        "minute": 17
+      },
+      {
+        "name": "Olivier Giroud",
+        "minute": 78
+      }
+    ],
+    "ground": "Al Bayt Stadium, Al Khor",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Semi-finals",
+    "date": "2022-12-13",
+    "time": "22:00",
+    "team1": "Argentina",
+    "team2": "Croatia",
+    "score": {
+      "ft": [
+        3,
+        0
+      ],
+      "ht": [
+        2,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Lionel Messi",
+        "minute": 34,
+        "penalty": true
+      },
+      {
+        "name": "Julián Álvarez",
+        "minute": 39
+      },
+      {
+        "name": "Julián Álvarez",
+        "minute": 69
+      }
+    ],
+    "goals2": [],
+    "ground": "Lusail Iconic Stadium, Lusail",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Semi-finals",
+    "date": "2022-12-14",
+    "time": "22:00",
+    "team1": "France",
+    "team2": "Morocco",
+    "score": {
+      "ft": [
+        2,
+        0
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Théo Hernandez",
+        "minute": 5
+      },
+      {
+        "name": "Kolo Muani",
+        "minute": 79
+      }
+    ],
+    "goals2": [],
+    "ground": "Al Bayt Stadium, Al Khor",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Match for third place",
+    "date": "2022-12-17",
+    "time": "18:00",
+    "team1": "Croatia",
+    "team2": "Morocco",
+    "score": {
+      "ft": [
+        2,
+        1
+      ],
+      "ht": [
+        2,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Joško Gvardiol",
+        "minute": 7
+      },
+      {
+        "name": "Mislav Oršić",
+        "minute": 42
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Achraf Dari",
+        "minute": 9
+      }
+    ],
+    "ground": "Khalifa International Stadium, Al Rayyan",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Final",
+    "date": "2022-12-18",
+    "time": "18:00",
+    "team1": "Argentina",
+    "team2": "France",
+    "score": {
+      "p": [
+        4,
+        2
+      ],
+      "et": [
+        3,
+        3
+      ],
+      "ft": [
+        2,
+        2
+      ],
+      "ht": [
+        2,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Lionel Messi",
+        "minute": 23,
+        "penalty": true
+      },
+      {
+        "name": "Lionel Messi",
+        "minute": 108
+      },
+      {
+        "name": "Ángel Di María",
+        "minute": 36
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Kylian Mbappé",
+        "minute": 80,
+        "penalty": true
+      },
+      {
+        "name": "Kylian Mbappé",
+        "minute": 81
+      },
+      {
+        "name": "Kylian Mbappé",
+        "minute": 118,
+        "penalty": true
+      }
+    ],
+    "ground": "Lusail Iconic Stadium, Lusail",
+    "_tournament": "wc2022",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 1",
+    "date": "2024-06-14",
+    "time": "21:00",
+    "team1": "Germany",
+    "team2": "Scotland",
+    "score": {
+      "ft": [
+        5,
+        1
+      ],
+      "ht": [
+        3,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Wirtz",
+        "minute": 10
+      },
+      {
+        "name": "Musiala",
+        "minute": 19
+      },
+      {
+        "name": "Havertz",
+        "minute": 45,
+        "offset": 1,
+        "penalty": true
+      },
+      {
+        "name": "Füllkrug",
+        "minute": 68
+      },
+      {
+        "name": "Can",
+        "minute": 90,
+        "offset": 3
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Rüdiger",
+        "minute": 87,
+        "owngoal": true
+      }
+    ],
+    "group": "Group A",
+    "ground": "München",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 1",
+    "date": "2024-06-15",
+    "time": "15:00",
+    "team1": "Hungary",
+    "team2": "Switzerland",
+    "score": {
+      "ft": [
+        1,
+        3
+      ],
+      "ht": [
+        0,
+        2
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Varga",
+        "minute": 66
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Duah",
+        "minute": 12
+      },
+      {
+        "name": "Aebischer",
+        "minute": 45
+      },
+      {
+        "name": "Embolo",
+        "minute": 90,
+        "offset": 3
+      }
+    ],
+    "group": "Group A",
+    "ground": "Köln",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 1",
+    "date": "2024-06-15",
+    "time": "18:00",
+    "team1": "Spain",
+    "team2": "Croatia",
+    "score": {
+      "ft": [
+        3,
+        0
+      ],
+      "ht": [
+        3,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Morata",
+        "minute": 29
+      },
+      {
+        "name": "Fabián",
+        "minute": 32
+      },
+      {
+        "name": "Carvajal",
+        "minute": 45,
+        "offset": 2
+      }
+    ],
+    "goals2": [],
+    "group": "Group B",
+    "ground": "Berlin",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 1",
+    "date": "2024-06-15",
+    "time": "21:00",
+    "team1": "Italy",
+    "team2": "Albania",
+    "score": {
+      "ft": [
+        2,
+        1
+      ],
+      "ht": [
+        2,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Bastoni",
+        "minute": 11
+      },
+      {
+        "name": "Barella",
+        "minute": 16
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Bajrami",
+        "minute": 1
+      }
+    ],
+    "group": "Group B",
+    "ground": "Dortmund",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 1",
+    "date": "2024-06-16",
+    "time": "18:00",
+    "team1": "Slovenia",
+    "team2": "Denmark",
+    "score": {
+      "ft": [
+        1,
+        1
+      ],
+      "ht": [
+        0,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Janža",
+        "minute": 77
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Eriksen",
+        "minute": 17
+      }
+    ],
+    "group": "Group C",
+    "ground": "Stuttgart",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 1",
+    "date": "2024-06-16",
+    "time": "21:00",
+    "team1": "Serbia",
+    "team2": "England",
+    "score": {
+      "ft": [
+        0,
+        1
+      ],
+      "ht": [
+        0,
+        1
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Bellingham",
+        "minute": 13
+      }
+    ],
+    "group": "Group C",
+    "ground": "Gelsenkirchen",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 1",
+    "date": "2024-06-16",
+    "time": "15:00",
+    "team1": "Poland",
+    "team2": "Netherlands",
+    "score": {
+      "ft": [
+        1,
+        2
+      ],
+      "ht": [
+        1,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Buksa",
+        "minute": 16
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Gakpo",
+        "minute": 29
+      },
+      {
+        "name": "Weghorst",
+        "minute": 83
+      }
+    ],
+    "group": "Group D",
+    "ground": "Hamburg",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 1",
+    "date": "2024-06-17",
+    "time": "21:00",
+    "team1": "Austria",
+    "team2": "France",
+    "score": {
+      "ft": [
+        0,
+        1
+      ],
+      "ht": [
+        0,
+        1
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Wöber",
+        "minute": 38,
+        "owngoal": true
+      }
+    ],
+    "group": "Group D",
+    "ground": "Düsseldorf",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 1",
+    "date": "2024-06-17",
+    "time": "15:00",
+    "team1": "Romania",
+    "team2": "Ukraine",
+    "score": {
+      "ft": [
+        3,
+        0
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Stanciu",
+        "minute": 29
+      },
+      {
+        "name": "R. Marin",
+        "minute": 53
+      },
+      {
+        "name": "Drăguș",
+        "minute": 57
+      }
+    ],
+    "goals2": [],
+    "group": "Group E",
+    "ground": "München",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 1",
+    "date": "2024-06-17",
+    "time": "18:00",
+    "team1": "Belgium",
+    "team2": "Slovakia",
+    "score": {
+      "ft": [
+        0,
+        1
+      ],
+      "ht": [
+        0,
+        1
+      ]
+    },
+    "goals1": [],
+    "goals2": [
+      {
+        "name": "Schranz",
+        "minute": 7
+      }
+    ],
+    "group": "Group E",
+    "ground": "Frankfurt",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 1",
+    "date": "2024-06-18",
+    "time": "18:00",
+    "team1": "Turkey",
+    "team2": "Georgia",
+    "score": {
+      "ft": [
+        3,
+        1
+      ],
+      "ht": [
+        1,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Müldür",
+        "minute": 25
+      },
+      {
+        "name": "Güler",
+        "minute": 65
+      },
+      {
+        "name": "Aktürkoğlu",
+        "minute": 90,
+        "offset": 7
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Mikautadze",
+        "minute": 32
+      }
+    ],
+    "group": "Group F",
+    "ground": "Dortmund",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 1",
+    "date": "2024-06-18",
+    "time": "21:00",
+    "team1": "Portugal",
+    "team2": "Czech Republic",
+    "score": {
+      "ft": [
+        2,
+        1
+      ],
+      "ht": [
+        0,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Hranáč",
+        "minute": 69,
+        "owngoal": true
+      },
+      {
+        "name": "Conceição",
+        "minute": 90,
+        "offset": 2
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Provod",
+        "minute": 62
+      }
+    ],
+    "group": "Group F",
+    "ground": "Leipzig",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 2",
+    "date": "2024-06-19",
+    "time": "18:00",
+    "team1": "Germany",
+    "team2": "Hungary",
+    "score": {
+      "ft": [
+        2,
+        0
+      ],
+      "ht": [
+        1,
+        0
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Musiala",
+        "minute": 22
+      },
+      {
+        "name": "Gündoğan",
+        "minute": 67
+      }
+    ],
+    "goals2": [],
+    "group": "Group A",
+    "ground": "Stuttgart",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 2",
+    "date": "2024-06-19",
+    "time": "21:00",
+    "team1": "Scotland",
+    "team2": "Switzerland",
+    "score": {
+      "ft": [
+        1,
+        1
+      ],
+      "ht": [
+        1,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "McTominay",
+        "minute": 13
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Shaqiri",
+        "minute": 26
+      }
+    ],
+    "group": "Group A",
+    "ground": "Köln",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Matchday 2",
+    "date": "2024-06-19",
+    "time": "15:00",
+    "team1": "Croatia",
+    "team2": "Albania",
+    "score": {
+      "ft": [
+        2,
+        2
+      ],
+      "ht": [
+        0,
+        1
+      ]
+    },
+    "goals1": [
+      {
+        "name": "Kramarić",
+        "minute": 74
+      },
+      {
+        "name": "Gjasula",
+        "minute": 76,
+        "owngoal": true
+      }
+    ],
+    "goals2": [
+      {
+        "name": "Laçi",
+        "minute": 11
+      },
+      {
+        "name": "Gjasula",
+        "minute": 90,
+        "offset": 5
+      }
+    ],
+    "group": "Group B",
+    "ground": "Hamburg",
+    "_tournament": "euro2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-20",
+    "team1": "Spain",
+    "team2": "Italy",
+    "of_score": [
+      1,
+      0
+    ],
+    "round": "Matchday 2",
+    "game_id": "4022923",
+    "available": true,
+    "home_team": "Spain",
+    "away_team": "Italy",
+    "home_id": 5050,
+    "away_id": 2375,
+    "home_score": 1.0,
+    "away_score": 0.0,
+    "home_yellow": 3,
+    "away_yellow": 2,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 2,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Slavko Vinčić (Slovenia)",
+    "n_events": 18
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-20",
+    "team1": "Slovenia",
+    "team2": "Serbia",
+    "of_score": [
+      1,
+      1
+    ],
+    "round": "Matchday 2",
+    "game_id": "4022921",
+    "available": true,
+    "home_team": "Slovenia",
+    "away_team": "Serbia",
+    "home_id": 5041,
+    "away_id": 2374,
+    "home_score": 1.0,
+    "away_score": 1.0,
+    "home_yellow": 2,
+    "away_yellow": 4,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 2,
+    "away_yellow_2t": 3,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "István Kovács (Romania)",
+    "n_events": 19
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-20",
+    "team1": "Denmark",
+    "team2": "England",
+    "of_score": [
+      1,
+      1
+    ],
+    "round": "Matchday 2",
+    "game_id": "4022922",
+    "available": true,
+    "home_team": "Denmark",
+    "away_team": "England",
+    "home_id": 5027,
+    "away_id": 5054,
+    "home_score": 1.0,
+    "away_score": 1.0,
+    "home_yellow": 3,
+    "away_yellow": 1,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 2,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Artur Manuel Ribeiro Soares Dias",
+    "n_events": 16
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-20",
+    "time": "20:00",
+    "team1": "Argentina",
+    "team2": "Canada",
+    "score": {
+      "ft": [
+        2,
+        0
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group A",
+    "ground": "Mercedes-Benz Stadium, Atlanta, Georgia",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-21",
+    "team1": "Poland",
+    "team2": "Austria",
+    "of_score": [
+      1,
+      3
+    ],
+    "round": "Matchday 2",
+    "game_id": "4109380",
+    "available": true,
+    "home_team": "Poland",
+    "away_team": "Austria",
+    "home_id": 5038,
+    "away_id": 5059,
+    "home_score": 1.0,
+    "away_score": 3.0,
+    "home_yellow": 4,
+    "away_yellow": 2,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 4,
+    "away_yellow_2t": 2,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Halil Umut Meler",
+    "n_events": 20
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-21",
+    "team1": "Netherlands",
+    "team2": "France",
+    "of_score": [
+      0,
+      0
+    ],
+    "round": "Matchday 2",
+    "game_id": "4022924",
+    "available": true,
+    "home_team": "Netherlands",
+    "away_team": "France",
+    "home_id": 2377,
+    "away_id": 5061,
+    "home_score": 0.0,
+    "away_score": 0.0,
+    "home_yellow": 1,
+    "away_yellow": 0,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 0,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Anthony Taylor (England)",
+    "n_events": 8
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-21",
+    "team1": "Slovakia",
+    "team2": "Ukraine",
+    "of_score": [
+      1,
+      2
+    ],
+    "round": "Matchday 2",
+    "game_id": "4108781",
+    "available": true,
+    "home_team": "Slovakia",
+    "away_team": "Ukraine",
+    "home_id": 5039,
+    "away_id": 5057,
+    "home_score": 1.0,
+    "away_score": 2.0,
+    "home_yellow": 0,
+    "away_yellow": 1,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Michael Oliver (England)",
+    "n_events": 15
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-21",
+    "time": "19:00",
+    "team1": "Peru",
+    "team2": "Chile",
+    "score": {
+      "ft": [
+        0,
+        0
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group A",
+    "ground": "AT&T Stadium, Arlington, Texas",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-22",
+    "team1": "Belgium",
+    "team2": "Romania",
+    "of_score": [
+      2,
+      0
+    ],
+    "round": "Matchday 2",
+    "game_id": "4022927",
+    "available": true,
+    "home_team": "Belgium",
+    "away_team": "Romania",
+    "home_id": 2373,
+    "away_id": 5060,
+    "home_score": 2.0,
+    "away_score": 0.0,
+    "home_yellow": 1,
+    "away_yellow": 2,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 2,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Szymon Marciniak (Poland)",
+    "n_events": 14
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-22",
+    "team1": "Georgia",
+    "team2": "Czech Republic",
+    "of_score": [
+      1,
+      1
+    ],
+    "round": "Matchday 2",
+    "game_id": "4107620",
+    "available": true,
+    "home_team": "Georgia",
+    "away_team": "Czechia",
+    "home_id": 5066,
+    "away_id": 5040,
+    "home_score": 1.0,
+    "away_score": 1.0,
+    "home_yellow": 4,
+    "away_yellow": 5,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 2,
+    "home_yellow_2t": 3,
+    "away_yellow_2t": 3,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Jan Seidel",
+    "n_events": 23
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-22",
+    "team1": "Turkey",
+    "team2": "Portugal",
+    "of_score": [
+      0,
+      3
+    ],
+    "round": "Matchday 2",
+    "game_id": "4022925",
+    "available": true,
+    "home_team": "Turkiye",
+    "away_team": "Portugal",
+    "home_id": 5047,
+    "away_id": 5028,
+    "home_score": 0.0,
+    "away_score": 3.0,
+    "home_yellow": 3,
+    "away_yellow": 2,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 3,
+    "away_yellow_1t": 2,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 0,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Felix Zwayer (Germany)",
+    "n_events": 18
+  },
+  {
+    "tournament": "copa_america_2024",
+    "date": "2024-06-22",
+    "team1": "Ecuador",
+    "team2": "Venezuela",
+    "of_score": [
+      1,
+      2
+    ],
+    "round": "Group Stage",
+    "game_id": "4024340",
+    "available": true,
+    "home_team": "Ecuador",
+    "away_team": "Venezuela",
+    "home_id": 5075,
+    "away_id": 5072,
+    "home_score": 1.0,
+    "away_score": 2.0,
+    "home_yellow": 2,
+    "away_yellow": 2,
+    "home_red": 1,
+    "away_red": 0,
+    "home_yellow_1t": 2,
+    "away_yellow_1t": 2,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 0,
+    "home_red_1t": 1,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Wilmar Alexander Roldán Pérez",
+    "n_events": 17
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-22",
+    "time": "20:00",
+    "team1": "Mexico",
+    "team2": "Jamaica",
+    "score": {
+      "ft": [
+        1,
+        0
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group B",
+    "ground": "NRG Stadium, Houston, Texas",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-23",
+    "team1": "Switzerland",
+    "team2": "Germany",
+    "of_score": [
+      1,
+      1
+    ],
+    "round": "Matchday 3",
+    "game_id": "4022928",
+    "available": true,
+    "home_team": "Switzerland",
+    "away_team": "Germany",
+    "home_id": 5032,
+    "away_id": 2372,
+    "home_score": 1.0,
+    "away_score": 1.0,
+    "home_yellow": 3,
+    "away_yellow": 1,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 2,
+    "away_yellow_2t": 0,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Daniele Orsato",
+    "n_events": 16
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-23",
+    "team1": "Scotland",
+    "team2": "Hungary",
+    "of_score": [
+      0,
+      1
+    ],
+    "round": "Matchday 3",
+    "game_id": "4022926",
+    "available": true,
+    "home_team": "Scotland",
+    "away_team": "Hungary",
+    "home_id": 5069,
+    "away_id": 5026,
+    "home_score": 0.0,
+    "away_score": 1.0,
+    "home_yellow": 1,
+    "away_yellow": 5,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 3,
+    "home_yellow_2t": 1,
+    "away_yellow_2t": 2,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Facundo Tello (Argentina)",
+    "n_events": 19
+  },
+  {
+    "tournament": "copa_america_2024",
+    "date": "2024-06-23",
+    "team1": "United States",
+    "team2": "Bolivia",
+    "of_score": [
+      2,
+      0
+    ],
+    "round": "Group Stage",
+    "game_id": "4024346",
+    "available": true,
+    "home_team": "USA",
+    "away_team": "Bolivia",
+    "home_id": 2389,
+    "away_id": 5077,
+    "home_score": 2.0,
+    "away_score": 0.0,
+    "home_yellow": 1,
+    "away_yellow": 4,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 3,
+    "home_yellow_2t": 1,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Maurizio Mariani (Italy)",
+    "n_events": 17
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-23",
+    "time": "21:00",
+    "team1": "Uruguay",
+    "team2": "Panama",
+    "score": {
+      "ft": [
+        3,
+        1
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group C",
+    "ground": "Hard Rock Stadium, Miami Gardens, Florida",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-24",
+    "team1": "Albania",
+    "team2": "Spain",
+    "of_score": [
+      0,
+      1
+    ],
+    "round": "Matchday 3",
+    "game_id": "4022929",
+    "available": true,
+    "home_team": "Albania",
+    "away_team": "Spain",
+    "home_id": 5029,
+    "away_id": 5050,
+    "home_score": 0.0,
+    "away_score": 1.0,
+    "home_yellow": 2,
+    "away_yellow": 1,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 2,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Glenn Nyberg (Sweden)",
+    "n_events": 13
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-24",
+    "team1": "Croatia",
+    "team2": "Italy",
+    "of_score": [
+      1,
+      1
+    ],
+    "round": "Matchday 3",
+    "game_id": "4022930",
+    "available": true,
+    "home_team": "Croatia",
+    "away_team": "Italy",
+    "home_id": 5055,
+    "away_id": 2375,
+    "home_score": 1.0,
+    "away_score": 1.0,
+    "home_yellow": 6,
+    "away_yellow": 2,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 5,
+    "away_yellow_2t": 2,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Danny Makkelie (Netherlands)",
+    "n_events": 21
+  },
+  {
+    "tournament": "copa_america_2024",
+    "date": "2024-06-24",
+    "team1": "Colombia",
+    "team2": "Paraguay",
+    "of_score": [
+      2,
+      1
+    ],
+    "round": "Group Stage",
+    "game_id": "4024351",
+    "available": true,
+    "home_team": "Colombia",
+    "away_team": "Paraguay",
+    "home_id": 5071,
+    "away_id": 5070,
+    "home_score": 2.0,
+    "away_score": 1.0,
+    "home_yellow": 1,
+    "away_yellow": 3,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 3,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Darío Herrera (Argentina)",
+    "n_events": 17
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-24",
+    "time": "18:00",
+    "team1": "Brazil",
+    "team2": "Costa Rica",
+    "score": {
+      "ft": [
+        0,
+        0
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group D",
+    "ground": "SoFi Stadium, Inglewood, California",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-25",
+    "team1": "England",
+    "team2": "Slovenia",
+    "of_score": [
+      0,
+      0
+    ],
+    "round": "Matchday 3",
+    "game_id": "4022933",
+    "available": true,
+    "home_team": "England",
+    "away_team": "Slovenia",
+    "home_id": 5054,
+    "away_id": 5041,
+    "home_score": 0.0,
+    "away_score": 0.0,
+    "home_yellow": 3,
+    "away_yellow": 2,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 2,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Clement Turpin (France)",
+    "n_events": 13
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-25",
+    "team1": "Denmark",
+    "team2": "Serbia",
+    "of_score": [
+      0,
+      0
+    ],
+    "round": "Matchday 3",
+    "game_id": "4022932",
+    "available": true,
+    "home_team": "Denmark",
+    "away_team": "Serbia",
+    "home_id": 5027,
+    "away_id": 2374,
+    "home_score": 0.0,
+    "away_score": 0.0,
+    "home_yellow": 2,
+    "away_yellow": 2,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 2,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Francois Letexier (France)",
+    "n_events": 14
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-25",
+    "team1": "Netherlands",
+    "team2": "Austria",
+    "of_score": [
+      2,
+      3
+    ],
+    "round": "Matchday 3",
+    "game_id": "4022931",
+    "available": true,
+    "home_team": "Netherlands",
+    "away_team": "Austria",
+    "home_id": 2377,
+    "away_id": 5059,
+    "home_score": 2.0,
+    "away_score": 3.0,
+    "home_yellow": 0,
+    "away_yellow": 3,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 2,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Ivan Kružliak",
+    "n_events": 18
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-25",
+    "team1": "France",
+    "team2": "Poland",
+    "of_score": [
+      1,
+      1
+    ],
+    "round": "Matchday 3",
+    "game_id": "4109385",
+    "available": true,
+    "home_team": "France",
+    "away_team": "Poland",
+    "home_id": 5061,
+    "away_id": 5038,
+    "home_score": 1.0,
+    "away_score": 1.0,
+    "home_yellow": 1,
+    "away_yellow": 4,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 3,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "M. Guida",
+    "n_events": 14
+  },
+  {
+    "tournament": "copa_america_2024",
+    "date": "2024-06-25",
+    "team1": "Peru",
+    "team2": "Canada",
+    "of_score": [
+      0,
+      1
+    ],
+    "round": "Group Stage",
+    "game_id": "4073627",
+    "available": true,
+    "home_team": "Peru",
+    "away_team": "Canada",
+    "home_id": 5076,
+    "away_id": 2388,
+    "home_score": 0.0,
+    "away_score": 1.0,
+    "home_yellow": 0,
+    "away_yellow": 1,
+    "home_red": 1,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 0,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 1,
+    "away_red_2t": 0,
+    "referee": "M. Escobar",
+    "n_events": 13
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-25",
+    "time": "21:00",
+    "team1": "Chile",
+    "team2": "Argentina",
+    "score": {
+      "ft": [
+        0,
+        1
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group A",
+    "ground": "MetLife Stadium, East Rutherford, New Jersey",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-26",
+    "team1": "Slovakia",
+    "team2": "Romania",
+    "of_score": [
+      1,
+      1
+    ],
+    "round": "Matchday 3",
+    "game_id": "4022934",
+    "available": true,
+    "home_team": "Slovakia",
+    "away_team": "Romania",
+    "home_id": 5039,
+    "away_id": 5060,
+    "home_score": 1.0,
+    "away_score": 1.0,
+    "home_yellow": 1,
+    "away_yellow": 4,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 2,
+    "home_yellow_2t": 1,
+    "away_yellow_2t": 2,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Jan Seidel",
+    "n_events": 16
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-26",
+    "team1": "Ukraine",
+    "team2": "Belgium",
+    "of_score": [
+      0,
+      0
+    ],
+    "round": "Matchday 3",
+    "game_id": "4108803",
+    "available": true,
+    "home_team": "Ukraine",
+    "away_team": "Belgium",
+    "home_id": 5057,
+    "away_id": 2373,
+    "home_score": 0.0,
+    "away_score": 0.0,
+    "home_yellow": 1,
+    "away_yellow": 1,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 1,
+    "away_yellow_2t": 0,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Anthony Taylor (England)",
+    "n_events": 11
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-26",
+    "team1": "Georgia",
+    "team2": "Portugal",
+    "of_score": [
+      2,
+      0
+    ],
+    "round": "Matchday 3",
+    "game_id": "4107640",
+    "available": true,
+    "home_team": "Georgia",
+    "away_team": "Portugal",
+    "home_id": 5066,
+    "away_id": 5028,
+    "home_score": 2.0,
+    "away_score": 0.0,
+    "home_yellow": 1,
+    "away_yellow": 3,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 2,
+    "home_yellow_2t": 1,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "S. Schärer",
+    "n_events": 15
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-26",
+    "team1": "Czech Republic",
+    "team2": "Turkey",
+    "of_score": [
+      1,
+      2
+    ],
+    "round": "Matchday 3",
+    "game_id": "4022935",
+    "available": true,
+    "home_team": "Czechia",
+    "away_team": "Turkiye",
+    "home_id": 5040,
+    "away_id": 5047,
+    "home_score": 1.0,
+    "away_score": 2.0,
+    "home_yellow": 6,
+    "away_yellow": 11,
+    "home_red": 2,
+    "away_red": 0,
+    "home_yellow_1t": 2,
+    "away_yellow_1t": 2,
+    "home_yellow_2t": 4,
+    "away_yellow_2t": 9,
+    "home_red_1t": 1,
+    "away_red_1t": 0,
+    "home_red_2t": 1,
+    "away_red_2t": 0,
+    "referee": "István Kovács (Romania)",
+    "n_events": 32
+  },
+  {
+    "tournament": "copa_america_2024",
+    "date": "2024-06-26",
+    "team1": "Ecuador",
+    "team2": "Jamaica",
+    "of_score": [
+      3,
+      1
+    ],
+    "round": "Group Stage",
+    "game_id": "4024341",
+    "available": true,
+    "home_team": "Ecuador",
+    "away_team": "Jamaica",
+    "home_id": 5075,
+    "away_id": 5421,
+    "home_score": 3.0,
+    "away_score": 1.0,
+    "home_yellow": 0,
+    "away_yellow": 4,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 3,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Cristián Reyes (Chile)",
+    "n_events": 17
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-26",
+    "time": "18:00",
+    "team1": "Venezuela",
+    "team2": "Mexico",
+    "score": {
+      "ft": [
+        1,
+        0
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group B",
+    "ground": "SoFi Stadium, Inglewood, California",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "copa_america_2024",
+    "date": "2024-06-27",
+    "team1": "Panama",
+    "team2": "United States",
+    "of_score": [
+      2,
+      1
+    ],
+    "round": "Group Stage",
+    "game_id": "4024348",
+    "available": true,
+    "home_team": "Panama",
+    "away_team": "USA",
+    "home_id": 5414,
+    "away_id": 2389,
+    "home_score": 2.0,
+    "away_score": 1.0,
+    "home_yellow": 3,
+    "away_yellow": 2,
+    "home_red": 1,
+    "away_red": 1,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 2,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 1,
+    "home_red_2t": 1,
+    "away_red_2t": 0,
+    "referee": "Iván Barton (El Salvador)",
+    "n_events": 20
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-27",
+    "time": "21:00",
+    "team1": "Uruguay",
+    "team2": "Bolivia",
+    "score": {
+      "ft": [
+        5,
+        0
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group C",
+    "ground": "MetLife Stadium, East Rutherford, New Jersey",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "copa_america_2024",
+    "date": "2024-06-28",
+    "team1": "Colombia",
+    "team2": "Costa Rica",
+    "of_score": [
+      3,
+      0
+    ],
+    "round": "Group Stage",
+    "game_id": "4073871",
+    "available": true,
+    "home_team": "Colombia",
+    "away_team": "Costa Rica",
+    "home_id": 5071,
+    "away_id": 5424,
+    "home_score": 3.0,
+    "away_score": 0.0,
+    "home_yellow": 2,
+    "away_yellow": 1,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 1,
+    "away_yellow_2t": 0,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Gustavo Tejera",
+    "n_events": 16
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-28",
+    "time": "18:00",
+    "team1": "Paraguay",
+    "team2": "Brazil",
+    "score": {
+      "ft": [
+        1,
+        4
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group D",
+    "ground": "Allegiant Stadium, Las Vegas, Nevada",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-29",
+    "team1": "Switzerland",
+    "team2": "Italy",
+    "of_score": [
+      2,
+      0
+    ],
+    "round": "Round of 16",
+    "game_id": "4152819",
+    "available": true,
+    "home_team": "Switzerland",
+    "away_team": "Italy",
+    "home_id": 5032,
+    "away_id": 2375,
+    "home_score": 2.0,
+    "away_score": 0.0,
+    "home_yellow": 0,
+    "away_yellow": 3,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 2,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Szymon Marciniak (Poland)",
+    "n_events": 17
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-29",
+    "team1": "Germany",
+    "team2": "Denmark",
+    "of_score": [
+      2,
+      0
+    ],
+    "round": "Round of 16",
+    "game_id": "4155893",
+    "available": true,
+    "home_team": "Germany",
+    "away_team": "Denmark",
+    "home_id": 2372,
+    "away_id": 5027,
+    "home_score": 2.0,
+    "away_score": 0.0,
+    "home_yellow": 1,
+    "away_yellow": 3,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 1,
+    "away_yellow_2t": 2,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Michael Oliver (England)",
+    "n_events": 17
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-29",
+    "time": "20:00",
+    "team1": "Argentina",
+    "team2": "Peru",
+    "score": {
+      "ft": [
+        2,
+        0
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group A",
+    "ground": "Hard Rock Stadium, Miami Gardens, Florida",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-29",
+    "time": "20:00",
+    "team1": "Canada",
+    "team2": "Chile",
+    "score": {
+      "ft": [
+        0,
+        0
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group A",
+    "ground": "Inter&Co Stadium, Orlando, Florida",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-30",
+    "team1": "England",
+    "team2": "Slovakia",
+    "of_score": [
+      2,
+      1
+    ],
+    "round": "Round of 16",
+    "game_id": "4157441",
+    "available": true,
+    "home_team": "England",
+    "away_team": "Slovakia",
+    "home_id": 5054,
+    "away_id": 5039,
+    "home_score": 2.0,
+    "away_score": 1.0,
+    "home_yellow": 3,
+    "away_yellow": 6,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 3,
+    "away_yellow_1t": 2,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 4,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Halil Umut Meler",
+    "n_events": 25
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-06-30",
+    "team1": "Spain",
+    "team2": "Georgia",
+    "of_score": [
+      4,
+      1
+    ],
+    "round": "Round of 16",
+    "game_id": "4157436",
+    "available": true,
+    "home_team": "Spain",
+    "away_team": "Georgia",
+    "home_id": 5050,
+    "away_id": 5066,
+    "home_score": 4.0,
+    "away_score": 1.0,
+    "home_yellow": 1,
+    "away_yellow": 1,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Francois Letexier (France)",
+    "n_events": 17
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-30",
+    "time": "17:00",
+    "team1": "Mexico",
+    "team2": "Ecuador",
+    "score": {
+      "ft": [
+        0,
+        0
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group B",
+    "ground": "State Farm Stadium, Glendale, Arizona",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-06-30",
+    "time": "19:00",
+    "team1": "Jamaica",
+    "team2": "Venezuela",
+    "score": {
+      "ft": [
+        0,
+        3
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group B",
+    "ground": "Q2 Stadium, Austin, Texas",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-07-01",
+    "team1": "France",
+    "team2": "Belgium",
+    "of_score": [
+      1,
+      0
+    ],
+    "round": "Round of 16",
+    "game_id": "4157351",
+    "available": true,
+    "home_team": "France",
+    "away_team": "Belgium",
+    "home_id": 5061,
+    "away_id": 2373,
+    "home_score": 1.0,
+    "away_score": 0.0,
+    "home_yellow": 3,
+    "away_yellow": 2,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 3,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 2,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Glenn Nyberg (Sweden)",
+    "n_events": 10
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-07-01",
+    "team1": "Portugal",
+    "team2": "Slovenia",
+    "of_score": [
+      0,
+      0
+    ],
+    "round": "Round of 16",
+    "game_id": "4157438",
+    "available": true,
+    "home_team": "Portugal",
+    "away_team": "Slovenia",
+    "home_id": 5028,
+    "away_id": 5041,
+    "home_score": 0.0,
+    "away_score": 0.0,
+    "home_yellow": 1,
+    "away_yellow": 5,
+    "home_red": 0,
+    "away_red": 1,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 2,
+    "home_yellow_2t": 1,
+    "away_yellow_2t": 3,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 1,
+    "referee": "Daniele Orsato",
+    "n_events": 23
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-07-01",
+    "time": "20:00",
+    "team1": "United States",
+    "team2": "Uruguay",
+    "score": {
+      "ft": [
+        0,
+        1
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group C",
+    "ground": "Arrowhead Stadium, Kansas City, Missouri",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-07-01",
+    "time": "21:00",
+    "team1": "Bolivia",
+    "team2": "Panama",
+    "score": {
+      "ft": [
+        1,
+        3
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group C",
+    "ground": "Inter&Co Stadium, Orlando, Florida",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-07-02",
+    "team1": "Romania",
+    "team2": "Netherlands",
+    "of_score": [
+      0,
+      3
+    ],
+    "round": "Round of 16",
+    "game_id": "4157439",
+    "available": true,
+    "home_team": "Romania",
+    "away_team": "Netherlands",
+    "home_id": 5060,
+    "away_id": 2377,
+    "home_score": 0.0,
+    "away_score": 3.0,
+    "home_yellow": 2,
+    "away_yellow": 2,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 2,
+    "away_yellow_2t": 2,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Felix Zwayer (Germany)",
+    "n_events": 19
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-07-02",
+    "team1": "Austria",
+    "team2": "Turkey",
+    "of_score": [
+      1,
+      2
+    ],
+    "round": "Round of 16",
+    "game_id": "4157434",
+    "available": true,
+    "home_team": "Austria",
+    "away_team": "Turkiye",
+    "home_id": 5059,
+    "away_id": 5047,
+    "home_score": 1.0,
+    "away_score": 2.0,
+    "home_yellow": 2,
+    "away_yellow": 2,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 2,
+    "home_yellow_2t": 1,
+    "away_yellow_2t": 0,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Artur Manuel Ribeiro Soares Dias",
+    "n_events": 15
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-07-02",
+    "time": "18:00",
+    "team1": "Brazil",
+    "team2": "Colombia",
+    "score": {
+      "ft": [
+        1,
+        1
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group D",
+    "ground": "Levi's Stadium, Santa Clara, California",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Group Stage",
+    "date": "2024-07-02",
+    "time": "20:00",
+    "team1": "Costa Rica",
+    "team2": "Paraguay",
+    "score": {
+      "ft": [
+        2,
+        1
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": "Group D",
+    "ground": "Q2 Stadium, Austin, Texas",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Quarter-finals",
+    "date": "2024-07-04",
+    "time": "20:00",
+    "team1": "Argentina",
+    "team2": "Ecuador",
+    "score": {
+      "ft": [
+        1,
+        1
+      ],
+      "ht": [
+        null,
+        null
+      ],
+      "p": [
+        4,
+        2
+      ]
+    },
+    "group": null,
+    "ground": "NRG Stadium, Houston, Texas",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-07-05",
+    "team1": "Spain",
+    "team2": "Germany",
+    "of_score": [
+      2,
+      1
+    ],
+    "round": "Quarter-finals",
+    "game_id": "4163308",
+    "available": true,
+    "home_team": "Spain",
+    "away_team": "Germany",
+    "home_id": 5050,
+    "away_id": 2372,
+    "home_score": 2.0,
+    "away_score": 1.0,
+    "home_yellow": 6,
+    "away_yellow": 8,
+    "home_red": 1,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 2,
+    "home_yellow_2t": 5,
+    "away_yellow_2t": 6,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 1,
+    "away_red_2t": 0,
+    "referee": "Anthony Taylor (England)",
+    "n_events": 31
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-07-05",
+    "team1": "Portugal",
+    "team2": "France",
+    "of_score": [
+      0,
+      0
+    ],
+    "round": "Quarter-finals",
+    "game_id": "4163610",
+    "available": true,
+    "home_team": "Portugal",
+    "away_team": "France",
+    "home_id": 5028,
+    "away_id": 5061,
+    "home_score": 0.0,
+    "away_score": 0.0,
+    "home_yellow": 1,
+    "away_yellow": 1,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 1,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Michael Oliver (England)",
+    "n_events": 22
+  },
+  {
+    "round": "Quarter-finals",
+    "date": "2024-07-05",
+    "time": "20:00",
+    "team1": "Venezuela",
+    "team2": "Canada",
+    "score": {
+      "ft": [
+        1,
+        1
+      ],
+      "ht": [
+        null,
+        null
+      ],
+      "p": [
+        3,
+        4
+      ]
+    },
+    "group": null,
+    "ground": "AT&T Stadium, Arlington, Texas",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-07-06",
+    "team1": "England",
+    "team2": "Switzerland",
+    "of_score": [
+      1,
+      1
+    ],
+    "round": "Quarter-finals",
+    "game_id": "4163299",
+    "available": true,
+    "home_team": "England",
+    "away_team": "Switzerland",
+    "home_id": 5054,
+    "away_id": 5032,
+    "home_score": 1.0,
+    "away_score": 1.0,
+    "home_yellow": 1,
+    "away_yellow": 2,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 0,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 1,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Daniele Orsato",
+    "n_events": 25
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-07-06",
+    "team1": "Netherlands",
+    "team2": "Turkey",
+    "of_score": [
+      2,
+      1
+    ],
+    "round": "Quarter-finals",
+    "game_id": "4164297",
+    "available": true,
+    "home_team": "Netherlands",
+    "away_team": "Turkiye",
+    "home_id": 2377,
+    "away_id": 5047,
+    "home_score": 2.0,
+    "away_score": 1.0,
+    "home_yellow": 4,
+    "away_yellow": 1,
+    "home_red": 0,
+    "away_red": 1,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 3,
+    "away_yellow_2t": 1,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 1,
+    "referee": "Clement Turpin (France)",
+    "n_events": 20
+  },
+  {
+    "tournament": "copa_america_2024",
+    "date": "2024-07-06",
+    "team1": "Colombia",
+    "team2": "Panama",
+    "of_score": [
+      5,
+      0
+    ],
+    "round": "Quarter-finals",
+    "game_id": "4164316",
+    "available": true,
+    "home_team": "Colombia",
+    "away_team": "Panama",
+    "home_id": 5071,
+    "away_id": 5414,
+    "home_score": 5.0,
+    "away_score": 0.0,
+    "home_yellow": 1,
+    "away_yellow": 3,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 3,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Maurizio Mariani (Italy)",
+    "n_events": 20
+  },
+  {
+    "round": "Quarter-finals",
+    "date": "2024-07-06",
+    "time": "15:00",
+    "team1": "Uruguay",
+    "team2": "Brazil",
+    "score": {
+      "ft": [
+        0,
+        0
+      ],
+      "ht": [
+        null,
+        null
+      ],
+      "p": [
+        4,
+        2
+      ]
+    },
+    "group": null,
+    "ground": "State Farm Stadium, Glendale, Arizona",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-07-09",
+    "team1": "Spain",
+    "team2": "France",
+    "of_score": [
+      2,
+      1
+    ],
+    "round": "Semi-finals",
+    "game_id": "4168738",
+    "available": true,
+    "home_team": "Spain",
+    "away_team": "France",
+    "home_id": 5050,
+    "away_id": 5061,
+    "home_score": 2.0,
+    "away_score": 1.0,
+    "home_yellow": 2,
+    "away_yellow": 2,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 1,
+    "away_yellow_2t": 2,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Slavko Vinčić (Slovenia)",
+    "n_events": 16
+  },
+  {
+    "round": "Semi-finals",
+    "date": "2024-07-09",
+    "time": "20:00",
+    "team1": "Argentina",
+    "team2": "Canada",
+    "score": {
+      "ft": [
+        2,
+        0
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": null,
+    "ground": "MetLife Stadium, East Rutherford, New Jersey",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-07-10",
+    "team1": "Netherlands",
+    "team2": "England",
+    "of_score": [
+      1,
+      2
+    ],
+    "round": "Semi-finals",
+    "game_id": "4169137",
+    "available": true,
+    "home_team": "Netherlands",
+    "away_team": "England",
+    "home_id": 2377,
+    "away_id": 5054,
+    "home_score": 1.0,
+    "away_score": 2.0,
+    "home_yellow": 3,
+    "away_yellow": 3,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 0,
+    "home_yellow_2t": 2,
+    "away_yellow_2t": 3,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Felix Zwayer (Germany)",
+    "n_events": 20
+  },
+  {
+    "round": "Semi-finals",
+    "date": "2024-07-10",
+    "time": "20:00",
+    "team1": "Uruguay",
+    "team2": "Colombia",
+    "score": {
+      "ft": [
+        0,
+        1
+      ],
+      "ht": [
+        null,
+        null
+      ]
+    },
+    "group": null,
+    "ground": "Bank of America Stadium, Charlotte, North Carolina",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "round": "Third place play-off",
+    "date": "2024-07-13",
+    "time": "20:00",
+    "team1": "Canada",
+    "team2": "Uruguay",
+    "score": {
+      "ft": [
+        2,
+        2
+      ],
+      "ht": [
+        null,
+        null
+      ],
+      "p": [
+        3,
+        4
+      ]
+    },
+    "group": null,
+    "ground": "Bank of America Stadium, Charlotte, North Carolina",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  },
+  {
+    "tournament": "euro2024",
+    "date": "2024-07-14",
+    "team1": "Spain",
+    "team2": "England",
+    "of_score": [
+      2,
+      1
+    ],
+    "round": "Final",
+    "game_id": "4171981",
+    "available": true,
+    "home_team": "Spain",
+    "away_team": "England",
+    "home_id": 5050,
+    "away_id": 5054,
+    "home_score": 2.0,
+    "away_score": 1.0,
+    "home_yellow": 1,
+    "away_yellow": 3,
+    "home_red": 0,
+    "away_red": 0,
+    "home_yellow_1t": 1,
+    "away_yellow_1t": 1,
+    "home_yellow_2t": 0,
+    "away_yellow_2t": 2,
+    "home_red_1t": 0,
+    "away_red_1t": 0,
+    "home_red_2t": 0,
+    "away_red_2t": 0,
+    "referee": "Francois Letexier (France)",
+    "n_events": 14
+  },
+  {
+    "round": "Final",
+    "date": "2024-07-14",
+    "time": "20:00",
+    "team1": "Argentina",
+    "team2": "Colombia",
+    "score": {
+      "ft": [
+        0,
+        0
+      ],
+      "ht": [
+        null,
+        null
+      ],
+      "et": [
+        1,
+        0
+      ]
+    },
+    "group": null,
+    "ground": "Hard Rock Stadium, Miami Gardens, Florida",
+    "_tournament": "copa_america_2024",
+    "available": false,
+    "reason": "NO_365SCORES_GAME_FOUND"
+  }
+]

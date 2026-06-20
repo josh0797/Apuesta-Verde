@@ -1,0 +1,359 @@
+{
+  "_meta": {
+    "generated_at_utc": "2026-06-20T21:40:09.560494Z",
+    "selecciones_n": 44,
+    "epl_n": 380,
+    "scope_note": "Opción B aprobada: cards en selecciones; corners + variables explicativas en EPL 380."
+  },
+  "parte1_cards": {
+    "selecciones": {
+      "n": 44,
+      "total": {
+        "n": 44,
+        "mean": 5,
+        "median": 4.0,
+        "stdev": 3.212,
+        "min": 1,
+        "max": 19,
+        "p10": 2,
+        "p25": 3,
+        "p75": 6,
+        "p90": 8
+      },
+      "home_cards": {
+        "n": 44,
+        "mean": 2.159,
+        "median": 2.0,
+        "stdev": 1.744,
+        "min": 0,
+        "max": 8,
+        "p10": 1,
+        "p25": 1,
+        "p75": 3,
+        "p90": 4
+      },
+      "away_cards": {
+        "n": 44,
+        "mean": 2.841,
+        "median": 2.0,
+        "stdev": 2.011,
+        "min": 0,
+        "max": 11,
+        "p10": 1,
+        "p25": 2,
+        "p75": 3,
+        "p90": 5
+      },
+      "diff_abs": {
+        "n": 44,
+        "mean": 1.636,
+        "median": 1.0,
+        "stdev": 1.281,
+        "min": 0,
+        "max": 5,
+        "p10": 0,
+        "p25": 1,
+        "p75": 2,
+        "p90": 3
+      },
+      "cards_1t": {
+        "n": 44,
+        "mean": 1.864,
+        "median": 2.0,
+        "stdev": 1.341,
+        "min": 0,
+        "max": 5,
+        "p10": 0,
+        "p25": 1,
+        "p75": 3,
+        "p90": 3
+      },
+      "cards_2t": {
+        "n": 44,
+        "mean": 3.136,
+        "median": 3.0,
+        "stdev": 2.719,
+        "min": 0,
+        "max": 14,
+        "p10": 1,
+        "p25": 1,
+        "p75": 4,
+        "p90": 6
+      },
+      "corr_cards_goals": 0.1344,
+      "tournaments_covered": {
+        "euro2024": 36,
+        "copa_america_2024": 8
+      },
+      "distribution_total_cards": {
+        "5-6": 13,
+        "3-4": 18,
+        "0-2": 6,
+        "9+": 4,
+        "7-8": 3
+      }
+    },
+    "epl": {
+      "n": 380,
+      "total": {
+        "n": 380,
+        "mean": 4.187,
+        "median": 4.0,
+        "stdev": 2.245,
+        "min": 0,
+        "max": 14,
+        "p10": 2,
+        "p25": 3,
+        "p75": 6,
+        "p90": 7
+      },
+      "home_cards": {
+        "n": 380,
+        "mean": 1.974,
+        "median": 2.0,
+        "stdev": 1.418,
+        "min": 0,
+        "max": 7,
+        "p10": 0,
+        "p25": 1,
+        "p75": 3,
+        "p90": 4
+      },
+      "away_cards": {
+        "n": 380,
+        "mean": 2.213,
+        "median": 2.0,
+        "stdev": 1.442,
+        "min": 0,
+        "max": 8,
+        "p10": 0,
+        "p25": 1,
+        "p75": 3,
+        "p90": 4
+      },
+      "diff_abs": {
+        "n": 380,
+        "mean": 1.355,
+        "median": 1.0,
+        "stdev": 1.164,
+        "min": 0,
+        "max": 6,
+        "p10": 0,
+        "p25": 0,
+        "p75": 2,
+        "p90": 3
+      },
+      "corr_cards_goals": -0.0626,
+      "corr_cards_corners": 0.1298,
+      "corr_cards_fouls": 0.3296,
+      "distribution_total_cards": {
+        "5-6": 101,
+        "3-4": 137,
+        "7-8": 41,
+        "0-2": 88,
+        "9+": 13
+      },
+      "high_cards_goals_test": {
+        "n_high_cards_(≥5)": 155,
+        "n_low_cards_(≤2)": 88,
+        "mean_goals_high": 2.89,
+        "mean_goals_low": 3.034,
+        "t_test": {
+          "t": -0.6744,
+          "df": 189.74,
+          "p_approx": 0.50006
+        }
+      },
+      "base_rate_over_3.5_cards": 0.6053,
+      "base_rate_over_4.5_cards": 0.4079,
+      "base_rate_over_5.5_cards": 0.2526,
+      "hypothetical_roi_over_4_5_cards": {
+        "hit_rate": 0.4079,
+        "avg_odd": 1.95,
+        "roi_pct": -20.46
+      },
+      "cards_by_ftr": {
+        "H": {
+          "n": 155,
+          "mean": 4.077
+        },
+        "D": {
+          "n": 93,
+          "mean": 4.624
+        },
+        "A": {
+          "n": 132,
+          "mean": 4.008
+        }
+      }
+    }
+  },
+  "parte2_corners": {
+    "n": 380,
+    "total": {
+      "n": 380,
+      "mean": 10.297,
+      "median": 10.0,
+      "stdev": 3.466,
+      "min": 2,
+      "max": 19,
+      "p10": 6,
+      "p25": 8,
+      "p75": 13,
+      "p90": 15
+    },
+    "home": {
+      "n": 380,
+      "mean": 5.426,
+      "median": 5.0,
+      "stdev": 3.179,
+      "min": 0,
+      "max": 17,
+      "p10": 2,
+      "p25": 3,
+      "p75": 7,
+      "p90": 10
+    },
+    "away": {
+      "n": 380,
+      "mean": 4.871,
+      "median": 4.0,
+      "stdev": 3.027,
+      "min": 0,
+      "max": 18,
+      "p10": 1,
+      "p25": 3,
+      "p75": 7,
+      "p90": 9
+    },
+    "diff_signed": {
+      "n": 380,
+      "mean": 0.555,
+      "median": 1.0,
+      "stdev": 5.151,
+      "min": -17,
+      "max": 17,
+      "p10": -6,
+      "p25": -3,
+      "p75": 3,
+      "p90": 7
+    },
+    "over_under_lines": {
+      "5.5": {
+        "over_rate": 0.9158,
+        "under_rate": 0.0842,
+        "hypo_over_roi_at_1_85": 69.42,
+        "hypo_under_roi_at_1_85": -84.42
+      },
+      "6.5": {
+        "over_rate": 0.8579,
+        "under_rate": 0.1421,
+        "hypo_over_roi_at_1_85": 58.71,
+        "hypo_under_roi_at_1_85": -73.71
+      },
+      "7.5": {
+        "over_rate": 0.7632,
+        "under_rate": 0.2368,
+        "hypo_over_roi_at_1_85": 41.18,
+        "hypo_under_roi_at_1_85": -56.18
+      },
+      "8.5": {
+        "over_rate": 0.7053,
+        "under_rate": 0.2947,
+        "hypo_over_roi_at_1_85": 30.47,
+        "hypo_under_roi_at_1_85": -45.47
+      },
+      "9.5": {
+        "over_rate": 0.5974,
+        "under_rate": 0.4026,
+        "hypo_over_roi_at_1_85": 10.51,
+        "hypo_under_roi_at_1_85": -25.51
+      },
+      "10.5": {
+        "over_rate": 0.4842,
+        "under_rate": 0.5158,
+        "hypo_over_roi_at_1_85": -10.42,
+        "hypo_under_roi_at_1_85": -4.58
+      },
+      "11.5": {
+        "over_rate": 0.3289,
+        "under_rate": 0.6711,
+        "hypo_over_roi_at_1_85": -39.14,
+        "hypo_under_roi_at_1_85": 24.14
+      }
+    },
+    "correlations": {
+      "corr_corners_goals": -0.0506,
+      "corr_corners_shots": 0.2765,
+      "corr_corners_sot": 0.1572,
+      "corr_corners_fouls": -0.0739,
+      "corr_corners_cards": 0.1298,
+      "corr_home_corners_home_shots": 0.5432,
+      "corr_away_corners_away_shots": 0.5499
+    }
+  },
+  "parte3_hypothesis": {
+    "definition": "favorite = pre-match implied prob devig ≥ 0.65; uses Pinnacle PSH/PSD/PSA",
+    "n_dominant_matches": 90,
+    "n_home_dominant": 68,
+    "n_away_dominant": 22,
+    "n_balanced": 290,
+    "pct_fav_more_corners": 81.11,
+    "pct_fav_less_corners": 15.56,
+    "pct_equal": 3.33,
+    "fav_corners": {
+      "n": 90,
+      "mean": 7.778,
+      "median": 7.5,
+      "stdev": 3.918,
+      "min": 1,
+      "max": 18,
+      "p10": 3,
+      "p25": 4,
+      "p75": 10,
+      "p90": 13
+    },
+    "dog_corners": {
+      "n": 90,
+      "mean": 3.144,
+      "median": 3.0,
+      "stdev": 2.298,
+      "min": 0,
+      "max": 12,
+      "p10": 1,
+      "p25": 1,
+      "p75": 4,
+      "p90": 6
+    },
+    "diff_signed_summary": {
+      "n": 90,
+      "mean": 4.633,
+      "median": 5.0,
+      "stdev": 5.365,
+      "min": -9,
+      "max": 17,
+      "p10": -3,
+      "p25": 1,
+      "p75": 8,
+      "p90": 12
+    },
+    "diff_mean_bootstrap_ci": [
+      3.544,
+      5.689
+    ],
+    "t_test_fav_vs_dog": {
+      "t": 9.6776,
+      "df": 143.74,
+      "p_approx": 0.0
+    },
+    "feature_importance_corr_with_total_corners": {
+      "shots_total": 0.2765,
+      "shots_on_target": 0.1572,
+      "cards_total": 0.1298,
+      "abs_implied_diff": 0.0904,
+      "fouls_total": -0.0739,
+      "home_implied_prob": 0.0508,
+      "goals_total": -0.0506
+    }
+  }
+}
