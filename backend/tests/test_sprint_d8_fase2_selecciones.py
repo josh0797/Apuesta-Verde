@@ -506,24 +506,25 @@ def test_fetch_tournament_pit_odds_dedups_event_ids_across_listings():
     )
 
 
-def test_fetch_tournament_pit_odds_skips_events_with_wrong_commence_day():
-    """The historical /events?date=X listing returns upcoming events
-    well beyond that day. We must skip events whose ``commence_time``
-    falls on a different calendar day than the listing's date to avoid
-    listing-the-same-future-event-every-day duplication.
+def test_fetch_tournament_pit_odds_fetches_upcoming_events_from_first_listing():
+    """The historical /events?date=X listing also returns UPCOMING
+    events whose commence day is later than X. The client must fetch
+    odds for those upcoming events (at commence-3h) — not skip them.
+    This is the corrected behaviour after the over-aggressive
+    commence-day filter was removed.
     """
-    call_log: list[str] = []
+    snapshot_dates_used: list[str] = []
 
     async def mock_http(url, params):
-        call_log.append(url)
         if "/odds" in url:
+            snapshot_dates_used.append(params.get("date"))
             return {"ok": True, "status": 200,
                     "json": _event_payload(
                         home="Spain", away="Costa Rica",
                         draw_odd=15.0, home_odd=1.1, away_odd=30.0,
                         commence="2022-11-23T16:00:00Z"),
-                    "headers": {"x-requests-used": str(10)}}
-        # Listing on 2022-11-22 returns an event for 2022-11-23.
+                    "headers": {"x-requests-used": "10"}}
+        # Listing on 2022-11-20 returns an event for 2022-11-23.
         return {"ok": True, "status": 200,
                 "json": {"data": [
                     {"id": "evt_FUTURE", "home_team": "Spain",
@@ -535,11 +536,11 @@ def test_fetch_tournament_pit_odds_skips_events_with_wrong_commence_day():
     async def go():
         return await fetch_tournament_pit_odds(
             sport_key="soccer_fifa_world_cup",
-            dates_iso=["2022-11-22T00:00:00Z"],
+            dates_iso=["2022-11-20T00:00:00Z"],
             max_credits=200, http=mock_http, api_key="dummy",
         )
     res = asyncio.run(go())
-    # The event was filtered out — /odds was NOT called.
-    odds_calls = [u for u in call_log if "/odds" in u]
-    assert len(odds_calls) == 0
-    assert res["events"] == []
+    # The /odds call WAS issued for the future event.
+    assert len(res["events"]) == 1
+    # And it was issued at commence-3h (PIT, not at the listing date).
+    assert snapshot_dates_used == ["2022-11-23T13:00:00Z"]

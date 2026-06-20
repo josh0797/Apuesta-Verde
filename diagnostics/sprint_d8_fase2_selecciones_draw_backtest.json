@@ -1,11 +1,11 @@
 {
   "_meta": {
     "sprint": "D8-FASE2",
-    "started_at_utc": "2026-06-20T19:51:39.894665+00:00",
-    "max_credits": 2500,
+    "started_at_utc": "2026-06-20T20:05:52.568352+00:00",
+    "max_credits": 2000,
     "dry_run_only": false,
     "has_api_key": true,
-    "finished_at_utc": "2026-06-20T19:52:17.138327+00:00"
+    "finished_at_utc": "2026-06-20T20:07:28.902549+00:00"
   },
   "preflight": {
     "dry_run": {
@@ -48,48 +48,48 @@
     "per_tournament": [
       {
         "name": "wc2022",
-        "credits_used": 38,
-        "n_matches_in_odds_run": 1,
-        "n_matches_resolved": 1,
-        "n_records_built": 1,
+        "credits_used": 668,
+        "n_matches_in_odds_run": 64,
+        "n_matches_resolved": 64,
+        "n_records_built": 64,
         "aborted": false,
         "reason_codes": []
       },
       {
         "name": "euro2024",
-        "credits_used": 40,
-        "n_matches_in_odds_run": 1,
-        "n_matches_resolved": 1,
-        "n_records_built": 1,
+        "credits_used": 540,
+        "n_matches_in_odds_run": 51,
+        "n_matches_resolved": 51,
+        "n_records_built": 51,
         "aborted": false,
         "reason_codes": []
       },
       {
         "name": "copa_america_2024",
-        "credits_used": 24,
-        "n_matches_in_odds_run": 0,
-        "n_matches_resolved": 0,
-        "n_records_built": 0,
+        "credits_used": 344,
+        "n_matches_in_odds_run": 32,
+        "n_matches_resolved": 8,
+        "n_records_built": 8,
         "aborted": false,
         "reason_codes": []
       }
     ],
-    "credits_used_total": 102,
-    "credits_remaining": 2398,
-    "n_records_total": 2
+    "credits_used_total": 1552,
+    "credits_remaining": 448,
+    "n_records_total": 123
   },
   "diagnostics": {
     "market": "DRAW",
     "meta": {
-      "n_records": 2,
+      "n_records": 123,
       "n_buckets": 10,
       "audit": {
-        "n_records_total": 2,
-        "n_with_market_implied": 2,
-        "n_with_market_devig": 2,
+        "n_records_total": 123,
+        "n_with_market_implied": 123,
+        "n_with_market_devig": 123,
         "n_with_close": 0
       },
-      "base_rate_hit": 0.0
+      "base_rate_hit": 0.2602
     },
     "reliability_curve": [
       {
@@ -110,43 +110,43 @@
         "bucket": "[0.1, 0.2]",
         "lo": 0.1,
         "hi": 0.2,
-        "n": 0,
-        "mean_p_pred": null,
-        "hit_rate": null,
+        "n": 15,
+        "mean_p_pred": 0.18,
+        "hit_rate": 0.2667,
         "hit_rate_ci95": [
-          null,
-          null
+          0.109,
+          0.5195
         ],
-        "mean_p_market_devig": null,
-        "realized_edge_pp": null
+        "mean_p_market_devig": 0.1858,
+        "realized_edge_pp": 8.08
       },
       {
         "bucket": "[0.2, 0.3]",
         "lo": 0.2,
         "hi": 0.3,
-        "n": 1,
-        "mean_p_pred": 0.267,
-        "hit_rate": 0.0,
+        "n": 78,
+        "mean_p_pred": 0.2634,
+        "hit_rate": 0.2692,
         "hit_rate_ci95": [
-          0.0,
-          0.7935
+          0.1834,
+          0.3768
         ],
-        "mean_p_market_devig": 0.1561,
-        "realized_edge_pp": -15.61
+        "mean_p_market_devig": 0.2435,
+        "realized_edge_pp": 2.57
       },
       {
         "bucket": "[0.3, 0.4]",
         "lo": 0.3,
         "hi": 0.4,
-        "n": 1,
-        "mean_p_pred": 0.328,
-        "hit_rate": 0.0,
+        "n": 30,
+        "mean_p_pred": 0.3219,
+        "hit_rate": 0.2333,
         "hit_rate_ci95": [
-          0.0,
-          0.7935
+          0.1179,
+          0.4093
         ],
-        "mean_p_market_devig": 0.3138,
-        "realized_edge_pp": -31.38
+        "mean_p_market_devig": 0.2945,
+        "realized_edge_pp": -6.11
       },
       {
         "bucket": "[0.4, 0.5]",
@@ -234,29 +234,29 @@
       }
     ],
     "calibration": {
-      "intercept": 0.0,
-      "slope": 0.0,
-      "r_squared": null,
+      "intercept": 0.1172,
+      "slope": 0.5345,
+      "r_squared": 0.003,
       "interpretation": "Well-calibrated \u21d2 intercept \u2248 0, slope \u2248 1."
     },
     "model_vs_market": {
-      "brier_model": 0.089436,
-      "brier_market_raw": 0.065036,
-      "brier_market_devig": 0.061439,
-      "logloss_model": 0.354053,
-      "logloss_market_raw": 0.282678,
-      "logloss_market_devig": 0.273212,
-      "delta_brier_vs_devig": 0.027997,
-      "delta_logloss_vs_devig": 0.080841,
+      "brier_model": 0.192393,
+      "brier_market_raw": 0.184132,
+      "brier_market_devig": 0.18439,
+      "logloss_model": 0.573174,
+      "logloss_market_raw": 0.550713,
+      "logloss_market_devig": 0.551155,
+      "delta_brier_vs_devig": 0.008003,
+      "delta_logloss_vs_devig": 0.022019,
       "interpretation": "Negative delta_brier_vs_devig OR delta_logloss_vs_devig \u21d2 model beats the de-vigged market on that metric."
     },
     "discrimination": {
-      "auc_model": null,
-      "auc_market_devig": null,
-      "sharpness_stdev_model": 0.0431,
-      "sharpness_dist_model": 0.2025,
-      "sharpness_stdev_market_devig": 0.1115,
-      "sharpness_dist_market_devig": 0.265,
+      "auc_model": 0.552,
+      "auc_market_devig": 0.635,
+      "sharpness_stdev_model": 0.0451,
+      "sharpness_dist_model": 0.2325,
+      "sharpness_stdev_market_devig": 0.057,
+      "sharpness_dist_market_devig": 0.2511,
       "interpretation": "AUC \u2248 0.50 \u21d2 no discrimination; higher = better ordering. Sharpness too high vs market \u21d2 overconfident; too low \u21d2 flat."
     },
     "clv": {
@@ -284,7 +284,7 @@
     },
     "quality_class": {
       "tags": [
-        "INCONCLUSIVE_OR_MIXED"
+        "MIS_CALIBRATED_BUT_DISCRIMINATIVE"
       ],
       "explanations": {
         "WELL_CALIBRATED_AND_BEATS_MARKET": "Modelo bien calibrado y mejor que mercado.",
@@ -297,16 +297,153 @@
   },
   "cohorts": {
     "DOMINANT_FAVORITE_DRAW_VALUE": {
-      "n": 0,
+      "n": 5,
       "won": 0,
-      "examples": [],
-      "hit_rate": null
+      "examples": [
+        {
+          "date": null,
+          "home": null,
+          "away": null,
+          "competition": null,
+          "predicted_prob": 0.24,
+          "market_prob": 0.15851468192640242,
+          "edge_pp": 8.148531807359758,
+          "hit": null,
+          "actual_score": null,
+          "label": "STRONG_VALUE_DRAW",
+          "odd_draw": null,
+          "is_group_stage": false,
+          "tournament_context_score": 0.5
+        },
+        {
+          "date": null,
+          "home": null,
+          "away": null,
+          "competition": null,
+          "predicted_prob": 0.24,
+          "market_prob": 0.12893356643356643,
+          "edge_pp": 11.106643356643357,
+          "hit": null,
+          "actual_score": null,
+          "label": "STRONG_VALUE_DRAW",
+          "odd_draw": null,
+          "is_group_stage": false,
+          "tournament_context_score": 0.5
+        },
+        {
+          "date": null,
+          "home": null,
+          "away": null,
+          "competition": null,
+          "predicted_prob": 0.24,
+          "market_prob": 0.14438991932130082,
+          "edge_pp": 9.561008067869917,
+          "hit": null,
+          "actual_score": null,
+          "label": "STRONG_VALUE_DRAW",
+          "odd_draw": null,
+          "is_group_stage": false,
+          "tournament_context_score": 0.5
+        },
+        {
+          "date": null,
+          "home": null,
+          "away": null,
+          "competition": null,
+          "predicted_prob": 0.24,
+          "market_prob": 0.15605094794235158,
+          "edge_pp": 8.394905205764841,
+          "hit": null,
+          "actual_score": null,
+          "label": "STRONG_VALUE_DRAW",
+          "odd_draw": null,
+          "is_group_stage": false,
+          "tournament_context_score": 0.5
+        },
+        {
+          "date": null,
+          "home": null,
+          "away": null,
+          "competition": null,
+          "predicted_prob": 0.262,
+          "market_prob": 0.17790753369979248,
+          "edge_pp": 8.409246630020753,
+          "hit": null,
+          "actual_score": null,
+          "label": "STRONG_VALUE_DRAW",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.7
+        }
+      ],
+      "hit_rate": 0.0
     },
     "TOURNAMENT_GROUP_STAGE_DRAW_VALUE": {
-      "n": 0,
+      "n": 4,
       "won": 0,
-      "examples": [],
-      "hit_rate": null
+      "examples": [
+        {
+          "date": null,
+          "home": null,
+          "away": null,
+          "competition": null,
+          "predicted_prob": 0.20199999999999999,
+          "market_prob": 0.1468568880962996,
+          "edge_pp": 5.514311190370039,
+          "hit": null,
+          "actual_score": null,
+          "label": "VALUE_DRAW_CANDIDATE",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.7
+        },
+        {
+          "date": null,
+          "home": null,
+          "away": null,
+          "competition": null,
+          "predicted_prob": 0.321,
+          "market_prob": 0.23560029524803383,
+          "edge_pp": 8.539970475196618,
+          "hit": null,
+          "actual_score": null,
+          "label": "STRONG_VALUE_DRAW",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.7
+        },
+        {
+          "date": null,
+          "home": null,
+          "away": null,
+          "competition": null,
+          "predicted_prob": 0.262,
+          "market_prob": 0.20351826792963462,
+          "edge_pp": 5.848173207036539,
+          "hit": null,
+          "actual_score": null,
+          "label": "VALUE_DRAW_CANDIDATE",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.7
+        },
+        {
+          "date": null,
+          "home": null,
+          "away": null,
+          "competition": null,
+          "predicted_prob": 0.262,
+          "market_prob": 0.17790753369979248,
+          "edge_pp": 8.409246630020753,
+          "hit": null,
+          "actual_score": null,
+          "label": "STRONG_VALUE_DRAW",
+          "odd_draw": null,
+          "is_group_stage": true,
+          "tournament_context_score": 0.7
+        }
+      ],
+      "hit_rate": 0.0
     },
     "LOW_GOAL_UNDERDOG_BLOCK": {
       "n": 0,
@@ -315,10 +452,26 @@
       "hit_rate": null
     },
     "TAIL_EDGE_OVERCONFIDENCE_15PP_PLUS": {
-      "n": 0,
+      "n": 1,
       "won": 0,
-      "examples": [],
-      "hit_rate": null
+      "examples": [
+        {
+          "date": null,
+          "home": null,
+          "away": null,
+          "competition": null,
+          "predicted_prob": 0.267,
+          "market_prob": 0.0885853539288934,
+          "edge_pp": 17.841464607110662,
+          "hit": null,
+          "actual_score": null,
+          "label": "STRONG_VALUE_DRAW",
+          "odd_draw": null,
+          "is_group_stage": false,
+          "tournament_context_score": 0.5
+        }
+      ],
+      "hit_rate": 0.0
     }
   },
   "cross_tab": {
@@ -330,15 +483,14 @@
     "dominant_favorite_selecciones": null
   },
   "verdict": {
-    "verdict": "CLOSED_SAME_AS_LIGAS",
+    "verdict": "PATTERN_NOT_YET_PROVEN_INSUFFICIENT_SAMPLE",
     "tags": [
-      "AUC_MODEL_NOT_ABOVE_RANDOM",
       "MODEL_DOES_NOT_BEAT_MARKET_DEVIG",
       "PATTERN_NOT_YET_PROVEN_INSUFFICIENT_SAMPLE",
-      "HYPOTHESIS_REFUTED"
+      "HYPOTHESIS_SUGGESTIVE_BUT_NOT_PROVEN"
     ],
-    "auc_model": null,
-    "delta_brier_vs_devig": 0.027997,
+    "auc_model": 0.552,
+    "delta_brier_vs_devig": 0.008003,
     "dominant_favorite_n": 0,
     "dominant_favorite_roi": null,
     "dominant_favorite_roi_ci_low": null,

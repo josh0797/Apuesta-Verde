@@ -249,14 +249,6 @@ async def fetch_tournament_pit_odds(
             if ev_id is not None:
                 seen_event_ids.add(ev_id)
             commence = ev.get("commence_time")
-            # Skip events whose kickoff is NOT on the requested date —
-            # this dramatically reduces overlap while keeping PIT
-            # discipline (we still query odds at commence-3h, not at
-            # the listing's date).
-            commence_day = commence[:10] if commence else None
-            listing_day = date_iso[:10]
-            if commence_day and commence_day != listing_day:
-                continue
             snap = _t_minus_3h_iso(commence) or date_iso
             odds_res = await fetch_event_odds_pit(
                 sport_key=sport_key, event_id=ev_id,

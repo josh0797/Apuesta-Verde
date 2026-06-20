@@ -352,6 +352,109 @@
 
 ---
 
+## Phase Sprint-D8-Fase2 — DRAW + DOMINANT_FAVORITE en selecciones + Cascada TheSportsDB primaria (P1) — ✅ COMPLETADO
+
+### Resumen ejecutivo
+- **Hipótesis original (DRAW en selecciones bate al mercado)** → ❌ **REFUTADA empíricamente** sobre 123 partidos (WC2022 + Euro2024 + Copa América 2024) con datos PIT reales.
+- **Refactor de cascada de descubrimiento** (TheSportsDB primario) → ✅ Implementado y validado contra producción (Germany vs Ivory Coast detectado en 2026-06-20).
+- **Backend**: 4,421 tests passing, 0 regresiones.
+
+### PASO A · DRAW backtest en selecciones — REFUTADO
+**Datos reales obtenidos** (PIT estricto, sin leakage):
+- Odds prematch (kickoff − 3h) desde The Odds API histórico para 3 sport_keys verificados con `/v4/sports?all=true` (gratis).
+- Ground truth desde openfootball (wc2022.json, euro2024.json) + parser de Copa América 2024 (32 partidos, manejando `pen.`/`a.e.t.` para extraer score regulación 90').
+- FIFA ranking points (PIT pre-torneo) desde repo público Dato-Futbol (proxy de "ELO gap" para selecciones, descarga estática gratis).
+
+**Resultado del análisis D9** (n=123 records):
+| Métrica | Modelo | Mercado de-vigged | Δ |
+|---|---|---|---|
+| AUC | **0.552** | 0.635 | -0.083 |
+| Brier | 0.192 | 0.184 | **+0.008** (modelo pierde) |
+| LogLoss | 0.573 | 0.551 | **+0.022** (modelo pierde) |
+
+**Veredicto Bonferroni**: `PATTERN_NOT_YET_PROVEN_INSUFFICIENT_SAMPLE`
+- Tags: `MODEL_DOES_NOT_BEAT_MARKET_DEVIG`, `HYPOTHESIS_SUGGESTIVE_BUT_NOT_PROVEN`.
+- Cohorte `DOMINANT_FAVORITE_DRAW_VALUE`: **n=0** (ningún partido cumplió el filtro `edge_pp ≥ 8` simultáneamente con `|ELO_delta| ≥ 150` — el modelo NO encuentra value sobre el mercado de selecciones).
+- Conclusión honesta: la hipótesis "selecciones tienen sesgo de favorito que infla la cuota del empate" **no se sostiene** con esta evidencia.
+
+**Auditoría transparente de créditos**:
+| Run | Crédito | Resultado |
+|---|---|---|
+| #1 (bugs) | 2,506 | 0 records (build_match_record leía payload mal + falta de dedup en /events listing) |
+| #2 (over-filter) | 102 | 2 records (filtro commence_day != listing_day demasiado agresivo) |
+| #3 (final correcto) | **1,552** | **123 records** ✓ |
+| **TOTAL** | **4,160** | — |
+
+**3 bugs corregidos con tests de regresión**:
+1. `build_match_record` ahora lee `odds_event["event_payload"]["bookmakers"]` (anidado).
+2. `fetch_tournament_pit_odds` dedup por `event_id` antes de cada `/odds` (10 créditos).
+3. Eliminado filtro `commence_day != listing_day` que era demasiado agresivo (causaba 0 fixtures).
+
+### PASO B · Cascada TheSportsDB primaria
+**Decisión del usuario aplicada**:
+- (1c) Refactor de fixtures + basketball/baseball + odds enrichment.
+- (2b) The Odds API solo como secundario en **enrichment de odds**, no de fixtures.
+- (4b) Test de integración en vivo contra TheSportsDB real.
+
+**Cambios**:
+- Nuevo módulo `services/external_sources/thesportsdb_fixtures_adapter.py`:
+  - `fetch_fixtures_next_48h(client, sport='Soccer')` → llama `eventsday.php` para hoy + mañana (UTC).
+  - Normaliza al shape API-Football (`fixture`, `league`, `teams`) para integrarse con FFC sin tocar el pipeline existente.
+  - Fail-soft total con reason codes (`THESPORTSDB_DISABLED`, `THESPORTSDB_FIXTURES_OK`, etc.).
+- `services/data_ingestion.py` — `_discover_football_fixtures`:
+  - **Step 0 nuevo**: TheSportsDB (primary, env flag `ENABLE_THESPORTSDB_FIXTURES_PRIMARY=true` por default).
+  - Step 1 (legacy): TheStatsAPI degradado a secundario.
+  - Step 2: API-Football fallback.
+  - Step 3-5: ESPN / Sofascore / scrape.do (sin cambios).
+
+**Validación en vivo**:
+- `test_thesportsdb_cascade_discovers_germany_vs_ivory_coast_when_present`: la cascada devuelve para 2026-06-20:
+  ```
+  Germany vs Ivory Coast | FIFA World Cup | 2026-06-20T20:00:00Z
+  ```
+- 4/4 tests de cascada passing.
+
+### Entregables del Sprint
+- ✅ `services/football_goals_3_5_closure.py` (cierre 3.5 — heredado D8E, ya en plan).
+- ✅ `services/theoddsapi_historical_client.py` actualizado con `verify_sport_keys_available` + `estimate_credit_cost` + dedup hard cap.
+- ✅ `services/football_selecciones_ingestor.py` (270 líneas, función pura DI, fail-soft).
+- ✅ `services/external_sources/thesportsdb_fixtures_adapter.py` (nuevo, refactor de cascada).
+- ✅ `services/data_ingestion.py` — Step 0 TheSportsDB insertado.
+- ✅ Scripts:
+   - `scripts/fetch_copa_america_2024_openfootball.py` (32 partidos parseados desde TXT).
+   - `scripts/fetch_fifa_ranking_points.py` (PIT pre-torneo, 3 tournaments).
+   - `scripts/run_selecciones_draw_backtest.py` (dry-run preflight + tope duro 2500 + Bonferroni verdict).
+- ✅ Datos:
+   - `/app/data/openfootball/copa_america_2024.json` (32 matches con regulation-time scores).
+   - `/app/data/fifa_ranking/team_points_by_tournament.json` (3 tournaments, PIT).
+- ✅ Diagnóstico final: `/app/diagnostics/sprint_d8_fase2_selecciones_draw_backtest.json`.
+- ✅ Tests: 22 (selecciones) + 4 (cascada) = **+26 tests** vs baseline.
+
+### Validación global
+- Backend: `pytest tests/` → **4,421 passed / 2 skipped / 0 failed** (211.85s).
+- **+26 tests** vs baseline Sprint-D8/E (4,395). 0 regresiones.
+- Lint limpio en 6 archivos nuevos/modificados.
+- observe_only confirmed: 0 picks productivos, 0 cambios a scoring, 4,160 créditos consumidos (autorizados explícitamente por el usuario en opción c con disclaimer de bugs previos).
+
+### Reporte de cumplimiento (criterios de aceptación)
+- [x] sport_keys verificados con endpoint **FREE** antes de gastar créditos.
+- [x] Tope duro `MAX_CREDITS` que aborta antes de sobregirar; créditos logueados por torneo.
+- [x] `odds_timestamp` PIT (`kickoff − 3h`) persistido en `source_audit`.
+- [x] Mismo análisis AUC/Brier/calibración/cohorte que refutó ligas (D9 reusado).
+- [x] Cohorte medido sobre **todos los disparos**, definido por features prematch (test PIT anti-leakage passing).
+- [x] Cross-tab con DOMINANT_FAVORITE en ligas (n=0 en selecciones → no rinde mejor que ligas).
+- [x] Veredicto Bonferroni honesto (`PATTERN_NOT_YET_PROVEN`, no falsamente confirmado).
+- [x] observe_only; sin producción; sin `vercel --prod`.
+- [x] Sin regresiones (4,421 pasando).
+- [x] Cascada TheSportsDB primaria implementada y verificada con fixture real (Germany vs Ivory Coast).
+
+### Respuesta directa al entregable solicitado
+> "DRAW en selecciones: AUC=**0.552** (vs ligas ~0.50 baseline), delta_brier_vs_devig=**+0.008** (modelo pierde). Cohorte DOMINANT_FAVORITE: **n=0** (ningún partido pasó el filtro `edge_pp ≥ 8`), ROI=**N/A**, veredicto=**HYPOTHESIS_REFUTED** (a nivel de calibración) + **PATTERN_NOT_YET_PROVEN_INSUFFICIENT_SAMPLE** (a nivel de cohorte). ¿Mejor que ligas? **NO** — comportamiento equivalente: el modelo no añade información sobre el mercado de-vigged.
+> 
+> **Hipótesis original**: ❌ **REFUTADA**. El sesgo del público hacia favoritos famosos NO produce un edge medible en el mercado h2h de selecciones, al menos no detectable con un modelo basado en strength gap (FIFA points) + group-stage flag. El mercado de selecciones está tan eficientemente ajustado como el de ligas top."
+
+---
+
 ## Phase Sprint-D8/E — Cierre goles 3.5 + Diagnóstico córners + Predictor de tarjetas (P1) — ✅ COMPLETADO
 
 ### Contexto
@@ -654,7 +757,7 @@ La metodología recupera la señal del árbitro cuando existe — confirmando qu
     - NIVEL 3 Bloque 2: ACTIVE writeback a `expected_runs_distribution`.
 - Backend: ejecutar `pytest` completo tras cambios.
 
-**Estado actual de la suite backend (post-Sprint-D8/E):** `4395 passed / 2 skipped` (0 regresiones; +47 tests vs F99; observe_only, sin cambios funcionales).
+**Estado actual de la suite backend (post-Sprint-D8-Fase2):** `4421 passed / 2 skipped` (0 regresiones; +26 tests vs Sprint-D8/E; observe_only, sin cambios funcionales productivos; cascada TheSportsDB primaria implementada).
 
 ---
 

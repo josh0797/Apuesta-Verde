@@ -25,18 +25,26 @@
   },
   {
     "content": "Ejecutar backtest contra The Odds API real con tope 2500 créditos (si key disponible)",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "Reusar diagnósticos cacheados de ligas para cross-tab DOMINANT_FAVORITE",
-    "status": "pending"
+    "status": "completed"
+  },
+  {
+    "content": "Refactor cascada: TheSportsDB primario en _discover_football_fixtures + adapter nuevo",
+    "status": "completed"
+  },
+  {
+    "content": "Test integración vivo TheSportsDB verifica Germany vs Ivory Coast 2026-06-20",
+    "status": "completed"
   },
   {
     "content": "Validación pytest completo (4395+ tests, 0 regresiones)",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "Actualizar plan.md + reportar veredicto Bonferroni final",
-    "status": "pending"
+    "status": "completed"
   }
 ]

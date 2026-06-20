@@ -251,7 +251,31 @@ async def _discover_football_fixtures(
         audit["shape_audit"][name]       = shape_audit
         return normalised
 
-    # ── 1) TheStatsAPI primary ──
+    # ── 0) TheSportsDB primary (Sprint-D8-Fase2 cascade refactor) ──
+    # Decisión del usuario: TheSportsDB es ahora la fuente PRIMARIA
+    # de descubrimiento de fixtures de fútbol. The Odds API solo se
+    # usa para enrichment de odds, NO de fixtures. API-Sports queda
+    # como último fallback.
+    if _f87_flag_enabled("ENABLE_THESPORTSDB_FIXTURES_PRIMARY"):
+        try:
+            from .external_sources import thesportsdb_fixtures_adapter as _tsdb_fx
+            tsdb_raw, tsdb_codes = await _tsdb_fx.fetch_fixtures_next_48h(client)
+            tsdb_fx = _normalise_and_record("thesportsdb", tsdb_raw)
+            buckets["thesportsdb"] = tsdb_fx
+            audit["sources_called"].append("thesportsdb")
+            audit["reason_codes"]["thesportsdb"] = tsdb_codes
+            if len(tsdb_fx) >= _F87_MIN_VIABLE_COUNT:
+                audit["primary_winner"] = "thesportsdb"
+                audit["total"]          = len(tsdb_fx)
+                for f in tsdb_fx:
+                    f.setdefault("_discovery_source", "thesportsdb")
+                _publish_audit(tsdb_fx)
+                return tsdb_fx, audit
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[F87_discovery] thesportsdb failed: %s", exc)
+            audit["reason_codes"]["thesportsdb"] = ["EXCEPTION"]
+
+    # ── 1) TheStatsAPI (legacy primary, now secondary) ──
     if _f87_flag_enabled("ENABLE_THESTATSAPI_FIXTURES_PRIMARY"):
         try:
             from .external_sources import thestatsapi_fixtures_adapter as _tsfx
