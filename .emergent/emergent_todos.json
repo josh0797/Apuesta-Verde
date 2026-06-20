@@ -1,22 +1,26 @@
 [
   {
-    "content": "Construir scraper de cards para 123 selecciones (batch por fecha + detail por game_id)",
+    "content": "Sub-fase 1.1: Descargar 3 temporadas adicionales",
     "status": "completed"
   },
   {
-    "content": "Ejecutar scraping (~150-250 créditos scrape.do)",
+    "content": "Sub-fase 1.1b: Liga MX excluida (sin HC/AC)",
     "status": "completed"
   },
   {
-    "content": "Construir análisis completo (5 partes) sobre selecciones + EPL 380",
+    "content": "Sub-fase 1.2: Dataset unificado 4338 partidos creado",
     "status": "completed"
   },
   {
-    "content": "Generar reporte markdown final con todos los estadísticos",
+    "content": "Sub-fase 1.3: Estudio cuantitativo ejecutado. Hallazgo: 0/46 features supervivientes, R² conjunto top-10 = 0.0210",
     "status": "completed"
   },
   {
-    "content": "Reportar al usuario con recomendaciones priorizadas",
-    "status": "in_progress"
+    "content": "Sub-fase 1.4: Reporte markdown + stats JSON generados",
+    "status": "completed"
+  },
+  {
+    "content": "Sub-fase 1.5: pytest 4421 passed / 2 skipped / 0 failures — cero regresiones confirmadas",
+    "status": "completed"
   }
 ]
