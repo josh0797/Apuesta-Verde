@@ -1,0 +1,85 @@
+{
+  "decision": "ADOPT_RIDGE_0_5",
+  "baseline": {
+    "label": "A (ridge=0.1)",
+    "n_test": 1446,
+    "\u03bb_h_min": 3.32,
+    "\u03bb_h_mean": 5.37,
+    "\u03bb_h_p95": 7.25,
+    "\u03bb_h_max": 8.95,
+    "\u03bb_a_min": 2.84,
+    "\u03bb_a_mean": 4.4,
+    "\u03bb_a_p95": 6.26,
+    "\u03bb_a_max": 7.98,
+    "saturated_pct": 0.0,
+    "edcd_mean": 0.965,
+    "edcd_p10": -1.464,
+    "edcd_p50": 0.989,
+    "edcd_p90": 3.407,
+    "brier": 0.22346,
+    "log_loss": 0.63835,
+    "auc": 0.68173,
+    "most_hit_rate": 0.61757
+  },
+  "proposed": {
+    "label": "B (ridge=0.5)",
+    "n_test": 1446,
+    "\u03bb_h_min": 3.32,
+    "\u03bb_h_mean": 5.37,
+    "\u03bb_h_p95": 7.25,
+    "\u03bb_h_max": 8.95,
+    "\u03bb_a_min": 2.84,
+    "\u03bb_a_mean": 4.4,
+    "\u03bb_a_p95": 6.26,
+    "\u03bb_a_max": 7.98,
+    "saturated_pct": 0.0,
+    "edcd_mean": 0.965,
+    "edcd_p10": -1.464,
+    "edcd_p50": 0.989,
+    "edcd_p90": 3.407,
+    "brier": 0.22346,
+    "log_loss": 0.63835,
+    "auc": 0.68173,
+    "most_hit_rate": 0.61757
+  },
+  "coefs_a": {
+    "home": {
+      "intercept": 1.0366526506283653,
+      "corners_for_L15": 0.04916443436649179,
+      "corners_against_L15": 0.029094187635733675,
+      "xg_for_L15": -0.07301269391673805,
+      "deep_allowed_L15": -0.5688116335048815,
+      "implied_prob": 0.878489271234497,
+      "xg_deep_interaction": 0.0
+    },
+    "away": {
+      "intercept": 0.835439663821427,
+      "corners_for_L15": 0.013800917312786494,
+      "corners_against_L15": 0.0382824614900096,
+      "xg_for_L15": -0.025110152750041876,
+      "deep_allowed_L15": 1.3291887217772913,
+      "implied_prob": 1.00979554866146,
+      "xg_deep_interaction": 0.0
+    }
+  },
+  "coefs_b": {
+    "home": {
+      "intercept": 1.036644398424977,
+      "corners_for_L15": 0.049162962886010485,
+      "corners_against_L15": 0.02909441258752116,
+      "xg_for_L15": -0.0729947475470343,
+      "deep_allowed_L15": -0.5685810956951186,
+      "implied_prob": 0.8784323647509807,
+      "xg_deep_interaction": 0.0
+    },
+    "away": {
+      "intercept": 0.835420561940524,
+      "corners_for_L15": 0.013801529851856158,
+      "corners_against_L15": 0.038282848481393426,
+      "xg_for_L15": -0.02509321353277922,
+      "deep_allowed_L15": 1.329399426638865,
+      "implied_prob": 1.009723516846287,
+      "xg_deep_interaction": 0.0
+    }
+  }
+}

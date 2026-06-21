@@ -1,18 +1,6 @@
 [
   {
-    "content": "Refactor + cascade + endpoints corners (todos)",
-    "status": "completed"
-  },
-  {
-    "content": "UI: integrar L5/L15 + sparkline en CornerEngineCard",
-    "status": "completed"
-  },
-  {
-    "content": "Tests (aliases compartidos, bootstrap, cascade, fallback, promote)",
-    "status": "completed"
-  },
-  {
-    "content": "Suite pytest + lint completos",
+    "content": "A/B benchmark Skellam (ridge=0.1 vs 0.5): script + ejecución + reporte + decisión",
     "status": "completed"
   }
 ]
