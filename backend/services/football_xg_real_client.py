@@ -640,6 +640,47 @@ async def get_team_xg_history(
             chosen  = src
 
     if not matches:
+        # ── Sprint-D9 fix: fallback al offline seed (dataset histórico). ──
+        # Si todos los sources online fallaron, intentamos servir desde
+        # el seed permanente (4338 matches EPL/LaLiga/SerieA/Bundesliga
+        # 2021-2023 con xG de Understat). Esto evita el "xG no
+        # normalizado para este partido" cuando Scrape.do está rate
+        # limited.
+        try:
+            from .football_xg_offline_seed import get_offline_xg_history
+            offline = await get_offline_xg_history(db, team_name, league=league)
+            if offline and offline.get("matches"):
+                ms_off = offline["matches"]
+                # Persistir en la cache caliente como "underlying_source=offline_seed"
+                cache_doc = {
+                    "team_norm":         team_norm,
+                    "team_name":         offline.get("team_name") or team_name,
+                    "league":            league,
+                    "season":            season,
+                    "matches":           ms_off,
+                    "fetched_at":        datetime.now(timezone.utc),
+                    "underlying_source": "offline_seed",
+                    "tried_sources":     tried + ["offline_seed"],
+                }
+                await _persist_cache(db=db, doc=cache_doc)
+                return {
+                    "available":         len(ms_off) >= min_samples,
+                    "source":            "offline_seed",
+                    "team_name":         offline.get("team_name") or team_name,
+                    "matches":           ms_off,
+                    "reason_code":       (
+                        offline.get("reason_code")
+                        if len(ms_off) >= min_samples
+                        else RC_INSUFFICIENT_SAMPLE
+                    ),
+                    "fetched_at":        _now_iso(),
+                    "from_cache":        False,
+                    "tried_sources":     tried + ["offline_seed"],
+                    "underlying_source": "offline_seed",
+                }
+        except Exception as _exc_off:  # noqa: BLE001
+            log.info("[xg.cascade] offline_seed fallback failed: %s", _exc_off)
+
         return {
             "available":     False,
             "source":        None,

@@ -168,18 +168,95 @@ export const ENGINE_STYLES = {
   'live-momentum':     { icon: 'Zap',     tone: 'cyan',    label_es: 'Momentum en vivo',   label_en: 'Live momentum' },
 };
 
-// Markets the conservative engine treats as PROTECTED (low-fragility, asymmetric edge)
+// Markets the conservative engine treats as PROTECTED (low-fragility, asymmetric edge).
+// Sprint-D9 fix: mercados sport-aware. En MLB no existen córners ni tarjetas;
+// en NBA no hay BTTS ni Doble Oportunidad. Cada deporte tiene su propio set.
+const PROTECTED_MARKETS_BY_SPORT = {
+  football: [
+    '1X2', 'Doble Oportunidad', 'Under 2.5', 'Under 3.5',
+    'Draw No Bet', 'Handicap Asiatico', 'DO 1er Tiempo',
+  ],
+  baseball: [
+    'Moneyline', 'Run Line', 'Runline', 'Under runs', 'Under 8.5', 'Under 9.5',
+    'F5 Moneyline', 'F5 Total',
+  ],
+  basketball: [
+    'Moneyline', 'Spread', 'Under points', 'Under 220.5', 'Under 225.5',
+    '1Q Moneyline', '1H Moneyline',
+  ],
+};
+
+// Markets to AVOID by default in conservative mode (sport-aware).
+const FRAGILE_MARKETS_BY_SPORT = {
+  football: [
+    'BTTS', 'Over 2.5', 'Over 3.5', 'Goleador', 'Resultado exacto',
+    'Corners', 'Tarjetas', 'Handicap -1.5', 'Spread aggressive', 'Total Over',
+  ],
+  baseball: [
+    'Over runs', 'Over 9.5', 'Over 10.5', 'Run Line -1.5', 'Runline -1.5',
+    'Player props', 'Exact score', 'Strikeouts Over',
+  ],
+  basketball: [
+    'Over points', 'Over 225.5', 'Spread -10.5', 'Spread -12.5',
+    'Player props aggressive', 'Exact margin', 'Triple-Double',
+  ],
+};
+
+// Legacy aliases (kept for back-compat with downstream consumers).
 const PROTECTED_MARKETS = [
-  '1X2', 'Doble Oportunidad', 'Under 2.5', 'Under 3.5',
-  'Draw No Bet', 'Handicap Asiatico', 'DO 1er Tiempo',
-  'Moneyline', // NBA/MLB equivalent
+  ...PROTECTED_MARKETS_BY_SPORT.football,
+  'Moneyline',
+];
+const FRAGILE_MARKETS = [
+  ...FRAGILE_MARKETS_BY_SPORT.football,
 ];
 
-// Markets to AVOID by default in conservative mode
-const FRAGILE_MARKETS = [
-  'BTTS', 'Over 2.5', 'Over 3.5', 'Goleador', 'Resultado exacto',
-  'Corners', 'Tarjetas', 'Handicap -1.5', 'Spread aggressive', 'Total Over',
-];
+// Per-sport policy: which avoid-conditions to apply.
+const AVOID_POLICY_BY_SPORT = {
+  football: (m, ctx) => {
+    if (ctx.matchState === 'CHAOTIC_MATCH' && (m.startsWith('Over') || m === 'BTTS')) return true;
+    if (ctx.matchState === 'LOW_URGENCY' && m.startsWith('Over')) return true;
+    if (m.startsWith('Handicap -1.5') || m === 'Resultado exacto' || m === 'Corners' || m === 'Tarjetas') return true;
+    return false;
+  },
+  baseball: (m, ctx) => {
+    if (ctx.matchState === 'CHAOTIC_MATCH' && m.startsWith('Over')) return true;
+    if (m.startsWith('Run Line -1.5') || m.startsWith('Runline -1.5')) return true;
+    if (m === 'Exact score' || m === 'Player props') return true;
+    return false;
+  },
+  basketball: (m, ctx) => {
+    if (ctx.matchState === 'CHAOTIC_MATCH' && m.startsWith('Over')) return true;
+    if (m.startsWith('Spread -10.5') || m.startsWith('Spread -12.5')) return true;
+    if (m === 'Exact margin' || m === 'Triple-Double') return true;
+    return false;
+  },
+};
+
+// Per-sport policy: which protected-markets to highlight.
+const BEST_FOR_POLICY_BY_SPORT = {
+  football: (m, ctx) => {
+    if ((ctx.rec.market || '').toLowerCase().includes(m.toLowerCase())) return true;
+    if (m === 'Under 2.5' && ctx.conf >= 70 && (ctx.matchState === 'CONTROLLED_MATCH' || ctx.matchState === 'LOW_URGENCY')) return true;
+    if (m === 'Doble Oportunidad' && ctx.conf >= 60) return true;
+    if (m === 'Draw No Bet' && ctx.conf >= 65) return true;
+    return false;
+  },
+  baseball: (m, ctx) => {
+    if ((ctx.rec.market || '').toLowerCase().includes(m.toLowerCase())) return true;
+    if (m === 'Moneyline' && ctx.conf >= 65) return true;
+    if ((m === 'Run Line' || m === 'Runline') && ctx.conf >= 70) return true;
+    if (m.startsWith('Under') && ctx.conf >= 65 && (ctx.matchState === 'CONTROLLED_MATCH' || ctx.matchState === 'LOW_URGENCY')) return true;
+    return false;
+  },
+  basketball: (m, ctx) => {
+    if ((ctx.rec.market || '').toLowerCase().includes(m.toLowerCase())) return true;
+    if (m === 'Moneyline' && ctx.conf >= 65) return true;
+    if (m === 'Spread' && ctx.conf >= 68) return true;
+    if (m.startsWith('Under') && ctx.conf >= 65 && (ctx.matchState === 'CONTROLLED_MATCH' || ctx.matchState === 'LOW_URGENCY')) return true;
+    return false;
+  },
+};
 
 /**
  * Build the full Intelligence View for a pick.
@@ -212,11 +289,15 @@ export function deriveIntelligence(pick, sport = 'football') {
 
   // ── Fragility (0–100): how easily does this bet collapse? ────────────────
   // Higher = single-snapshot odds, key absences, fragile market chosen.
+  // Sport-aware: usa la lista de mercados frágiles del deporte correspondiente.
+  const sportKey = (sport || 'football').toLowerCase();
+  const sportFragile = FRAGILE_MARKETS_BY_SPORT[sportKey] || FRAGILE_MARKETS_BY_SPORT.football;
+  const sportProtected = PROTECTED_MARKETS_BY_SPORT[sportKey] || PROTECTED_MARKETS_BY_SPORT.football;
   let fragility = 0;
   if ((key.line_movement || 'desconocido').toLowerCase() === 'desconocido') fragility += 14;
   if ((key.injuries_home ?? 0) >= 3) fragility += 10;
   if ((key.injuries_away ?? 0) >= 3) fragility += 10;
-  if (FRAGILE_MARKETS.some((m) => (rec.market || '').toLowerCase().includes(m.toLowerCase()))) fragility += 18;
+  if (sportFragile.some((m) => (rec.market || '').toLowerCase().includes(m.toLowerCase()))) fragility += 18;
   if (conf < 65) fragility += 12;
   if ((rec.odds_range || '').includes('2.') && conf < 70) fragility += 8;
   fragility = Math.min(100, fragility);
@@ -298,26 +379,17 @@ export function deriveIntelligence(pick, sport = 'football') {
     else matchState = 'CONTROLLED_MATCH';
   }
 
-  // ── Best for / Avoid (use LLM if present, else derive from market policy) ─
+  // ── Best for / Avoid (use LLM if present, else derive from sport-aware policy) ─
   let bestFor = Array.isArray(pick.best_for) ? pick.best_for : null;
   let avoid = Array.isArray(pick.avoid) ? pick.avoid : null;
+  const policyCtx = { rec, conf, matchState };
   if (!bestFor) {
-    bestFor = PROTECTED_MARKETS.filter((m) => {
-      if ((rec.market || '').toLowerCase().includes(m.toLowerCase())) return true;
-      if (m === 'Under 2.5' && conf >= 70 && (matchState === 'CONTROLLED_MATCH' || matchState === 'LOW_URGENCY')) return true;
-      if (m === 'Doble Oportunidad' && conf >= 60) return true;
-      if (m === 'Draw No Bet' && conf >= 65) return true;
-      if (m === 'Moneyline' && sport !== 'football' && conf >= 65) return true;
-      return false;
-    }).slice(0, 4);
+    const bestForPolicy = BEST_FOR_POLICY_BY_SPORT[sportKey] || BEST_FOR_POLICY_BY_SPORT.football;
+    bestFor = sportProtected.filter((m) => bestForPolicy(m, policyCtx)).slice(0, 4);
   }
   if (!avoid) {
-    avoid = FRAGILE_MARKETS.filter((m) => {
-      if (matchState === 'CHAOTIC_MATCH' && (m.startsWith('Over') || m === 'BTTS')) return true;
-      if (matchState === 'LOW_URGENCY' && m.startsWith('Over')) return true;
-      if (m.startsWith('Handicap -1.5') || m === 'Resultado exacto' || m === 'Corners' || m === 'Tarjetas') return true;
-      return false;
-    }).slice(0, 4);
+    const avoidPolicy = AVOID_POLICY_BY_SPORT[sportKey] || AVOID_POLICY_BY_SPORT.football;
+    avoid = sportFragile.filter((m) => avoidPolicy(m, policyCtx)).slice(0, 4);
   }
 
   return {

@@ -1,6 +1,26 @@
 [
   {
-    "content": "Reportar diagnóstico y cambios al usuario",
+    "content": "Fix 1A: cascada MLB/Basketball",
+    "status": "completed"
+  },
+  {
+    "content": "Fix 1B: mercados sport-aware",
+    "status": "completed"
+  },
+  {
+    "content": "Fix 1C: input manual de cuota Moneyball",
+    "status": "completed"
+  },
+  {
+    "content": "Fix 2A: F2_IDENTITY_REQUIRED 365Scores",
+    "status": "completed"
+  },
+  {
+    "content": "Fix 2B: cache persistente de historial xG por equipo (offline seed)",
+    "status": "completed"
+  },
+  {
+    "content": "Tests + pytest completo + lint",
     "status": "completed"
   }
 ]

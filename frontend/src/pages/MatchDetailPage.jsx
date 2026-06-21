@@ -308,6 +308,13 @@ export default function MatchDetailPage() {
                   moneyball={llmPick._moneyball}
                   marketEdge={llmPick._market_edge}
                   lang={lang}
+                  matchId={llmPick.match_id || match?.match_id}
+                  marketKey={
+                    llmPick._market_edge?.bet_type
+                      || llmPick.recommendation?.market
+                      || 'unknown'
+                  }
+                  sport={sport}
                 />
               )}
 

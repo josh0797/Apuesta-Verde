@@ -262,24 +262,28 @@ export function Top365TrendsPanel({
     [item],
   );
 
-  const canFetch = Boolean(internalId && homeName && awayName && commenceIso);
+  // Sprint-D9 fix: solo el `internal_match_id` es estrictamente requerido.
+  // Los demás campos (home/away/commence_time) ahora los completa el
+  // backend desde Mongo cuando faltan. Antes el frontend bloqueaba con
+  // F2_IDENTITY_REQUIRED espurio para picks de shape parcial.
+  const canFetch = Boolean(internalId);
 
   const doFetch = useCallback(async (forceRefresh = false) => {
     if (!canFetch) {
       setState({ loading: false, fetched: true, data: null,
                   error: { reason_code: 'F2_IDENTITY_REQUIRED',
                             message: lang === 'en'
-                              ? 'Insufficient canonical match data to query 365Scores.'
-                              : 'Datos canónicos insuficientes para consultar 365Scores.' } });
+                              ? 'Match internal id is missing — cannot query 365Scores.'
+                              : 'Falta el id interno del partido — no se puede consultar 365Scores.' } });
       return;
     }
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
       const res = await api.post('/football/365scores/top-trends', {
         internal_match_id: String(internalId),
-        home_team:         homeName,
-        away_team:         awayName,
-        commence_time:     commenceIso,
+        home_team:         homeName || undefined,
+        away_team:         awayName || undefined,
+        commence_time:     commenceIso || undefined,
         competition:       item?.league || item?.competition || null,
         competition_id:    item?.competition_id_365scores || null,
         match_url:         matchUrl,

@@ -657,11 +657,17 @@ class TopTrendsRequest(BaseModel):
     """Canonical match context to resolve 365Scores identity (F.1) and
     fetch Top Trends (F.2). Either ``game_id_365scores`` is provided
     (fast path) or the rest of the fields are used to resolve identity.
+
+    Sprint-D9 fix: home_team/away_team/commence_time son ahora opcionales.
+    Si solo se pasa ``internal_match_id``, el backend completa los datos
+    canónicos consultando ``db.matches``. Esto evita el F2_IDENTITY_REQUIRED
+    espurio cuando el frontend tiene picks con shape incompleto (e.g.
+    discarded_market que omite home_team/commence_time).
     """
     internal_match_id: str
-    home_team:         str
-    away_team:         str
-    commence_time:     str    # ISO-8601
+    home_team:         Optional[str] = None
+    away_team:         Optional[str] = None
+    commence_time:     Optional[str] = None    # ISO-8601
     competition:       Optional[str] = None
     competition_id:    Optional[int] = None
     match_url:         Optional[str] = None  # Known 365Scores URL (optional)
@@ -704,11 +710,89 @@ async def football_365scores_top_trends_endpoint(
                 "trends": [], "trends_count": 0, "top_trends_count": 0,
                 "_error": str(exc)}
 
+    # ── Sprint-D9 fix: complete missing canonical inputs from Mongo. ──
+    # Si el frontend solo pasó ``internal_match_id``, el backend completa
+    # ``home_team`` / ``away_team`` / ``commence_time`` consultando
+    # ``db.matches``. Evita el F2_IDENTITY_REQUIRED espurio cuando picks
+    # de shape parcial (discarded, watchlist, …) llegan al endpoint.
+    p_home    = payload.home_team
+    p_away    = payload.away_team
+    p_commence = payload.commence_time
+    p_comp    = payload.competition
+    p_comp_id = payload.competition_id
+    p_match_url = payload.match_url
+
+    needs_completion = not (p_home and p_away and p_commence)
+    if needs_completion and payload.internal_match_id:
+        try:
+            mid = payload.internal_match_id
+            candidates: list = [mid]
+            try:
+                candidates.append(int(mid))
+            except (TypeError, ValueError):
+                pass
+            match_doc = await db.matches.find_one(
+                {"match_id": {"$in": candidates}},
+                projection={
+                    "home_team": 1, "away_team": 1, "kickoff_iso": 1,
+                    "commence_time": 1, "league": 1, "league_id": 1,
+                    "external_urls": 1, "external_ids": 1,
+                },
+            )
+            if match_doc:
+                def _name(o):
+                    if isinstance(o, dict):
+                        return o.get("name") or o.get("team_name") or o.get("displayName")
+                    return o if isinstance(o, str) else None
+                p_home = p_home or _name(match_doc.get("home_team"))
+                p_away = p_away or _name(match_doc.get("away_team"))
+                p_commence = (p_commence
+                               or match_doc.get("commence_time")
+                               or match_doc.get("kickoff_iso"))
+                p_comp = p_comp or match_doc.get("league")
+                p_comp_id = p_comp_id or match_doc.get("league_id")
+                if not p_match_url:
+                    eu = match_doc.get("external_urls") or {}
+                    p_match_url = eu.get("365scores") or eu.get("score365")
+                log.info(
+                    "[365scores_top_trends] completed canonical inputs from db.matches "
+                    "for internal_match_id=%s (home=%s, away=%s, commence=%s)",
+                    payload.internal_match_id, bool(p_home), bool(p_away), bool(p_commence),
+                )
+            else:
+                log.info(
+                    "[365scores_top_trends] db.matches lookup empty for internal_match_id=%s",
+                    payload.internal_match_id,
+                )
+        except Exception as _exc_lookup:  # noqa: BLE001
+            log.warning(
+                "[365scores_top_trends] db.matches completion failed: %s",
+                _exc_lookup,
+            )
+
+    # Si aún faltan datos canónicos, devolver F2_IDENTITY_REQUIRED con detalle.
+    missing: list[str] = []
+    if not p_home:     missing.append("home_team")
+    if not p_away:     missing.append("away_team")
+    if not p_commence: missing.append("commence_time")
+    if missing:
+        return {
+            "available": False,
+            "reason_code": "F2_IDENTITY_REQUIRED",
+            "missing_fields": missing,
+            "internal_match_id": payload.internal_match_id,
+            "message_user": (
+                "Datos canónicos insuficientes para consultar 365Scores. "
+                f"Falta(n): {', '.join(missing)}."
+            ),
+            "trends": [], "trends_count": 0, "top_trends_count": 0,
+        }
+
     try:
         commence_dt = datetime.fromisoformat(
-            payload.commence_time.replace("Z", "+00:00"),
+            p_commence.replace("Z", "+00:00"),
         )
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, AttributeError):
         return {"available": False,
                 "reason_code": "INVALID_COMMENCE_TIME",
                 "message_user": ("commence_time must be an ISO-8601 "
@@ -720,12 +804,12 @@ async def football_365scores_top_trends_endpoint(
     try:
         result = await _tt.fetch_top_trends_for_match(
             internal_match_id=payload.internal_match_id,
-            home_team=payload.home_team,
-            away_team=payload.away_team,
+            home_team=p_home,
+            away_team=p_away,
             commence_time=commence_dt,
-            competition=payload.competition,
-            competition_id=payload.competition_id,
-            match_url=payload.match_url,
+            competition=p_comp,
+            competition_id=p_comp_id,
+            match_url=p_match_url,
             language=payload.language,
             db=db,
             games_fetcher=_lf.fetch_games_by_date,
@@ -945,6 +1029,83 @@ async def football_manual_odds_preview_endpoint(
     )
     data = payload.model_dump()
     return reprice_football_total_with_manual_odds(**data)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Sprint D9 — Generic cross-sport Manual Odds Override.
+#
+# POST /api/picks/manual-odds
+#   Persiste la cuota ingresada por el usuario cuando el book no tiene
+#   precio disponible. Calcula derivados (implied, edge si se pasa la
+#   estimación de la app). Funciona para football/baseball/basketball.
+#
+# GET /api/picks/manual-odds/{match_id}[?market_key=...]
+#   Devuelve la cuota manual más reciente persistida para ese partido.
+#
+# Auth: opcional. Si hay sesión, se asocia al user_id (auditoría).
+# ──────────────────────────────────────────────────────────────────
+@app.post("/api/picks/manual-odds")
+async def picks_manual_odds_post(
+    payload: dict,
+) -> dict:
+    """Persiste una cuota manual cross-sport y devuelve los derivados."""
+    from services.manual_odds_service import ManualOddsRequest, persist_manual_odds
+    try:
+        req = ManualOddsRequest(**(payload or {}))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Invalid payload: {exc}") from exc
+    # user_id es opcional (no se requiere auth para este flujo).
+    # Si en el futuro se quiere obligar auth, envolver con Depends(get_current_user).
+    user_id = None
+    doc = await persist_manual_odds(db, req, user_id=user_id)
+    return {"ok": True, "manual_odds": doc}
+
+
+@app.get("/api/picks/manual-odds/{match_id}")
+async def picks_manual_odds_get(
+    match_id: str,
+    market_key: Optional[str] = None,
+) -> dict:
+    """Devuelve la cuota manual más reciente para (match_id, market_key)."""
+    from services.manual_odds_service import get_latest_manual_odds
+    doc = await get_latest_manual_odds(db, match_id, market_key=market_key)
+    if doc is None:
+        return {"ok": True, "manual_odds": None}
+    return {"ok": True, "manual_odds": doc}
+
+
+# ──────────────────────────────────────────────────────────────────
+# Sprint D9 — xG Offline Seed (historical dataset bootstrap).
+#
+# POST /api/football/xg/seed-from-historical-dataset
+#   Carga los 4338 partidos EPL/LaLiga/SerieA/Bundesliga 2021-2023
+#   del dataset enriquecido (con xG de Understat) en la colección
+#   football_team_xg_offline_seed. Idempotente: upsert por
+#   (team_norm, league). Sirve como fallback permanente cuando los
+#   sources online de xG (Understat/FBref/footystats/TheStatsAPI)
+#   están rate-limited o caídos.
+# ──────────────────────────────────────────────────────────────────
+@app.post("/api/football/xg/seed-from-historical-dataset")
+async def xg_seed_from_historical_dataset() -> dict:
+    """Bootstrap idempotente del cache xG offline."""
+    from services.football_xg_offline_seed import (
+        build_seed_from_dataset, ensure_offline_indexes, persist_seed,
+    )
+    docs = build_seed_from_dataset()
+    if not docs:
+        return {
+            "ok": False, "reason": "DATASET_NOT_FOUND_OR_EMPTY",
+            "message": "Dataset /app/data/corners_history/all_leagues_enriched_dataset.json no encontrado o vacío.",
+        }
+    await ensure_offline_indexes(db)
+    result = await persist_seed(db, docs)
+    return {
+        "ok": True,
+        "built_docs":  len(docs),
+        "leagues_seen": sorted({d["league"] for d in docs}),
+        "teams_total":  len({d["team_norm"] for d in docs}),
+        **result,
+    }
 
 
 

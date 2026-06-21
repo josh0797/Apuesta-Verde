@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -71,6 +71,43 @@ def _is_live_status(sport: str, short: str | None) -> bool:
             return True
         return False
     return False
+
+
+def _is_upcoming_status(sport: str, short: Optional[str]) -> bool:
+    """¿El status corresponde a un partido NO empezado? (NS, TBD, SCHED, …).
+
+    Defensa-en-profundidad: API-Sports a veces devuelve partidos con status
+    FT, AOT, IN5, Q3, etc. en el endpoint ``fixtures_next_48h`` cuando el
+    proveedor está sin créditos o tiene cache obsoleto (caso "Ecuador vs
+    Curaçao FT como upcoming"). Este filtro garantiza que el pipeline
+    multi-sport solo ingese partidos genuinamente próximos.
+    """
+    if short is None:
+        # ``None`` típicamente significa "todavía no programado" → tratamos
+        # como upcoming. Si el upstream nos manda payloads vacíos, el
+        # enrichment posterior los descartará por falta de datos.
+        return True
+    s = (short or "").strip().upper()
+    return s in {"NS", "TBD", "SCHED", "POSTPONED?"}  # POSTPONED se trata aparte
+
+
+def ingest_audit_record(sport: str) -> dict:
+    """Audit record for the multi-sport ingestion path.
+
+    Reset by `ingest_upcoming_multi` and read by debug endpoints.
+    """
+    return {
+        "sport":               sport,
+        "raw_count":           0,
+        "filtered_not_upcoming": 0,
+        "kept_after_filter":   0,
+        "sample_dropped":      [],
+        "ts":                  _now_iso(),
+    }
+
+
+# Module-level last-audit dict (one entry per sport). Read-only consumers.
+LAST_MULTISPORT_INGEST_AUDIT: dict[str, dict] = {}
 
 
 def normalize_odds_multi(sport: str, odds_response: list[dict]) -> dict:
@@ -290,13 +327,44 @@ async def enrich_multi(sport: str, client: httpx.AsyncClient, db, fx_raw: dict, 
 
 
 async def ingest_upcoming_multi(sport: str, client: httpx.AsyncClient, db, max_total: int = 6) -> list[dict]:
+    audit = ingest_audit_record(sport)
     try:
         upcoming = await aps.fixtures_next_48h(sport, client)
     except Exception as exc:
         log.error("%s fixtures failed: %s", sport, exc)
+        LAST_MULTISPORT_INGEST_AUDIT[sport] = audit
         return []
-    top = [f for f in upcoming if ((f.get("league") or {}).get("id")) in aps.top_leagues(sport)]
-    others = [f for f in upcoming if ((f.get("league") or {}).get("id")) not in aps.top_leagues(sport)]
+    audit["raw_count"] = len(upcoming or [])
+
+    # Sprint-D9 — Defensa-en-profundidad. API-Sports devuelve partidos
+    # con status FT / IN5 / Q3 en `fixtures_next_48h` cuando el cache
+    # del proveedor está obsoleto. Descartamos todo lo que NO sea NS/TBD.
+    truly_upcoming: list[dict] = []
+    for fx in (upcoming or []):
+        st = _extract_status(sport, fx)
+        short = (st.get("short") if isinstance(st, dict) else None)
+        if _is_upcoming_status(sport, short):
+            truly_upcoming.append(fx)
+        else:
+            audit["filtered_not_upcoming"] += 1
+            if len(audit["sample_dropped"]) < 5:
+                home, away = _extract_teams(sport, fx)
+                audit["sample_dropped"].append({
+                    "home":   (home or {}).get("name"),
+                    "away":   (away or {}).get("name"),
+                    "status": short,
+                })
+    audit["kept_after_filter"] = len(truly_upcoming)
+    if audit["filtered_not_upcoming"] > 0:
+        log.info(
+            "[ingest_upcoming_multi:%s] filtered %d non-upcoming fixtures "
+            "(status not in NS/TBD) — sample=%s",
+            sport, audit["filtered_not_upcoming"], audit["sample_dropped"],
+        )
+    LAST_MULTISPORT_INGEST_AUDIT[sport] = audit
+
+    top = [f for f in truly_upcoming if ((f.get("league") or {}).get("id")) in aps.top_leagues(sport)]
+    others = [f for f in truly_upcoming if ((f.get("league") or {}).get("id")) not in aps.top_leagues(sport)]
     top.sort(key=lambda f: f.get("timestamp") or (f.get("fixture") or {}).get("timestamp") or 0)
     others.sort(key=lambda f: f.get("timestamp") or (f.get("fixture") or {}).get("timestamp") or 0)
     selected = (top + others)[:max_total]

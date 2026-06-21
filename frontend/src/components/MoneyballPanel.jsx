@@ -1,7 +1,11 @@
+import { useState, useMemo } from 'react';
 import {
   Trophy, AlertTriangle, ShieldAlert, ShieldCheck, Info,
   TrendingUp, TrendingDown, Activity, Megaphone, Search, Hourglass, Flame,
+  Calculator, Loader2, Check,
 } from 'lucide-react';
+import { api } from '@/lib/api';
+import { toast } from 'sonner';
 
 /**
  * MoneyballPanel — Universal value-bet analyzer panel.
@@ -38,7 +42,29 @@ const TONE_CLASSES = {
   rose:    'border-red-500/40 bg-red-500/5 text-red-200',
 };
 
-export function MoneyballPanel({ moneyball, marketEdge, lang = 'es' }) {
+export function MoneyballPanel({
+  moneyball,
+  marketEdge,
+  lang = 'es',
+  matchId = null,
+  marketKey = null,
+  sport = 'football',
+}) {
+  // Hooks (must run on every render — NEVER conditional / after early return).
+  const [manualOdds, setManualOdds] = useState('');
+  const [savedManual, setSavedManual] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Live preview of derived values when the user is typing odds.
+  const liveDerived = useMemo(() => {
+    const od = parseFloat(manualOdds);
+    if (!od || od <= 1.01) return null;
+    const implied = 1 / od;
+    const est = marketEdge?.estimated_probability;
+    const edge = est != null ? est - implied : null;
+    return { implied_probability: implied, edge, decimal_odds: od };
+  }, [manualOdds, marketEdge?.estimated_probability]);
+
   if (!moneyball || !marketEdge) return null;
 
   const cls = moneyball.classification || 'NO_BET_VALUE';
@@ -49,6 +75,66 @@ export function MoneyballPanel({ moneyball, marketEdge, lang = 'es' }) {
   const fmt = (v) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
   const sign = (v) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`);
   const num = (v, d = 2) => (v == null ? '—' : Number(v).toFixed(d));
+
+  // ── Manual-odds derived values (cuando el book no tiene precio) ──
+  const hasBookOdds = marketEdge.implied_probability != null;
+  const showManualInput = !hasBookOdds && marketEdge.estimated_probability != null && Boolean(matchId);
+
+  // Vista efectiva: precedencia book > manual guardada > en vivo > nada.
+  const effective = hasBookOdds
+    ? {
+        implied_probability: marketEdge.implied_probability,
+        edge: marketEdge.edge,
+        source: 'book',
+      }
+    : savedManual
+      ? {
+          implied_probability: savedManual.implied_prob,
+          edge: savedManual.edge,
+          decimal_odds: savedManual.decimal_odds,
+          source: 'manual_saved',
+        }
+      : liveDerived
+        ? { ...liveDerived, source: 'manual_live' }
+        : null;
+
+  const handleManualSubmit = async (e) => {
+    e?.preventDefault?.();
+    const od = parseFloat(manualOdds);
+    if (!od || od <= 1.01) {
+      toast.error(lang === 'en' ? 'Enter a decimal odds value > 1.01' : 'Ingresa una cuota decimal > 1.01');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const { data } = await api.post('/api/picks/manual-odds', {
+        match_id: String(matchId),
+        sport,
+        market_key: marketKey || 'unknown',
+        decimal_odds: od,
+        estimated_prob: marketEdge.estimated_probability,
+        lang,
+      });
+      if (data?.manual_odds) {
+        setSavedManual(data.manual_odds);
+        toast.success(
+          lang === 'en'
+            ? `Manual odds saved: ${od.toFixed(2)} (edge ${((data.manual_odds.edge || 0) * 100).toFixed(1)}%)`
+            : `Cuota guardada: ${od.toFixed(2)} (edge ${((data.manual_odds.edge || 0) * 100).toFixed(1)}%)`,
+        );
+      } else {
+        toast.error(lang === 'en' ? 'Could not save odds' : 'No se pudo guardar la cuota');
+      }
+    } catch (err) {
+      toast.error(
+        lang === 'en'
+          ? `Error: ${err?.response?.data?.detail || err.message}`
+          : `Error: ${err?.response?.data?.detail || err.message}`,
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <section
@@ -82,7 +168,14 @@ export function MoneyballPanel({ moneyball, marketEdge, lang = 'es' }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="moneyball-edge-row">
         <Stat
           label={lang === 'en' ? 'Implied (book)' : 'Implícita (book)'}
-          value={fmt(marketEdge.implied_probability)}
+          value={fmt(effective?.implied_probability ?? marketEdge.implied_probability)}
+          hint={
+            effective?.source === 'manual_saved'
+              ? (lang === 'en' ? `manual ${effective.decimal_odds?.toFixed?.(2)}` : `manual ${effective.decimal_odds?.toFixed?.(2)}`)
+              : effective?.source === 'manual_live'
+                ? (lang === 'en' ? 'manual (preview)' : 'manual (preview)')
+                : null
+          }
           icon={TrendingDown}
           testId="mb-implied"
         />
@@ -95,8 +188,8 @@ export function MoneyballPanel({ moneyball, marketEdge, lang = 'es' }) {
         />
         <Stat
           label="Edge"
-          value={sign(marketEdge.edge)}
-          accent={marketEdge.edge != null && marketEdge.edge >= 0 ? 'emerald' : 'red'}
+          value={sign(effective?.edge ?? marketEdge.edge)}
+          accent={(effective?.edge ?? marketEdge.edge) != null && (effective?.edge ?? marketEdge.edge) >= 0 ? 'emerald' : 'red'}
           testId="mb-edge"
         />
         <Stat
@@ -107,6 +200,72 @@ export function MoneyballPanel({ moneyball, marketEdge, lang = 'es' }) {
         />
       </div>
 
+      {/* Manual-odds input (visible solo cuando no hay precio del book) */}
+      {showManualInput && (
+        <div
+          className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-2"
+          data-testid="moneyball-manual-odds-block"
+        >
+          <div className="flex items-center gap-2 text-amber-200 text-xs uppercase tracking-wide font-semibold">
+            <Calculator className="h-3.5 w-3.5" />
+            {lang === 'en'
+              ? 'Activate Moneyball with your bookmaker odds'
+              : 'Activa Moneyball con la cuota de tu casa'}
+          </div>
+          <p className="text-[11px] opacity-80 leading-relaxed">
+            {lang === 'en'
+              ? 'The book did not return a price for this market. Paste the decimal odds you see at your bookmaker to compute edge vs. our estimate.'
+              : 'El book no devolvió precio para este mercado. Pega tu cuota decimal del bookie para calcular el edge contra nuestra estimación.'}
+          </p>
+          <form
+            onSubmit={handleManualSubmit}
+            className="flex flex-col sm:flex-row gap-2 items-stretch"
+            data-testid="moneyball-manual-odds-form"
+          >
+            <input
+              type="number"
+              step="0.01"
+              min="1.02"
+              max="1000"
+              inputMode="decimal"
+              placeholder={lang === 'en' ? 'Decimal odds (e.g. 2.15)' : 'Cuota decimal (ej. 2.15)'}
+              value={manualOdds}
+              onChange={(ev) => setManualOdds(ev.target.value)}
+              disabled={submitting}
+              className="flex-1 px-3 py-2 rounded-md bg-black/30 border border-amber-500/30 text-sm font-mono-tabular text-amber-100 placeholder:text-amber-200/40 focus:outline-none focus:ring-1 focus:ring-amber-400 disabled:opacity-50"
+              data-testid="moneyball-manual-odds-input"
+            />
+            <button
+              type="submit"
+              disabled={submitting || !parseFloat(manualOdds) || parseFloat(manualOdds) <= 1.01}
+              className="px-3 py-2 rounded-md bg-amber-500/20 hover:bg-amber-500/30 active:bg-amber-500/40 border border-amber-500/40 text-amber-100 text-xs font-semibold uppercase tracking-wide inline-flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              data-testid="moneyball-manual-odds-submit"
+            >
+              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : savedManual ? <Check className="h-3.5 w-3.5" />
+                : <Calculator className="h-3.5 w-3.5" />}
+              {submitting
+                ? (lang === 'en' ? 'Saving…' : 'Guardando…')
+                : savedManual
+                  ? (lang === 'en' ? 'Saved' : 'Guardada')
+                  : (lang === 'en' ? 'Activate' : 'Activar')}
+            </button>
+          </form>
+          {liveDerived && !savedManual && (
+            <div
+              className="text-[11px] font-mono-tabular text-amber-200 flex flex-wrap gap-3"
+              data-testid="moneyball-manual-odds-preview"
+            >
+              <span>{lang === 'en' ? 'Implied' : 'Implícita'}: {(liveDerived.implied_probability * 100).toFixed(1)}%</span>
+              {liveDerived.edge != null && (
+                <span className={liveDerived.edge >= 0 ? 'text-emerald-300' : 'text-red-300'}>
+                  Edge: {liveDerived.edge >= 0 ? '+' : ''}{(liveDerived.edge * 100).toFixed(1)}%
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {/* EV / ROI row — only when we have valid numbers */}
       {moneyball.expected_value != null && (
         <div className="grid grid-cols-3 gap-3" data-testid="moneyball-ev-row">
