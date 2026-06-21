@@ -17,8 +17,10 @@ operando normalmente.
 """
 from __future__ import annotations
 
+import json as _json
 import logging
 import os
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter
@@ -36,6 +38,49 @@ from services.football.corners import (
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/football/corner-engine", tags=["corner-engine"])
+
+
+# Load calibrated coefficients at module import (one-shot, no per-request cost).
+# Fallback to model defaults if the JSON is missing or invalid.
+_CALIB_PATH = (Path(__file__).resolve().parents[1]
+                / "services" / "football" / "corners"
+                / "calibrated_defaults.json")
+_CALIBRATED: dict[str, Any] = {}
+try:
+    if _CALIB_PATH.exists():
+        _CALIBRATED = _json.loads(_CALIB_PATH.read_text(encoding="utf-8"))
+        log.info("[corner-engine] loaded calibrated defaults from %s", _CALIB_PATH)
+except Exception as _exc:  # noqa: BLE001
+    log.warning("[corner-engine] could not load calibrated defaults: %s", _exc)
+    _CALIBRATED = {}
+
+
+def _calib_linear_coefs() -> Optional[dict[str, float]]:
+    v = _CALIBRATED.get("linear_coefs")
+    return v if isinstance(v, dict) and v else None
+
+
+def _calib_sigmoid() -> tuple[Optional[float], Optional[float]]:
+    s = _CALIBRATED.get("sigmoid") or {}
+    return s.get("a"), s.get("b")
+
+
+def _calib_tie_buckets() -> Optional[list]:
+    tb = _CALIBRATED.get("tie_buckets")
+    if not isinstance(tb, list) or not tb:
+        return None
+    # Coerce tuples (JSON serializes them as lists)
+    return [(float(x[0]), float(x[1])) for x in tb]
+
+
+def _calib_skellam_home() -> Optional[dict[str, float]]:
+    v = _CALIBRATED.get("skellam_coefs_home")
+    return v if isinstance(v, dict) and v else None
+
+
+def _calib_skellam_away() -> Optional[dict[str, float]]:
+    v = _CALIBRATED.get("skellam_coefs_away")
+    return v if isinstance(v, dict) and v else None
 
 
 def _flag(name: str, default: bool = False) -> bool:
@@ -86,6 +131,9 @@ class CornerEngineContext(BaseModel):
     asian_book_odds:           Optional[dict[str, float]] = None
     # Model selector
     use_skellam:               bool = False
+    use_ensemble:              bool = False  # Ensemble lineal + Skellam
+    include_monte_carlo:       bool = False  # Capa final con simulación
+    monte_carlo_n_sims:        int  = 10000
 
 
 class CornerEnginePredictRequest(BaseModel):
@@ -100,6 +148,7 @@ class CornerEnginePredictResponse(BaseModel):
     most_corners: Optional[dict[str, Any]] = None
     asian_corners: Optional[list[dict[str, Any]]] = None
     expected_corner_diff: Optional[float] = None
+    monte_carlo: Optional[dict[str, Any]] = None
     debug: Optional[dict[str, Any]] = None
 
 
@@ -128,19 +177,73 @@ async def predict_corner_engine(req: CornerEnginePredictRequest):
         )
 
     ctx = req.context.model_dump()
-    use_skellam = bool(ctx.pop("use_skellam", False))
+    use_skellam       = bool(ctx.pop("use_skellam", False))
+    use_ensemble      = bool(ctx.pop("use_ensemble", False))
+    include_mc        = bool(ctx.pop("include_monte_carlo", False))
+    mc_n_sims         = int(ctx.pop("monte_carlo_n_sims", 10000))
     asian_book_odds = ctx.pop("asian_book_odds", None) or {}
 
     try:
         # ---- Most Corners ----
         most = None
         edcd = None
-        model_name = "skellam" if use_skellam else "linear_sigmoid"
+        model_name = "linear_sigmoid"
+        monte_carlo_result = None
+        # Lambdas (necesarias para Monte Carlo, viene del Skellam)
+        lam_h, lam_a = None, None
 
-        if use_skellam:
-            sk = predict_skellam_corner_diff(ctx)
+        if use_ensemble:
+            from services.football.corners import predict_ensemble_most_corners
+            from services.football.corners.corner_diff_model import DEFAULT_COEFFICIENTS
+            from services.football.corners.corner_most_model import (
+                DEFAULT_SIGMOID_A, DEFAULT_SIGMOID_B, DEFAULT_TIE_BUCKETS,
+            )
+            from services.football.corners.skellam_corner_model import (
+                DEFAULT_LAMBDA_COEFS_HOME, DEFAULT_LAMBDA_COEFS_AWAY,
+            )
+            # Prefer calibrated coefs from disk; fall back to module defaults
+            lin_coefs   = _calib_linear_coefs() or DEFAULT_COEFFICIENTS
+            sig_a, sig_b = _calib_sigmoid()
+            sig_a = sig_a if sig_a is not None else DEFAULT_SIGMOID_A
+            sig_b = sig_b if sig_b is not None else DEFAULT_SIGMOID_B
+            tie_b = _calib_tie_buckets() or DEFAULT_TIE_BUCKETS
+            sk_h  = _calib_skellam_home() or DEFAULT_LAMBDA_COEFS_HOME
+            sk_a  = _calib_skellam_away() or DEFAULT_LAMBDA_COEFS_AWAY
+
+            em = predict_ensemble_most_corners(
+                ctx,
+                ensemble_weight=0.5,
+                linear_coefs=lin_coefs,
+                sigmoid_a=sig_a, sigmoid_b=sig_b,
+                tie_buckets=tie_b,
+                skellam_coefs_h=sk_h, skellam_coefs_a=sk_a,
+            )
+            model_name = "ensemble_linear_skellam"
+            edcd = em["expected_corner_diff"]
+            lam_h, lam_a = em.get("lambda_h"), em.get("lambda_a")
+            most = {
+                "home_most_corners_prob": em["home_most_corners_prob"],
+                "away_most_corners_prob": em["away_most_corners_prob"],
+                "tie_corners_prob":       em["tie_corners_prob"],
+                "recommended_side":       em["recommended_side"],
+                "edge_score":             _edge_score_from_probs(em),
+                "confidence":             _skellam_confidence(ctx),
+                "expected_corner_diff":   em["expected_corner_diff"],
+                "reason_codes":           em["reason_codes"],
+                "drivers":                em["components"],
+                "debug": {
+                    "model":           "ensemble",
+                    "ensemble_weight": em["ensemble_weight"],
+                    "using_calibrated": bool(_calib_linear_coefs()),
+                },
+            }
+        elif use_skellam:
+            sk_h = _calib_skellam_home()
+            sk_a = _calib_skellam_away()
+            sk = predict_skellam_corner_diff(ctx, coefs_home=sk_h, coefs_away=sk_a)
             sk_most = skellam_most_corners(sk)
             recommended_side = _pick_skellam_side(sk_most)
+            lam_h, lam_a = sk["lambda_h"], sk["lambda_a"]
             most = {
                 "home_most_corners_prob": sk_most["home_most_corners_prob"],
                 "away_most_corners_prob": sk_most["away_most_corners_prob"],
@@ -157,14 +260,36 @@ async def predict_corner_engine(req: CornerEnginePredictRequest):
                     "lambda_a": sk["lambda_a"],
                 },
                 "debug": {
-                    "model":                "skellam",
+                    "model":                  "skellam",
                     "expected_total_corners": sk["expected_total_corners"],
+                    "using_calibrated":       bool(sk_h),
                 },
             }
+            model_name = "skellam"
             edcd = sk_most["expected_corner_diff"]
         else:
-            most = predict_most_corners(ctx)
+            # Linear model — prefer calibrated coefs / sigmoid / tie buckets
+            lin_coefs = _calib_linear_coefs()
+            sig_a, sig_b = _calib_sigmoid()
+            tie_b = _calib_tie_buckets()
+            from services.football.corners.corner_most_model import (
+                DEFAULT_SIGMOID_A, DEFAULT_SIGMOID_B, DEFAULT_TIE_BUCKETS,
+            )
+            most = predict_most_corners(
+                ctx,
+                sigmoid_a=sig_a if sig_a is not None else DEFAULT_SIGMOID_A,
+                sigmoid_b=sig_b if sig_b is not None else DEFAULT_SIGMOID_B,
+                tie_buckets=tie_b or DEFAULT_TIE_BUCKETS,
+                diff_coefficients=lin_coefs,
+            )
             edcd = most["expected_corner_diff"]
+            if "debug" in most and isinstance(most["debug"], dict):
+                most["debug"]["using_calibrated"] = bool(lin_coefs)
+            if include_mc:
+                sk_aux = predict_skellam_corner_diff(
+                    ctx, coefs_home=_calib_skellam_home(),
+                    coefs_away=_calib_skellam_away())
+                lam_h, lam_a = sk_aux["lambda_h"], sk_aux["lambda_a"]
 
         # ---- Asian Corners ----
         asian = None
@@ -177,16 +302,38 @@ async def predict_corner_engine(req: CornerEnginePredictRequest):
                     real_odds_available=bool(asian_book_odds),
                     confidence=float(most.get("confidence", 60.0)),
                 )
+            elif use_ensemble:
+                # Para ensemble, usamos Skellam (más informativo) para Asian
+                sk_for_asian = predict_skellam_corner_diff(
+                    ctx,
+                    coefs_home=_calib_skellam_home(),
+                    coefs_away=_calib_skellam_away(),
+                )
+                asian = skellam_to_asian_corners(
+                    sk_for_asian,
+                    book_odds=asian_book_odds,
+                    real_odds_available=bool(asian_book_odds),
+                    confidence=float(most.get("confidence", 60.0)),
+                )
             else:
                 dist = build_corner_diff_distribution(
                     {"expected_corner_diff": edcd},
-                    bucket_stats=None,  # usará la aproximación normal-discreta
+                    bucket_stats=None,
                 )
                 asian = build_asian_corner_markets(
                     dist,
                     book_odds=asian_book_odds,
                     real_odds_available=bool(asian_book_odds),
                 )
+
+        # ---- Monte Carlo (capa final opcional) ----
+        if include_mc and lam_h is not None and lam_a is not None:
+            from services.football.corners import monte_carlo_corner_markets
+            monte_carlo_result = monte_carlo_corner_markets(
+                lambda_h=lam_h,
+                lambda_a=lam_a,
+                n_simulations=mc_n_sims,
+            )
 
         # Si solo está habilitado uno, anulamos el otro
         if not enable_most:
@@ -199,11 +346,15 @@ async def predict_corner_engine(req: CornerEnginePredictRequest):
             most_corners=most,
             asian_corners=asian,
             expected_corner_diff=edcd,
+            monte_carlo=monte_carlo_result,
             debug={
                 "feature_flags": {
                     "ENABLE_CORNER_MOST_MODEL":   enable_most,
                     "ENABLE_ASIAN_CORNERS_MODEL": enable_asian,
                 },
+                "use_skellam":  use_skellam,
+                "use_ensemble": use_ensemble,
+                "include_monte_carlo": include_mc,
             },
         )
 

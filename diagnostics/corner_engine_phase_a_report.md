@@ -1,6 +1,6 @@
 # Corner Engine — Fase A (Sprint Corner-1 + Corner-2)
 
-_Generado: 2026-06-21T02:56:55.730356Z_
+_Generado: 2026-06-21T03:47:26.669548Z_
 
 ## 1. Resumen ejecutivo
 

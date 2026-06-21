@@ -26,6 +26,13 @@ from .skellam_corner_model import (
     skellam_most_corners,
     skellam_to_asian_corners,
 )
+from .corner_advanced_models import (
+    calibrate_hierarchical_diff_model,
+    predict_diff_hierarchical,
+    calibrate_ensemble_weight,
+    predict_ensemble_most_corners,
+    monte_carlo_corner_markets,
+)
 
 __all__ = [
     "compute_expected_corner_diff",
@@ -37,4 +44,9 @@ __all__ = [
     "calibrate_skellam_lambdas",
     "skellam_most_corners",
     "skellam_to_asian_corners",
+    "calibrate_hierarchical_diff_model",
+    "predict_diff_hierarchical",
+    "calibrate_ensemble_weight",
+    "predict_ensemble_most_corners",
+    "monte_carlo_corner_markets",
 ]

@@ -1,30 +1,26 @@
 [
   {
-    "content": "Crear skellam_corner_model.py + IRLS estable",
+    "content": "Fix 1: Integrar CornerEngineCard en MatchDetailPage.jsx con context auto-derivado",
     "status": "completed"
   },
   {
-    "content": "Interacción xG×deep_allowed en lambdas Poisson",
-    "status": "completed"
+    "content": "Fix 2a: Efectos jerárquicos por liga (β_liga = β_global + correction_liga)",
+    "status": "in_progress"
   },
   {
-    "content": "Backtest comparativo: Lineal Brier 0.5074 / Hit 65.77% vs Skellam Brier 0.5119 / Hit 66.07% (par)",
-    "status": "completed"
+    "content": "Fix 2b: Ensemble Lineal + Skellam con pesos calibrados",
+    "status": "pending"
   },
   {
-    "content": "Endpoint /api/football/corner-engine/predict + /health con feature flags",
-    "status": "completed"
+    "content": "Fix 2c: Monte Carlo como capa final para simular mercados extra",
+    "status": "pending"
   },
   {
-    "content": "UI CornerEngineCard.jsx con tabs Most Corners + Asian Corners + toggle Skellam/Lineal",
-    "status": "completed"
+    "content": "Tests nuevos + backtest comparativo + reporte",
+    "status": "pending"
   },
   {
-    "content": "Tests router (8) + module isolation (11) = 19 tests nuevos, todos pasando",
-    "status": "completed"
-  },
-  {
-    "content": "pytest 4440 passed / 0 failures - cero regresiones",
-    "status": "completed"
+    "content": "pytest 4440 -> 4460+ y esbuild frontend - cero regresiones",
+    "status": "pending"
   }
 ]

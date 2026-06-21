@@ -88,9 +88,15 @@ def _compute_lambda(
     deep_allowed_opp_L15: Optional[float],
     implied_prob: Optional[float],
     coefs: dict[str, float],
+    use_interaction: bool = False,
 ) -> tuple[float, dict[str, float]]:
     """Calcula λ via exp(linear combo). Maneja valores faltantes con
-    fallback al intercept. Retorna (λ, drivers_used)."""
+    fallback al intercept. Retorna (λ, drivers_used).
+
+    use_interaction: si True, añade xG × (deep_allowed/100). Por defecto
+    False para evitar multicolinealidad (los coefs in-sample no
+    generalizan bien out-of-sample sin regularización fuerte).
+    """
     drivers = {}
     z = coefs["intercept"]
     drivers["intercept"] = coefs["intercept"]
@@ -117,9 +123,9 @@ def _compute_lambda(
         c = coefs["implied_prob"] * float(implied_prob)
         z += c
         drivers["implied_prob"] = round(c, 4)
-    # Interacción xG × deep_allowed/100 (solo si ambas disponibles)
-    if xg_for_L15 is not None and deep_scaled is not None:
-        c = coefs["xg_deep_interaction"] * float(xg_for_L15) * deep_scaled
+    # Interacción xG × deep_allowed/100 (solo si caller pidió explícitamente)
+    if use_interaction and xg_for_L15 is not None and deep_scaled is not None:
+        c = coefs.get("xg_deep_interaction", 0.0) * float(xg_for_L15) * deep_scaled
         z += c
         drivers["xg_deep_interaction"] = round(c, 4)
 
@@ -136,9 +142,15 @@ def predict_skellam_corner_diff(
     *,
     coefs_home: Optional[dict[str, float]] = None,
     coefs_away: Optional[dict[str, float]] = None,
+    use_interaction: bool = False,
 ) -> dict[str, Any]:
     """Calcula λ_h, λ_a, expected_corner_diff y la PMF completa del
-    diferencial (corner_diff = home_corners - away_corners)."""
+    diferencial (corner_diff = home_corners - away_corners).
+
+    use_interaction: incluir xG × deep_allowed/100. Por defecto False
+    (la interacción tiene fuerte multicolinealidad con deep_allowed y los
+    coefs in-sample no generalizan bien sin regularización fuerte).
+    """
     if coefs_home is None:
         coefs_home = DEFAULT_LAMBDA_COEFS_HOME
     if coefs_away is None:
@@ -151,6 +163,7 @@ def predict_skellam_corner_diff(
         deep_allowed_opp_L15   = _safe_float(context.get("away_deep_allowed_L15")),
         implied_prob           = _safe_float(context.get("home_implied_prob")),
         coefs                  = coefs_home,
+        use_interaction        = use_interaction,
     )
     lam_a, drivers_a = _compute_lambda(
         corners_for_L15        = _safe_float(context.get("away_corners_for_L15")),
@@ -159,13 +172,14 @@ def predict_skellam_corner_diff(
         deep_allowed_opp_L15   = _safe_float(context.get("home_deep_allowed_L15")),
         implied_prob           = _safe_float(context.get("away_implied_prob")),
         coefs                  = coefs_away,
+        use_interaction        = use_interaction,
     )
 
     pmf_diff, pmf_h, pmf_a = _skellam_pmf_by_convolution(lam_h, lam_a)
     ed = float(np.sum(np.arange(-K_MAX, K_MAX + 1) * pmf_diff))
 
     reason_codes: list[str] = []
-    if "xg_deep_interaction" in drivers_h or "xg_deep_interaction" in drivers_a:
+    if use_interaction:
         reason_codes.append(REASON_XG_DEEP_INTERACTION)
 
     return {
@@ -236,7 +250,15 @@ def calibrate_skellam_lambdas(
     *,
     n_iter: int = 25,
     lr: float = 0.0,  # no usado (IRLS no necesita LR)
+    use_interaction: bool = False,
 ) -> tuple[dict[str, float], dict[str, float]]:
+    """Calibra los coeficientes λ_h y λ_a por IRLS.
+
+    use_interaction: si True, incluye xG×deep_allowed/100 como feature en
+    la matriz X. Por defecto False — la interacción genera fuerte
+    multicolinealidad con `deep_allowed_L15` y los coefs in-sample no
+    generalizan bien sin regularización fuerte.
+    """
     """Calibra los coeficientes λ_h y λ_a por descenso de gradiente sobre
     la *log-likelihood Poisson* (numpy puro). Cada equipo se aprende por
     separado: target home_corners ~ Poisson(λ_h(features_home)).
@@ -259,7 +281,10 @@ def calibrate_skellam_lambdas(
         if None in (cf, ca, xg, da, ip):
             continue
         da_scaled = da / 100.0
-        Xh.append([1.0, cf, ca, xg, da_scaled, ip, xg * da_scaled])
+        row_h = [1.0, cf, ca, xg, da_scaled, ip]
+        if use_interaction:
+            row_h.append(xg * da_scaled)
+        Xh.append(row_h)
         yh.append(hc)
         # Features para λ_a
         cf2 = _safe_float(r.get("away_corners_for_L15"))
@@ -270,7 +295,10 @@ def calibrate_skellam_lambdas(
         if None in (cf2, ca2, xg2, da2, ip2):
             continue
         da2_scaled = da2 / 100.0
-        Xa.append([1.0, cf2, ca2, xg2, da2_scaled, ip2, xg2 * da2_scaled])
+        row_a = [1.0, cf2, ca2, xg2, da2_scaled, ip2]
+        if use_interaction:
+            row_a.append(xg2 * da2_scaled)
+        Xa.append(row_a)
         ya.append(ac)
 
     if len(Xh) < 50 or len(Xa) < 50:
@@ -279,13 +307,15 @@ def calibrate_skellam_lambdas(
     coefs_h = _poisson_mle(np.array(Xh), np.array(yh, dtype=float), n_iter, lr)
     coefs_a = _poisson_mle(np.array(Xa), np.array(ya, dtype=float), n_iter, lr)
 
-    keys = ("intercept", "corners_for_L15", "corners_against_L15",
-            "xg_for_L15", "deep_allowed_L15", "implied_prob",
-            "xg_deep_interaction")
-    return (
-        {k: float(v) for k, v in zip(keys, coefs_h)},
-        {k: float(v) for k, v in zip(keys, coefs_a)},
-    )
+    base_keys = ("intercept", "corners_for_L15", "corners_against_L15",
+                  "xg_for_L15", "deep_allowed_L15", "implied_prob")
+    keys = base_keys + (("xg_deep_interaction",) if use_interaction else ())
+    out_h = {k: float(v) for k, v in zip(keys, coefs_h)}
+    out_a = {k: float(v) for k, v in zip(keys, coefs_a)}
+    if not use_interaction:
+        out_h["xg_deep_interaction"] = 0.0
+        out_a["xg_deep_interaction"] = 0.0
+    return out_h, out_a
 
 
 def _poisson_mle(X: np.ndarray, y: np.ndarray, n_iter: int, lr: float) -> np.ndarray:
@@ -315,8 +345,10 @@ def _poisson_mle(X: np.ndarray, y: np.ndarray, n_iter: int, lr: float) -> np.nda
         WX = Xs * W[:, None]
         XtWX = Xs.T @ WX
         XtWz = Xs.T @ (W * z)
-        # Add small ridge for numerical stability (1e-4 on diagonal except intercept)
-        ridge = 1e-4 * np.eye(p)
+        # Add stronger ridge for numerical stability + multicollinearity control
+        # (1e-1 on diagonal except intercept). Más alto = más conservador en
+        # los coefs de features correlacionadas (deep_allowed × xg_deep_interaction).
+        ridge = 0.1 * np.eye(p)
         ridge[0, 0] = 0.0
         XtWX_reg = XtWX + ridge
         try:

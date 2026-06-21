@@ -1,0 +1,59 @@
+{
+  "linear_coefs": {
+    "intercept": 0.30273527272590567,
+    "implied_prob_diff": 3.594190841571939,
+    "corners_for_diff_L15": 0.10024979100949384,
+    "corners_against_diff_L15": 0.0874149601533628,
+    "deep_allowed_diff_L15": 0.012933262718327126,
+    "dominant_favorite_signal": 0.6756615713821272,
+    "venue_corner_split_diff": 0.1875567139307851
+  },
+  "sigmoid": {
+    "a": 0.43982666481462834,
+    "b": -0.019262266745691068
+  },
+  "tie_buckets": [
+    [
+      0.5,
+      0.0947
+    ],
+    [
+      1.5,
+      0.1156
+    ],
+    [
+      2.5,
+      0.0912
+    ],
+    [
+      3.5,
+      0.0793
+    ],
+    [
+      5.5,
+      0.0598
+    ],
+    [
+      99.0,
+      0.055
+    ]
+  ],
+  "skellam_coefs_home": {
+    "intercept": 1.0366526506283653,
+    "corners_for_L15": 0.04916443436649179,
+    "corners_against_L15": 0.029094187635733675,
+    "xg_for_L15": -0.07301269391673805,
+    "deep_allowed_L15": -0.5688116335048815,
+    "implied_prob": 0.878489271234497,
+    "xg_deep_interaction": 0.0
+  },
+  "skellam_coefs_away": {
+    "intercept": 0.835439663821427,
+    "corners_for_L15": 0.013800917312786494,
+    "corners_against_L15": 0.0382824614900096,
+    "xg_for_L15": -0.025110152750041876,
+    "deep_allowed_L15": 1.3291887217772913,
+    "implied_prob": 1.00979554866146,
+    "xg_deep_interaction": 0.0
+  }
+}

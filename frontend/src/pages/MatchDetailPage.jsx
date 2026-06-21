@@ -24,6 +24,7 @@ import { LivePreMatchComparisonPanel } from '@/components/LivePreMatchComparison
 import { useLiveMatchDetail } from '@/hooks/useLiveMatchDetail';
 import { LiveTerritorialControlPanel } from '@/components/LiveTerritorialControlPanel';
 import { FootballContextTrendCard } from '@/components/FootballContextTrendCard';
+import { CornerEngineCard } from '@/components/CornerEngineCard';
 import { formatDateTime, humanizeSelection } from '@/lib/format';
 
 export default function MatchDetailPage() {
@@ -376,6 +377,17 @@ export default function MatchDetailPage() {
               and the dynamic live-market ranking. */}
           <LiveTerritorialControlPanel sport={sport} match={match} t={t} />
 
+          {/* Sprint Corner Fase B — Corner Markets Engine (Most Corners + Asian).
+              Self-gates: solo renderiza para football. Lee feature flags del
+              backend (ENABLE_CORNER_MOST_MODEL, ENABLE_ASIAN_CORNERS_MODEL).
+              Si los flags están off, devuelve un banner discreto. */}
+          {sport === 'football' && (
+            <CornerEngineCard
+              context={_buildCornerEngineContext(match, odds)}
+              autoLoad
+            />
+          )}
+
           {/* Phase F57 — Football Context + Trend Discovery (observe-only).
               Self-gates: returns null unless sport==='football' and the
               backend surfaces meaningful signals (squad disruption,
@@ -453,6 +465,58 @@ export default function MatchDetailPage() {
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────
+//   Corner Engine context builder
+//   Deriva el `context` que el endpoint /api/football/corner-engine/predict
+//   espera a partir del `match` object del backend. Todas las features
+//   son opcionales (fail-soft); si faltan, el motor responde con
+//   data_quality=LOW automáticamente.
+// ─────────────────────────────────────────────────────────────────────
+function _buildCornerEngineContext(match, oddsSnapshot) {
+  if (!match) return null;
+  const home = match.home_team || {};
+  const away = match.away_team || {};
+  const oddsRaw = oddsSnapshot?.odds || oddsSnapshot || {};
+  const oH = Number(oddsRaw.home || oddsRaw['1'] || oddsRaw.h);
+  const oD = Number(oddsRaw.draw || oddsRaw['X'] || oddsRaw.d);
+  const oA = Number(oddsRaw.away || oddsRaw['2'] || oddsRaw.a);
+  let implied = null;
+  if (oH > 1 && oD > 1 && oA > 1) {
+    const ph = 1 / oH, pd = 1 / oD, pa = 1 / oA;
+    const s = ph + pd + pa;
+    implied = { home: ph / s, draw: pd / s, away: pa / s };
+  }
+  const cp = match.corners_profile || {};
+  const homeCP = cp.home || cp.home_team || {};
+  const awayCP = cp.away || cp.away_team || {};
+
+  return {
+    home_team:  home.name || match.home_team_name || null,
+    away_team:  away.name || match.away_team_name || null,
+    league:     typeof match.league === 'object' ? (match.league?.name || null) : (match.league || null),
+    season:     match.season || null,
+    match_date: match.start_time || match.kickoff || null,
+
+    home_implied_prob: implied?.home ?? null,
+    draw_implied_prob: implied?.draw ?? null,
+    away_implied_prob: implied?.away ?? null,
+    abs_implied_prob_diff: implied
+      ? Math.abs(implied.home - implied.away)
+      : null,
+
+    home_corners_for_L15:     homeCP.corners_for_L15 ?? homeCP.cf_L15 ?? null,
+    away_corners_for_L15:     awayCP.corners_for_L15 ?? awayCP.cf_L15 ?? null,
+    home_corners_against_L15: homeCP.corners_against_L15 ?? homeCP.ca_L15 ?? null,
+    away_corners_against_L15: awayCP.corners_against_L15 ?? awayCP.ca_L15 ?? null,
+
+    home_xg_for_L15:       homeCP.xg_for_L15 ?? null,
+    away_xg_for_L15:       awayCP.xg_for_L15 ?? null,
+    home_deep_allowed_L15: homeCP.deep_allowed_L15 ?? null,
+    away_deep_allowed_L15: awayCP.deep_allowed_L15 ?? null,
+  };
+}
+
 
 function TeamMotivationBlock({ team, side, llmPick, lang, t }) {
   const llmMot = llmPick?.motivation?.[side];
