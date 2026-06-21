@@ -102,11 +102,27 @@ def _match_meta(m: dict) -> tuple[str, str, str, str]:
 async def _fetch_one_match(m: dict, sport: str) -> list[dict]:
     mid, home, away, league = _match_meta(m)
     bd_ok = brightdata_available()
+    # Sprint-D9-HOTFIX3: scrape.do disponible para scrapers que migraron
+    # del unlocker BrightData a Scrape.do (Sofascore, etc.).
+    try:
+        from services.scrape_do_client import is_enabled as _scrapedo_is_enabled
+        sd_ok = bool(_scrapedo_is_enabled())
+    except Exception:  # noqa: BLE001
+        sd_ok = False
+
+    def _unlocker_ok(scraper) -> bool:
+        if not getattr(scraper, "REQUIRES_UNLOCKER", False):
+            return True
+        provider = (getattr(scraper, "UNLOCKER_PROVIDER", "brightdata") or "").lower()
+        if provider == "scrapedo":
+            return sd_ok
+        # default: brightdata
+        return bd_ok
+
     # Pick the scrapers applicable to this sport.
     chosen = [
         s for s in _SCRAPERS
-        if sport in getattr(s, "APPLICABLE_SPORTS", set())
-        and (bd_ok or not getattr(s, "REQUIRES_UNLOCKER", False))
+        if sport in getattr(s, "APPLICABLE_SPORTS", set()) and _unlocker_ok(s)
     ]
     if not chosen:
         return []

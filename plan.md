@@ -439,6 +439,59 @@
 
 ## 4) Cierres recientes (bitácora)
 
+### 🚑 Sprint-D9-HOTFIX3 — **Sofascore migrado de Bright Data a Scrape.do**
+
+> Pedido directo del usuario: "Corrige el scrapping de Sofascore porque
+> actualmente opera con Bright Data, cámbialo por Scrape.do".
+
+**Cambios:**
+
+* **`services/external_sources/sofascore.py` reescrito** end-to-end:
+  - Elimina `from .base import brightdata_fetch, brightdata_available`.
+  - Nuevo helper `_scrapedo_fetch(url)` que pasa por
+    `services.scrape_do_client.fetch_via_scrapedo_result` con
+    `render=False` (los endpoints de `api.sofascore.com` son JSON, no
+    requieren JS rendering).
+  - Nuevo helper `_scrapedo_available()` que invoca
+    `scrape_do_client.is_enabled()`.
+  - Declara `UNLOCKER_PROVIDER = "scrapedo"` (atributo nuevo del módulo).
+  - Mantiene `REQUIRES_UNLOCKER = True` y todo el flujo de evidence
+    (resolve event_id → event detail → H2H → bullets) intacto.
+  - Fail-soft: si el token no está configurado → `skipped_evidence`;
+    si el fetch falla → `failed_evidence`; nunca propaga excepciones.
+
+* **`services/external_sources/dispatcher.py`** — filtro de unlocker
+  ahora es **provider-aware**:
+  - Nueva helper local `_unlocker_ok(scraper)` lee
+    `scraper.UNLOCKER_PROVIDER`:
+    * `"scrapedo"` → requiere `scrape_do_client.is_enabled()`.
+    * `"brightdata"` (default) → requiere `brightdata_available()`.
+  - Asegura que Sofascore se incluya en `chosen` cuando solo
+    Scrape.do esté configurado.
+
+**Otros scrapers que aún usan Bright Data** (NO tocados, fuera de scope
+del pedido del usuario):
+- `flashscore.py`, `flashscore_basketball.py`, `fotmob.py`,
+  `mlb_official_lineups.py`, `rotowire_mlb.py`, `rotogrinders_mlb.py`,
+  `fantasypros_mlb.py`, `fantasyalarm_mlb.py`. Todos quedan con
+  `UNLOCKER_PROVIDER = "brightdata"` implícito (default).
+
+**Validación:**
+- 7 tests nuevos en `test_d9_sofascore_scrapedo_iteration7.py`
+  (declaración módulo, no-imports brightdata, skipped/failed/happy
+  paths, dispatcher provider-aware).
+- Suite backend: **4590 passed / 11 skipped / 0 failed**. Cero regresiones.
+- Smoke test real: `www.sofascore.com` (HTML público) responde 200 en
+  8.6s vía Scrape.do (`render=True`, body 1MB).
+
+**Caveat conocido (no-op del lado del código):**
+- `api.sofascore.com/api/v1/...` (endpoints JSON puros) **timeoutea**
+  vía Scrape.do incluso con `render=true`. Probablemente Scrape.do
+  bloquea/no enruta ese subdominio API. Si esto se vuelve crítico,
+  considerar migrar a parsing del HTML público de `www.sofascore.com`.
+  Mientras tanto el módulo degrada fail-soft (cero impacto en el
+  pipeline general).
+
 ### 🚑 Sprint-D9-PostDeploy-Hotfix-2 — **COMPLETADO (P0 hotfix #2)**
 
 > Reporte usuario tras redeploy de los hotfixes anteriores:
