@@ -25,6 +25,7 @@ from .skellam_corner_model import (
     calibrate_skellam_lambdas,
     skellam_most_corners,
     skellam_to_asian_corners,
+    validate_skellam_coefs,
 )
 from .corner_advanced_models import (
     calibrate_hierarchical_diff_model,
@@ -44,6 +45,7 @@ __all__ = [
     "calibrate_skellam_lambdas",
     "skellam_most_corners",
     "skellam_to_asian_corners",
+    "validate_skellam_coefs",
     "calibrate_hierarchical_diff_model",
     "predict_diff_hierarchical",
     "calibrate_ensemble_weight",

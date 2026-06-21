@@ -52,12 +52,23 @@ DEFAULT_LAMBDA_COEFS_HOME = {
     "xg_deep_interaction": 0.01,
 }
 DEFAULT_LAMBDA_COEFS_AWAY = dict(DEFAULT_LAMBDA_COEFS_HOME)
-# Caps razonables para λ (evita explosiones numéricas)
+# Caps razonables para λ (evita explosiones numéricas).
+# Histórico: corners por equipo p99 ≈ 12, máx observado ≈ 20. Un λ Poisson
+# > 14 implica una distribución con cola en 25+ córners, irrealista en ligas top.
+# LAMBDA_MAX se mantiene en 18 como hard-cap; el guard defensivo dispara
+# warning a partir de LAMBDA_WARNING_THRESHOLD para alertar antes de saturar.
 LAMBDA_MIN = 1.0
 LAMBDA_MAX = 18.0
+LAMBDA_WARNING_THRESHOLD = 12.0   # > este valor → warning en reason_codes
+DRIVER_DOMINANT_ABS = 2.0          # |aporte de un driver| > 2.0 al exponente z
+COEF_LARGE_ABS = 2.0               # |coef|>2.0 (excl. intercept) → coef sospechoso
 
 
 REASON_XG_DEEP_INTERACTION = "XG_DEEP_INTERACTION_USED"
+REASON_LAMBDA_SATURATED    = "LAMBDA_SATURATED"
+REASON_LAMBDA_HIGH         = "LAMBDA_HIGH_WARNING"
+REASON_DRIVER_DOMINANT     = "DRIVER_DOMINANT"  # con sufijo "_FEATURENAME"
+REASON_COEFS_SUSPICIOUS    = "SKELLAM_COEFS_SUSPICIOUS"
 
 
 # ============================================================
@@ -89,52 +100,105 @@ def _compute_lambda(
     implied_prob: Optional[float],
     coefs: dict[str, float],
     use_interaction: bool = False,
-) -> tuple[float, dict[str, float]]:
+) -> tuple[float, dict[str, float], list[str]]:
     """Calcula λ via exp(linear combo). Maneja valores faltantes con
-    fallback al intercept. Retorna (λ, drivers_used).
+    fallback al intercept. Retorna (λ, drivers_used, warnings).
 
     use_interaction: si True, añade xG × (deep_allowed/100). Por defecto
     False para evitar multicolinealidad (los coefs in-sample no
     generalizan bien out-of-sample sin regularización fuerte).
+
+    Guards defensivos:
+      * Si |contribución de un driver| > DRIVER_DOMINANT_ABS al exponente z,
+        se emite ``DRIVER_DOMINANT_<feature>`` en warnings.
+      * Si λ pre-clamp > LAMBDA_MAX, se emite ``LAMBDA_SATURATED``.
+      * Si λ pre-clamp en [LAMBDA_WARNING_THRESHOLD, LAMBDA_MAX], se emite
+        ``LAMBDA_HIGH_WARNING``.
+    Estos warnings nunca rompen el flujo: el caller decide qué hacer.
     """
-    drivers = {}
+    drivers: dict[str, float] = {}
+    warnings: list[str] = []
     z = coefs["intercept"]
-    drivers["intercept"] = coefs["intercept"]
+    drivers["intercept"] = round(coefs["intercept"], 4)
+
+    def _add(name: str, contribution: float) -> None:
+        nonlocal z
+        z += contribution
+        drivers[name] = round(contribution, 4)
+        if abs(contribution) > DRIVER_DOMINANT_ABS:
+            warnings.append(f"{REASON_DRIVER_DOMINANT}_{name.upper()}")
 
     if corners_for_L15 is not None:
-        c = coefs["corners_for_L15"] * float(corners_for_L15)
-        z += c
-        drivers["corners_for_L15"] = round(c, 4)
+        _add("corners_for_L15", coefs["corners_for_L15"] * float(corners_for_L15))
     if corners_against_opp_L15 is not None:
-        c = coefs["corners_against_L15"] * float(corners_against_opp_L15)
-        z += c
-        drivers["corners_against_opp_L15"] = round(c, 4)
+        _add("corners_against_opp_L15",
+             coefs["corners_against_L15"] * float(corners_against_opp_L15))
     if xg_for_L15 is not None:
-        c = coefs["xg_for_L15"] * float(xg_for_L15)
-        z += c
-        drivers["xg_for_L15"] = round(c, 4)
+        _add("xg_for_L15", coefs["xg_for_L15"] * float(xg_for_L15))
     deep_scaled = None
     if deep_allowed_opp_L15 is not None:
         deep_scaled = float(deep_allowed_opp_L15) / 100.0
-        c = coefs["deep_allowed_L15"] * deep_scaled
-        z += c
-        drivers["deep_allowed_opp_L15"] = round(c, 4)
+        _add("deep_allowed_opp_L15", coefs["deep_allowed_L15"] * deep_scaled)
     if implied_prob is not None:
-        c = coefs["implied_prob"] * float(implied_prob)
-        z += c
-        drivers["implied_prob"] = round(c, 4)
+        _add("implied_prob", coefs["implied_prob"] * float(implied_prob))
     # Interacción xG × deep_allowed/100 (solo si caller pidió explícitamente)
     if use_interaction and xg_for_L15 is not None and deep_scaled is not None:
-        c = coefs.get("xg_deep_interaction", 0.0) * float(xg_for_L15) * deep_scaled
-        z += c
-        drivers["xg_deep_interaction"] = round(c, 4)
+        _add("xg_deep_interaction",
+             coefs.get("xg_deep_interaction", 0.0)
+             * float(xg_for_L15) * deep_scaled)
 
-    # exp + clamp
+    # exp + clamp con detección de saturación
     try:
         lam = math.exp(z)
     except OverflowError:
-        lam = LAMBDA_MAX
-    return _clamp(lam, LAMBDA_MIN, LAMBDA_MAX), drivers
+        lam = LAMBDA_MAX + 1.0   # forzar saturated warning abajo
+
+    if lam >= LAMBDA_MAX:
+        warnings.append(REASON_LAMBDA_SATURATED)
+    elif lam >= LAMBDA_WARNING_THRESHOLD:
+        warnings.append(REASON_LAMBDA_HIGH)
+
+    lam_clamped = _clamp(lam, LAMBDA_MIN, LAMBDA_MAX)
+    return lam_clamped, drivers, warnings
+
+
+def validate_skellam_coefs(
+    coefs_home: dict[str, float],
+    coefs_away: dict[str, float],
+) -> list[str]:
+    """Valida coeficientes Skellam y devuelve lista de warnings.
+
+    Comprueba:
+      * Coeficientes individuales con |β| > COEF_LARGE_ABS (excl. intercept).
+      * Signos opuestos para la misma feature entre home y away (síntoma
+        clásico de multicolinealidad mal regularizada).
+
+    Esta función NO modifica nada — solo reporta. Caller decide si recalibra,
+    aumenta ridge, o continúa con warning explícito en la respuesta.
+    """
+    issues: list[str] = []
+    for k, v in coefs_home.items():
+        if k == "intercept":
+            continue
+        if abs(v) > COEF_LARGE_ABS:
+            issues.append(f"{REASON_COEFS_SUSPICIOUS}_HOME_{k.upper()}_ABS_{abs(v):.2f}")
+    for k, v in coefs_away.items():
+        if k == "intercept":
+            continue
+        if abs(v) > COEF_LARGE_ABS:
+            issues.append(f"{REASON_COEFS_SUSPICIOUS}_AWAY_{k.upper()}_ABS_{abs(v):.2f}")
+    # Signos opuestos no-triviales (ambos en magnitud > 0.05)
+    common_keys = set(coefs_home) & set(coefs_away)
+    for k in common_keys:
+        if k == "intercept":
+            continue
+        vh, va = coefs_home[k], coefs_away[k]
+        if (vh * va < 0) and min(abs(vh), abs(va)) > 0.05:
+            issues.append(
+                f"{REASON_COEFS_SUSPICIOUS}_OPPOSITE_SIGNS_{k.upper()}"
+                f"(H={vh:+.3f},A={va:+.3f})"
+            )
+    return issues
 
 
 def predict_skellam_corner_diff(
@@ -156,7 +220,7 @@ def predict_skellam_corner_diff(
     if coefs_away is None:
         coefs_away = DEFAULT_LAMBDA_COEFS_AWAY
 
-    lam_h, drivers_h = _compute_lambda(
+    lam_h, drivers_h, warns_h = _compute_lambda(
         corners_for_L15        = _safe_float(context.get("home_corners_for_L15")),
         corners_against_opp_L15= _safe_float(context.get("away_corners_against_L15")),
         xg_for_L15             = _safe_float(context.get("home_xg_for_L15")),
@@ -165,7 +229,7 @@ def predict_skellam_corner_diff(
         coefs                  = coefs_home,
         use_interaction        = use_interaction,
     )
-    lam_a, drivers_a = _compute_lambda(
+    lam_a, drivers_a, warns_a = _compute_lambda(
         corners_for_L15        = _safe_float(context.get("away_corners_for_L15")),
         corners_against_opp_L15= _safe_float(context.get("home_corners_against_L15")),
         xg_for_L15             = _safe_float(context.get("away_xg_for_L15")),
@@ -181,6 +245,14 @@ def predict_skellam_corner_diff(
     reason_codes: list[str] = []
     if use_interaction:
         reason_codes.append(REASON_XG_DEEP_INTERACTION)
+    # Warnings de saturación / drivers dominantes (prefijo HOME_/AWAY_)
+    for w in warns_h:
+        reason_codes.append(f"HOME_{w}")
+    for w in warns_a:
+        reason_codes.append(f"AWAY_{w}")
+    # Validar coefs (multicolinealidad, magnitudes raras)
+    coef_issues = validate_skellam_coefs(coefs_home, coefs_away)
+    reason_codes.extend(coef_issues)
 
     return {
         "lambda_h":              round(lam_h, 4),
@@ -251,6 +323,7 @@ def calibrate_skellam_lambdas(
     n_iter: int = 25,
     lr: float = 0.0,  # no usado (IRLS no necesita LR)
     use_interaction: bool = False,
+    ridge_strength: float = 0.5,
 ) -> tuple[dict[str, float], dict[str, float]]:
     """Calibra los coeficientes λ_h y λ_a por IRLS.
 
@@ -258,6 +331,13 @@ def calibrate_skellam_lambdas(
     la matriz X. Por defecto False — la interacción genera fuerte
     multicolinealidad con `deep_allowed_L15` y los coefs in-sample no
     generalizan bien sin regularización fuerte.
+
+    ridge_strength: penalización L2 sobre features estandarizadas (no
+    aplica al intercepto). Por defecto 0.5 — suficiente para reducir
+    multicolinealidad entre `corners_for_L15`, `xg_for_L15` y
+    `implied_prob` (correlación natural por calidad del equipo) sin
+    sesgar mucho la magnitud de los coeficientes. Subir a 1.0–2.0 si
+    aparecen signos opuestos entre coefs home/away tras calibrar.
     """
     """Calibra los coeficientes λ_h y λ_a por descenso de gradiente sobre
     la *log-likelihood Poisson* (numpy puro). Cada equipo se aprende por
@@ -304,8 +384,10 @@ def calibrate_skellam_lambdas(
     if len(Xh) < 50 or len(Xa) < 50:
         return dict(DEFAULT_LAMBDA_COEFS_HOME), dict(DEFAULT_LAMBDA_COEFS_AWAY)
 
-    coefs_h = _poisson_mle(np.array(Xh), np.array(yh, dtype=float), n_iter, lr)
-    coefs_a = _poisson_mle(np.array(Xa), np.array(ya, dtype=float), n_iter, lr)
+    coefs_h = _poisson_mle(np.array(Xh), np.array(yh, dtype=float),
+                            n_iter, lr, ridge_strength=ridge_strength)
+    coefs_a = _poisson_mle(np.array(Xa), np.array(ya, dtype=float),
+                            n_iter, lr, ridge_strength=ridge_strength)
 
     base_keys = ("intercept", "corners_for_L15", "corners_against_L15",
                   "xg_for_L15", "deep_allowed_L15", "implied_prob")
@@ -318,7 +400,8 @@ def calibrate_skellam_lambdas(
     return out_h, out_a
 
 
-def _poisson_mle(X: np.ndarray, y: np.ndarray, n_iter: int, lr: float) -> np.ndarray:
+def _poisson_mle(X: np.ndarray, y: np.ndarray, n_iter: int, lr: float,
+                  *, ridge_strength: float = 0.5) -> np.ndarray:
     """Maximum likelihood Poisson regression via **IRLS** (Iteratively
     Reweighted Least Squares) sobre features ESTANDARIZADAS.
 
@@ -326,6 +409,10 @@ def _poisson_mle(X: np.ndarray, y: np.ndarray, n_iter: int, lr: float) -> np.nda
     escalas muy distintas (corners ~5, xG ~1.5, deep_scaled ~3, ip ~0.5).
     Los coeficientes finales se desnormalizan para que sean aplicables a
     los inputs crudos del predictor.
+
+    ridge_strength: λ_ridge en la matriz XtWX + λI (excepto intercepto).
+    Por defecto 0.5 — suficiente para domar multicolinealidad típica
+    sin sesgar coeficientes en exceso.
     """
     n, p = X.shape
     # Standardize all features EXCEPT the intercept column (idx=0).
@@ -345,10 +432,8 @@ def _poisson_mle(X: np.ndarray, y: np.ndarray, n_iter: int, lr: float) -> np.nda
         WX = Xs * W[:, None]
         XtWX = Xs.T @ WX
         XtWz = Xs.T @ (W * z)
-        # Add stronger ridge for numerical stability + multicollinearity control
-        # (1e-1 on diagonal except intercept). Más alto = más conservador en
-        # los coefs de features correlacionadas (deep_allowed × xg_deep_interaction).
-        ridge = 0.1 * np.eye(p)
+        # Ridge (sobre features estandarizadas, no sobre intercepto)
+        ridge = ridge_strength * np.eye(p)
         ridge[0, 0] = 0.0
         XtWX_reg = XtWX + ridge
         try:

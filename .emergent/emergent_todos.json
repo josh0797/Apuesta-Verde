@@ -1,26 +1,6 @@
 [
   {
-    "content": "Fix 1: Integrar CornerEngineCard en MatchDetailPage.jsx con context auto-derivado",
+    "content": "Reportar diagnóstico y cambios al usuario",
     "status": "completed"
-  },
-  {
-    "content": "Fix 2a: Efectos jerárquicos por liga (β_liga = β_global + correction_liga)",
-    "status": "in_progress"
-  },
-  {
-    "content": "Fix 2b: Ensemble Lineal + Skellam con pesos calibrados",
-    "status": "pending"
-  },
-  {
-    "content": "Fix 2c: Monte Carlo como capa final para simular mercados extra",
-    "status": "pending"
-  },
-  {
-    "content": "Tests nuevos + backtest comparativo + reporte",
-    "status": "pending"
-  },
-  {
-    "content": "pytest 4440 -> 4460+ y esbuild frontend - cero regresiones",
-    "status": "pending"
   }
 ]

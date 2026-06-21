@@ -289,375 +289,161 @@
 
 ### Entregables
 
-- `/app/backend/scripts/ingest_understat_corners.py` — ingestor (12 jobs, cache local en `/app/data/corners_history/understat_raw/`).
-- `/app/data/corners_history/understat_matches_consolidated.json` — 4338 matches Understat.
-- `/app/backend/scripts/merge_corners_with_understat.py` — merger con alias canónico (99.91% cobertura).
-- `/app/data/corners_history/all_leagues_enriched_dataset.json` — dataset enriquecido final.
-- `/app/backend/scripts/run_corner_momentum_study_phase15.py` — pipeline cuantitativo extendido.
-- `/app/diagnostics/corner_momentum_study_phase15_stats.json` y `corner_momentum_study_phase15_report.md`.
-
-### Restricciones cumplidas
-
-- ✅ Cero cambios al código de producción.
-- ✅ Cero APIs de pago (Understat es gratis, scraping de endpoint AJAX legítimo con 1s entre requests).
-- ✅ Pytest backend completo: **4421 passed / 2 skipped / 0 failures**.
-
----
-
-
-## Phase Corner Momentum Study — Fase 1 (Opción B) — **✅ COMPLETADA**
-
-
-## Phase Sprint Corner-1 + Corner-2 · Fase A — Motor de córners (módulos puros + backtest) — **✅ COMPLETADA (P0)**
-
-> **Alcance:** módulos algorítmicos puros (zero touch a producción) + backtest probabilístico walk-forward sobre 4338 partidos. **No incluye** integración API/UI (eso es Fase B). **No incluye** ROI financiero real (REAL_ODDS_NOT_AVAILABLE).
-
-### Módulos creados
-
-- `/app/backend/services/football/corners/corner_diff_model.py` — estima `expected_corner_diff` con 6 drivers, cap ±5.5, drivers explícitos + reason_codes.
-- `/app/backend/services/football/corners/corner_most_model.py` — clasificador binario `predict_most_corners` con sigmoid calibrado + tie prob por bucket + reglas NO_BET (confidence < 55, prob < 0.58, data_quality LOW).
-- `/app/backend/services/football/corners/corner_diff_distribution.py` — distribución empírica por buckets + `build_asian_corner_markets` para 14 líneas (Home/Away × 7 handicaps).
-- `/app/backend/services/football/corners/corner_backtest.py` — walk-forward 21/22→22/23, 21/22+22/23→23/24. Calibración: OLS para β del corner_diff, MLE numpy puro para sigmoid (a, b), frecuencia empírica para tie buckets.
-
-### Tests obligatorios — 11/11 pasando
-
-- `/app/backend/tests/test_corner_engine_phase_a.py`
-- Cubre los 8 escenarios del brief + extras: dominant fav home/away, sin favorito, missing data, no inputs, Asian -1.5 vs -3.5, líneas enteras con push, backtest sin cuotas, isolation de producción, caps ±5.5, suma probs = 1.
-
-### Resultados del backtest (4338 partidos enriquecidos, walk-forward)
-
-| Métrica | Global | Fold 1 (test 22/23) | Fold 2 (test 23/24) |
-|---|---|---|---|
-| n test | 2892 | 1446 | 1446 |
-| n decided (sin tie) | 2647 | 1315 | 1332 |
-| **Brier Score** | **0.5074** | 0.5184 | **0.4964** |
-| **Log Loss** | **0.848** | 0.8654 | 0.8307 |
-| **Hit rate decided** | **65.77%** | 64.56% | **66.97%** |
-| **Bet hit rate** (recommended ≠ NO_BET) | **71.26%** (925/1298) | — | — |
-
-**Por liga** (acumulado):
-
-| Liga | n | Brier | Hit rate decided | Bet hit rate |
-|---|---|---|---|---|
-| EPL | 760 | 0.4838 | 67.52% | **75.33%** |
-| Bundesliga | 612 | 0.5140 | 66.97% | 70.96% |
-| Serie A | 760 | 0.5119 | 64.47% | 70.57% |
-| La Liga | 760 | 0.5212 | 64.36% | 67.57% |
-
-### Calibración
-
-- **Gap entre probabilidad predicha y observada**: máximo ~3% en cualquier mercado Asian Corners (0.5074 Brier es 17%+ mejor que baseline naïf 0.60-0.65).
-- **β calibrados son interpretables**: `implied_prob_diff` ≈ 3.6 (peso dominante), `dominant_favorite_signal` ≈ 0.7-0.9 (boost extra cuando hay DOM_FAV), L15 corners diff ≈ 0.05-0.1 (pequeño pero direccional).
-- **Sigmoid**: a ≈ 0.44-0.45 — coherente con el hallazgo de Fase 1.5 (dominant fav diff +3.82 → P ≈ 0.84).
-
-### Entregables
-
-- `/app/backend/scripts/run_corner_engine_phase_a_backtest.py` — script de calibración + backtest.
-- `/app/diagnostics/corner_engine_phase_a_stats.json` (stats raw).
-- `/app/diagnostics/corner_engine_phase_a_report.md` (8 secciones, tablas comparativas, calibración).
-
-### Restricciones cumplidas
-
-- ✅ Cero cambios a código de producción.
-- ✅ Cero APIs de pago (TheOddsAPI no consumido aún para Asian Corners; pendiente Fase B con muestra).
-- ✅ Cero nuevas dependencias.
-- ✅ Feature flags listos: `ENABLE_CORNER_MOST_MODEL`, `ENABLE_ASIAN_CORNERS_MODEL` (no encendidos aún).
-- ✅ Pytest: **4432 passed / 2 skipped / 0 failures** (4421 originales + 11 nuevos).
-- ✅ Point-in-time estricto en walk-forward.
-- ✅ REAL_ODDS_NOT_AVAILABLE marcado en todos los outputs sin cuotas reales.
-
----
-
-
-## Phase Sprint Corner Fase B — Skellam + Integración endpoint/UI — **✅ COMPLETADA (P0)**
-
-> **Alcance:** modelo alternativo Skellam (Poisson independientes) con interacción xG×deep_allowed + endpoint REST + UI card detrás de feature flags.
-
-### Modelo Skellam
-- **Lambdas Poisson por equipo**: `λ_h = exp(α0 + α1·corners_for + α2·corners_against_opp + α3·xg_for + α4·deep_allowed_opp/100 + α5·implied_prob + α6·xg×deep)`. Análogo para `λ_a`.
-- **Calibración**: IRLS (Iteratively Reweighted Least Squares) con features estandarizadas + ridge 1e-4 — estable y converge en <25 iteraciones.
-- **PMF del diferencial**: convolución directa de las dos Poisson (sin scipy/Bessel), K_MAX=25.
-- **Caps**: λ ∈ [1, 18] para evitar saturaciones numéricas.
-
-### Backtest comparativo (mismas 2892 predicciones, walk-forward 21/22→22/23→23/24)
-
-| Métrica            | Lineal Sigmoid  | Skellam + interacción xG×deep |
-|--------------------|------------------|-------------------------------|
-| Brier Score        | **0.5074** ✓     | 0.5119                        |
-| Log Loss           | **0.848** ✓      | 0.856                         |
-| Hit rate decided   | 65.77%           | **66.07%** ✓                  |
-| n_bet_decisions    | 1298             | 1699 (filtra menos)           |
-| Bet hit rate       | **71.26%** ✓     | 67.57%                        |
-
-**Conclusión**: Skellam es comparable al lineal — diferencias de centésimas. Confirma que el techo del problema está dominado por ruido inherente de los córners. Ambos modelos quedan disponibles vía toggle UI.
-
-### Endpoint (Fase B-1)
-- `POST /api/football/corner-engine/predict` — predicción Most Corners + Asian Corners.
-- `GET  /api/football/corner-engine/health` — health check (sin créditos, sin DB).
-- **Feature flags** (env vars en `/app/backend/.env`):
-  - `ENABLE_CORNER_MOST_MODEL=true`
-  - `ENABLE_ASIAN_CORNERS_MODEL=true`
-- **Aislamiento**: router standalone en `/app/backend/routers/corner_engine_router.py`. NO toca el endpoint de picks principal ni los servicios existentes.
-- **Fail-soft**: cualquier excepción interna devuelve `ok=False` con razón legible. El backend nunca crashea por errores del motor.
-
-### UI (Fase B-2)
-- `/app/frontend/src/components/CornerEngineCard.jsx` — card autocontenida con:
-  - Tabs: Most Corners | Asian Corners.
-  - Toggle: Lineal | Skellam (intercambia modelo on-the-fly).
-  - Probabilidades + barras visuales, reason codes, confidence, edge score.
-  - Tabla de 14 mercados Asian con prob_win/push/fair_odds/book_odds/EV/decisión.
-  - Warning explícito `REAL_ODDS_NOT_AVAILABLE` cuando faltan cuotas.
-  - `data-testid` en todos los elementos interactivos.
-
-### Tests
-- `tests/test_corner_engine_phase_a.py` — 11 tests (módulos puros).
-- `tests/test_corner_engine_router.py` — 8 tests (router + feature flags + fail-soft).
-- **Total: 19 tests nuevos del motor de córners, todos pasando.**
-
-### Validación
-- ✅ **Pytest: 4440 passed / 2 skipped / 0 failures** (4421 originales + 19 nuevos).
-- ✅ Frontend compila limpio con esbuild (sin warnings nuevos).
-- ✅ Backend reinicia OK, endpoint responde en producción (https://low-volatility-plays.preview.emergentagent.com).
-- ✅ Verificado en vivo: dominant favorite home → HOME 85.01%, confidence 88.60, 14 Asian markets generados.
-
-### Entregables nuevos en esta fase
-- `/app/backend/services/football/corners/skellam_corner_model.py`
-- `/app/backend/routers/corner_engine_router.py`
-- `/app/backend/tests/test_corner_engine_router.py`
-- `/app/frontend/src/components/CornerEngineCard.jsx`
-- 2 env vars añadidas a `/app/backend/.env`: `ENABLE_CORNER_MOST_MODEL`, `ENABLE_ASIAN_CORNERS_MODEL`.
-
-### Pendiente (próximas iteraciones)
-- Integrar `<CornerEngineCard>` en `MatchDetailPage.jsx` u otra página donde corresponda (esperando feedback del usuario sobre dónde colocarlo).
-- Backtest con cuotas reales TheOddsAPI (~100-150 eventos, ~6-9k créditos).
-- Refinamientos opcionales: Skellam con efectos jerárquicos por liga.
-
----
-
-> **Alcance:** SOLO evidencia cuantitativa (no diseño de motor, no heurísticas, no integración). Fuentes gratis. Sin consumo de créditos.
-
-### Resumen ejecutivo
-
-- **Dataset construido**: 4338 partidos (3 temporadas × 4 ligas europeas: EPL, Bundesliga, La Liga, Serie A, periodos 2021/22 → 2023/24).
-- **Liga MX**: excluida — `football-data.co.uk new/MEX.csv` (4655 partidos) no contiene columnas `HC/AC` ni stats de tiros. Archivada en `/app/data/football_data_co_uk/extra_no_corners/`.
-- **Features evaluadas**: 46 candidatas cubriendo los 7 ejes pedidos por el brief (L5 vs L15, corners FOR/AGAINST, splits H/A, ofensivas, defensivas, serie activa, favorito dominante, momentum compuesto).
-- **Veredicto**: **0 / 46 features superan |r| ≥ 0.15**. Máximo `|r|` = 0.0976 (`away_corners_against_atAway_L15`). R² conjunto de las top-10 vía OLS multivariada estandarizada = **0.0210** (solo ~2% de varianza explicada).
-- **Pytest**: 4421 passed / 2 skipped / 0 failures — cero regresiones.
-
-### Hallazgos cualitativos (de la tabla del reporte)
-
-- **L5 vs L15**: en TODOS los pares evaluados (corners_for, corners_against, sum, momentum), `L15` gana por margen pequeño pero consistente. La ventana corta (L5) tiene más ruido.
-- **Home/Away split (venue filter)**: para `away_corners_against`, filtrar por venue MEJORA r (0.0976 vs 0.0911); para las otras features lo empeora. No hay regla universal.
-- **Favorito dominante**: r individual bajísimo (0.06 y 0.05). En OLS multivariado aparecen con β grandes pero esto es **multicolinealidad espuria** (`fav_implied_prob` y `abs_implied_prob_diff` están casi perfectamente correlacionados entre sí).
-- **Serie activa** (rachas over 9.5 en L5): r ≈ 0.03 (home) y 0.04 (away). Sin señal.
-- **Δ MAE vs baseline naïf** (media del training): la mejor feature mejora apenas 0.016 córners sobre ~10±5 → ~0.16% relativo. Insignificante operativamente.
-
-### Recomendaciones para el usuario (Fase 2)
-
-Tres caminos posibles, ordenados por costo/beneficio:
-
-1. **Relajar el umbral a |r| ≥ 0.10**. Con `n=4338`, las top-6 features (todas en `away_corners_against*` + `away_shots_against*`) son estadísticamente significativas y podrían formar un mini-pool. Riesgo: motor con techo R²≈2%, irrelevante en producción.
-2. **Cambiar de fuente** a una con xG/posesión/ataques peligrosos (API-Sports, Understat). El xG **a favor** del oponente es predictor probado de córners. Costo: créditos.
-3. **Pivotear de mercado**: dado el techo bajo, considerar O/U corners como mercado "informativo" no como "predictivo activo" (no recomendarlo; mostrar contexto). Costo: cero.
-
-### Entregables
-
-- `/app/backend/scripts/build_corner_momentum_dataset.py` — constructor del dataset unificado (4338 partidos).
-- `/app/data/corners_history/all_leagues_dataset.json` — dataset canónico.
-- `/app/backend/scripts/run_corner_momentum_study.py` — pipeline cuantitativo (Pearson, walk-forward, OLS multivariada).
-- `/app/diagnostics/corner_momentum_study_phase1_stats.json` — métricas raw.
-- `/app/diagnostics/corner_momentum_study_phase1_report.md` — reporte legible (8 secciones).
+- `/app/backend/scripts/ingest_understat_corners.py`
+- `/app/data/corners_history/understat_matches_consolidated.json`
+- `/app/backend/scripts/merge_corners_with_understat.py`
+- `/app/data/corners_history/all_leagues_enriched_dataset.json`
+- `/app/backend/scripts/run_corner_momentum_study_phase15.py`
+- `/app/diagnostics/corner_momentum_study_phase15_stats.json` y `corner_momentum_study_phase15_report.md`
 
 ### Restricciones cumplidas
 
 - ✅ Cero cambios al código de producción.
 - ✅ Cero APIs de pago.
-- ✅ Cero nuevas dependencias en `requirements.txt`.
-- ✅ Punto-en-tiempo estricto en el cálculo de features.
-- ✅ Pytest backend completo en verde (4421/4421).
+- ✅ Pytest backend completo: **4421 passed / 2 skipped / 0 failures**.
 
 ---
 
-## Phase Corner Momentum Study — Fase 1 (Opción B) — **(referencia previa, mantenida abajo)**
-
-> **Alcance:** SOLO evidencia cuantitativa (no diseño de motor, no heurísticas, no integración). Fuentes gratis. Sin consumo de créditos.
-
-### Estado actual (inputs disponibles)
-- Backend estable: **4421 tests passing / 2 skipped** (regla: cero regresiones).
-- CSVs ya disponibles en `/app/data/football_data_co_uk/`:
-  - EPL: `E0_2122.csv`, `E0_2223.csv`, `E0_2324.csv` (+ `E0_2425.csv` extra, opcional)
-  - Temporada 24/25 suelta (no multiseason): `D1_2425.csv`, `SP1_2425.csv`, `I1_2425.csv` (y `F1_2425.csv` si se quisiera Ligue 1, no requerida)
-
-### Sub-fase 1.1 — Descarga de datos (gratis, football-data.co.uk)
-**Objetivo:** completar 3 temporadas por liga para Bundesliga/LaLiga/SerieA y añadir Liga MX si existe.
-
-- Descargar:
-  - Bundesliga: `D1_2122.csv`, `D1_2223.csv`, `D1_2324.csv`
-  - La Liga: `SP1_2122.csv`, `SP1_2223.csv`, `SP1_2324.csv`
-  - Serie A: `I1_2122.csv`, `I1_2223.csv`, `I1_2324.csv`
-- Liga MX:
-  - Intentar localizar división/código (p.ej., `MX1`/`MEX`/`M0`) en football-data.
-  - **Condición de aceptación**: debe incluir columnas de córners (`HC`, `AC`).
-  - Si no existe o no trae `HC/AC`, documentar explícitamente en el reporte como **no disponible** y proceder solo con europeas.
-
-**Entregable:** CSVs almacenados en `/app/data/football_data_co_uk/`.
-
-### Sub-fase 1.2 — Constructor de dataset unificado (PIT-friendly)
-- Nuevo script: `backend/scripts/build_corner_momentum_dataset.py`
-- Input: CSVs por liga/temporada.
-- Normalización → records canónicos con:
-  - `match_id`, `date`, `league`, `season`
-  - `home_team`, `away_team`
-  - Ground truth: `home_corners`(HC), `away_corners`(AC), `total_corners`
-  - Variables de partido (si están):
-    - `home_shots`(HS), `away_shots`(AS)
-    - `home_shots_on_target`(HST), `away_shots_on_target`(AST)
-    - `home_fouls`(HF), `away_fouls`(AF)
-    - `home_cards`(HY+HR), `away_cards`(AY+AR)
-    - `FTHG`, `FTAG`
-    - Odds: `B365H`, `B365D`, `B365A` (fallback a `AvgH/AvgD/AvgA` si faltan)
-- Output:
-  - `/app/data/corners_history/all_leagues_dataset.json`
-- Reglas de calidad:
-  - Drop rows sin `Date` o sin `HC/AC`.
-  - Parse robusto de fechas (`%d/%m/%Y`, `%d/%m/%y`, `%Y-%m-%d`).
-
-**Nota PIT:** el dataset se usa para cálculo de features con historia estricta (`row_dt < target_dt`).
-
-### Sub-fase 1.3 — Estudio cuantitativo (L5 vs L15 + splits + momentum)
-- Nuevo script: `backend/scripts/run_corner_momentum_study.py`
-- Target principal:
-  - `total_corners` del partido.
-- Features por equipo y match (todas PIT):
-  1) **L5 vs L15**
-     - `home_corners_for_avg_L5/L15`, `away_corners_for_avg_L5/L15`
-     - `home_corners_against_avg_L5/L15`, `away_corners_against_avg_L5/L15`
-     - deltas L5-L15.
-  2) **Home/Away split**
-     - stats L5/L15 separadas por local/visitante.
-  3) **Ofensivas**
-     - `shots_avg_L5/L15`, `sot_avg_L5/L15` (por equipo)
-     - proxies simples documentados (si aplican): p.ej. `pressure_proxy = shots + 2*sot`.
-  4) **Defensivas**
-     - `corners_conceded_avg_L5/L15`, `shots_conceded_avg_L5/L15`.
-  5) **Serie activa**
-     - rachas de over/under sobre línea base (p.ej. 9.5/10.5) como features *diagnósticas* (no reglas).
-  6) **Favorito dominante**
-     - `implied_prob_home/away` desde B365; `abs_implied_prob_diff`.
-  7) **Corner Momentum (compuesta)**
-     - feature estandarizada con documentación exacta (ej. z-score del diferencial de córners L5, con std computed PIT).
-
-- Métricas requeridas (por liga y global):
-  - Correlación Pearson de cada feature vs `total_corners`.
-  - Modelos simples (diagnósticos, no producción):
-    - Regresión lineal: MAE/RMSE por validación temporal (walk-forward simple).
-    - RandomForestRegressor: Feature Importance (con seed fija) como señal secundaria.
-- Regla de descarte (acordada):
-  - **Descartar feature si |r| < 0.15** (global y/o consistentemente por liga).
-
-### Sub-fase 1.4 — Reporte y artefactos
-- Reporte: `/app/diagnostics/corner_momentum_study_phase1_report.md`
-  - Tabla por feature: r, MAE/RMSE (cuando aplique), importancia, consistencia por liga.
-  - Sección específica para Liga MX (éxito/fracaso de obtención, cobertura, columnas disponibles).
-  - Conclusiones accionables: qué señales pasan el umbral y cuáles se descartan.
-- Stats raw: `/app/diagnostics/corner_momentum_study_phase1_stats.json`
-
-### Sub-fase 1.5 — Validación (cero regresión)
-- Ejecutar:
-  - `pytest backend/tests -x --timeout=60`
-- Restricción:
-  - **Cero cambios a código de producción** (solo scripts + data + diagnostics).
-  - **Cero uso de APIs de pago**.
+## Phase Corner Momentum Study — Fase 1 (Opción B) — **✅ COMPLETADA**
 
 ---
 
-## Phase F95 — Football Post-Match Settlement Hotfix (P0) — ✅ COMPLETADO
-(…sin cambios; ver bitácora previa.)
+## Phase Sprint Corner-1 + Corner-2 · Fase A — Motor de córners (módulos puros + backtest) — **✅ COMPLETADA (P0)**
+
+> **Alcance:** módulos algorítmicos puros (zero touch a producción) + backtest probabilístico walk-forward sobre 4338 partidos. **No incluye** ROI financiero real (REAL_ODDS_NOT_AVAILABLE).
+
+### Módulos creados
+
+- `/app/backend/services/football/corners/corner_diff_model.py`
+- `/app/backend/services/football/corners/corner_most_model.py`
+- `/app/backend/services/football/corners/corner_diff_distribution.py`
+- `/app/backend/services/football/corners/corner_backtest.py`
+
+### Tests obligatorios
+
+- `/app/backend/tests/test_corner_engine_phase_a.py`
+
+### Resultados del backtest (walk-forward)
+
+- Brier **0.5074** (lineal) como baseline.
+
+### Restricciones cumplidas
+
+- ✅ Cero cambios a producción.
+- ✅ Cero nuevas dependencias.
+- ✅ REAL_ODDS_NOT_AVAILABLE cuando aplica.
 
 ---
 
-## Phase F96 — Football: Settler corners + TheSportsDB experimental + ingest fallback (P1) — ✅ COMPLETADO
-(…sin cambios; ver bitácora previa.)
+## Phase Sprint Corner — Fase B — Skellam + Endpoint/UI — **✅ COMPLETADA (P0)**
+
+> **Alcance:** modelo alternativo Skellam + endpoint REST + UI card detrás de feature flags.
+
+### Modelo Skellam (estado base)
+- IRLS Poisson (numpy) + convolución Poisson-Poisson para PMF Skellam.
+- Caps λ ∈ [1, 18].
+
+### Endpoint/UI
+- `POST /api/football/corner-engine/predict`
+- `GET /api/football/corner-engine/health`
+- UI: `CornerEngineCard` integrado en `MatchDetailPage`.
+
+### Tests
+- `test_corner_engine_router.py` + `test_corner_engine_phase_a.py`.
+
+### Validación previa
+- ✅ Pytest: **4440 passed / 2 skipped**.
 
 ---
 
-## Phase Sprint-D8-Research — Cards vs Corners (P1) — ✅ COMPLETADO
-(…sin cambios; ver bitácora previa.)
+## Phase Sprint Corner — Fase B.1 — Skellam P0: Estabilidad out-of-sample + Guards + Validación avanzada — **✅ COMPLETADA (P0)**
 
----
+> **Motivación:** se reportó un bug histórico donde el Skellam saturaba `λ=18` fuera de muestra. Objetivo: diagnosticar sin “tapar” bajando `LAMBDA_MAX`, instrumentar explicabilidad y endurecer el motor.
 
-## Phase Sprint-D8/E-LIVE — Corners diagnostic + Cards Fase 1 (P1) — ✅ COMPLETADO
-(…sin cambios; ver bitácora previa.)
+### Diagnóstico (hallazgo clave)
+- El bug **NO se reproduce** con el dataset enriquecido completo (4338 partidos) y los coefs persistidos en `calibrated_defaults.json`.
+- Rango observado en test out-of-sample (2324): **λ_max ≈ 8.95**.
+- Conclusión: el `λ=18` fue un escenario transitorio de exploración (subsets / interacción), no un fallo sistémico actual.
 
----
+### Multicolinealidad documentada (no bloqueante)
+- Coefs persistidos muestran signos opuestos en:
+  - `deep_allowed_L15`: **-0.569 home vs +1.329 away**
+- `xg_for_L15` con signo negativo (redundancia con `corners_for_L15` + implied_prob).
+- Se decide **no** “arreglar por fuerza” (cambiar cap) sino:
+  - reportar explícitamente el riesgo,
+  - instrumentar guards para identificar el driver culpable si vuelve a ocurrir.
 
-## Phase Sprint-D8-Fase2 — DRAW selecciones + cascada TheSportsDB primaria (P1) — ✅ COMPLETADO
-(…sin cambios; ver bitácora previa.)
+### Cambios implementados (código)
+1. **Guards defensivos en `_compute_lambda`**
+   - Ahora retorna: `(lam, drivers, warnings)`.
+   - Warnings:
+     - `LAMBDA_SATURATED` si λ ≥ 18
+     - `LAMBDA_HIGH_WARNING` si λ ∈ [12, 18)
+     - `DRIVER_DOMINANT_<FEATURE>` si una contribución al exponente `z` excede 2.0
 
----
+2. **Nueva función pública `validate_skellam_coefs(coefs_home, coefs_away)`**
+   - Detecta:
+     - |β|>2.0 (excl. intercept) → warning con magnitud
+     - signos opuestos no-triviales entre home/away por feature
 
-## Phase F99 — Refactor estructural `mlb_day_orchestrator.py` (P0) — ✅ COMPLETADO
-(…sin cambios; ver bitácora previa.)
+3. **`predict_skellam_corner_diff` propaga warnings**
+   - Agrega reason codes con prefijos `HOME_` y `AWAY_`.
+   - Agrega issues de coeficientes (`SKELLAM_COEFS_SUSPICIOUS_*`).
+
+4. **Calibración endurecida/configurable**
+   - `calibrate_skellam_lambdas(..., ridge_strength=...)` y `_poisson_mle(..., ridge_strength=...)`.
+   - Default actualizado a `ridge_strength=0.5`.
+   - Se compararon 0.1/0.5/1.0/2.0: coefs prácticamente iguales → la colinealidad es mayormente estructural.
+
+### Tests agregados
+- `tests/test_corner_engine_skellam_guards.py` (12 tests):
+  - saturación, high-warning, driver dominante, validación coefs, sanity λ-range.
+- `tests/test_corner_engine_advanced_models.py` (11 tests):
+  - Ensemble: suma probs, EDCD entre componentes, reason tag
+  - Monte Carlo: media/monotonía/BTGC
+  - Jerárquico: calibración y fallback
+
+### Validación
+- ✅ Pytest suite completa: **4463 passed / 2 skipped / 0 failures** (antes 4440; +23 nuevos).
+- ✅ Sin regresiones.
 
 ---
 
 ## 3) Pendientes y siguientes pasos
 
 ### Pendientes P0 (actual)
-- ✅ **Corner Momentum Study — Fase 1 (Opción B)** completada.
-- ✅ **Sprint Corner-2 (datos ricos Understat)** completada.
-- ✅ **Sprint Corner-1 + Corner-2 · Fase A** completada (módulos puros + backtest probabilístico).
-- ⏳ **Fase B**: integración endpoint /api/football/picks + UI cards detrás de feature flags. Decisión del usuario pendiente.
-- ⏳ **Backtest con cuotas reales** (~100-150 eventos, ~6-9k créditos TheOddsAPI). Decisión del usuario pendiente.
+- ✅ Corner Momentum Study (Fase 1) completada.
+- ✅ Sprint Corner-2 (Understat) completada.
+- ✅ Sprint Corner Fase A (módulos + backtest probabilístico) completada.
+- ✅ Sprint Corner Fase B (Skellam + endpoint + UI) completada.
+- ✅ **Skellam P0 estabilidad/guards/validación avanzada** completada.
 
-### Pendientes P1
-- 🟡 **SPRINT D5** (histórico en curso): cohortes + reportes multi-competición.
-- 🟡 **REFACTOR-1** (pasos 2/3 y 3/3 + ingest_upcoming).
-- ⏳ **F84.c/F84.d** Lineups + Standings.
+### Pendientes P1 (próximo)
+- ⏳ **Backtest financiero con TheOddsAPI (P1)**
+  - Objetivo: 100–150 partidos (muestra controlada por coste de créditos).
+  - Mercados: **Asian Corners** y/o “Most Corners” (si hay odds históricas disponibles).
+  - Condición: marcar explícitamente `REAL_ODDS_NOT_AVAILABLE` cuando falten cuotas.
+  - Entregables:
+    - reporte ROI/CLV/hit-rate por línea
+    - breakdown por liga + por bucket de `dominant_favorite_strength`
+    - auditoría de sesgo (solo picks recomendados vs todos)
+
+- 🟡 SPRINT D5 (histórico en curso): cohortes + reportes multi-competición.
+- 🟡 REFACTOR-1 (pasos 2/3 y 3/3 + ingest_upcoming).
+- ⏳ F84.c/F84.d Lineups + Standings.
 
 ### Pendientes P2
-- ⏳ Expandir `team_name_translations.py`.
-- ⏳ Nuevas hipótesis de señal para O/U 2.5:
-  - features adicionales (lineups, std de xG, matchup/estilos, fatiga),
-  - calibración por liga (pero con guardrails anti-overfitting),
-  - o pivotear a otro mercado/línea.
+- ⏳ (Acordado) **NO construir aún Total Corners O/U** como motor principal.
 
 ---
 
 ## 4) Cierres recientes (bitácora)
 
-### ✅ SPRINT D12 — Cierre (NB Recalibration Wiring + UI “Riesgos ocultos del Under”) — COMPLETADO
-(Sin cambios; ver bitácora previa.)
-
----
-
-### ✅ SPRINT D13 — MLB Matchup Familiarity Overlay (D13.1) — COMPLETADO
-(Sin cambios; ver bitácora previa.)
-
----
-
-### ✅ SPRINT D13.2 — Matchup Familiarity Overlay extendido a ML/RL + Active Scoring — COMPLETADO
-(Sin cambios; ver bitácora previa.)
-
----
-
-### ✅ NIVEL 3 — Bloque 1 · Dynamic Run Distribution Mixer — COMPLETADO
-(Sin cambios; ver bitácora previa.)
-
----
-
-### ✅ NIVEL 3 — Bloque 2 (§1-§4) · Tail Calibration + Threshold Model + Blender **ACTIVO** — COMPLETADO
-(Sin cambios; ver bitácora previa.)
-
----
-
-### ✅ NIVEL 3 — Bloque 3 (§5-§6) · Under hard rules + UI “Distribución y colas” — COMPLETADO
-(Ver fases F97.1–F97.4.)
-
----
-
-### ✅ SPRINT D9.2 Block C — Residual Model con xG real (Bonferroni estricto) — COMPLETADO
-(Sin cambios; ver bitácora previa.)
+### ✅ Sprint Corner — Fase B.1 (Skellam P0): Guards + validación + tests + suite verde
+- Añadidos reason codes explicables para saturación y drivers dominantes.
+- `validate_skellam_coefs` para documentar colinealidad y magnitudes sospechosas.
+- +23 tests nuevos.
+- Suite backend en verde: **4463 passed**.
 
 ---
 
@@ -673,7 +459,7 @@ Tres caminos posibles, ordenados por costo/beneficio:
 
 - Backend: ejecutar `pytest` completo tras cambios.
 
-**Estado actual de la suite backend:** `4421 passed / 2 skipped` (0 regresiones).
+**Estado actual de la suite backend:** `4463 passed / 2 skipped` (0 regresiones).
 
 ---
 
@@ -689,6 +475,9 @@ Tres caminos posibles, ordenados por costo/beneficio:
   - `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY`.
   - `THE_ODDS_API_KEY=...`.
   - TheSportsDB: `THESPORTSDB_KEY=...`.
+  - Corner Engine:
+    - `ENABLE_CORNER_MOST_MODEL=true`
+    - `ENABLE_ASIAN_CORNERS_MODEL=true`
 
 ---
 
