@@ -604,6 +604,52 @@ async def get_team_xg_history(
                 "underlying_source": cached.get("underlying_source"),
             }
 
+    # ── Sprint-D9 Fix 2a: offline_seed FIRST (antes que online sources). ──
+    # Ahorra rate-limits / créditos Scrape.do cuando el seed ya tiene
+    # cobertura suficiente. Esta consulta corre SIEMPRE (incluso con
+    # force_refresh=True): la bandera force_refresh solo afecta a la
+    # decisión de retornar inmediatamente del seed o no, pero el
+    # seed_partial DEBE quedar disponible como fallback si los sources
+    # online fallan después.
+    seed_partial: list[dict] = []
+    try:
+        from .football_xg_offline_seed import get_offline_xg_history
+        seed_res = await get_offline_xg_history(db, team_name, league=league)
+        if seed_res and seed_res.get("matches"):
+            ms_seed = seed_res["matches"]
+            # Short-circuit: solo si NO se pidió force_refresh y el seed
+            # tiene cobertura completa, devolvemos directo (ahorra
+            # llamadas online innecesarias).
+            if not force_refresh and len(ms_seed) >= min_samples:
+                cache_doc = {
+                    "team_norm":         team_norm,
+                    "team_name":         seed_res.get("team_name") or team_name,
+                    "league":            league,
+                    "season":            season,
+                    "matches":           ms_seed,
+                    "fetched_at":        datetime.now(timezone.utc),
+                    "underlying_source": "offline_seed",
+                    "tried_sources":     ["offline_seed"],
+                }
+                await _persist_cache(db=db, doc=cache_doc)
+                return {
+                    "available":         True,
+                    "source":            "offline_seed",
+                    "team_name":         seed_res.get("team_name") or team_name,
+                    "matches":           ms_seed,
+                    "reason_code":       seed_res.get("reason_code")
+                                            or "XG_OFFLINE_SEED_HIT",
+                    "fetched_at":        _now_iso(),
+                    "from_cache":        False,
+                    "tried_sources":     ["offline_seed"],
+                    "underlying_source": "offline_seed",
+                }
+            # Seed disponible pero (force_refresh OR cobertura parcial)
+            # → guardarlo como fallback "best so far".
+            seed_partial = ms_seed
+    except Exception as _exc_seed:  # noqa: BLE001
+        log.info("[xg.cascade] offline_seed primary lookup failed: %s", _exc_seed)
+
     transport = transport or _default_scrape_transport
     thestatsapi_fetcher = thestatsapi_fetcher or _fetch_thestatsapi
 
@@ -640,46 +686,37 @@ async def get_team_xg_history(
             chosen  = src
 
     if not matches:
-        # ── Sprint-D9 fix: fallback al offline seed (dataset histórico). ──
-        # Si todos los sources online fallaron, intentamos servir desde
-        # el seed permanente (4338 matches EPL/LaLiga/SerieA/Bundesliga
-        # 2021-2023 con xG de Understat). Esto evita el "xG no
-        # normalizado para este partido" cuando Scrape.do está rate
-        # limited.
-        try:
-            from .football_xg_offline_seed import get_offline_xg_history
-            offline = await get_offline_xg_history(db, team_name, league=league)
-            if offline and offline.get("matches"):
-                ms_off = offline["matches"]
-                # Persistir en la cache caliente como "underlying_source=offline_seed"
-                cache_doc = {
-                    "team_norm":         team_norm,
-                    "team_name":         offline.get("team_name") or team_name,
-                    "league":            league,
-                    "season":            season,
-                    "matches":           ms_off,
-                    "fetched_at":        datetime.now(timezone.utc),
-                    "underlying_source": "offline_seed",
-                    "tried_sources":     tried + ["offline_seed"],
-                }
-                await _persist_cache(db=db, doc=cache_doc)
-                return {
-                    "available":         len(ms_off) >= min_samples,
-                    "source":            "offline_seed",
-                    "team_name":         offline.get("team_name") or team_name,
-                    "matches":           ms_off,
-                    "reason_code":       (
-                        offline.get("reason_code")
-                        if len(ms_off) >= min_samples
-                        else RC_INSUFFICIENT_SAMPLE
-                    ),
-                    "fetched_at":        _now_iso(),
-                    "from_cache":        False,
-                    "tried_sources":     tried + ["offline_seed"],
-                    "underlying_source": "offline_seed",
-                }
-        except Exception as _exc_off:  # noqa: BLE001
-            log.info("[xg.cascade] offline_seed fallback failed: %s", _exc_off)
+        # ── Sprint-D9 Fix 2a: usar seed_partial guardado al inicio del cascade. ──
+        # No re-consultamos offline_seed (ya lo hicimos arriba). Si el
+        # seed tenía matches pero menos de min_samples, los servimos
+        # ahora como "best available".
+        if seed_partial:
+            cache_doc = {
+                "team_norm":         team_norm,
+                "team_name":         team_name,
+                "league":            league,
+                "season":            season,
+                "matches":           seed_partial,
+                "fetched_at":        datetime.now(timezone.utc),
+                "underlying_source": "offline_seed",
+                "tried_sources":     tried + ["offline_seed"],
+            }
+            await _persist_cache(db=db, doc=cache_doc)
+            return {
+                "available":         len(seed_partial) >= min_samples,
+                "source":            "offline_seed",
+                "team_name":         team_name,
+                "matches":           seed_partial,
+                "reason_code":       (
+                    "XG_OFFLINE_SEED_HIT"
+                    if len(seed_partial) >= min_samples
+                    else RC_INSUFFICIENT_SAMPLE
+                ),
+                "fetched_at":        _now_iso(),
+                "from_cache":        False,
+                "tried_sources":     tried + ["offline_seed"],
+                "underlying_source": "offline_seed",
+            }
 
         return {
             "available":     False,
@@ -710,6 +747,23 @@ async def get_team_xg_history(
         "tried_sources":     tried,
     }
     await _persist_cache(db=db, doc=cache_doc)
+
+    # ── Sprint-D9 Fix 2b: promover el fetch online al offline_seed con
+    # merge inteligente (UNION + dedupe por date+opponent, conserva el
+    # conteo más alto). Esto hace que el seed crezca de forma orgánica
+    # con datos frescos online — útil especialmente para selecciones
+    # nacionales que no están en el dataset histórico inicial.
+    try:
+        if matches and chosen and chosen != "offline_seed":
+            from .football_xg_offline_seed import promote_online_matches_to_seed
+            promo = await promote_online_matches_to_seed(
+                db, team_name=team_name, league=league,
+                matches=matches, underlying_source=chosen,
+            )
+            log.info("[xg.cascade] promote→seed: %s", promo.get("action"))
+    except Exception as _exc_promote:  # noqa: BLE001
+        log.info("[xg.cascade] promote→seed failed (non-fatal): %s",
+                  _exc_promote)
 
     return {
         "available":         len(matches) >= min_samples,

@@ -1,22 +1,18 @@
 [
   {
-    "content": "Fix 1A: cascada MLB/Basketball",
+    "content": "Fix 1a: aliases nacionales",
     "status": "completed"
   },
   {
-    "content": "Fix 1B: mercados sport-aware",
+    "content": "Fix 1b: Endpoint bootstrap selecciones nacionales",
     "status": "completed"
   },
   {
-    "content": "Fix 1C: input manual de cuota Moneyball",
+    "content": "Fix 2a: cascade reordenado (offline_seed primero)",
     "status": "completed"
   },
   {
-    "content": "Fix 2A: F2_IDENTITY_REQUIRED 365Scores",
-    "status": "completed"
-  },
-  {
-    "content": "Fix 2B: cache persistente de historial xG por equipo (offline seed)",
+    "content": "Fix 2b: merge inteligente promocionar online → seed",
     "status": "completed"
   },
   {

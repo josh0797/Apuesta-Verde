@@ -1108,6 +1108,105 @@ async def xg_seed_from_historical_dataset() -> dict:
     }
 
 
+# Lista por defecto de selecciones nacionales para bootstrap (WC 2022 +
+# Euro 2024 + Copa América 2024 + selecciones top FIFA). Usada por
+# /api/football/xg/seed-national-teams cuando no se pasa lista custom.
+_DEFAULT_NATIONAL_TEAMS_FOR_SEED: list[str] = [
+    # CONMEBOL (Copa América 2024 + WC 2022 + clasificatorias)
+    "Argentina", "Brazil", "Uruguay", "Colombia", "Chile", "Peru", "Ecuador",
+    "Paraguay", "Bolivia", "Venezuela",
+    # UEFA (Euro 2024 + WC 2022)
+    "Spain", "England", "France", "Germany", "Italy", "Belgium", "Croatia",
+    "Portugal", "Switzerland", "Poland", "Denmark", "Sweden", "Netherlands",
+    "Czech Republic", "Turkey", "Ukraine", "Austria", "Hungary", "Romania",
+    "Scotland", "Serbia", "Greece", "Norway",
+    # CONCACAF (WC 2022 + Copa América 2024 + Gold Cup)
+    "Mexico", "USA", "Canada", "Costa Rica", "Panama", "Honduras",
+    "Jamaica", "Curacao",
+    # AFC (WC 2022 + Copa Asia)
+    "Saudi Arabia", "Japan", "South Korea", "Iran", "Iraq", "Qatar",
+    "Australia", "China",
+    # CAF (WC 2022 + Copa África)
+    "Morocco", "Tunisia", "Senegal", "Egypt", "Algeria", "Nigeria",
+    "Ghana", "Cameroon", "Ivory Coast", "South Africa",
+    # OFC + misc
+    "New Zealand", "Cape Verde",
+]
+
+
+class SeedNationalTeamsRequest(BaseModel):
+    """Body para el bootstrap de selecciones."""
+    teams: Optional[List[str]] = None       # None → usa la lista default
+    league_tag: str = "National Teams"      # cómo se etiqueta en el seed
+    max_concurrency: int = 4
+    timeout_per_team_s: float = 25.0
+
+
+@app.post("/api/football/xg/seed-national-teams")
+async def xg_seed_national_teams(payload: SeedNationalTeamsRequest) -> dict:
+    """Bootstrap selecciones nacionales en ``football_team_xg_offline_seed``.
+
+    Estrategia: iterar la lista de selecciones llamando a
+    ``get_team_xg_history`` que, gracias al Fix 2b (cascade reordenado +
+    promote online→seed con merge inteligente), poblará el seed cada vez
+    que un fetch online tenga éxito. Si Scrape.do está rate-limited, las
+    selecciones que fallen quedan pendientes y se pueden re-ejecutar.
+
+    Idempotente: re-llamar es seguro (el merge inteligente nunca pierde
+    matches existentes, solo añade o mejora).
+    """
+    import asyncio
+    from services.football_xg_real_client import get_team_xg_history
+    from services.football_xg_offline_seed import ensure_offline_indexes
+
+    teams = payload.teams or _DEFAULT_NATIONAL_TEAMS_FOR_SEED
+    await ensure_offline_indexes(db)
+
+    sem = asyncio.Semaphore(max(1, min(int(payload.max_concurrency), 8)))
+    results: list[dict] = []
+
+    async def _fetch_one(team_name: str) -> dict:
+        async with sem:
+            try:
+                res = await asyncio.wait_for(
+                    get_team_xg_history(
+                        team_name,
+                        league=payload.league_tag,
+                        db=db,
+                        force_refresh=False,  # respetar cache TTL
+                    ),
+                    timeout=payload.timeout_per_team_s,
+                )
+            except asyncio.TimeoutError:
+                return {"team": team_name, "available": False,
+                        "reason_code": "TIMEOUT"}
+            except Exception as exc:  # noqa: BLE001
+                return {"team": team_name, "available": False,
+                        "reason_code": "EXCEPTION", "error": str(exc)[:160]}
+            return {
+                "team":         team_name,
+                "available":    bool(res.get("available")),
+                "source":       res.get("source"),
+                "reason_code":  res.get("reason_code"),
+                "matches":      len(res.get("matches") or []),
+            }
+
+    results = await asyncio.gather(*[_fetch_one(t) for t in teams])
+
+    summary = {
+        "ok":               True,
+        "teams_processed":  len(results),
+        "league_tag":       payload.league_tag,
+        "available_count":  sum(1 for r in results if r.get("available")),
+        "by_source":        {},
+        "results":          results,
+    }
+    for r in results:
+        src = r.get("source") or "none"
+        summary["by_source"][src] = summary["by_source"].get(src, 0) + 1
+    return summary
+
+
 
 # ── Phase F82.1-adjust — Manual/Background 365Scores Corners Enrichment ──
 #

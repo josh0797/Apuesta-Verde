@@ -123,6 +123,174 @@ _TEAM_ALIASES: dict[str, str] = {
     "fc bayern":             "bayern munich",
     "bayern münchen":        "bayern munich",
     "bayern munchen":        "bayern munich",
+
+    # ── Selecciones nacionales (Sprint-D9 Fix 1a) ──────────────────
+    # Mapeo ES↔EN + variantes oficiales↔abreviadas. La clave es siempre
+    # el ASCII lowercase del nombre canónico-corto que usa Understat /
+    # FBref (sin "team", "national team", "selección de", etc.).
+    # España (Spain)
+    "espana":                "spain",
+    "españa":                "spain",
+    "seleccion de espana":   "spain",
+    "selección de españa":   "spain",
+    "spain national team":   "spain",
+    # Países Bajos / Holanda
+    "paises bajos":          "netherlands",
+    "países bajos":          "netherlands",
+    "holanda":               "netherlands",
+    "holland":               "netherlands",
+    # Inglaterra / England
+    "inglaterra":            "england",
+    # Francia / France
+    "francia":               "france",
+    # Alemania / Germany
+    "alemania":              "germany",
+    "deutschland":           "germany",
+    # Italia / Italy
+    "italia":                "italy",
+    # Bélgica / Belgium
+    "belgica":               "belgium",
+    "bélgica":               "belgium",
+    # Croacia / Croatia
+    "croacia":               "croatia",
+    "hrvatska":              "croatia",
+    # Portugal
+    "portugal":              "portugal",
+    # Suiza / Switzerland
+    "suiza":                 "switzerland",
+    # Polonia / Poland
+    "polonia":               "poland",
+    "polska":                "poland",
+    # Dinamarca / Denmark
+    "dinamarca":             "denmark",
+    # Suecia / Sweden
+    "suecia":                "sweden",
+    "sverige":               "sweden",
+    # Noruega / Norway
+    "noruega":               "norway",
+    "norge":                 "norway",
+    # Finlandia / Finland
+    "finlandia":             "finland",
+    "suomi":                 "finland",
+    # República Checa / Czech Republic
+    "republica checa":       "czech republic",
+    "república checa":       "czech republic",
+    "czechia":               "czech republic",
+    # Turquía / Turkey
+    "turquia":               "turkey",
+    "turquía":               "turkey",
+    "türkiye":               "turkey",
+    "turkiye":               "turkey",
+    # Ucrania / Ukraine
+    "ucrania":               "ukraine",
+    # Austria
+    "austria":               "austria",
+    # Hungría / Hungary
+    "hungria":               "hungary",
+    "hungría":               "hungary",
+    "magyarország":          "hungary",
+    "magyarorszag":          "hungary",
+    # Rumania / Romania
+    "rumania":               "romania",
+    "rumanía":               "romania",
+    "románia":               "romania",
+    # Escocia / Scotland
+    "escocia":               "scotland",
+    # Albania
+    "albania":               "albania",
+    "shqipëria":             "albania",
+    "shqiperia":             "albania",
+    # Grecia / Greece
+    "grecia":                "greece",
+    # Serbia / Srbija
+    "serbia":                "serbia",
+    "srbija":                "serbia",
+    # Sudamérica
+    # Argentina
+    "argentina":             "argentina",
+    "seleccion argentina":   "argentina",
+    "selección argentina":   "argentina",
+    # Brasil / Brazil
+    "brasil":                "brazil",
+    # Uruguay
+    "uruguay":               "uruguay",
+    # Colombia
+    "colombia":              "colombia",
+    # Chile
+    "chile":                 "chile",
+    # Perú / Peru
+    "peru":                  "peru",
+    "perú":                  "peru",
+    # Ecuador
+    "ecuador":               "ecuador",
+    # Paraguay
+    "paraguay":              "paraguay",
+    # Bolivia
+    "bolivia":               "bolivia",
+    # Venezuela
+    "venezuela":             "venezuela",
+    # CONCACAF / Centro-Norteamérica
+    # México / Mexico
+    "mexico":                "mexico",
+    "méxico":                "mexico",
+    # Estados Unidos / USA
+    "estados unidos":        "usa",
+    "united states":         "usa",
+    "us":                    "usa",
+    "usmnt":                 "usa",
+    # Canadá / Canada
+    "canada":                "canada",
+    "canadá":                "canada",
+    # Costa Rica
+    "costa rica":            "costa rica",
+    # Panamá / Panama
+    "panama":                "panama",
+    "panamá":                "panama",
+    # Honduras
+    "honduras":              "honduras",
+    # Curaçao (caso de la captura del usuario)
+    "curacao":               "curacao",
+    "curaçao":               "curacao",
+    # Jamaica
+    "jamaica":               "jamaica",
+    # África
+    "marruecos":             "morocco",
+    "túnez":                 "tunisia",
+    "tunez":                 "tunisia",
+    "senegal":               "senegal",
+    "egipto":                "egypt",
+    "argelia":               "algeria",
+    "nigeria":               "nigeria",
+    "ghana":                 "ghana",
+    "camerun":               "cameroon",
+    "camerún":               "cameroon",
+    "costa de marfil":       "ivory coast",
+    "côte d'ivoire":         "ivory coast",
+    "cote d'ivoire":         "ivory coast",
+    "sudafrica":             "south africa",
+    "sudáfrica":             "south africa",
+    # Asia
+    "arabia saudita":        "saudi arabia",
+    "arabia saudi":          "saudi arabia",
+    "japon":                 "japan",
+    "japón":                 "japan",
+    "corea del sur":         "south korea",
+    "korea republic":        "south korea",
+    "republic of korea":     "south korea",
+    "iran":                  "iran",
+    "irán":                  "iran",
+    "iraq":                  "iraq",
+    "qatar":                 "qatar",
+    "catar":                 "qatar",
+    "australia":             "australia",
+    "nueva zelanda":         "new zealand",
+    "china":                 "china",
+    "china pr":              "china",
+    "india":                 "india",
+    "tailandia":             "thailand",
+    "vietnam":               "vietnam",
+    # Cabo Verde (caso de la captura: Uruguay vs Cape Verde)
+    "cabo verde":            "cape verde",
 }
 
 
@@ -279,6 +447,11 @@ async def get_offline_xg_history(
     Si ``league`` es ``None``, busca en cualquier liga (toma la primera
     coincidencia con más matches). Si se pasa ``league``, filtra por
     coincidencia exacta.
+
+    Sprint-D9 Fix 2: además del lookup por team_norm canónico, si no se
+    encuentra y ``league`` no se especifica, intenta el match por el
+    team_name CRUDO (sin pasar por aliases) como último recurso, por si
+    el dataset tiene el equipo con un nombre no aliased.
     """
     if db is None or not team_name:
         return None
@@ -336,4 +509,150 @@ __all__ = [
     "ensure_offline_indexes",
     "persist_seed",
     "get_offline_xg_history",
+    "promote_online_matches_to_seed",
+    "merge_matches_dedupe",
 ]
+
+
+# ============================================================
+# Sprint-D9 Fix 2b — Promoción online → seed (merge inteligente)
+# ============================================================
+
+def _match_key(m: dict) -> tuple:
+    """Genera una key estable para dedupe: (date, opponent_normalized)."""
+    date = (m.get("date") or "").strip()
+    opp_raw = m.get("opponent") or ""
+    opp_norm = _norm_team(opp_raw)
+    return (date, opp_norm)
+
+
+def merge_matches_dedupe(
+    existing: list[dict],
+    incoming: list[dict],
+) -> list[dict]:
+    """UNION-merge de dos listas de matches con dedupe por (date, opponent).
+
+    Estrategia:
+      * Indexar ``existing`` por ``_match_key``.
+      * Para cada match en ``incoming``: si la key ya existe, conservar
+        el que tenga xG numérico (preferir incoming si ambos lo tienen
+        — son más frescos). Si la key NO existe, append.
+      * Sort final por date asc.
+
+    Esto es seguro: nunca pierde matches del existing; solo añade o
+    actualiza con datos más recientes.
+    """
+    if not incoming:
+        return list(existing or [])
+    if not existing:
+        return list(incoming)
+
+    by_key: dict[tuple, dict] = {}
+    for m in existing:
+        by_key[_match_key(m)] = m
+    for m in incoming:
+        k = _match_key(m)
+        prev = by_key.get(k)
+        if prev is None:
+            by_key[k] = m
+            continue
+        # Mantener prev a menos que incoming traiga xG que prev no tiene.
+        prev_has_xg = (prev.get("xg_for") is not None
+                        or prev.get("xg_against") is not None)
+        new_has_xg = (m.get("xg_for") is not None
+                       or m.get("xg_against") is not None)
+        if new_has_xg and not prev_has_xg:
+            by_key[k] = m
+        elif new_has_xg and prev_has_xg:
+            # Incoming es más reciente — preferir
+            by_key[k] = m
+
+    merged = sorted(by_key.values(), key=lambda r: r.get("date") or "")
+    return merged
+
+
+async def promote_online_matches_to_seed(
+    db: Any,
+    *,
+    team_name: str,
+    league: Optional[str],
+    matches: list[dict],
+    underlying_source: Optional[str] = None,
+) -> dict:
+    """Promueve matches fetched online al offline_seed con merge inteligente.
+
+    Si el (team_norm, league) ya existe en el seed, hace UNION+dedupe
+    con la lista actual y persiste el resultado SOLO si:
+      * el merged tiene MÁS matches que el existente, O
+      * el merged tiene la misma cantidad pero al menos un match con
+        ``xg_for`` no nulo que antes era nulo.
+
+    Devuelve ``{action, before_count, after_count, league, team_norm}``.
+    Nunca raises; en caso de fallo retorna ``{action: "skipped",
+    reason: str}``.
+    """
+    if db is None or not team_name or not matches:
+        return {"action": "skipped", "reason": "missing_inputs"}
+    try:
+        coll = db[OFFLINE_COLLECTION]
+    except Exception as exc:  # noqa: BLE001
+        return {"action": "skipped", "reason": f"no_collection: {exc}"}
+
+    team_norm = _canonicalize_team(team_name)
+    lg = league or "Unknown"
+
+    try:
+        existing_doc = await coll.find_one({"team_norm": team_norm, "league": lg})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[xg_offline_seed.promote] find_one failed: %s", exc)
+        existing_doc = None
+
+    existing_matches: list[dict] = (existing_doc or {}).get("matches") or []
+    before_count = len(existing_matches)
+    merged = merge_matches_dedupe(existing_matches, matches)
+    after_count = len(merged)
+
+    # Solo persistir si hay mejora: más matches o mejor xG coverage.
+    new_with_xg = sum(1 for m in merged if m.get("xg_for") is not None)
+    prev_with_xg = sum(1 for m in existing_matches if m.get("xg_for") is not None)
+    has_improvement = (after_count > before_count) or (new_with_xg > prev_with_xg)
+    if not has_improvement:
+        return {
+            "action":       "no_change",
+            "before_count": before_count,
+            "after_count":  after_count,
+            "team_norm":    team_norm,
+            "league":       lg,
+        }
+
+    doc = {
+        "team_norm":     team_norm,
+        "team_name":     team_name,
+        "league":        lg,
+        "matches":       merged,
+        "matches_count": after_count,
+        "seeded_at":     datetime.now(timezone.utc),
+        "source":        "promoted_from_online",
+        "underlying_source": underlying_source or "unknown",
+    }
+    try:
+        await coll.update_one(
+            {"team_norm": team_norm, "league": lg},
+            {"$set": doc},
+            upsert=True,
+        )
+        log.info(
+            "[xg_offline_seed.promote] %s|%s: %d → %d matches (source=%s)",
+            team_norm, lg, before_count, after_count, underlying_source,
+        )
+        return {
+            "action":       "promoted",
+            "before_count": before_count,
+            "after_count":  after_count,
+            "team_norm":    team_norm,
+            "league":       lg,
+            "delta":        after_count - before_count,
+        }
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[xg_offline_seed.promote] upsert failed: %s", exc)
+        return {"action": "skipped", "reason": f"upsert_failed: {exc}"}
