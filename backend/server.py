@@ -1207,6 +1207,183 @@ async def xg_seed_national_teams(payload: SeedNationalTeamsRequest) -> dict:
     return summary
 
 
+# ──────────────────────────────────────────────────────────────────
+# Sprint-D9 Iteration-3 · Corners Offline Seed (mismo patrón que xG).
+#
+# POST /api/football/corners/seed-from-historical-dataset
+#   Bootstrap inicial del seed con los 4338 partidos del dataset
+#   (home_corners / away_corners por equipo y liga). Idempotente.
+#
+# POST /api/football/corners/seed-national-teams
+#   Itera selecciones nacionales llamando al cascade v2 con
+#   ``team_name`` (no team_id). Cada fetch online exitoso puebla el
+#   seed automáticamente vía promote_online_matches_to_seed.
+#
+# GET /api/football/corners/team-history?team=X&league=Y&windows=5,15
+#   Devuelve L{N} stats agregadas + el shape "raw" de los últimos
+#   matches. Sirve al frontend para mostrar L5/L15 en el CornerEngineCard.
+# ──────────────────────────────────────────────────────────────────
+@app.post("/api/football/corners/seed-from-historical-dataset")
+async def corners_seed_from_historical_dataset() -> dict:
+    """Bootstrap idempotente del seed offline de corners."""
+    from services.football_corners_offline_seed import (
+        build_seed_from_dataset, ensure_offline_indexes, persist_seed,
+    )
+    docs = build_seed_from_dataset()
+    if not docs:
+        return {
+            "ok": False, "reason": "DATASET_NOT_FOUND_OR_EMPTY",
+            "message": "Dataset histórico no encontrado o vacío.",
+        }
+    await ensure_offline_indexes(db)
+    result = await persist_seed(db, docs)
+    return {
+        "ok":           True,
+        "built_docs":   len(docs),
+        "leagues_seen": sorted({d["league"] for d in docs}),
+        "teams_total":  len({d["team_norm"] for d in docs}),
+        **result,
+    }
+
+
+class SeedNationalTeamsCornersRequest(BaseModel):
+    """Body para el bootstrap de selecciones (corners)."""
+    teams: Optional[List[str]] = None
+    league_tag: str = "National Teams"
+    max_concurrency: int = 4
+    timeout_per_team_s: float = 25.0
+
+
+@app.post("/api/football/corners/seed-national-teams")
+async def corners_seed_national_teams(
+    payload: SeedNationalTeamsCornersRequest,
+) -> dict:
+    """Bootstrap selecciones en el seed offline de corners.
+
+    Itera por la lista de selecciones llamando a ``fetch_team_corners_history_v2``
+    (cascade v2 = offline-first + promote). Cada selección cuyo fetch
+    online tenga éxito quedará persistida en el seed gracias al promote.
+    """
+    import asyncio
+    from services.football_corners_history import (
+        fetch_team_corners_history_v2,
+    )
+    from services.football_corners_offline_seed import ensure_offline_indexes
+
+    teams = payload.teams or _DEFAULT_NATIONAL_TEAMS_FOR_SEED
+    await ensure_offline_indexes(db)
+
+    sem = asyncio.Semaphore(max(1, min(int(payload.max_concurrency), 8)))
+    results: list[dict] = []
+
+    async def _fetch_one(team_name: str) -> dict:
+        async with sem:
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    res = await asyncio.wait_for(
+                        fetch_team_corners_history_v2(
+                            client, db,
+                            team_name=team_name,
+                            league=payload.league_tag,
+                            force_refresh=False,
+                        ),
+                        timeout=payload.timeout_per_team_s,
+                    )
+            except asyncio.TimeoutError:
+                return {"team": team_name, "available": False,
+                        "reason_code": "TIMEOUT"}
+            except Exception as exc:  # noqa: BLE001
+                return {"team": team_name, "available": False,
+                        "reason_code": "EXCEPTION",
+                        "error": str(exc)[:160]}
+            return {
+                "team":         team_name,
+                "available":    bool(res.get("available")),
+                "source":       res.get("source"),
+                "matches":      len(res.get("history") or []),
+            }
+
+    results = await asyncio.gather(*[_fetch_one(t) for t in teams])
+    summary = {
+        "ok":              True,
+        "teams_processed": len(results),
+        "league_tag":      payload.league_tag,
+        "available_count": sum(1 for r in results if r.get("available")),
+        "by_source":       {},
+        "results":         results,
+    }
+    for r in results:
+        src = r.get("source") or "none"
+        summary["by_source"][src] = summary["by_source"].get(src, 0) + 1
+    return summary
+
+
+@app.get("/api/football/corners/team-history")
+async def corners_team_history(
+    team: str,
+    league: Optional[str] = None,
+    windows: str = "5,15",
+) -> dict:
+    """Devuelve historial L{N} de corners para un equipo (sport-aware).
+
+    Estrategia: usa ``fetch_team_corners_history_v2`` con ``team_name`` —
+    la cascade resuelve aliases automáticamente y rescata desde el seed
+    permanente cuando los sources online están rate-limited.
+
+    Query params:
+      * ``team`` (req): nombre del equipo / selección.
+      * ``league`` (opt): filtro de liga (EPL, LaLiga, "National Teams"…).
+      * ``windows`` (opt, default "5,15"): lista de ventanas a calcular.
+    """
+    from services.football_corners_history import fetch_team_corners_history_v2
+    from services.football_corners_offline_seed import compute_window_stats
+
+    if not team:
+        raise HTTPException(status_code=400, detail="team is required")
+
+    try:
+        win_list = [int(x.strip()) for x in windows.split(",") if x.strip()]
+        win_list = [w for w in win_list if 1 <= w <= 100]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="windows must be CSV ints")
+    if not win_list:
+        win_list = [5, 15]
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        res = await fetch_team_corners_history_v2(
+            client, db, team_name=team, league=league,
+        )
+
+    history = res.get("history") or []
+    # Adaptar a shape {corners_for, corners_against, date, opponent} si vino de v1
+    normalized = [{
+        "date":             m.get("date"),
+        "opponent":         m.get("opponent"),
+        "corners_for":      m.get("corners_for"),
+        "corners_against":  m.get("corners_against"),
+        "venue":            m.get("venue"),
+        "season":           m.get("season"),
+    } for m in history]
+    # Sort por date asc para que las windows tomen los más recientes al final.
+    normalized.sort(key=lambda m: m.get("date") or "")
+
+    windows_out: dict[str, dict] = {}
+    for w in win_list:
+        windows_out[f"L{w}"] = compute_window_stats(normalized, window=w)
+
+    return {
+        "ok":            True,
+        "team":          team,
+        "league":        league,
+        "source":        res.get("source"),
+        "available":     bool(res.get("available")),
+        "reason_codes":  res.get("reason_codes") or [],
+        "windows":       windows_out,
+        "matches_count": len(normalized),
+        "recent":        normalized[-max(win_list):][::-1],  # más recientes primero
+    }
+
+
 
 # ── Phase F82.1-adjust — Manual/Background 365Scores Corners Enrichment ──
 #

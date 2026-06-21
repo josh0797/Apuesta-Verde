@@ -1,22 +1,18 @@
 [
   {
-    "content": "Fix 1a: aliases nacionales",
+    "content": "Refactor + cascade + endpoints corners (todos)",
     "status": "completed"
   },
   {
-    "content": "Fix 1b: Endpoint bootstrap selecciones nacionales",
+    "content": "UI: integrar L5/L15 + sparkline en CornerEngineCard",
     "status": "completed"
   },
   {
-    "content": "Fix 2a: cascade reordenado (offline_seed primero)",
+    "content": "Tests (aliases compartidos, bootstrap, cascade, fallback, promote)",
     "status": "completed"
   },
   {
-    "content": "Fix 2b: merge inteligente promocionar online → seed",
-    "status": "completed"
-  },
-  {
-    "content": "Tests + pytest completo + lint",
+    "content": "Suite pytest + lint completos",
     "status": "completed"
   }
 ]

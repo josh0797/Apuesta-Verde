@@ -482,8 +482,221 @@ async def fetch_team_corners_history(
     return {"history": [], "source": "none", "reason_codes": reasons}
 
 
+# ============================================================
+# Sprint-D9 Iteration-3 · V2 cascade: offline_seed first + promote
+# ============================================================
+
+async def fetch_team_corners_history_v2(
+    client: Optional[httpx.AsyncClient],
+    db,
+    *,
+    team_name: str,
+    league: Optional[str] = None,
+    team_id_thestatsapi: Optional[str] = None,
+    team_id_apisports: Optional[int | str] = None,
+    season: int | str | None = None,
+    n: int = _DEFAULT_N,
+    min_sample: int = 5,
+    use_cache: bool = True,
+    include_all_competitions: bool = False,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    """Cascade reordenado: offline_seed primero → online sources → promote.
+
+    Hermano de ``services.football_xg_real_client.get_team_xg_history``
+    pero para corners. Acepta ``team_name`` (no requiere team_id) y usa
+    el módulo de aliases compartido para resolver el equipo en el seed
+    permanente.
+
+    Pipeline::
+
+        1. Cache TTL hit (``team_corners_history`` 24h, keyed por team_id)
+           — solo si se pasa team_id_thestatsapi o team_id_apisports.
+        2. **offline_seed primary** (NEW):
+              * Si tiene ≥ min_sample y NO force_refresh → short-circuit.
+              * Si tiene < min_sample → guardar como ``seed_partial``.
+        3. Online cascade (TheStatsAPI → API-Sports) idéntico a v1.
+        4. Si online OK → **promote_online_matches_to_seed** (NEW).
+        5. Si online FALLA → devolver ``seed_partial`` si existe.
+
+    Returns::
+
+        {
+          "history":      [...],
+          "source":       "offline_seed" | "thestatsapi" | "api_sports"
+                          | "thestatsapi+api_sports" | "cache" | "none",
+          "available":    bool,
+          "reason_codes": [...],
+        }
+    """
+    reasons: list[str] = []
+    tried: list[str] = []
+
+    # 1) Cache TTL legacy (team_id keyed).
+    if use_cache and not force_refresh:
+        for tid, src in (
+            (team_id_thestatsapi, "thestatsapi"),
+            (team_id_apisports,   "api_sports"),
+        ):
+            if not tid:
+                continue
+            cached = await _read_cache(db, tid, src)
+            if cached and len(cached) >= 1:
+                reasons.append(f"CORNERS_CACHE_HIT_{src.upper()}")
+                return {
+                    "history":      cached,
+                    "source":       "cache",
+                    "available":    len(cached) >= min_sample,
+                    "reason_codes": reasons,
+                }
+
+    # 2) offline_seed PRIMARY (Sprint-D9 Iteration-3).
+    seed_partial: list[dict] = []
+    seed_team_name: Optional[str] = None
+    try:
+        from .football_corners_offline_seed import (
+            get_offline_corners_history,
+        )
+        seed_res = await get_offline_corners_history(
+            db, team_name, league=league,
+        )
+        tried.append("offline_seed")
+        if seed_res and seed_res.get("matches"):
+            ms_seed = seed_res["matches"]
+            # Adaptar al shape esperado por v1 (match_id, corners_for, corners_against)
+            adapted = [{
+                "match_id":         _seed_match_id(m, idx),
+                "corners_for":      m.get("corners_for"),
+                "corners_against":  m.get("corners_against"),
+                "date":             m.get("date"),
+                "opponent":         m.get("opponent"),
+                "venue":            m.get("venue"),
+                "season":           m.get("season"),
+                "_from_seed":       True,
+            } for idx, m in enumerate(ms_seed)]
+            seed_team_name = seed_res.get("team_name")
+            if not force_refresh and len(adapted) >= min_sample:
+                reasons.append("CORNERS_OFFLINE_SEED_HIT")
+                return {
+                    "history":      adapted,
+                    "source":       "offline_seed",
+                    "available":    True,
+                    "reason_codes": reasons,
+                }
+            seed_partial = adapted
+    except Exception as _exc_seed:  # noqa: BLE001
+        log.info("[corners.cascade_v2] offline_seed lookup failed: %s",
+                  _exc_seed)
+
+    # 3) Online sources (TheStatsAPI + API-Sports).
+    online_matches: list[dict] = []
+    chosen_source: Optional[str] = None
+    if team_id_thestatsapi:
+        tried.append("thestatsapi")
+        hist, rc = await fetch_team_corners_history_thestatsapi(
+            client, db, team_id=str(team_id_thestatsapi), n=n,
+        )
+        reasons.extend(rc)
+        if hist:
+            online_matches = hist
+            chosen_source = "thestatsapi"
+        elif team_id_apisports:
+            ts_partial = []
+    if team_id_apisports:
+        tried.append("api_sports")
+        hist_as, rc_as = await fetch_team_corners_history_apisports(
+            client, db, team_id=team_id_apisports, season=season, n=n,
+            include_all_competitions=include_all_competitions,
+        )
+        reasons.extend(rc_as)
+        if hist_as:
+            # Merge con TheStatsAPI partial (dedupe por match_id).
+            seen_ids = {h["match_id"] for h in online_matches}
+            merged_online = list(online_matches) + [
+                h for h in hist_as if h["match_id"] not in seen_ids
+            ]
+            online_matches = merged_online
+            chosen_source = (
+                "thestatsapi+api_sports" if chosen_source else "api_sports"
+            )
+
+    # 4) Si online produjo data → cache TTL + promote al seed permanente.
+    if online_matches:
+        # Cache TTL legacy (mantiene back-compat con código que lo lee).
+        cache_key_id = team_id_apisports if (
+            chosen_source and "api_sports" in chosen_source
+        ) else team_id_thestatsapi
+        cache_src = "api_sports" if (
+            chosen_source and "api_sports" in chosen_source
+        ) else "thestatsapi"
+        if cache_key_id:
+            await _write_cache(db, cache_key_id, cache_src, online_matches)
+
+        # Promote al seed permanente (merge inteligente).
+        try:
+            from .football_corners_offline_seed import (
+                promote_online_matches_to_seed,
+            )
+            # Adaptar el shape v1 → shape seed (necesita date + opponent).
+            promote_payload = [{
+                "date":            h.get("date") or h.get("event_date"),
+                "opponent":        h.get("opponent") or h.get("opponent_name"),
+                "corners_for":     h.get("corners_for"),
+                "corners_against": h.get("corners_against"),
+                "venue":           h.get("venue"),
+                "season":          h.get("season") or str(season) if season else None,
+                "match_id":        h.get("match_id"),
+            } for h in online_matches if (h.get("date") or h.get("event_date"))]
+            if promote_payload:
+                promo = await promote_online_matches_to_seed(
+                    db, team_name=team_name, league=league or "Unknown",
+                    matches=promote_payload,
+                    underlying_source=chosen_source,
+                )
+                log.info("[corners.cascade_v2] promote→seed: %s",
+                          promo.get("action"))
+        except Exception as _exc_promote:  # noqa: BLE001
+            log.info("[corners.cascade_v2] promote→seed failed: %s",
+                      _exc_promote)
+
+        return {
+            "history":      online_matches,
+            "source":       chosen_source or "online",
+            "available":    len(online_matches) >= min_sample,
+            "reason_codes": reasons,
+        }
+
+    # 5) Online falló → usar seed_partial como fallback.
+    if seed_partial:
+        reasons.append("CORNERS_OFFLINE_SEED_FALLBACK")
+        return {
+            "history":      seed_partial,
+            "source":       "offline_seed",
+            "available":    len(seed_partial) >= min_sample,
+            "reason_codes": reasons,
+        }
+
+    reasons.append("CORNERS_ALL_SOURCES_FAILED")
+    return {
+        "history":      [],
+        "source":       "none",
+        "available":    False,
+        "reason_codes": reasons,
+    }
+
+
+def _seed_match_id(m: dict, idx: int) -> str:
+    """Genera un match_id sintético para matches venidos del seed
+    (no provienen de un proveedor con match_id real)."""
+    explicit = m.get("match_id")
+    if explicit:
+        return str(explicit)
+    return f"seed:{(m.get('date') or '')}:{(m.get('opponent') or '')}:{idx}"
+
+
 __all__ = [
     "fetch_team_corners_history",
     "fetch_team_corners_history_thestatsapi",
     "fetch_team_corners_history_apisports",
+    "fetch_team_corners_history_v2",
 ]

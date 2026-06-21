@@ -16,10 +16,10 @@
  *   • ERROR — banner con razón legible.
  *   • REAL_ODDS_NOT_AVAILABLE — warning específico arriba de Asian Corners.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   TrendingUp, TrendingDown, AlertTriangle, AlertCircle,
-  Goal, Target, Info, RefreshCcw, ShieldAlert,
+  Goal, Target, Info, RefreshCcw, ShieldAlert, History,
 } from 'lucide-react';
 
 import { api } from '@/lib/api';
@@ -221,6 +221,236 @@ function AsianCornersSection({ markets, hasRealOdds }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+//   Sprint-D9 Iteration-3 — Corner History L5/L15 + sparkline
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Mini SVG sparkline. Renders a polyline + dot for the last value.
+ * - values: array of numbers (typically 5 ó 15 corners por partido)
+ * - color: tailwind color slug for the stroke ('emerald' | 'sky' | …)
+ */
+function Sparkline({ values = [], color = 'emerald', width = 80, height = 22 }) {
+  if (!Array.isArray(values) || values.length < 2) {
+    return (
+      <div
+        className="text-[10px] text-zinc-500"
+        style={{ width, height }}
+        data-testid="sparkline-empty"
+      >
+        n/d
+      </div>
+    );
+  }
+  const min = Math.min(...values, 0);
+  const max = Math.max(...values, 1);
+  const range = max - min || 1;
+  const stepX = width / (values.length - 1);
+  const points = values
+    .map((v, i) => {
+      const x = i * stepX;
+      const y = height - ((v - min) / range) * (height - 4) - 2;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+  const last = values[values.length - 1];
+  const lastX = (values.length - 1) * stepX;
+  const lastY = height - ((last - min) / range) * (height - 4) - 2;
+  const stroke =
+    color === 'sky' ? '#38bdf8'
+    : color === 'rose' ? '#fb7185'
+    : color === 'amber' ? '#fbbf24'
+    : '#34d399';
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label={`sparkline ${color}`}
+      data-testid={`sparkline-${color}`}
+    >
+      <polyline
+        fill="none"
+        stroke={stroke}
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points}
+      />
+      <circle cx={lastX} cy={lastY} r="2" fill={stroke} />
+    </svg>
+  );
+}
+
+/**
+ * Renders a single team's L5/L15 averages + sparkline.
+ */
+function TeamCornerWindow({ label, side, windows, recent }) {
+  const l5  = windows?.L5  || {};
+  const l15 = windows?.L15 || {};
+  const sparkValues = (recent || [])
+    .map((m) => m.corners_for)
+    .filter((v) => v != null)
+    .slice(-15);
+  const color = side === 'home' ? 'emerald' : 'sky';
+  const labelClr =
+    side === 'home' ? 'text-emerald-200' : 'text-sky-200';
+  return (
+    <div
+      className="rounded-lg border border-zinc-700/50 bg-zinc-900/40 p-3 space-y-2"
+      data-testid={`corner-history-${side}`}
+    >
+      <div className="flex items-center justify-between">
+        <span className={`text-xs font-semibold truncate ${labelClr}`}>{label}</span>
+        <Sparkline values={sparkValues} color={color} />
+      </div>
+      <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+        <div className="rounded-md bg-zinc-800/40 px-2 py-1.5">
+          <div className="text-zinc-500 uppercase text-[9px] tracking-wide">L5 a favor</div>
+          <div className="font-mono text-zinc-100">
+            {l5.corners_for_avg ?? '—'}
+            <span className="text-zinc-500 ml-1">({l5.sample_size ?? 0})</span>
+          </div>
+        </div>
+        <div className="rounded-md bg-zinc-800/40 px-2 py-1.5">
+          <div className="text-zinc-500 uppercase text-[9px] tracking-wide">L5 en contra</div>
+          <div className="font-mono text-zinc-100">
+            {l5.corners_against_avg ?? '—'}
+          </div>
+        </div>
+        <div className="rounded-md bg-zinc-800/40 px-2 py-1.5">
+          <div className="text-zinc-500 uppercase text-[9px] tracking-wide">L15 a favor</div>
+          <div className="font-mono text-zinc-100">
+            {l15.corners_for_avg ?? '—'}
+            <span className="text-zinc-500 ml-1">({l15.sample_size ?? 0})</span>
+          </div>
+        </div>
+        <div className="rounded-md bg-zinc-800/40 px-2 py-1.5">
+          <div className="text-zinc-500 uppercase text-[9px] tracking-wide">L15 en contra</div>
+          <div className="font-mono text-zinc-100">
+            {l15.corners_against_avg ?? '—'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * CornerHistoryPanel: dual-fetch (home & away) → renders both windows.
+ *
+ * Lazy-fetches when the tab is opened (data-tab gated). The seed is
+ * preferred via the backend cascade, so this is rate-limit friendly.
+ */
+function CornerHistoryPanel({ context }) {
+  const [state, setState] = useState({
+    status: 'idle', home: null, away: null, error: null,
+  });
+
+  const homeName = context?.home_team || context?.home_team_name;
+  const awayName = context?.away_team || context?.away_team_name;
+  const league   = context?.league || context?.competition || null;
+
+  const fetchBoth = useCallback(async () => {
+    if (!homeName || !awayName) {
+      setState({
+        status: 'error', home: null, away: null,
+        error: 'Falta home_team / away_team en el context.',
+      });
+      return;
+    }
+    setState((s) => ({ ...s, status: 'loading', error: null }));
+    try {
+      const params = (team) => ({
+        team, league: league || undefined, windows: '5,15',
+      });
+      const [hRes, aRes] = await Promise.all([
+        api.get('/api/football/corners/team-history', { params: params(homeName) }),
+        api.get('/api/football/corners/team-history', { params: params(awayName) }),
+      ]);
+      setState({
+        status: 'ok',
+        home: hRes?.data || null,
+        away: aRes?.data || null,
+        error: null,
+      });
+    } catch (e) {
+      setState({
+        status: 'error', home: null, away: null,
+        error: e?.message || 'Network error',
+      });
+    }
+  }, [homeName, awayName, league]);
+
+  useEffect(() => { fetchBoth(); }, [fetchBoth]);
+
+  if (state.status === 'loading') {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3"
+            data-testid="corner-history-loading">
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    );
+  }
+  if (state.status === 'error') {
+    return (
+      <div className="text-xs text-amber-200/80 flex items-center gap-1.5"
+            data-testid="corner-history-error">
+        <AlertCircle className="h-3.5 w-3.5" />
+        {state.error}
+      </div>
+    );
+  }
+
+  const homeAvailable = state.home?.available;
+  const awayAvailable = state.away?.available;
+  const anyUnavailable = !homeAvailable || !awayAvailable;
+
+  return (
+    <div className="space-y-3" data-testid="corner-history-panel">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <TeamCornerWindow
+          label={homeName}
+          side="home"
+          windows={state.home?.windows}
+          recent={state.home?.recent}
+        />
+        <TeamCornerWindow
+          label={awayName}
+          side="away"
+          windows={state.away?.windows}
+          recent={state.away?.recent}
+        />
+      </div>
+      <div className="flex items-center justify-between text-[10px] text-zinc-500"
+            data-testid="corner-history-meta">
+        <div className="flex items-center gap-2">
+          <span>Fuentes:</span>
+          {state.home?.source && (
+            <Badge variant="outline" className="text-[9px] px-1.5 py-0">
+              {homeName}: {state.home.source}
+            </Badge>
+          )}
+          {state.away?.source && (
+            <Badge variant="outline" className="text-[9px] px-1.5 py-0">
+              {awayName}: {state.away.source}
+            </Badge>
+          )}
+        </div>
+        {anyUnavailable && (
+          <span className="text-amber-300 inline-flex items-center gap-1">
+            <ShieldAlert className="h-3 w-3" />
+            Datos parciales (muestra &lt; 5)
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 //   Main exported component
 // ─────────────────────────────────────────────────────────────────────
 
@@ -342,7 +572,7 @@ export function CornerEngineCard({ context, autoLoad = true }) {
       </div>
 
       <Tabs defaultValue="most" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="most" data-testid="tab-most-corners">
             <Target className="h-3.5 w-3.5 mr-1.5" />
             Most Corners
@@ -353,6 +583,10 @@ export function CornerEngineCard({ context, autoLoad = true }) {
             {hasRealOdds ? null : (
               <span className="ml-1.5 text-[9px] text-amber-400">·sin cuotas</span>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="history" data-testid="tab-corner-history">
+            <History className="h-3.5 w-3.5 mr-1.5" />
+            Historial L5/L15
           </TabsTrigger>
         </TabsList>
         <TabsContent value="most" className="pt-3">
@@ -370,6 +604,9 @@ export function CornerEngineCard({ context, autoLoad = true }) {
             : <div className="text-xs text-zinc-400 py-2">
                 Asian Corners desactivado.
               </div>}
+        </TabsContent>
+        <TabsContent value="history" className="pt-3">
+          <CornerHistoryPanel context={context} />
         </TabsContent>
       </Tabs>
     </div>
