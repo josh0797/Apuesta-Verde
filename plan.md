@@ -439,6 +439,62 @@
 
 ## 4) Cierres recientes (bitácora)
 
+### ⚖️ Sprint-D9-HOTFIX4 — **Sofascore Referee Extractor (HTML + Scrape.do)**
+
+> Pedido del usuario: extraer principalmente datos del árbitro (nombre,
+> país, promedio de tarjetas amarillas y rojas) parseando el HTML
+> público de Sofascore vía Scrape.do.
+
+**Cambios:**
+
+* **`services/external_sources/sofascore_referee.py` (nuevo)**:
+  - `build_match_url(home, away, code=None, lang="es")` — construye URL
+    canónica `https://www.sofascore.com/{lang}/football/match/{home-slug}-{away-slug}[/{code}]`.
+  - `parse_sofascore_match_next_data(html)` — extrae el `<script id="__NEXT_DATA__">`
+    (SSR JSON de Next.js), navega a `props.pageProps.event.referee` y
+    devuelve dict con:
+    * referee.name / slug / id / country (alpha2, alpha3, slug)
+    * games, yellow_cards, red_cards, yellow_red_cards (totales)
+    * yellow_cards_per_game, red_cards_per_game, second_yellow_per_game,
+      **all_red_cards_per_game** (suma rojas directas + segunda amarilla,
+      que es lo que SofaScore muestra como "0.38")
+    * profile_url
+    * Metadata extra: match_id, match_slug, match_label, kickoff_iso,
+      competition, season, stadium, city.
+  - `fetch_sofascore_referee_for_match(home, away, code=None, ...)` —
+    orquesta: cache lookup → Scrape.do (`render=True`, 45s timeout) →
+    parse → cache save.
+  - Fail-soft completo con reason codes
+    (`REFEREE_SCRAPEDO_DISABLED`, `REFEREE_NEXT_DATA_NOT_FOUND`,
+    `REFEREE_NOT_ASSIGNED_BY_SOFASCORE`, etc.).
+
+* **MongoDB cache** `external_referee_cache` (TTL 24h sobre `cached_at`):
+  - Idempotent indexes en `server.on_startup` (sección
+    `[D9_SOFASCORE_REFEREE]`).
+  - Solo cache cuando `available=True` (no cachear fallas transitorias).
+
+* **`server.py` — Nuevo endpoint REST**:
+  ```
+  GET /api/football/sofascore/referee?home=...&away=...&code=...&lang=es&nocache=false
+  ```
+  Returns el payload normalizado del referee + metadata del match. Fail-soft.
+
+**Validación:**
+- 13 tests nuevos en `test_d9_sofascore_referee_iteration8.py`
+  (URL builder, parser happy/fail, fetcher happy/fail, scrape.do mock).
+- Smoke real end-to-end con la URL del usuario
+  (`Iran vs Belgium` / `code=rUbsqVb`): el endpoint devuelve
+  **Dario Herrera, Argentina, 466 games, yellows_per_game=5.44,
+  all_red_cards_per_game=0.38** — exacto a la captura UI.
+- Suite backend: **4603 passed / 11 skipped / 0 failed**. Cero regresiones.
+
+**Próximos pasos sugeridos (no implementados):**
+- Cablear el referee score como factor en el Skellam corner/cards engine
+  (un árbitro con `yellow_cards_per_game > 5.5` típicamente premia más
+  Over 2.5 cards y desbalance HOME/AWAY en partidos físicos).
+- Componente UI `RefereeCardWidget.jsx` que consume el endpoint y
+  muestra promedios al lado del Forebet block.
+
 ### 🚑 Sprint-D9-HOTFIX3 — **Sofascore migrado de Bright Data a Scrape.do**
 
 > Pedido directo del usuario: "Corrige el scrapping de Sofascore porque

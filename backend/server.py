@@ -298,6 +298,17 @@ async def on_startup() -> None:
         log.info("[F70_EXTERNAL_EDITORIAL] indexes ensured")
     except Exception as exc:
         log.warning("[F70_EXTERNAL_EDITORIAL] ensure indexes failed: %s", exc)
+
+    # Sprint-D9-HOTFIX4 — Sofascore referee cache (TTL 24h).
+    try:
+        from services.external_sources.sofascore_referee import (
+            ensure_indexes as _ref_ensure,
+        )
+        await _ref_ensure()
+        log.info("[D9_SOFASCORE_REFEREE] indexes ensured")
+    except Exception as exc:
+        log.warning("[D9_SOFASCORE_REFEREE] ensure indexes failed: %s", exc)
+
     log.info("Startup complete")
 
 
@@ -2314,6 +2325,45 @@ async def football_external_editorial_by_teams(
     except Exception as exc:  # noqa: BLE001
         return {"available": False,
                 "reason_codes": ["EXTERNAL_EDITORIAL_BY_TEAMS_ERROR"],
+                "_error": str(exc)}
+
+
+@app.get("/api/football/sofascore/referee")
+async def football_sofascore_referee(
+    home: str,
+    away: str,
+    code: Optional[str] = None,
+    lang: str = "es",
+    nocache: bool = False,
+) -> dict:
+    """Sprint-D9-HOTFIX4 — Devuelve los datos del árbitro asignado al
+    partido vía Sofascore (HTML público + Scrape.do).
+
+    Query params:
+      * ``home`` / ``away``: nombres de los equipos.
+      * ``code`` (opcional): código corto opaco Sofascore (``rUbsqVb``)
+        para fixar la URL canónica; si no se provee, se construye con
+        el slug ``home-away`` y Sofascore redirige.
+      * ``lang``: idioma del slug (``es``/``en``/...). Default ``es``.
+      * ``nocache``: si ``true``, bypassea el cache de 24h.
+
+    Fail-soft: nunca levanta. Devuelve ``available=False`` con
+    ``reason_codes`` cuando el árbitro no está asignado o el fetch falla.
+    """
+    try:
+        from services.external_sources.sofascore_referee import (
+            fetch_sofascore_referee_for_match,
+        )
+        result = await fetch_sofascore_referee_for_match(
+            home, away, code=code, lang=lang, use_cache=not nocache,
+        )
+        result["home_team_query"] = home
+        result["away_team_query"] = away
+        return result
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False,
+                "source": "sofascore",
+                "reason_codes": ["SOFASCORE_REFEREE_ENDPOINT_ERROR"],
                 "_error": str(exc)}
 
 
