@@ -140,14 +140,33 @@ def is_national_team_league_by_name(league_name: Any) -> bool:
 
 
 def is_national_team_match(match_or_fixture: Any) -> bool:
-    """Combina chequeo por ID (canónico) + matching por nombre (fallback).
+    """Combina chequeo por ID (canónico) + matching por nombre (fallback)
+    + flags pre-calculados (Sprint-D9-RootCauseFix).
 
     Acepta tanto:
-      * Un dict con ``league_id`` o ``league.id``.
-      * Un fixture API-Football con shape ``{league: {id, name}}``.
+      * Un dict con ``league_id`` o ``league.id`` (shape API-Football
+        crudo) o ``league`` como string (shape db.matches).
+      * Flags pre-calculados ``is_national_team`` / ``is_international``
+        / ``competition_type=="international"`` (persistidos por
+        ``data_ingestion._classify_competition``).
+
+    Esta función es el GATEKEEPER del filtro ``national_teams_only`` y
+    tiene que tolerar TODAS las representaciones que pasan por nuestro
+    pipeline (API-Football raw, TheSportsDB raw, ESPN, Sofascore,
+    documentos de ``db.matches``).
     """
     if not isinstance(match_or_fixture, dict):
         return False
+
+    # ─── Fast-path 1: flags ya persistidos por la capa de ingest. ───
+    # Cuando ``_classify_competition`` ya clasificó el partido como
+    # selección nacional / torneo internacional, ese veredicto manda.
+    if match_or_fixture.get("is_national_team") is True:
+        return True
+    if (match_or_fixture.get("competition_type") or "").lower() == "international":
+        return True
+
+    # ─── Path 2: chequeo por league_id canónico API-Football. ───
     league_field = match_or_fixture.get("league")
     league_obj = league_field if isinstance(league_field, dict) else {}
     league_id = (
@@ -156,9 +175,17 @@ def is_national_team_match(match_or_fixture: Any) -> bool:
     )
     if is_national_team_league(league_id):
         return True
+
+    # ─── Path 3: matching por nombre — soporta TRES shapes: ───
+    #   * league_name (string directo, p.ej. en db.matches)
+    #   * league.name (dict, shape API-Football raw)
+    #   * league (string directo, p.ej. en db.matches Sprint-D9 docs)
+    #   * competition_canonical_name (post-_classify_competition)
     league_name = (
         match_or_fixture.get("league_name")
         or league_obj.get("name")
+        or (league_field if isinstance(league_field, str) else None)
+        or match_or_fixture.get("competition_canonical_name")
     )
     return is_national_team_league_by_name(league_name)
 

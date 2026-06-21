@@ -1,26 +1,30 @@
 [
   {
-    "content": "HOTFIX-1: discover_priority_fixtures — forzar API-Football cuando matched_by_id=0",
+    "content": "ETAPA A: Inventariar partidos REALES en ESPN — 9 fixtures WC en 48h",
     "status": "completed"
   },
   {
-    "content": "HOTFIX-2: national_teams_only — is_national_team_match con matching por nombre",
+    "content": "ETAPA B: Cascada devuelve 9 fixtures WC/Friendlies con status=NS",
     "status": "completed"
   },
   {
-    "content": "HOTFIX-3: Forebet parser — nuevos selectores estructurales",
+    "content": "ETAPA C: PRIORITY_LADDER reconoce 'FIFA World Cup'; discover_priority_fixtures devuelve 4 fixtures",
     "status": "completed"
   },
   {
-    "content": "Test fix completo en preview (curl + UI)",
+    "content": "ETAPA D: db.matches docs OK; gate=4/4 OK; PERO is_national_team_match=False para todos",
     "status": "completed"
   },
   {
-    "content": "Suite backend completa (cero regresiones)",
+    "content": "ETAPA E: ROOT CAUSE — is_national_team_match no manejaba league como string ni flags is_national_team",
     "status": "completed"
   },
   {
-    "content": "Actualizar plan.md + pedir redeploy + informar API-Football suspendida",
+    "content": "ETAPA F: Fix robusto + 7 tests nuevos + suite 4610 passed cero regresiones",
+    "status": "completed"
+  },
+  {
+    "content": "ETAPA G: Validación end-to-end — HTTP 200, Argentina vs Austria high_conf=72, France vs Iraq medium=65",
     "status": "completed"
   }
 ]

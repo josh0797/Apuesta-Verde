@@ -439,6 +439,75 @@
 
 ## 4) Cierres recientes (bitácora)
 
+### 🔬 Sprint-D9-RootCauseFix — **NO_PRIORITY_FIXTURES_FOUND resuelto definitivamente**
+
+> Auditoría a profundidad solicitada por el usuario tras observar
+> que los hotfixes anteriores NO eliminaban el 409.
+> Reto: probar con evidencia real cada etapa del pipeline.
+
+**Auditoría 7-etapas (con evidencia):**
+| # | Etapa | Resultado |
+|---|---|---|
+| A | ESPN ref. externa | 9 partidos WC en 48h (Uruguay vs Cape Verde, Argentina vs Austria, France vs Iraq, etc.) |
+| B | Cascada `_discover_football_fixtures` | 9 fixtures status=NS devueltos correctamente |
+| C | PRIORITY_LADDER + `_matches_priority` | "FIFA World Cup" matchea OK; `discover_priority_fixtures` retorna 4 fixtures |
+| D | Pipeline downstream | docs en db.matches OK (4/4), `_filter_fixtures_through_gate`=4/4 OK |
+| E | **ROOT CAUSE** | `is_national_team_match` retornaba **False** para los 4 docs |
+
+**Root cause exacto:**
+Los docs persistidos en `db.matches` tienen shape Sprint-D9:
+```
+{
+  league:    "FIFA World Cup"  ← STRING directo, NO dict
+  league_id: 4429              ← TheSportsDB ID, NO canónico API-Football
+  league_name: None
+  is_national_team: True       ← flag pre-calculado IGNORADO
+  competition_canonical_name: "FIFA World Cup"
+  competition_tier: "tier_1"
+  competition_type: "international"  ← flag pre-calculado IGNORADO
+}
+```
+`is_national_team_match` antes solo consultaba `(league as dict).id`,
+`league_id` y `league_name`. Como:
+* `league_id=4429` ∉ `NATIONAL_TEAM_LEAGUES`.
+* `league` era STRING (no dict) — el `.get()` no extraía nada.
+* `league_name=None`.
+
+→ retornaba `False` → filtro `national_teams_only` descartaba los 4 →
+`candidates=[]` → 409 NO_PRIORITY_FIXTURES_FOUND.
+
+**Fix (`services/api_sports.py`):**
+- Fast-path 1: flag `is_national_team=True` → True directo.
+- Fast-path 2: `competition_type == "international"` → True directo.
+- Path 3: chequeo por league_id canónico (legacy OK).
+- Path 4: matching por nombre soportando 4 shapes:
+  - `league_name` (string)
+  - `league.name` (dict)
+  - `league` (string directo) ← **el caso que faltaba**
+  - `competition_canonical_name` (string)
+
+**Validación end-to-end (decisiva):**
+
+`POST /api/analysis/run {sport=football, national_teams_only=true,
+refresh=true, max_matches=4}` (con JWT real):
+```
+HTTP 200  verdict=value_found
+📦 high_confidence    : Argentina vs Austria  market=Doble Oportunidad  conf=72
+📦 medium_confidence  : France vs Iraq        market=Total Under         conf=65
+📦 discarded_market   : 2 partidos con edge negativo bajo tolerancia
+```
+
+**Validación:**
+- 7 tests nuevos en `test_d9_root_cause_national_team_match_iteration9.py`.
+- Suite backend: **4610 passed / 11 skipped / 0 failed**. Cero regresiones.
+- Smoke real autenticado confirma: 409 ya NO se dispara para partidos
+  WC en las próximas 48h.
+
+**Archivos modificados:**
+- `services/api_sports.py` (función `is_national_team_match` reescrita).
+- `tests/test_d9_root_cause_national_team_match_iteration9.py` (nuevo, 7 tests).
+- `plan.md` (bitácora actualizada).
+
 ### ⚖️ Sprint-D9-HOTFIX4 — **Sofascore Referee Extractor (HTML + Scrape.do)**
 
 > Pedido del usuario: extraer principalmente datos del árbitro (nombre,
