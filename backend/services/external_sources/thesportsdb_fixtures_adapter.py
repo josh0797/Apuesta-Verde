@@ -32,6 +32,49 @@ RC_OK              = "THESPORTSDB_FIXTURES_OK"
 RC_DISABLED        = "THESPORTSDB_DISABLED"
 RC_EMPTY           = "THESPORTSDB_FIXTURES_EMPTY"
 RC_EXCEPTION       = "THESPORTSDB_FIXTURES_EXCEPTION"
+RC_FILTERED_FINISHED = "THESPORTSDB_FILTERED_FINISHED_OR_LIVE"
+
+
+# Mapeo de status TheSportsDB → API-Football short codes canónicos.
+# Lo crítico: cualquier estado NO presente en VALID_UPCOMING_STATUSES se
+# descarta antes de entrar a la cascada (evita que Ecuador vs Curaçao,
+# Tunisia vs Japan, etc. aparezcan como upcoming cuando ya terminaron).
+_STATUS_MAP_TSDB = {
+    # Upcoming válidos
+    "Not Started":   "NS",
+    "NS":            "NS",
+    "TBD":           "TBD",
+    "Time to be defined": "TBD",
+    "Postponed":     "PST",
+    "PST":           "PST",
+    # Live (descartar — no son upcoming)
+    "1H": "1H", "First Half": "1H",
+    "HT": "HT", "Halftime": "HT",
+    "2H": "2H", "Second Half": "2H",
+    "ET": "ET", "Extra Time": "ET",
+    "BT": "BT", "Break Time": "BT",
+    "P":  "P",  "Penalty In Progress": "P",
+    "SUSP": "SUSP", "Suspended": "SUSP",
+    "INT": "INT", "Interrupted": "INT",
+    "LIVE": "1H",
+    # Finished / cancelled (descartar — partidos ya jugados)
+    "FT": "FT", "Match Finished": "FT", "Finished": "FT", "Full Time": "FT",
+    "AET": "AET", "After Extra Time": "AET",
+    "PEN": "PEN", "Penalty Shootout": "PEN",
+    "AWD": "AWD", "Technical Loss": "AWD",
+    "CANC": "CANC", "Cancelled": "CANC", "Canceled": "CANC",
+    "ABD": "ABD", "Abandoned": "ABD",
+    "WO":  "WO",  "Walkover": "WO",
+}
+
+VALID_UPCOMING_STATUSES: frozenset[str] = frozenset({"NS", "TBD"})
+
+
+def _canonical_status(raw_status: Optional[str]) -> str:
+    """Mapea un status crudo TheSportsDB al short code API-Football."""
+    if not raw_status:
+        return "NS"
+    return _STATUS_MAP_TSDB.get(raw_status.strip(), raw_status.strip())
 
 
 def _today_utc_iso() -> str:
@@ -68,12 +111,24 @@ def _build_kickoff_iso(date_event: Optional[str],
 
 
 def _normalize_to_apifootball_shape(ev: dict) -> Optional[dict]:
-    """Map TheSportsDB canonical event → minimal API-Football shape."""
+    """Map TheSportsDB canonical event → minimal API-Football shape.
+
+    Returns ``None`` cuando el status indica que el partido ya terminó
+    (FT, AET, PEN, CANC, ABD) o está en vivo (1H, HT, 2H, ET, …). Esto
+    evita que upcoming-fixtures discovery emita partidos jugados — el bug
+    histórico ``Ecuador vs Curaçao status=FT`` apareciendo como upcoming.
+    """
     home = ev.get("home_team") or {}
     away = ev.get("away_team") or {}
     home_name = (home.get("name") or "").strip()
     away_name = (away.get("name") or "").strip()
     if not home_name or not away_name:
+        return None
+    # ── Filtro de status: solo NS / TBD pasan como upcoming ──
+    status_canon = _canonical_status(ev.get("status"))
+    if status_canon not in VALID_UPCOMING_STATUSES:
+        log.debug("[thesportsdb_fixtures] drop %s vs %s status=%s",
+                   home_name, away_name, status_canon)
         return None
     league_name = ev.get("league_name") or ""
     league_id   = ev.get("league_id")
@@ -86,8 +141,8 @@ def _normalize_to_apifootball_shape(ev: dict) -> Optional[dict]:
             "date":      kickoff_iso,
             "timestamp": None,  # FFC will derive from .date if missing
             "status": {
-                "short": ev.get("status") or "NS",
-                "long":  ev.get("status") or "Not Started",
+                "short": status_canon,
+                "long":  "Not Started" if status_canon == "NS" else status_canon,
             },
             "venue": {"name": None, "city": None},
         },
@@ -123,6 +178,7 @@ async def fetch_fixtures_next_48h(
     fixtures: list[dict] = []
     codes: list[str] = []
     own_client = False
+    filtered_count = 0
     if client is None:
         client = httpx.AsyncClient(timeout=30.0)
         own_client = True
@@ -141,8 +197,16 @@ async def fetch_fixtures_next_48h(
                 continue
             for it in res.get("items") or []:
                 fx = _normalize_to_apifootball_shape(it)
-                if fx is not None:
-                    fixtures.append(fx)
+                if fx is None:
+                    filtered_count += 1
+                    continue
+                fixtures.append(fx)
+        if filtered_count > 0:
+            log.info(
+                "[thesportsdb_fixtures] filtered %d finished/live events "
+                "(only NS/TBD kept as upcoming)", filtered_count,
+            )
+            codes.append(f"{RC_FILTERED_FINISHED}={filtered_count}")
         if not fixtures:
             codes.append(RC_EMPTY)
         else:
@@ -156,5 +220,8 @@ async def fetch_fixtures_next_48h(
 __all__ = [
     "fetch_fixtures_next_48h",
     "_normalize_to_apifootball_shape",
+    "_canonical_status",
+    "VALID_UPCOMING_STATUSES",
     "RC_OK", "RC_DISABLED", "RC_EMPTY", "RC_EXCEPTION",
+    "RC_FILTERED_FINISHED",
 ]

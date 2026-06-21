@@ -61,8 +61,14 @@ def _api_sports_fallback_enabled() -> bool:
 # football discovery.
 # ─────────────────────────────────────────────────────────────────────
 _F87_MIN_VIABLE_COUNT = int(_os.environ.get("F87_MIN_VIABLE_COUNT", "5"))
-_F87_MERGE_PRIORITY = ("thestatsapi", "api_football", "espn",
+_F87_MERGE_PRIORITY = ("thesportsdb", "thestatsapi", "api_football", "espn",
                        "sofascore_pw", "scrapedo")
+
+# Status válidos para upcoming (cualquier otro se descarta en la cascada).
+# Defensa-en-profundidad: aunque cada adapter ya filtra terminados/en vivo,
+# este filtro final garantiza que un bug en un adapter futuro no inyecte
+# fixtures jugadas / canceladas al pipeline (caso Ecuador vs Curaçao FT).
+_F87_VALID_UPCOMING_STATUSES: frozenset[str] = frozenset({"NS", "TBD"})
 
 # Last discovery audit — exposed via /api/football/discovery/debug.
 # Reset on every ``_discover_football_fixtures`` invocation. NEVER read
@@ -246,10 +252,30 @@ async def _discover_football_fixtures(
 
     def _normalise_and_record(name: str, raw: list[Any]) -> list[dict]:
         normalised, shape_audit = ffc.normalize_bucket(raw or [], source=name)
+        # Defensa-en-profundidad: descartar partidos cuyo status no sea
+        # válido como upcoming (NS / TBD). Aunque cada adapter ya debería
+        # filtrar terminados / en vivo, este filtro común protege al
+        # pipeline ante regresiones en cualquier source futura.
+        filtered: list[dict] = []
+        dropped = 0
+        for fx in normalised:
+            status = ((fx.get("fixture") or {}).get("status") or {}).get("short")
+            if status and status not in _F87_VALID_UPCOMING_STATUSES:
+                dropped += 1
+                continue
+            filtered.append(fx)
+        if dropped > 0:
+            log.info(
+                "[F87_discovery] %s dropped %d non-upcoming fixtures "
+                "(status not in NS/TBD)", name, dropped,
+            )
+            audit["reason_codes"].setdefault(name, []).append(
+                f"DROPPED_NON_UPCOMING={dropped}"
+            )
         audit["counts_per_src"][name]    = len(raw or [])
-        audit["counts_normalised"][name] = len(normalised)
+        audit["counts_normalised"][name] = len(filtered)
         audit["shape_audit"][name]       = shape_audit
-        return normalised
+        return filtered
 
     # ── 0) TheSportsDB primary (Sprint-D8-Fase2 cascade refactor) ──
     # Decisión del usuario: TheSportsDB es ahora la fuente PRIMARIA
@@ -418,29 +444,33 @@ async def discover_priority_fixtures(
 ) -> list[dict]:
     """Phase 8.1 — surgically discover fixtures in top-12 priority leagues.
 
-    Why this exists:
-      • The global `/fixtures?date=…` firehose returns 200+ matches per
-        day across every confederation, including Côte d'Ivoire U17 and
-        Botswana Premier League. Even with the football_quality filter
-        downstream, the relevance signal was being diluted.
-      • This helper hits `/fixtures?date=YYYY-MM-DD` for today and
-        tomorrow (no `season` param — that one is locked to the free-plan
-        proxy season 2024 and would miss live 2025/26 fixtures) and then
-        client-side filters down to the league_ids of the top-12
-        competitions. 2 API calls total instead of 12.
+    **Refactor (Sprint-D9 — Ecuador vs Curaçao FT bug):** ahora usa la
+    cascada ``_discover_football_fixtures`` (TheSportsDB → TheStatsAPI →
+    API-Football → ESPN → Sofascore) en lugar de pegarle directo a
+    ``af.fixtures_by_date``. Razones:
+      * Cuando los créditos de API-Sports se agotan, esta función
+        devolvía 0 fixtures bloqueando todo el pipeline.
+      * TheSportsDB ofrece coverage casi total para las priority leagues
+        sin coste.
+      * La cascada ya descarta partidos terminados / en vivo (filtro
+        ``_F87_VALID_UPCOMING_STATUSES``), eliminando el bug histórico
+        de partidos FT apareciendo como upcoming.
+
+    Filtros adicionales que esta función aplica:
+      * Solo se conservan partidos cuyo nombre de liga matchee
+        ``PRIORITY_LADDER`` (matching por nombre normalizado — funciona
+        con cualquier source, no solo API-Sports ID-based).
+      * Ventana temporal: now - 10min ≤ kickoff ≤ now + window_hours.
+      * Status: solo NS / TBD (defensa-en-profundidad).
+
+    Fallback: si la cascada retorna 0 fixtures Y API-Sports está
+    habilitado, se ejecuta la lógica legacy `af.fixtures_by_date` como
+    último recurso (consume créditos).
 
     Returns:
-        Raw API-Sports fixture payloads (same shape as `fixtures_next_48h`)
-        for the priority leagues that have at least one upcoming match in
-        the window. Always sorted by kickoff_ts ascending.
-
-    The caller (server._run_analysis_pipeline) treats a non-empty result as
-    the AUTHORITATIVE candidate list — every other source is ignored unless
-    `high_volume_mode` is explicitly enabled.
+        Lista de fixtures normalizadas (shape API-Football) ordenadas
+        por kickoff ascendente.
     """
-    # Priority ladder per spec: Champions / World Cup → Big Five → Liga MX
-    # → secondary continental cups. We keep the human label too so logs
-    # tell operators which league actually had matches.
     PRIORITY_LADDER: list[tuple[str, int]] = [
         ("UEFA Champions League",  2),
         ("FIFA World Cup",         1),
@@ -461,40 +491,164 @@ async def discover_priority_fixtures(
     priority_ids: set[int] = {lid for _, lid in PRIORITY_LADDER}
     id_to_label = {lid: name for name, lid in PRIORITY_LADDER}
 
-    # Pull today + tomorrow via the date endpoint (no season constraint).
-    today = datetime.now(timezone.utc).date()
-    tomorrow = today + timedelta(days=1)
-    raw: list[dict] = []
-    for d in (today, tomorrow):
-        try:
-            chunk = await af.fixtures_by_date(client, d.isoformat())
-            raw.extend(chunk)
-        except Exception as exc:
-            log.warning("priority discover: /fixtures?date=%s failed: %s", d, exc)
+    # Normalización de nombres de liga para matching cross-source.
+    def _norm_league(name: str) -> str:
+        if not name:
+            return ""
+        s = name.lower().strip()
+        # Strip diacríticos comunes y signos
+        for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),
+                       ("ñ","n"),("ã","a"),("ê","e"),("ô","o"),("ç","c")):
+            s = s.replace(a, b)
+        for ch in ("-", "_", ".", "'"):
+            s = s.replace(ch, " ")
+        return " ".join(s.split())
+
+    # Aliases conocidos por source.
+    _LEAGUE_ALIASES: dict[str, str] = {
+        # Champions League
+        "champions league":              "uefa champions league",
+        "uefa champions league":         "uefa champions league",
+        # Premier League
+        "english premier league":        "premier league",
+        "premier league":                "premier league",
+        # LaLiga
+        "spanish la liga":               "laliga",
+        "la liga":                       "laliga",
+        "laliga":                        "laliga",
+        # Serie A
+        "italian serie a":               "serie a",
+        "serie a":                       "serie a",
+        # Bundesliga
+        "german bundesliga":             "bundesliga",
+        "bundesliga":                    "bundesliga",
+        # Ligue 1
+        "french ligue 1":                "ligue 1",
+        "ligue 1":                       "ligue 1",
+        # Mexican Liga MX
+        "mexican primera division":      "liga mx",
+        "liga mx":                       "liga mx",
+        # Europa / Conference
+        "uefa europa league":            "uefa europa league",
+        "europa league":                 "uefa europa league",
+        "uefa europa conference league": "uefa conference league",
+        "uefa conference league":        "uefa conference league",
+        "conference league":             "uefa conference league",
+        # Libertadores
+        "conmebol libertadores":         "copa libertadores",
+        "copa libertadores":             "copa libertadores",
+        # MLS
+        "major league soccer":           "mls",
+        "mls":                           "mls",
+        # Brasileirão
+        "brasileirao serie a":           "brasileirao serie a",
+        "brazilian serie a":             "brasileirao serie a",
+        # FIFA / UEFA seleccionados (también Friendlies internacionales)
+        "fifa world cup":                "fifa world cup",
+        "world cup":                     "fifa world cup",
+        "uefa euro":                     "uefa euro",
+        "european championship":         "uefa euro",
+        "copa america":                  "copa america",
+    }
+    priority_norm: set[str] = {_norm_league(n) for n, _ in PRIORITY_LADDER}
+
+    def _matches_priority(league_name: Optional[str]) -> bool:
+        if not league_name:
+            return False
+        norm = _norm_league(league_name)
+        canonical = _LEAGUE_ALIASES.get(norm, norm)
+        return canonical in priority_norm
+
+    # ── Paso 1: ejecutar la cascada (TheSportsDB primario) ──
+    cascade_raw: list[dict] = []
+    try:
+        cascade_raw, cascade_audit = await _discover_football_fixtures(client)
+        log.info(
+            "[priority_discover] cascade returned %d fixtures (winner=%s)",
+            len(cascade_raw), cascade_audit.get("primary_winner"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[priority_discover] cascade failed: %s — fallback to API-Sports", exc)
 
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(hours=window_hours)
+
+    def _kickoff_dt(fx: dict) -> Optional[datetime]:
+        # Prefer timestamp epoch; fallback a date ISO.
+        try:
+            ts = (fx.get("fixture") or {}).get("timestamp")
+            if ts:
+                return datetime.fromtimestamp(int(ts), tz=timezone.utc)
+        except Exception:
+            pass
+        try:
+            iso = (fx.get("fixture") or {}).get("date")
+            if iso:
+                return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        except Exception:
+            pass
+        return None
+
     discovered: list[dict] = []
     counts: dict[str, int] = {}
-    for fx in raw:
-        try:
-            lid = (fx.get("league") or {}).get("id")
-            if lid not in priority_ids:
-                continue
-            ts = fx["fixture"]["timestamp"]
-            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-            status = fx["fixture"]["status"]["short"]
-        except Exception:
+    for fx in cascade_raw:
+        league_name = (fx.get("league") or {}).get("name")
+        league_id   = (fx.get("league") or {}).get("id")
+        # Match por ID (rápido, solo si la source es API-Sports) O por nombre.
+        is_priority = (
+            (isinstance(league_id, int) and league_id in priority_ids)
+            or _matches_priority(league_name)
+        )
+        if not is_priority:
             continue
-        if status not in ("NS", "TBD"):
+        status = ((fx.get("fixture") or {}).get("status") or {}).get("short")
+        if status and status not in ("NS", "TBD"):
+            continue
+        dt = _kickoff_dt(fx)
+        if dt is None:
             continue
         if not (now - timedelta(minutes=10) <= dt <= cutoff):
             continue
         discovered.append(fx)
-        label = id_to_label.get(lid, str(lid))
-        counts[label] = counts.get(label, 0) + 1
+        label = id_to_label.get(league_id) if isinstance(league_id, int) else league_name
+        counts[label or "unknown"] = counts.get(label or "unknown", 0) + 1
 
-    discovered.sort(key=lambda f: f.get("fixture", {}).get("timestamp") or 0)
+    # ── Paso 2: si la cascada NO encontró nada de priority, fallback al
+    # endpoint directo de API-Sports (consume créditos — último recurso). ──
+    if not discovered:
+        log.info("[priority_discover] cascade had 0 priority fixtures — trying API-Sports direct")
+        today = now.date()
+        tomorrow = today + timedelta(days=1)
+        raw_af: list[dict] = []
+        for d in (today, tomorrow):
+            try:
+                chunk = await af.fixtures_by_date(client, d.isoformat())
+                raw_af.extend(chunk)
+            except Exception as exc:
+                log.warning("[priority_discover] /fixtures?date=%s failed: %s", d, exc)
+        for fx in raw_af:
+            try:
+                lid = (fx.get("league") or {}).get("id")
+                if lid not in priority_ids:
+                    continue
+                ts = fx["fixture"]["timestamp"]
+                dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                status = fx["fixture"]["status"]["short"]
+            except Exception:
+                continue
+            if status not in ("NS", "TBD"):
+                continue
+            if not (now - timedelta(minutes=10) <= dt <= cutoff):
+                continue
+            fx.setdefault("_discovery_source", "api_football")
+            discovered.append(fx)
+            label = id_to_label.get(lid, str(lid))
+            counts[label] = counts.get(label, 0) + 1
+
+    discovered.sort(key=lambda f: (
+        ((f.get("fixture") or {}).get("timestamp") or 0)
+        or (_kickoff_dt(f).timestamp() if _kickoff_dt(f) else 0)
+    ))
     log.info(
         "discover_priority_fixtures: %d fixtures (window=%dh) → %s",
         len(discovered), window_hours,
