@@ -43,9 +43,24 @@ from .corner_diff_distribution import (
     build_asian_corner_markets,
     fit_bucket_distributions,
 )
+from .skellam_corner_model import (  # noqa: F401
+    calibrate_skellam_lambdas,
+    predict_skellam_corner_diff,
+    skellam_most_corners,
+    skellam_to_asian_corners,
+)
 
 
 REASON_REAL_ODDS_NA = "REAL_ODDS_NOT_AVAILABLE"
+
+
+def _pick_side_from_probs(most: dict[str, Any]) -> str:
+    """Helper para Skellam: replica las reglas NO_BET de corner_most_model."""
+    p_home = float(most["home_most_corners_prob"])
+    p_away = float(most["away_most_corners_prob"])
+    if max(p_home, p_away) < 0.58:
+        return "NO_BET"
+    return "HOME" if p_home > p_away else "AWAY"
 
 
 # ============================================================
@@ -238,6 +253,7 @@ def run_corner_backtest(
     *,
     walk_forward: list[tuple[list[str], list[str]]] = None,
     odds_lookup: Optional[dict[str, dict]] = None,
+    include_skellam: bool = False,
 ) -> dict[str, Any]:
     """Backtest walk-forward del motor de córners.
 
@@ -272,6 +288,7 @@ def run_corner_backtest(
 
     fold_results = []
     all_predictions: list[dict] = []   # for global aggregation
+    all_skellam_predictions: list[dict] = []
 
     for fold_idx, (train_seasons, test_seasons) in enumerate(walk_forward):
         train = [r for s in train_seasons for r in rows_by_season.get(s, [])]
@@ -294,8 +311,15 @@ def run_corner_backtest(
             })
         bucket_stats = fit_bucket_distributions(train_rows_with_ed)
 
+        # Skellam calibration (opcional)
+        if include_skellam:
+            skellam_coefs_h, skellam_coefs_a = calibrate_skellam_lambdas(train)
+        else:
+            skellam_coefs_h, skellam_coefs_a = None, None
+
         # Predict in test
         fold_preds: list[dict] = []
+        skellam_preds: list[dict] = []
         for r in test:
             hc = r.get("home_corners")
             ac = r.get("away_corners")
@@ -305,14 +329,14 @@ def run_corner_backtest(
                                           sigmoid_a=a, sigmoid_b=b,
                                           tie_buckets=tie_buckets,
                                           diff_coefficients=coefs)
-            # Asian markets
+            # Asian markets (lineal)
             dist = build_corner_diff_distribution({"expected_corner_diff":
                                                      pred["expected_corner_diff"]},
                                                     bucket_stats=bucket_stats)
             book_odds = (odds_lookup or {}).get(r.get("match_id"))
             asian = build_asian_corner_markets(dist, book_odds=book_odds,
                                                 real_odds_available=real_odds_available)
-            fold_preds.append({
+            entry = {
                 "match_id":         r.get("match_id"),
                 "date":             r.get("date"),
                 "league":           r.get("league"),
@@ -324,7 +348,32 @@ def run_corner_backtest(
                 "prediction":       pred,
                 "distribution":     dist,
                 "asian_markets":    asian,
-            })
+            }
+            fold_preds.append(entry)
+
+            # Skellam parallel prediction (si está habilitado)
+            if include_skellam:
+                sk = predict_skellam_corner_diff(r,
+                                                   coefs_home=skellam_coefs_h,
+                                                   coefs_away=skellam_coefs_a)
+                sk_most = skellam_most_corners(sk)
+                sk_asian = skellam_to_asian_corners(sk, book_odds=book_odds,
+                                                     real_odds_available=real_odds_available)
+                skellam_preds.append({
+                    "match_id":      r.get("match_id"),
+                    "date":          r.get("date"),
+                    "league":        r.get("league"),
+                    "season":        r.get("season"),
+                    "home_corners":  hc,
+                    "away_corners":  ac,
+                    "actual_diff":   hc - ac,
+                    "actual_winner": "home" if hc > ac else ("away" if ac > hc else "tie"),
+                    "prediction":    {**sk_most,
+                                        "recommended_side": _pick_side_from_probs(sk_most),
+                                        "lambda_h": sk["lambda_h"],
+                                        "lambda_a": sk["lambda_a"]},
+                    "asian_markets": sk_asian,
+                })
 
         fold_metrics = _compute_fold_metrics(fold_preds)
         fold_metrics["fold_idx"]      = fold_idx
@@ -333,15 +382,21 @@ def run_corner_backtest(
         fold_metrics["calibrated_coefficients"] = coefs
         fold_metrics["calibrated_sigmoid"]      = {"a": a, "b": b}
         fold_metrics["calibrated_tie_buckets"]  = tie_buckets
+        if include_skellam:
+            fold_metrics["skellam_metrics"] = _compute_fold_metrics(skellam_preds)
+            fold_metrics["skellam_coefs_home"] = skellam_coefs_h
+            fold_metrics["skellam_coefs_away"] = skellam_coefs_a
 
         fold_results.append(fold_metrics)
         all_predictions.extend(fold_preds)
+        if include_skellam:
+            all_skellam_predictions.extend(skellam_preds)
 
     global_metrics = _compute_fold_metrics(all_predictions)
     by_league = _compute_metrics_by_league(all_predictions)
     asian_metrics = _compute_asian_metrics(all_predictions, real_odds_available)
 
-    return {
+    result = {
         "real_odds_available": real_odds_available,
         "warnings":            warnings,
         "n_total_predictions": len(all_predictions),
@@ -350,6 +405,12 @@ def run_corner_backtest(
         "by_league":           by_league,
         "asian_metrics":       asian_metrics,
     }
+    if include_skellam:
+        result["skellam_global_metrics"] = _compute_fold_metrics(all_skellam_predictions)
+        result["skellam_by_league"]      = _compute_metrics_by_league(all_skellam_predictions)
+        result["skellam_asian_metrics"]  = _compute_asian_metrics(
+            all_skellam_predictions, real_odds_available)
+    return result
 
 
 # ============================================================

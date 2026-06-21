@@ -78,6 +78,8 @@ def _build_pit_rows(rows: list[dict]) -> list[dict]:
             "away_corners_against_L15": _avg_last_n(ah, 15, "corners_against"),
             "home_deep_allowed_L15":    _avg_last_n(hh, 15, "deep_allowed"),
             "away_deep_allowed_L15":    _avg_last_n(ah, 15, "deep_allowed"),
+            "home_xg_for_L15":          _avg_last_n(hh, 15, "xg_for"),
+            "away_xg_for_L15":          _avg_last_n(ah, 15, "xg_for"),
             # venue splits: home en local, away en visitante
             "home_venue_corner_split":  _avg_last_n(hh, 15, "corners_for", venue_filter="home"),
             "away_venue_corner_split":  _avg_last_n(ah, 15, "corners_for", venue_filter="away"),
@@ -91,6 +93,7 @@ def _build_pit_rows(rows: list[dict]) -> list[dict]:
             "corners_for":     r["home_corners"],
             "corners_against": r["away_corners"],
             "deep_allowed":    r.get("deep_allowed_h"),
+            "xg_for":          r.get("xg_h"),
         })
         history[away].append({
             "date":            r["date"],
@@ -98,6 +101,7 @@ def _build_pit_rows(rows: list[dict]) -> list[dict]:
             "corners_for":     r["away_corners"],
             "corners_against": r["home_corners"],
             "deep_allowed":    r.get("deep_allowed_a"),
+            "xg_for":          r.get("xg_a"),
         })
     return out
 
@@ -234,12 +238,19 @@ def main() -> int:
     leagues = sorted({r["league"] for r in rows})
     print(f"[features] PIT rows built: {len(rows)} | leagues: {leagues}")
 
-    result = run_corner_backtest(rows, odds_lookup=None)
-    print("\n[result] global metrics:")
+    result = run_corner_backtest(rows, odds_lookup=None, include_skellam=True)
+    print("\n[result] global metrics (linear model):")
     gm = result["global_metrics"]
     for k in ("n", "n_decided", "brier_score", "log_loss",
                "hit_rate_decided", "n_bet_decisions", "bet_hit_rate"):
         print(f"  {k:<20s} {gm.get(k)}")
+
+    if "skellam_global_metrics" in result:
+        skm = result["skellam_global_metrics"]
+        print("\n[result] global metrics (Skellam + interaction xG×deep):")
+        for k in ("n", "n_decided", "brier_score", "log_loss",
+                   "hit_rate_decided", "n_bet_decisions", "bet_hit_rate"):
+            print(f"  {k:<20s} {skm.get(k)}")
 
     # Stats by league preview
     print("\n[result] by league:")

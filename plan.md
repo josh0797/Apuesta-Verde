@@ -368,6 +368,72 @@
 
 ---
 
+
+## Phase Sprint Corner Fase B — Skellam + Integración endpoint/UI — **✅ COMPLETADA (P0)**
+
+> **Alcance:** modelo alternativo Skellam (Poisson independientes) con interacción xG×deep_allowed + endpoint REST + UI card detrás de feature flags.
+
+### Modelo Skellam
+- **Lambdas Poisson por equipo**: `λ_h = exp(α0 + α1·corners_for + α2·corners_against_opp + α3·xg_for + α4·deep_allowed_opp/100 + α5·implied_prob + α6·xg×deep)`. Análogo para `λ_a`.
+- **Calibración**: IRLS (Iteratively Reweighted Least Squares) con features estandarizadas + ridge 1e-4 — estable y converge en <25 iteraciones.
+- **PMF del diferencial**: convolución directa de las dos Poisson (sin scipy/Bessel), K_MAX=25.
+- **Caps**: λ ∈ [1, 18] para evitar saturaciones numéricas.
+
+### Backtest comparativo (mismas 2892 predicciones, walk-forward 21/22→22/23→23/24)
+
+| Métrica            | Lineal Sigmoid  | Skellam + interacción xG×deep |
+|--------------------|------------------|-------------------------------|
+| Brier Score        | **0.5074** ✓     | 0.5119                        |
+| Log Loss           | **0.848** ✓      | 0.856                         |
+| Hit rate decided   | 65.77%           | **66.07%** ✓                  |
+| n_bet_decisions    | 1298             | 1699 (filtra menos)           |
+| Bet hit rate       | **71.26%** ✓     | 67.57%                        |
+
+**Conclusión**: Skellam es comparable al lineal — diferencias de centésimas. Confirma que el techo del problema está dominado por ruido inherente de los córners. Ambos modelos quedan disponibles vía toggle UI.
+
+### Endpoint (Fase B-1)
+- `POST /api/football/corner-engine/predict` — predicción Most Corners + Asian Corners.
+- `GET  /api/football/corner-engine/health` — health check (sin créditos, sin DB).
+- **Feature flags** (env vars en `/app/backend/.env`):
+  - `ENABLE_CORNER_MOST_MODEL=true`
+  - `ENABLE_ASIAN_CORNERS_MODEL=true`
+- **Aislamiento**: router standalone en `/app/backend/routers/corner_engine_router.py`. NO toca el endpoint de picks principal ni los servicios existentes.
+- **Fail-soft**: cualquier excepción interna devuelve `ok=False` con razón legible. El backend nunca crashea por errores del motor.
+
+### UI (Fase B-2)
+- `/app/frontend/src/components/CornerEngineCard.jsx` — card autocontenida con:
+  - Tabs: Most Corners | Asian Corners.
+  - Toggle: Lineal | Skellam (intercambia modelo on-the-fly).
+  - Probabilidades + barras visuales, reason codes, confidence, edge score.
+  - Tabla de 14 mercados Asian con prob_win/push/fair_odds/book_odds/EV/decisión.
+  - Warning explícito `REAL_ODDS_NOT_AVAILABLE` cuando faltan cuotas.
+  - `data-testid` en todos los elementos interactivos.
+
+### Tests
+- `tests/test_corner_engine_phase_a.py` — 11 tests (módulos puros).
+- `tests/test_corner_engine_router.py` — 8 tests (router + feature flags + fail-soft).
+- **Total: 19 tests nuevos del motor de córners, todos pasando.**
+
+### Validación
+- ✅ **Pytest: 4440 passed / 2 skipped / 0 failures** (4421 originales + 19 nuevos).
+- ✅ Frontend compila limpio con esbuild (sin warnings nuevos).
+- ✅ Backend reinicia OK, endpoint responde en producción (https://low-volatility-plays.preview.emergentagent.com).
+- ✅ Verificado en vivo: dominant favorite home → HOME 85.01%, confidence 88.60, 14 Asian markets generados.
+
+### Entregables nuevos en esta fase
+- `/app/backend/services/football/corners/skellam_corner_model.py`
+- `/app/backend/routers/corner_engine_router.py`
+- `/app/backend/tests/test_corner_engine_router.py`
+- `/app/frontend/src/components/CornerEngineCard.jsx`
+- 2 env vars añadidas a `/app/backend/.env`: `ENABLE_CORNER_MOST_MODEL`, `ENABLE_ASIAN_CORNERS_MODEL`.
+
+### Pendiente (próximas iteraciones)
+- Integrar `<CornerEngineCard>` en `MatchDetailPage.jsx` u otra página donde corresponda (esperando feedback del usuario sobre dónde colocarlo).
+- Backtest con cuotas reales TheOddsAPI (~100-150 eventos, ~6-9k créditos).
+- Refinamientos opcionales: Skellam con efectos jerárquicos por liga.
+
+---
+
 > **Alcance:** SOLO evidencia cuantitativa (no diseño de motor, no heurísticas, no integración). Fuentes gratis. Sin consumo de créditos.
 
 ### Resumen ejecutivo

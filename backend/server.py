@@ -48,6 +48,15 @@ api = APIRouter(prefix="/api")
 auth_router, get_current_user = auth_module.build_router(db)
 api.include_router(auth_router)
 
+# Corner engine router (feature-flagged, aislado de los picks principales)
+try:
+    from routers.corner_engine_router import router as corner_engine_router
+    app.include_router(corner_engine_router)
+except Exception as _exc:  # noqa: BLE001 — fail-soft si falta numpy o similar
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "[corner-engine] router not loaded: %s", _exc)
+
 
 # ── Lifecycle ────────────────────────────────────────────────────────────────
 @app.on_event("startup")

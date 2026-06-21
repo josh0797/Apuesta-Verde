@@ -20,6 +20,12 @@ from .corner_diff_model import compute_expected_corner_diff
 from .corner_most_model import predict_most_corners
 from .corner_diff_distribution import build_corner_diff_distribution, build_asian_corner_markets
 from .corner_backtest import run_corner_backtest
+from .skellam_corner_model import (
+    predict_skellam_corner_diff,
+    calibrate_skellam_lambdas,
+    skellam_most_corners,
+    skellam_to_asian_corners,
+)
 
 __all__ = [
     "compute_expected_corner_diff",
@@ -27,4 +33,8 @@ __all__ = [
     "build_corner_diff_distribution",
     "build_asian_corner_markets",
     "run_corner_backtest",
+    "predict_skellam_corner_diff",
+    "calibrate_skellam_lambdas",
+    "skellam_most_corners",
+    "skellam_to_asian_corners",
 ]

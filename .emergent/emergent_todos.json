@@ -1,30 +1,30 @@
 [
   {
-    "content": "Verificación TheOddsAPI",
+    "content": "Crear skellam_corner_model.py + IRLS estable",
     "status": "completed"
   },
   {
-    "content": "Estructura services/football/corners/",
+    "content": "Interacción xG×deep_allowed en lambdas Poisson",
     "status": "completed"
   },
   {
-    "content": "4 módulos puros (corner_diff_model, corner_most_model, corner_diff_distribution, corner_backtest)",
+    "content": "Backtest comparativo: Lineal Brier 0.5074 / Hit 65.77% vs Skellam Brier 0.5119 / Hit 66.07% (par)",
     "status": "completed"
   },
   {
-    "content": "11 tests obligatorios pasando",
+    "content": "Endpoint /api/football/corner-engine/predict + /health con feature flags",
     "status": "completed"
   },
   {
-    "content": "Script calibración + backtest sobre 4338 partidos. Hit rate 65.77% / Bet hit rate 71.26%",
+    "content": "UI CornerEngineCard.jsx con tabs Most Corners + Asian Corners + toggle Skellam/Lineal",
     "status": "completed"
   },
   {
-    "content": "Bug fix en corner_diff_distribution.py (líneas enteras + away)",
+    "content": "Tests router (8) + module isolation (11) = 19 tests nuevos, todos pasando",
     "status": "completed"
   },
   {
-    "content": "pytest backend: 4432 passed / 0 failures (4421 originales + 11 nuevos)",
+    "content": "pytest 4440 passed / 0 failures - cero regresiones",
     "status": "completed"
   }
 ]
