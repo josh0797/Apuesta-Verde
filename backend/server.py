@@ -5144,9 +5144,13 @@ async def _run_analysis_pipeline(
     # Mutually exclusive with big_five_only in practice (both can be set
     # but the intersection is empty, leaving zero candidates).
     if national_teams_only and sport == "football":
-        from services.api_sports import is_national_team_league
+        from services.api_sports import is_national_team_match
         before_nt = len(upcoming)
-        upcoming = [m for m in upcoming if is_national_team_league(m.get("league_id"))]
+        # Sprint-D9-HOTFIX · ahora usa el matcher combinado (ID + nombre)
+        # para que fuentes alternativas (TheSportsDB, ESPN, Sofascore)
+        # que no traen league_id canónico de API-Football también pasen
+        # cuando son torneos de selecciones nacionales.
+        upcoming = [m for m in upcoming if is_national_team_match(m)]
         log.info(
             "national_teams_only filter: %d → %d matches", before_nt, len(upcoming),
         )
@@ -5306,8 +5310,8 @@ async def _run_analysis_pipeline(
             from services.football_competitions import is_big_five  # noqa: F811
             live = [m for m in live if is_big_five(m.get("league"), m.get("league_id"))]
         if national_teams_only and sport == "football":
-            from services.api_sports import is_national_team_league  # noqa: F811
-            live = [m for m in live if is_national_team_league(m.get("league_id"))]
+            from services.api_sports import is_national_team_match  # noqa: F811
+            live = [m for m in live if is_national_team_match(m)]
         candidates.extend(live)
 
     candidates = candidates[: max_matches]
@@ -5343,8 +5347,8 @@ async def _run_analysis_pipeline(
         any_recent = await db.matches.find(_sport_filter(sport)).sort("updated_at", -1).limit(max_matches * 3).to_list(length=max_matches * 3)
         if sport == "football" and national_teams_only:
             # Keep national-team scope on the fallback path too.
-            from services.api_sports import is_national_team_league  # noqa: F811
-            any_recent = [m for m in any_recent if is_national_team_league(m.get("league_id"))]
+            from services.api_sports import is_national_team_match  # noqa: F811
+            any_recent = [m for m in any_recent if is_national_team_match(m)]
             candidates = any_recent[:max_matches]
         elif sport == "football":
             from services.football_quality import filter_and_prioritize  # noqa: F811

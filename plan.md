@@ -439,6 +439,67 @@
 
 ## 4) Cierres recientes (bitácora)
 
+### 🚑 Sprint-D9-PostDeploy-Hotfix — **COMPLETADO (P0 hotfix tras deploy)**
+
+> Reporte usuario tras redeploy del sprint anterior:
+> 1. Botón "Selecciones nacionales" ya no ingesta partidos.
+> 2. "Generar picks del día" devuelve `409 NO_PRIORITY_FIXTURES_FOUND`.
+> 3. Bloque "Algoritmo Forebet" (1: 64%, X: 20%, 2: 16%, marcador 2-0)
+>    ya no aparece en la UI.
+
+**Diagnóstico (raíz común):** el reorden de cascada (TheSportsDB →
+TheStatsAPI → ESPN → Sofascore → API-Football) hizo que TheSportsDB
+gane la cascada con sus IDs y nombres exóticos. Las funciones
+downstream (`is_national_team_league`, PRIORITY_LADDER por ID,
+`find_fixture` de Forebet) usaban IDs canónicos de API-Football y NO
+matcheaban con TheSportsDB. Adicionalmente, **API-Football reportó
+`account suspended`** simultáneamente (cuenta del usuario sin créditos),
+así que el fallback paid también falla.
+
+**Hotfixes aplicados:**
+
+* **HOTFIX-1 — `discover_priority_fixtures` (`services/data_ingestion.py`):**
+  - Tracker `matched_by_id_count` separa matches por ID canónico vs
+    matches sólo por nombre.
+  - Cuando `matched_by_id_count == 0`, los matches by-name-only se
+    consideran low-confidence (típicamente TheSportsDB devuelve "FIFA
+    World Cup" para sub-17/sub-20) y se descartan.
+  - Fallback a API-Football siempre se ejecuta cuando no hay matches
+    por ID. Dedupe por (home, away, kickoff//60).
+
+* **HOTFIX-2 — `is_national_team_match` (`services/api_sports.py`):**
+  - Nuevo helper que combina chequeo por league_id canónico
+    (`is_national_team_league`) + matching por nombre
+    (`is_national_team_league_by_name`).
+  - Keywords cubren: World Cup, Nations League, Euro, Copa America,
+    AFCON, Asian Cup, CONCACAF Gold Cup, International Friendlies,
+    Club Friendlies (FIFA dates), Qualifiers.
+  - Cableado en 3 puntos de `server.py` (filtros `national_teams_only`
+    en upcoming, live y fallback path).
+
+* **HOTFIX-3 — Forebet parser (`services/forebet_scraper.py`):**
+  - Forebet rediseñó su HTML (`<span class="homeTeam">...</span>`,
+    `<span class="awayTeam">...</span>`, `<div class="fprc">`,
+    `<span class="forepr">`, `<span class="shortTag">`, etc.).
+  - Nuevo `_parse_rcnt_row_structured` usa los selectores DOM
+    actuales — elimina por completo la heurística de string splitting
+    que rompía nombres con espacios ("New Zealand" se parseaba como
+    "New" / "Zealand Egypt").
+  - Mantiene el parser regex legacy como fallback retro-compat.
+  - Cache `external_editorial_cache.forebet:fixtures-index`
+    invalidado en preview para forzar re-scrape con el nuevo parser.
+
+* **Tests nuevos:** `test_d9_post_deploy_hotfixes_iteration5.py` (7).
+* **Suite backend:** **4583 passed / 11 skipped / 0 failed**.
+
+**Pendiente para el usuario (NO arreglable desde código):**
+- ⚠️ **API-Football suspendida**: la cuenta del usuario devuelve
+  `"Your account is suspended, check on dashboard.api-football.com"`.
+  Mientras esto siga así, el fallback de pago no responde y la cascada
+  cae completamente en fuentes gratuitas (TheSportsDB, ESPN, Sofascore)
+  que tienen cobertura más limitada para ligas top y para ligas del
+  período de parón / vacaciones.
+
 ### ✅ Sprint-D9-OddsCascade / CornerAutoFallback / CascadeReorder — **COMPLETADO (P0)**
 
 > **Alcance:** 3 hotfixes pedidos por el usuario tras el análisis de

@@ -1,46 +1,26 @@
 [
   {
-    "content": "Tarea 3: Reordenar cascada en data_ingestion.py",
+    "content": "HOTFIX-1: discover_priority_fixtures — forzar API-Football cuando matched_by_id=0",
     "status": "completed"
   },
   {
-    "content": "Tests para verificar nuevo orden de cascada (no regresiones)",
+    "content": "HOTFIX-2: national_teams_only — is_national_team_match con matching por nombre",
     "status": "completed"
   },
   {
-    "content": "Tarea 1a: Crear odds_portal_client.py",
+    "content": "HOTFIX-3: Forebet parser — nuevos selectores estructurales",
     "status": "completed"
   },
   {
-    "content": "Tarea 1b: Crear odds_cascade.py con TheOddsAPI (primario) + OddsPortal (fallback)",
+    "content": "Test fix completo en preview (curl + UI)",
     "status": "completed"
   },
   {
-    "content": "Tarea 1c: Deprecar fetch_sportytrader_match (early-return, sin HTTP)",
+    "content": "Suite backend completa (cero regresiones)",
     "status": "completed"
   },
   {
-    "content": "Tests para odds_cascade y deprecación de Sportytrader",
-    "status": "completed"
-  },
-  {
-    "content": "Tarea 2a: Crear football_corner_auto_fallback.py (módulo puro testeable)",
-    "status": "completed"
-  },
-  {
-    "content": "Tarea 2b: Cablear auto-fallback en apply_moneyball_layer (sport=='football', edge ≥ 8%)",
-    "status": "completed"
-  },
-  {
-    "content": "Tests para corner auto-fallback (edge threshold, no aplica si edge < 8%, etc.)",
-    "status": "completed"
-  },
-  {
-    "content": "Ejecutar pytest suite completa (mantener 4463+ pasando, cero regresiones)",
-    "status": "completed"
-  },
-  {
-    "content": "Actualizar plan.md con bitácora del sprint",
+    "content": "Actualizar plan.md + pedir redeploy + informar API-Football suspendida",
     "status": "completed"
   }
 ]

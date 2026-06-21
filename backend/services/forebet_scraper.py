@@ -45,11 +45,119 @@ def _txt(node) -> str:
 # ─────────────────────────────────────────────────────────────────────
 # Fixture row parser
 # ─────────────────────────────────────────────────────────────────────
-def _parse_rcnt_row(row_node) -> Optional[dict]:
-    """Parse one ``div.rcnt`` row. The row's onclick handler usually
-    holds the canonical match URL — but those deep pages are blocked
-    by anti-bot. We extract everything we can from the row text.
+def _parse_rcnt_row_structured(row_node) -> Optional[dict]:
+    """Sprint-D9-HOTFIX · parser estructural usando los selectores
+    actuales de Forebet (homeTeam / awayTeam / date_bah / fpr / forepr /
+    scrmobpred / shortTag / avg_sc / tnmscn). Reemplaza la heurística
+    posicional cuando Forebet rinde el row con la estructura nueva.
+
+    Devuelve ``None`` si el row no usa la estructura esperada, para que
+    el caller pueda caer al parser regex legacy.
     """
+    if row_node is None:
+        return None
+
+    home_node = row_node.css_first("span.homeTeam")
+    away_node = row_node.css_first("span.awayTeam")
+    if home_node is None or away_node is None:
+        return None  # estructura nueva no presente
+
+    # Texto profundo (los span.homeTeam tienen <span> interior).
+    home = home_node.text(strip=True)
+    away = away_node.text(strip=True)
+    if not home or not away:
+        return None
+
+    # Date — formato "DD/MM/YYYY HH:MM"
+    date_node = row_node.css_first("span.date_bah")
+    date_txt = date_node.text(strip=True) if date_node else ""
+    m_date = re.match(r"(\d{2}/\d{2}/\d{4})\s+(\d{1,2}:\d{2})", date_txt)
+    date_str = m_date.group(1) if m_date else None
+    time_str = m_date.group(2) if m_date else None
+
+    # Probabilidades 1 / X / 2 — primer/segundo/tercer <span> dentro de
+    # ``div.fprc``. El primero suele tener class="fpr".
+    fprc = row_node.css_first("div.fprc")
+    pcts: list[int] = []
+    if fprc is not None:
+        for sp in fprc.css("span"):
+            txt = sp.text(strip=True)
+            if not txt:
+                continue
+            try:
+                pcts.append(int(txt))
+            except ValueError:
+                continue
+            if len(pcts) >= 3:
+                break
+    if len(pcts) < 3:
+        return None  # sin probabilidades no hay valor
+
+    home_pct, draw_pct, away_pct = pcts[0], pcts[1], pcts[2]
+
+    # Pick highlighted (1/X/2) — ``span.forepr > span``.
+    pick_node = row_node.css_first("span.forepr")
+    pick_txt = pick_node.text(strip=True) if pick_node else ""
+    pick_1x2 = pick_txt if pick_txt in ("1", "X", "2") else None
+
+    # Predicted score — está en ``span.scrmobpred`` o ``div.ex_sc.tabonly``.
+    score_pred: Optional[str] = None
+    score_node = row_node.css_first("div.ex_sc.tabonly") or row_node.css_first("span.scrmobpred")
+    if score_node is not None:
+        st = score_node.text(strip=True)
+        m_sc = re.search(r"(\d+)\s*-\s*(\d+)", st)
+        if m_sc:
+            score_pred = f"{m_sc.group(1)}-{m_sc.group(2)}"
+
+    # Goals total avg — ``div.avg_sc``.
+    avg_node = row_node.css_first("div.avg_sc")
+    goals_avg = None
+    if avg_node is not None:
+        m_g = re.search(r"(\d+\.\d+)", avg_node.text(strip=True))
+        if m_g:
+            try:
+                goals_avg = float(m_g.group(1))
+            except ValueError:
+                pass
+
+    # Short competition tag — ``span.shortTag``.
+    short_node = row_node.css_first("span.shortTag")
+    competition = short_node.text(strip=True) if short_node else None
+
+    # Match URL — anchor ``a.tnmscn``.
+    a_node = row_node.css_first("a.tnmscn")
+    match_url = a_node.attributes.get("href") if a_node is not None else None
+    if match_url and match_url.startswith("/"):
+        match_url = "https://www.forebet.com" + match_url
+
+    return {
+        "competition":     competition,
+        "home_team":       home,
+        "away_team":       away,
+        "match_date":      date_str,
+        "kickoff_time":    time_str,
+        "forebet_pct_1":   home_pct,
+        "forebet_pct_x":   draw_pct,
+        "forebet_pct_2":   away_pct,
+        "pick_1x2":        pick_1x2,
+        "predicted_score": score_pred,
+        "goals_avg":       goals_avg,
+        "match_url":       match_url,
+        "_parser":         "structured",
+    }
+
+
+def _parse_rcnt_row(row_node) -> Optional[dict]:
+    """Parse one ``div.rcnt`` row. Intenta primero el parser
+    estructural (selectores DOM actuales) y, si la estructura no
+    matchea, cae a la heurística legacy basada en regex posicional.
+    """
+    # Strategy 1 — structured parser (Forebet HTML actual).
+    out = _parse_rcnt_row_structured(row_node)
+    if out is not None:
+        return out
+
+    # Strategy 2 — legacy positional regex (fallback histórico).
     href = row_node.attributes.get("onclick") or ""
     m_url = re.search(r"location\.href=['\"]([^'\"]+)['\"]", href)
     match_url = m_url.group(1) if m_url else None

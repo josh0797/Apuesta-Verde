@@ -614,14 +614,23 @@ async def discover_priority_fixtures(
 
     discovered: list[dict] = []
     counts: dict[str, int] = {}
+    # Sprint-D9-HOTFIX (priority-id-trust): el reorden de cascada
+    # (TheSportsDB primario) introdujo un side-effect: TheSportsDB usa
+    # IDs propios (4000-6000) y nombres ambiguos (p.ej. "FIFA World Cup"
+    # incluye sub-17/sub-20 friendlies). El filtro por nombre matchea
+    # falsos positivos. Para mitigarlo, contamos cuántos fixtures vienen
+    # con un league_id válido de API-Football (el universo de IDs que
+    # PRIORITY_LADDER realmente usa). Si NO hay matches por ID — solo por
+    # nombre — forzamos el fallback API-Football aunque ``discovered`` no
+    # esté vacío.
+    matched_by_id_count = 0
     for fx in cascade_raw:
         league_name = (fx.get("league") or {}).get("name")
         league_id   = (fx.get("league") or {}).get("id")
         # Match por ID (rápido, solo si la source es API-Sports) O por nombre.
-        is_priority = (
-            (isinstance(league_id, int) and league_id in priority_ids)
-            or _matches_priority(league_name)
-        )
+        is_priority_by_id   = isinstance(league_id, int) and league_id in priority_ids
+        is_priority_by_name = _matches_priority(league_name)
+        is_priority = is_priority_by_id or is_priority_by_name
         if not is_priority:
             continue
         status = ((fx.get("fixture") or {}).get("status") or {}).get("short")
@@ -633,13 +642,27 @@ async def discover_priority_fixtures(
         if not (now - timedelta(minutes=10) <= dt <= cutoff):
             continue
         discovered.append(fx)
+        if is_priority_by_id:
+            matched_by_id_count += 1
         label = id_to_label.get(league_id) if isinstance(league_id, int) else league_name
         counts[label or "unknown"] = counts.get(label or "unknown", 0) + 1
 
-    # ── Paso 2: si la cascada NO encontró nada de priority, fallback al
-    # endpoint directo de API-Sports (consume créditos — último recurso). ──
-    if not discovered:
-        log.info("[priority_discover] cascade had 0 priority fixtures — trying API-Sports direct")
+    # ── Paso 2: si la cascada NO encontró nada de priority **por ID
+    # canónico de API-Football**, fallback al endpoint directo de
+    # API-Sports (consume créditos — último recurso). ──
+    if not discovered or matched_by_id_count == 0:
+        log.info(
+            "[priority_discover] cascade priority signal weak "
+            "(discovered=%d, matched_by_id=%d) — invoking API-Sports fallback",
+            len(discovered), matched_by_id_count,
+        )
+        # Cuando solo había matches por nombre (no por ID canónico), los
+        # consideramos "low confidence" (p.ej. TheSportsDB suele matchear
+        # sub-17/sub-20 a "FIFA World Cup"). Descartamos ese ruido y
+        # reemplazamos por el resultado autorizado de API-Football.
+        if matched_by_id_count == 0:
+            discovered = []
+            counts = {}
         today = now.date()
         tomorrow = today + timedelta(days=1)
         raw_af: list[dict] = []
@@ -649,6 +672,15 @@ async def discover_priority_fixtures(
                 raw_af.extend(chunk)
             except Exception as exc:
                 log.warning("[priority_discover] /fixtures?date=%s failed: %s", d, exc)
+        # Dedupe por (home, away, kickoff-timestamp) para no duplicar
+        # fixtures que ya vinieron por la cascada con ID válido.
+        existing_keys = set()
+        for ex in discovered:
+            t = ex.get("teams") or {}
+            h = (t.get("home") or {}).get("name") or ""
+            a = (t.get("away") or {}).get("name") or ""
+            ts = (ex.get("fixture") or {}).get("timestamp") or 0
+            existing_keys.add((h.lower(), a.lower(), int(ts) // 60))
         for fx in raw_af:
             try:
                 lid = (fx.get("league") or {}).get("id")
@@ -663,6 +695,13 @@ async def discover_priority_fixtures(
                 continue
             if not (now - timedelta(minutes=10) <= dt <= cutoff):
                 continue
+            t = fx.get("teams") or {}
+            h = (t.get("home") or {}).get("name") or ""
+            a = (t.get("away") or {}).get("name") or ""
+            key = (h.lower(), a.lower(), int(ts) // 60)
+            if key in existing_keys:
+                continue
+            existing_keys.add(key)
             fx.setdefault("_discovery_source", "api_football")
             discovered.append(fx)
             label = id_to_label.get(lid, str(lid))

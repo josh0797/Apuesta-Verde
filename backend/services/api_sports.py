@@ -83,6 +83,85 @@ def is_national_team_league(league_id: Any) -> bool:
     except (TypeError, ValueError):
         return False
 
+
+# Sprint-D9-HOTFIX (cascade-reorder) · matching por NOMBRE para fuentes
+# que no usan los IDs canónicos de API-Football (TheSportsDB, ESPN,
+# Sofascore, etc.). Cuando ``league_id`` es desconocido o no matchea con
+# ``NATIONAL_TEAM_LEAGUES``, recurrimos a estos keywords para identificar
+# torneos de selecciones nacionales.
+_NATIONAL_TEAM_LEAGUE_NAME_KEYWORDS: tuple[str, ...] = (
+    "fifa world cup",
+    "world cup qualification",
+    "world cup qualifier",
+    "wc qualifier",
+    "uefa nations league",
+    "nations league",
+    "euro championship",
+    "european championship",
+    "uefa euro",
+    "copa america",
+    "copa américa",
+    "afc asian cup",
+    "asian cup",
+    "africa cup of nations",
+    "afcon",
+    "concacaf gold cup",
+    "gold cup",
+    "international friendlies",
+    "international friendly",
+    "club friendlies",       # incluye amistosos internacionales (FIFA dates)
+    "world cup",             # genérico — captura "FIFA World Cup", "Women's World Cup", etc.
+    "euro qualif",
+    "afcon qualif",
+)
+
+
+def _strip_accents_lower(s: str) -> str:
+    import unicodedata as _ud
+    if not isinstance(s, str):
+        return ""
+    out = "".join(c for c in _ud.normalize("NFD", s)
+                  if _ud.category(c) != "Mn")
+    return out.lower().strip()
+
+
+def is_national_team_league_by_name(league_name: Any) -> bool:
+    """Heurística por nombre. Útil cuando la fuente (TheSportsDB, ESPN,
+    Sofascore) NO usa el league_id canónico de API-Football y por lo
+    tanto :func:`is_national_team_league` retorna ``False`` aunque el
+    torneo SÍ sea de selecciones nacionales.
+
+    Fail-soft: si ``league_name`` no es str o está vacío, retorna False.
+    """
+    if not isinstance(league_name, str) or not league_name.strip():
+        return False
+    norm = _strip_accents_lower(league_name)
+    return any(kw in norm for kw in _NATIONAL_TEAM_LEAGUE_NAME_KEYWORDS)
+
+
+def is_national_team_match(match_or_fixture: Any) -> bool:
+    """Combina chequeo por ID (canónico) + matching por nombre (fallback).
+
+    Acepta tanto:
+      * Un dict con ``league_id`` o ``league.id``.
+      * Un fixture API-Football con shape ``{league: {id, name}}``.
+    """
+    if not isinstance(match_or_fixture, dict):
+        return False
+    league_field = match_or_fixture.get("league")
+    league_obj = league_field if isinstance(league_field, dict) else {}
+    league_id = (
+        match_or_fixture.get("league_id")
+        or league_obj.get("id")
+    )
+    if is_national_team_league(league_id):
+        return True
+    league_name = (
+        match_or_fixture.get("league_name")
+        or league_obj.get("name")
+    )
+    return is_national_team_league_by_name(league_name)
+
 # Sentence-friendly labels
 SPORT_LABELS = {"football": "Fútbol", "basketball": "NBA / Basket", "baseball": "MLB / Béisbol"}
 
