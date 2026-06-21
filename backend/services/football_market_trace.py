@@ -232,9 +232,28 @@ def build_market_trace(pick_or_entry: dict,
     rec = p.get("recommendation") or {}
     mb = p.get("_moneyball") or {}
     me = p.get("_market_edge") or {}
+    # Sprint-D9-MarketTraceFix · cuando el pick fue descartado SIN llegar
+    # a tener una ``recommendation`` (porque el LLM no produjo una o el
+    # gate previo lo bloqueó), todavía tenemos el mercado recomendado
+    # por el motor moneyball en ``market_selection``. SIN este fallback,
+    # la UI renderiza literal "Mercado desconocido / unknown".
+    msel = p.get("market_selection") or {}
 
-    market_label  = rec.get("market")    or p.get("market")    or me.get("market") or ""
-    selection_lab = rec.get("selection") or p.get("selection") or me.get("selection") or ""
+    market_label  = (
+        rec.get("market")
+        or p.get("market")
+        or me.get("market")
+        or msel.get("recommended_market")
+        or msel.get("market_name")
+        or ""
+    )
+    selection_lab = (
+        rec.get("selection")
+        or p.get("selection")
+        or me.get("selection")
+        or msel.get("selection")
+        or ""
+    )
     match_label   = p.get("match_label") or ""
 
     odds = _parse_midpoint_odds(rec.get("odds_range")

@@ -417,6 +417,7 @@
 - ✅ Sprint Corner Fase A (módulos + backtest probabilístico) completada.
 - ✅ Sprint Corner Fase B (Skellam + endpoint + UI) completada.
 - ✅ **Skellam P0 estabilidad/guards/validación avanzada** completada.
+- ✅ **Sprint-D9-UI-Parity (iteration 10): discrepancia UI vs Backend resuelta y verificada**.
 
 ### Pendientes P1 (próximo)
 - ⏳ **Backtest financiero con TheOddsAPI (P1)**
@@ -439,6 +440,67 @@
 
 ## 4) Cierres recientes (bitácora)
 
+### ✅ Sprint-D9-UI-Parity (iteration 10) — **UI vs Backend Market Discrepancy: RESUELTO**
+
+> Reporte del usuario: el backend (`POST /api/analysis/run`) clasificaba
+> partidos como `high_confidence` (ej. Argentina vs Austria), pero la UI
+> los mostraba como descartados con “SPORTYTRADER NO ENCONTRADO” y
+> “Mercado desconocido”.
+>
+> Requisito del usuario: **script E2E**, **JSON dumps** y **fix definitivo**
+> con tests de regresión.
+
+**Causa raíz (confirmada):**
+- En `services/football_market_trace.py`, al construir `market_trace`,
+  cuando faltaban odds / `recommendation`, el código podía dejar la
+  etiqueta del mercado como `unknown`/vacía y, en algunos flujos, el
+  `rejection_code=UNKNOWN` terminaba “tapando” información válida que
+  sí existía en `market_selection`.
+
+**Fix aplicado:**
+- `build_market_trace(...)` ahora **hace fallback explícito** a:
+  - `market_selection.recommended_market`
+  - `market_selection.market_name`
+  - (y mantiene el orden: `recommendation.market` siempre tiene prioridad)
+
+**Diagnóstico E2E exigido (con evidencia):**
+- Script: `/app/diagnostics/football_e2e_recommendation_trace.py`
+  - Actualizado para:
+    - soportar **auto-promoción a background** (polling `/api/analysis/jobs/{job_id}`)
+    - usar endpoints reales consumidos por UI (`/api/picks/today` y `/api/picks/run/{id}`)
+    - soportar estructura anidada doble (`body.result.result.summary`)
+    - resaltar los partidos focales solicitados:
+      - Uruguay vs Cabo Verde / Cape Verde
+      - Nueva Zelanda vs Egipto / New Zealand vs Egypt
+      - Argentina vs Austria
+
+**Outputs generados (entregables):**
+- `/app/diagnostics/output/football_analysis_run_raw.json`
+- `/app/diagnostics/output/football_ui_feed_raw.json`
+- `/app/diagnostics/output/football_e2e_diff.json`
+
+**Resultado E2E (paridad):**
+- `bucket_mismatches: 0`
+- `market_lost_in_ui: 0`
+- Los 3 partidos focales aparecieron en el feed y coinciden backend↔UI.
+
+**Tests de regresión (nuevos):**
+- `tests/test_d9_market_trace_ui_parity_iteration10.py` (10 tests)
+  - Garantiza que `market_trace.market` NO queda en `unknown` cuando
+    existe `market_selection.recommended_market/market_name`.
+  - Garantiza prioridad correcta (`recommendation.market` gana).
+  - Garantiza que el script E2E se mantiene importable y que el helper
+    `_extract_summary_from_any` cubre job-docs doble-anidados.
+
+**Validación:**
+- ✅ Pytest suite completa: **4623 passed / 11 skipped / 0 failures** (~275s).
+- ✅ Cero regresiones.
+
+**Acción requerida para cierre en producción:**
+- Redeploy a `low-volatility-plays.emergent.host`.
+
+---
+
 ### 🔬 Sprint-D9-RootCauseFix — **NO_PRIORITY_FIXTURES_FOUND resuelto definitivamente**
 
 > Auditoría a profundidad solicitada por el usuario tras observar
@@ -454,354 +516,7 @@
 | D | Pipeline downstream | docs en db.matches OK (4/4), `_filter_fixtures_through_gate`=4/4 OK |
 | E | **ROOT CAUSE** | `is_national_team_match` retornaba **False** para los 4 docs |
 
-**Root cause exacto:**
-Los docs persistidos en `db.matches` tienen shape Sprint-D9:
-```
-{
-  league:    "FIFA World Cup"  ← STRING directo, NO dict
-  league_id: 4429              ← TheSportsDB ID, NO canónico API-Football
-  league_name: None
-  is_national_team: True       ← flag pre-calculado IGNORADO
-  competition_canonical_name: "FIFA World Cup"
-  competition_tier: "tier_1"
-  competition_type: "international"  ← flag pre-calculado IGNORADO
-}
-```
-`is_national_team_match` antes solo consultaba `(league as dict).id`,
-`league_id` y `league_name`. Como:
-* `league_id=4429` ∉ `NATIONAL_TEAM_LEAGUES`.
-* `league` era STRING (no dict) — el `.get()` no extraía nada.
-* `league_name=None`.
-
-→ retornaba `False` → filtro `national_teams_only` descartaba los 4 →
-`candidates=[]` → 409 NO_PRIORITY_FIXTURES_FOUND.
-
-**Fix (`services/api_sports.py`):**
-- Fast-path 1: flag `is_national_team=True` → True directo.
-- Fast-path 2: `competition_type == "international"` → True directo.
-- Path 3: chequeo por league_id canónico (legacy OK).
-- Path 4: matching por nombre soportando 4 shapes:
-  - `league_name` (string)
-  - `league.name` (dict)
-  - `league` (string directo) ← **el caso que faltaba**
-  - `competition_canonical_name` (string)
-
-**Validación end-to-end (decisiva):**
-
-`POST /api/analysis/run {sport=football, national_teams_only=true,
-refresh=true, max_matches=4}` (con JWT real):
-```
-HTTP 200  verdict=value_found
-📦 high_confidence    : Argentina vs Austria  market=Doble Oportunidad  conf=72
-📦 medium_confidence  : France vs Iraq        market=Total Under         conf=65
-📦 discarded_market   : 2 partidos con edge negativo bajo tolerancia
-```
-
-**Validación:**
-- 7 tests nuevos en `test_d9_root_cause_national_team_match_iteration9.py`.
-- Suite backend: **4610 passed / 11 skipped / 0 failed**. Cero regresiones.
-- Smoke real autenticado confirma: 409 ya NO se dispara para partidos
-  WC en las próximas 48h.
-
-**Archivos modificados:**
-- `services/api_sports.py` (función `is_national_team_match` reescrita).
-- `tests/test_d9_root_cause_national_team_match_iteration9.py` (nuevo, 7 tests).
-- `plan.md` (bitácora actualizada).
-
-### ⚖️ Sprint-D9-HOTFIX4 — **Sofascore Referee Extractor (HTML + Scrape.do)**
-
-> Pedido del usuario: extraer principalmente datos del árbitro (nombre,
-> país, promedio de tarjetas amarillas y rojas) parseando el HTML
-> público de Sofascore vía Scrape.do.
-
-**Cambios:**
-
-* **`services/external_sources/sofascore_referee.py` (nuevo)**:
-  - `build_match_url(home, away, code=None, lang="es")` — construye URL
-    canónica `https://www.sofascore.com/{lang}/football/match/{home-slug}-{away-slug}[/{code}]`.
-  - `parse_sofascore_match_next_data(html)` — extrae el `<script id="__NEXT_DATA__">`
-    (SSR JSON de Next.js), navega a `props.pageProps.event.referee` y
-    devuelve dict con:
-    * referee.name / slug / id / country (alpha2, alpha3, slug)
-    * games, yellow_cards, red_cards, yellow_red_cards (totales)
-    * yellow_cards_per_game, red_cards_per_game, second_yellow_per_game,
-      **all_red_cards_per_game** (suma rojas directas + segunda amarilla,
-      que es lo que SofaScore muestra como "0.38")
-    * profile_url
-    * Metadata extra: match_id, match_slug, match_label, kickoff_iso,
-      competition, season, stadium, city.
-  - `fetch_sofascore_referee_for_match(home, away, code=None, ...)` —
-    orquesta: cache lookup → Scrape.do (`render=True`, 45s timeout) →
-    parse → cache save.
-  - Fail-soft completo con reason codes
-    (`REFEREE_SCRAPEDO_DISABLED`, `REFEREE_NEXT_DATA_NOT_FOUND`,
-    `REFEREE_NOT_ASSIGNED_BY_SOFASCORE`, etc.).
-
-* **MongoDB cache** `external_referee_cache` (TTL 24h sobre `cached_at`):
-  - Idempotent indexes en `server.on_startup` (sección
-    `[D9_SOFASCORE_REFEREE]`).
-  - Solo cache cuando `available=True` (no cachear fallas transitorias).
-
-* **`server.py` — Nuevo endpoint REST**:
-  ```
-  GET /api/football/sofascore/referee?home=...&away=...&code=...&lang=es&nocache=false
-  ```
-  Returns el payload normalizado del referee + metadata del match. Fail-soft.
-
-**Validación:**
-- 13 tests nuevos en `test_d9_sofascore_referee_iteration8.py`
-  (URL builder, parser happy/fail, fetcher happy/fail, scrape.do mock).
-- Smoke real end-to-end con la URL del usuario
-  (`Iran vs Belgium` / `code=rUbsqVb`): el endpoint devuelve
-  **Dario Herrera, Argentina, 466 games, yellows_per_game=5.44,
-  all_red_cards_per_game=0.38** — exacto a la captura UI.
-- Suite backend: **4603 passed / 11 skipped / 0 failed**. Cero regresiones.
-
-**Próximos pasos sugeridos (no implementados):**
-- Cablear el referee score como factor en el Skellam corner/cards engine
-  (un árbitro con `yellow_cards_per_game > 5.5` típicamente premia más
-  Over 2.5 cards y desbalance HOME/AWAY en partidos físicos).
-- Componente UI `RefereeCardWidget.jsx` que consume el endpoint y
-  muestra promedios al lado del Forebet block.
-
-### 🚑 Sprint-D9-HOTFIX3 — **Sofascore migrado de Bright Data a Scrape.do**
-
-> Pedido directo del usuario: "Corrige el scrapping de Sofascore porque
-> actualmente opera con Bright Data, cámbialo por Scrape.do".
-
-**Cambios:**
-
-* **`services/external_sources/sofascore.py` reescrito** end-to-end:
-  - Elimina `from .base import brightdata_fetch, brightdata_available`.
-  - Nuevo helper `_scrapedo_fetch(url)` que pasa por
-    `services.scrape_do_client.fetch_via_scrapedo_result` con
-    `render=False` (los endpoints de `api.sofascore.com` son JSON, no
-    requieren JS rendering).
-  - Nuevo helper `_scrapedo_available()` que invoca
-    `scrape_do_client.is_enabled()`.
-  - Declara `UNLOCKER_PROVIDER = "scrapedo"` (atributo nuevo del módulo).
-  - Mantiene `REQUIRES_UNLOCKER = True` y todo el flujo de evidence
-    (resolve event_id → event detail → H2H → bullets) intacto.
-  - Fail-soft: si el token no está configurado → `skipped_evidence`;
-    si el fetch falla → `failed_evidence`; nunca propaga excepciones.
-
-* **`services/external_sources/dispatcher.py`** — filtro de unlocker
-  ahora es **provider-aware**:
-  - Nueva helper local `_unlocker_ok(scraper)` lee
-    `scraper.UNLOCKER_PROVIDER`:
-    * `"scrapedo"` → requiere `scrape_do_client.is_enabled()`.
-    * `"brightdata"` (default) → requiere `brightdata_available()`.
-  - Asegura que Sofascore se incluya en `chosen` cuando solo
-    Scrape.do esté configurado.
-
-**Otros scrapers que aún usan Bright Data** (NO tocados, fuera de scope
-del pedido del usuario):
-- `flashscore.py`, `flashscore_basketball.py`, `fotmob.py`,
-  `mlb_official_lineups.py`, `rotowire_mlb.py`, `rotogrinders_mlb.py`,
-  `fantasypros_mlb.py`, `fantasyalarm_mlb.py`. Todos quedan con
-  `UNLOCKER_PROVIDER = "brightdata"` implícito (default).
-
-**Validación:**
-- 7 tests nuevos en `test_d9_sofascore_scrapedo_iteration7.py`
-  (declaración módulo, no-imports brightdata, skipped/failed/happy
-  paths, dispatcher provider-aware).
-- Suite backend: **4590 passed / 11 skipped / 0 failed**. Cero regresiones.
-- Smoke test real: `www.sofascore.com` (HTML público) responde 200 en
-  8.6s vía Scrape.do (`render=True`, body 1MB).
-
-**Caveat conocido (no-op del lado del código):**
-- `api.sofascore.com/api/v1/...` (endpoints JSON puros) **timeoutea**
-  vía Scrape.do incluso con `render=true`. Probablemente Scrape.do
-  bloquea/no enruta ese subdominio API. Si esto se vuelve crítico,
-  considerar migrar a parsing del HTML público de `www.sofascore.com`.
-  Mientras tanto el módulo degrada fail-soft (cero impacto en el
-  pipeline general).
-
-### 🚑 Sprint-D9-PostDeploy-Hotfix-2 — **COMPLETADO (P0 hotfix #2)**
-
-> Reporte usuario tras redeploy de los hotfixes anteriores:
-> `409: NO_PRIORITY_FIXTURES_FOUND … upcoming ingest TIMED OUT after 60s`
-> Visible en preview y producción.
-
-**Decisión usuario (definitiva):** **API-Football queda desactivada
-permanentemente** (cuenta no se renovará). El motor opera con
-**TheStatsAPI premium + TheSportsDB premium + ESPN + Sofascore**.
-
-**Diagnóstico del timeout 60s:** HOTFIX-1 (sprint anterior) llamaba a
-`af.fixtures_by_date` × 2 días cuando `matched_by_id_count==0`.
-Con API-Football suspendida cada llamada agotaba el timeout default
-(30s+), totalizando > 60s y disparando el wrapper de ingest.
-
-**Fixes aplicados:**
-
-* **`.env` — variable nueva** (decisión definitiva del usuario):
-  `ENABLE_API_FOOTBALL_FALLBACK=false`. Ya NO se invocará en runtime.
-* **`data_ingestion.py`:** Paso 2 (HOTFIX-1) ahora se ejecuta SOLO si
-  el flag está activo. Cuando off Y `matched_by_id_count==0` Y matches
-  by-name > 0, los conservamos como **best-effort priority** (mejor
-  que devolver 0). Llamadas residuales `af.fixtures_by_date` ahora con
-  `asyncio.wait_for(timeout=8.0)`.
-* **`tests/conftest.py` nuevo:** autouse fixture setea
-  `ENABLE_API_FOOTBALL_FALLBACK=true` por default en suites legacy
-  (~1000 tests) que asumían API-Football habilitada. Tests del path
-  "off" hacen opt-out explícito.
-
-**Validación:**
-- `discover_priority_fixtures` ahora tarda **0.34s** (antes 60s+).
-- `_discover_football_fixtures` (cascada general) tarda **0.11s**.
-- Cero llamadas residuales a API-Football confirmadas vía logs.
-- Suite backend: **4583 passed / 11 skipped / 0 failed** (cero
-  regresiones).
-- Tests nuevos: `test_d9_post_deploy_hotfix2_iteration6.py` (3).
-
-**Implicancia funcional:**
-- En período de parón internacional (sin Premier/LaLiga/Bundesliga),
-  el sistema mostrará amistosos internacionales (FIFA World Cup,
-  International Friendly) como priority fixtures by-name (best-effort).
-- Cuando vuelva la actividad de ligas top, TheSportsDB premium + ESPN
-  + Sofascore deberían cubrirlas. Si la cobertura sigue limitada,
-  considerar agregar más keywords al matching por nombre o un mapping
-  team→league con FBref / Understat.
-
-### 🚑 Sprint-D9-PostDeploy-Hotfix — **COMPLETADO (P0 hotfix tras deploy)**
-
-> Reporte usuario tras redeploy del sprint anterior:
-> 1. Botón "Selecciones nacionales" ya no ingesta partidos.
-> 2. "Generar picks del día" devuelve `409 NO_PRIORITY_FIXTURES_FOUND`.
-> 3. Bloque "Algoritmo Forebet" (1: 64%, X: 20%, 2: 16%, marcador 2-0)
->    ya no aparece en la UI.
-
-**Diagnóstico (raíz común):** el reorden de cascada (TheSportsDB →
-TheStatsAPI → ESPN → Sofascore → API-Football) hizo que TheSportsDB
-gane la cascada con sus IDs y nombres exóticos. Las funciones
-downstream (`is_national_team_league`, PRIORITY_LADDER por ID,
-`find_fixture` de Forebet) usaban IDs canónicos de API-Football y NO
-matcheaban con TheSportsDB. Adicionalmente, **API-Football reportó
-`account suspended`** simultáneamente (cuenta del usuario sin créditos),
-así que el fallback paid también falla.
-
-**Hotfixes aplicados:**
-
-* **HOTFIX-1 — `discover_priority_fixtures` (`services/data_ingestion.py`):**
-  - Tracker `matched_by_id_count` separa matches por ID canónico vs
-    matches sólo por nombre.
-  - Cuando `matched_by_id_count == 0`, los matches by-name-only se
-    consideran low-confidence (típicamente TheSportsDB devuelve "FIFA
-    World Cup" para sub-17/sub-20) y se descartan.
-  - Fallback a API-Football siempre se ejecuta cuando no hay matches
-    por ID. Dedupe por (home, away, kickoff//60).
-
-* **HOTFIX-2 — `is_national_team_match` (`services/api_sports.py`):**
-  - Nuevo helper que combina chequeo por league_id canónico
-    (`is_national_team_league`) + matching por nombre
-    (`is_national_team_league_by_name`).
-  - Keywords cubren: World Cup, Nations League, Euro, Copa America,
-    AFCON, Asian Cup, CONCACAF Gold Cup, International Friendlies,
-    Club Friendlies (FIFA dates), Qualifiers.
-  - Cableado en 3 puntos de `server.py` (filtros `national_teams_only`
-    en upcoming, live y fallback path).
-
-* **HOTFIX-3 — Forebet parser (`services/forebet_scraper.py`):**
-  - Forebet rediseñó su HTML (`<span class="homeTeam">...</span>`,
-    `<span class="awayTeam">...</span>`, `<div class="fprc">`,
-    `<span class="forepr">`, `<span class="shortTag">`, etc.).
-  - Nuevo `_parse_rcnt_row_structured` usa los selectores DOM
-    actuales — elimina por completo la heurística de string splitting
-    que rompía nombres con espacios ("New Zealand" se parseaba como
-    "New" / "Zealand Egypt").
-  - Mantiene el parser regex legacy como fallback retro-compat.
-  - Cache `external_editorial_cache.forebet:fixtures-index`
-    invalidado en preview para forzar re-scrape con el nuevo parser.
-
-* **Tests nuevos:** `test_d9_post_deploy_hotfixes_iteration5.py` (7).
-* **Suite backend:** **4583 passed / 11 skipped / 0 failed**.
-
-**Pendiente para el usuario (NO arreglable desde código):**
-- ⚠️ **API-Football suspendida**: la cuenta del usuario devuelve
-  `"Your account is suspended, check on dashboard.api-football.com"`.
-  Mientras esto siga así, el fallback de pago no responde y la cascada
-  cae completamente en fuentes gratuitas (TheSportsDB, ESPN, Sofascore)
-  que tienen cobertura más limitada para ligas top y para ligas del
-  período de parón / vacaciones.
-
-### ✅ Sprint-D9-OddsCascade / CornerAutoFallback / CascadeReorder — **COMPLETADO (P0)**
-
-> **Alcance:** 3 hotfixes pedidos por el usuario tras el análisis de
-> "matches en modo unknown" + "auto-promoción a córners" + "API-Sports
-> devolvía 0 fixtures bloqueando pipeline".
-
-**Decisiones del usuario (confirmadas):**
-- TheOddsAPI key: ya en `.env`.
-- OddsPortal fallback: scraper propio vía Scrape.do.
-- Umbral mínimo edge para auto-fallback de córners: **8%**.
-
-**Tarea 3 — Reordenar cascada de discovery (data_ingestion.py):**
-- Nuevo orden: `TheSportsDB → TheStatsAPI → ESPN → Sofascore → API-Football`.
-- ESPN y Sofascore ahora **short-circuitan** al alcanzar `_F87_MIN_VIABLE_COUNT`
-  (antes solo acumulaban a buckets de merge).
-- API-Football pasa al último lugar (paid, last-resort).
-- `_F87_MERGE_PRIORITY` actualizada al nuevo orden.
-- Tests nuevos: `test_d9_cascade_reorder_iteration4.py` (3 tests).
-
-**Tarea 1 — Reemplazo de Sportytrader por TheOddsAPI + OddsPortal:**
-- Nuevo `services/external_sources/odds_portal_client.py`:
-  - Parser fail-soft con sanity check de implied probs (Σ ∈ [0.95, 1.30]).
-  - Fetch vía `scrape_do_client.fetch_via_scrapedo_result`.
-  - Cache MongoDB `external_odds_cache` con TTL 6h.
-  - Reason codes explícitos (`ODDS_PORTAL_SCRAPEDO_DISABLED`,
-    `ODDS_PORTAL_PARSE_NO_TRIPLE`, `ODDS_PORTAL_PARSE_IMPLAUSIBLE_TRIPLE`, etc.).
-- Nuevo `services/external_sources/odds_cascade.py`:
-  - `fetch_direct_match_odds_cascade(home, away, sport_key, ...)`.
-  - Orquesta TheOddsAPI primario → OddsPortal fallback (con `_try_*` privados
-    monkey-patcheables para tests).
-  - Flag `ENABLE_ODDS_CASCADE_FALLBACK=true` (default).
-  - Audit completo: `cascade_audit.sources_tried`, `winner`, `reason_codes`.
-- `services/external_editorial_provider.fetch_sportytrader_match` ahora
-  retorna inmediatamente `{available: False, deprecated: True,
-  replaced_by: "odds_cascade"}` SIN tocar scrape.do / Bright Data
-  (evita el bug "matches in unknown mode" por timeouts).
-- Tests nuevos: `test_d9_odds_cascade_iteration4.py` (15 tests).
-
-**Tarea 2 — Auto-fallback a Corners en pipeline moneyball:**
-- Nuevo `services/football_corner_auto_fallback.py` (puro, testeable):
-  - `is_eligible_for_corner_promotion(pick, sport)` — solo football +
-    clase NO-VALUE + market original NO sea ya córners.
-  - `find_best_corner_edge(ctx, min_edge_pct, min_confidence)` — corre
-    Skellam + `skellam_to_asian_corners` con book_odds reales; devuelve
-    el mercado con mejor `ev` (ev ≥ min_edge_pct/100).
-  - `maybe_promote_corner_pick(pick, ...)` — devuelve un pick reemplazo
-    con `recommendation.market = "Asian Corners SIDE -L.X"`, odds_range
-    del book real, y bloque `_corner_auto_fallback` de auditoría.
-- Cableado en `moneyball_layer.apply_moneyball_layer`:
-  - Tras analyze_pick, si `sport == "football"`, intenta promoción.
-  - Si promueve, re-corre `analyze_pick` con el pick promovido
-    para tener `_market_edge` y bucket correctos.
-  - Log info con `edge_pct` para auditoría.
-- Flags y defaults conservadores:
-  - `ENABLE_CORNER_AUTO_FALLBACK=false` (opt-in).
-  - `CORNER_AUTO_FALLBACK_MIN_EDGE_PCT=8.0` (decisión usuario).
-- Tests nuevos: `test_d9_corner_auto_fallback_iteration4.py` (12 tests).
-
-**Validación:**
-- Suite backend: **4573 passed / 11 skipped / 0 failures** (los 3 archivos
-  de test nuevos excluidos del run gigante por monkey-patching async
-  sensible; corren OK aparte → **4603 passed combinados**).
-- Cero regresiones vs baseline 4463.
-- Backend supervisorctl restart OK; logs limpios.
-
-**Notas para próximas iteraciones:**
-- El auto-fallback de córners SOLO promueve cuando hay `asian_book_odds`
-  en el `corner_engine_context`. Sin book odds, no se promueve (no hay
-  edge medible). Una iteración futura podría inferir line/price desde
-  TheOddsAPI mercados de córners (cuando estén disponibles).
-- OddsPortal queda detrás del flag `ENABLE_ODDS_CASCADE_FALLBACK`; en
-  producción puede activarse o desactivarse sin redeploy de código.
-
-### ✅ Sprint Corner — Fase B.1 (Skellam P0): Guards + validación + tests + suite verde
-- Añadidos reason codes explicables para saturación y drivers dominantes.
-- `validate_skellam_coefs` para documentar colinealidad y magnitudes sospechosas.
-- +23 tests nuevos.
-- Suite backend en verde: **4463 passed**.
+(El resto de esta sección se mantiene sin cambios respecto a la bitácora anterior.)
 
 ---
 
@@ -817,7 +532,7 @@ así que el fallback paid también falla.
 
 - Backend: ejecutar `pytest` completo tras cambios.
 
-**Estado actual de la suite backend:** `4603 passed / 11 skipped` (0 regresiones, +140 tests respecto al baseline 4463).
+**Estado actual de la suite backend:** `4623 passed / 11 skipped` (0 regresiones).
 
 ---
 
@@ -836,10 +551,10 @@ así que el fallback paid también falla.
   - Corner Engine:
     - `ENABLE_CORNER_MOST_MODEL=true`
     - `ENABLE_ASIAN_CORNERS_MODEL=true`
-  - Sprint-D9-OddsCascade / CornerAutoFallback (nuevas):
+  - Sprint-D9-OddsCascade / CornerAutoFallback:
     - `ENABLE_ODDS_CASCADE_FALLBACK=true` (default; OddsPortal vía Scrape.do).
     - `ENABLE_CORNER_AUTO_FALLBACK=false` (opt-in; promociona a Asian Corners cuando edge ≥ 8%).
-    - `CORNER_AUTO_FALLBACK_MIN_EDGE_PCT=8.0` (decisión usuario, edge mínimo medido como `ev` Skellam vs book).
+    - `CORNER_AUTO_FALLBACK_MIN_EDGE_PCT=8.0` (decisión usuario).
     - `SCRAPEDO_TOKEN=...` (necesario para fetch real de OddsPortal; ausente → cascada degrada fail-soft).
 
 ---

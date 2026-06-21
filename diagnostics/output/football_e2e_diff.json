@@ -1,0 +1,613 @@
+{
+  "backend_bucket_counts": {
+    "high_confidence": 0,
+    "medium_confidence": 1,
+    "rescued_picks": 0,
+    "protected_acceptable": 0,
+    "watchlist": 0,
+    "watchlist_odds_needed": 0,
+    "discarded_motivation": 0,
+    "discarded_market": 6,
+    "incomplete_data": 9
+  },
+  "per_match": [
+    {
+      "match_key": "1053637559",
+      "match_label": "Uruguay vs Cape Verde",
+      "backend_analysis_run": {
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "1053637587",
+      "match_label": "Spain vs Saudi Arabia",
+      "backend_analysis_run": {
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "1270102162",
+      "match_label": "Netherlands vs Sweden",
+      "backend_analysis_run": {
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "1417473411",
+      "match_label": "Tunisia vs Japan",
+      "backend_analysis_run": {
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "1489392",
+      "match_label": "Ecuador vs Curaçao",
+      "backend_analysis_run": {
+        "bucket": "medium_confidence",
+        "market": "Total Under",
+        "selection": null,
+        "odds": null,
+        "confidence": 68,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "medium_confidence",
+        "market": "Total Under",
+        "selection": null,
+        "odds": null,
+        "confidence": 68,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "ODDS_MISSING",
+          "EDGE_MISSING"
+        ]
+      }
+    },
+    {
+      "match_key": "1539004",
+      "match_label": "Czechia vs South Africa",
+      "backend_analysis_run": {
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "1539005",
+      "match_label": "Switzerland vs Bosnia & Herzegovina",
+      "backend_analysis_run": {
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "1541915358",
+      "match_label": "Ecuador vs Curaçao",
+      "backend_analysis_run": {
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "1545678",
+      "match_label": "IFK Goteborg vs Valerenga",
+      "backend_analysis_run": {
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Overflow del pre-filtro (capacidad)",
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Overflow del pre-filtro (capacidad)",
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "1554469",
+      "match_label": "Austria Klagenfurt vs SV Kapfenberg",
+      "backend_analysis_run": {
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "1632520916",
+      "match_label": "Scotland vs Morocco",
+      "backend_analysis_run": {
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "1632525756",
+      "match_label": "Belgium vs Iran",
+      "backend_analysis_run": {
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "2391755",
+      "match_label": "New Zealand vs Egypt",
+      "backend_analysis_run": {
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "2391758",
+      "match_label": "Argentina vs Austria",
+      "backend_analysis_run": {
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "2461113",
+      "match_label": "France vs Iraq",
+      "backend_analysis_run": {
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "incomplete_data",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": null,
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    }
+  ]
+}

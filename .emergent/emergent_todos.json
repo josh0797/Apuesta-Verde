@@ -1,30 +1,30 @@
 [
   {
-    "content": "ETAPA A: Inventariar partidos REALES en ESPN — 9 fixtures WC en 48h",
+    "content": "Verificar parche aplicado en services/football_market_trace.py",
     "status": "completed"
   },
   {
-    "content": "ETAPA B: Cascada devuelve 9 fixtures WC/Friendlies con status=NS",
+    "content": "Revisar y ajustar script E2E para incluir Argentina-Austria, Uruguay-Cabo Verde, Nueva Zelanda-Egipto",
     "status": "completed"
   },
   {
-    "content": "ETAPA C: PRIORITY_LADDER reconoce 'FIFA World Cup'; discover_priority_fixtures devuelve 4 fixtures",
+    "content": "Ejecutar script E2E y generar JSON dumps",
     "status": "completed"
   },
   {
-    "content": "ETAPA D: db.matches docs OK; gate=4/4 OK; PERO is_national_team_match=False para todos",
+    "content": "Validar paridad UI feed vs analysis run",
     "status": "completed"
   },
   {
-    "content": "ETAPA E: ROOT CAUSE — is_national_team_match no manejaba league como string ni flags is_national_team",
+    "content": "Escribir tests de regresion para football_market_trace.py",
     "status": "completed"
   },
   {
-    "content": "ETAPA F: Fix robusto + 7 tests nuevos + suite 4610 passed cero regresiones",
+    "content": "Ejecutar pytest completo y confirmar 0 regresiones",
     "status": "completed"
   },
   {
-    "content": "ETAPA G: Validación end-to-end — HTTP 200, Argentina vs Austria high_conf=72, France vs Iraq medium=65",
+    "content": "Reportar resultados al usuario con JSONs adjuntos",
     "status": "completed"
   }
 ]
