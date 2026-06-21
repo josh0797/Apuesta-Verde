@@ -1,18 +1,30 @@
 [
   {
-    "content": "Sprint Corner-2 / Sub-fase C2.1: Ingestor Understat (12/12 jobs OK, 4338 matches)",
+    "content": "Verificación TheOddsAPI",
     "status": "completed"
   },
   {
-    "content": "Sub-fase C2.2+C2.3: Matching fuzzy 99.91% (4334/4338). Dataset enriquecido creado",
+    "content": "Estructura services/football/corners/",
     "status": "completed"
   },
   {
-    "content": "Sub-fase C2.4: Pipeline cuantitativo Fase 1.5 ejecutado. 0/58 features cruzan |r|>=0.15. R² conjunto 0.0211. PERO DOMINANT_FAVORITE→Most Corners revalidado con n=851, win_rate=83.65%, z=25.65",
+    "content": "4 módulos puros (corner_diff_model, corner_most_model, corner_diff_distribution, corner_backtest)",
     "status": "completed"
   },
   {
-    "content": "Sub-fase C2.5: pytest 4421 passed / 0 failures - cero regresiones",
+    "content": "11 tests obligatorios pasando",
+    "status": "completed"
+  },
+  {
+    "content": "Script calibración + backtest sobre 4338 partidos. Hit rate 65.77% / Bet hit rate 71.26%",
+    "status": "completed"
+  },
+  {
+    "content": "Bug fix en corner_diff_distribution.py (líneas enteras + away)",
+    "status": "completed"
+  },
+  {
+    "content": "pytest backend: 4432 passed / 0 failures (4421 originales + 11 nuevos)",
     "status": "completed"
   }
 ]

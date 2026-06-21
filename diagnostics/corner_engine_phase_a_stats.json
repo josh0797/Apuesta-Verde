@@ -1,0 +1,736 @@
+{
+  "real_odds_available": false,
+  "warnings": [
+    "REAL_ODDS_NOT_AVAILABLE"
+  ],
+  "n_total_predictions": 2892,
+  "fold_results": [
+    {
+      "n": 1446,
+      "n_decided": 1315,
+      "brier_score": 0.5184,
+      "log_loss": 0.8654,
+      "hit_rate_decided": 0.6456,
+      "calibration_bins": [
+        {
+          "bin": "0.0-0.1",
+          "n": 0,
+          "predicted_p": null,
+          "observed_p": null
+        },
+        {
+          "bin": "0.1-0.2",
+          "n": 44,
+          "predicted_p": 0.1711,
+          "observed_p": 0.1591
+        },
+        {
+          "bin": "0.2-0.3",
+          "n": 41,
+          "predicted_p": 0.2683,
+          "observed_p": 0.3415
+        },
+        {
+          "bin": "0.3-0.4",
+          "n": 213,
+          "predicted_p": 0.3466,
+          "observed_p": 0.385
+        },
+        {
+          "bin": "0.4-0.5",
+          "n": 344,
+          "predicted_p": 0.4547,
+          "observed_p": 0.436
+        },
+        {
+          "bin": "0.5-0.6",
+          "n": 308,
+          "predicted_p": 0.5409,
+          "observed_p": 0.5519
+        },
+        {
+          "bin": "0.6-0.7",
+          "n": 294,
+          "predicted_p": 0.6545,
+          "observed_p": 0.6565
+        },
+        {
+          "bin": "0.7-0.8",
+          "n": 96,
+          "predicted_p": 0.7677,
+          "observed_p": 0.75
+        },
+        {
+          "bin": "0.8-0.9",
+          "n": 106,
+          "predicted_p": 0.8214,
+          "observed_p": 0.8491
+        },
+        {
+          "bin": "0.9-1.0",
+          "n": 0,
+          "predicted_p": null,
+          "observed_p": null
+        }
+      ],
+      "n_bet_decisions": 600,
+      "n_bet_correct": 421,
+      "bet_hit_rate": 0.7017,
+      "fold_idx": 0,
+      "train_seasons": [
+        "2122"
+      ],
+      "test_seasons": [
+        "2223"
+      ],
+      "calibrated_coefficients": {
+        "intercept": 0.3040751511031639,
+        "implied_prob_diff": 3.6902115489785197,
+        "corners_for_diff_L15": 0.04458591032634222,
+        "corners_against_diff_L15": 0.0765614860621388,
+        "deep_allowed_diff_L15": 0.04019070484894676,
+        "dominant_favorite_signal": 0.8707580490999884,
+        "venue_corner_split_diff": 0.07203040229241128
+      },
+      "calibrated_sigmoid": {
+        "a": 0.45253804711739076,
+        "b": -0.006976810762916545
+      },
+      "calibrated_tie_buckets": [
+        [
+          0.5,
+          0.1136
+        ],
+        [
+          1.5,
+          0.1228
+        ],
+        [
+          2.5,
+          0.0733
+        ],
+        [
+          3.5,
+          0.0976
+        ],
+        [
+          5.5,
+          0.0597
+        ],
+        [
+          99.0,
+          0.055
+        ]
+      ]
+    },
+    {
+      "n": 1446,
+      "n_decided": 1332,
+      "brier_score": 0.4964,
+      "log_loss": 0.8307,
+      "hit_rate_decided": 0.6697,
+      "calibration_bins": [
+        {
+          "bin": "0.0-0.1",
+          "n": 0,
+          "predicted_p": null,
+          "observed_p": null
+        },
+        {
+          "bin": "0.1-0.2",
+          "n": 35,
+          "predicted_p": 0.1691,
+          "observed_p": 0.1714
+        },
+        {
+          "bin": "0.2-0.3",
+          "n": 68,
+          "predicted_p": 0.2563,
+          "observed_p": 0.2353
+        },
+        {
+          "bin": "0.3-0.4",
+          "n": 169,
+          "predicted_p": 0.3454,
+          "observed_p": 0.426
+        },
+        {
+          "bin": "0.4-0.5",
+          "n": 313,
+          "predicted_p": 0.4583,
+          "observed_p": 0.5016
+        },
+        {
+          "bin": "0.5-0.6",
+          "n": 286,
+          "predicted_p": 0.5404,
+          "observed_p": 0.6189
+        },
+        {
+          "bin": "0.6-0.7",
+          "n": 311,
+          "predicted_p": 0.6394,
+          "observed_p": 0.6752
+        },
+        {
+          "bin": "0.7-0.8",
+          "n": 161,
+          "predicted_p": 0.757,
+          "observed_p": 0.7453
+        },
+        {
+          "bin": "0.8-0.9",
+          "n": 103,
+          "predicted_p": 0.8255,
+          "observed_p": 0.8641
+        },
+        {
+          "bin": "0.9-1.0",
+          "n": 0,
+          "predicted_p": null,
+          "observed_p": null
+        }
+      ],
+      "n_bet_decisions": 698,
+      "n_bet_correct": 504,
+      "bet_hit_rate": 0.7221,
+      "fold_idx": 1,
+      "train_seasons": [
+        "2122",
+        "2223"
+      ],
+      "test_seasons": [
+        "2324"
+      ],
+      "calibrated_coefficients": {
+        "intercept": 0.30273527272590567,
+        "implied_prob_diff": 3.594190841571939,
+        "corners_for_diff_L15": 0.10024979100949384,
+        "corners_against_diff_L15": 0.0874149601533628,
+        "deep_allowed_diff_L15": 0.012933262718327126,
+        "dominant_favorite_signal": 0.6756615713821272,
+        "venue_corner_split_diff": 0.1875567139307851
+      },
+      "calibrated_sigmoid": {
+        "a": 0.43982666481462834,
+        "b": -0.019262266745691068
+      },
+      "calibrated_tie_buckets": [
+        [
+          0.5,
+          0.0947
+        ],
+        [
+          1.5,
+          0.1156
+        ],
+        [
+          2.5,
+          0.0912
+        ],
+        [
+          3.5,
+          0.0793
+        ],
+        [
+          5.5,
+          0.0598
+        ],
+        [
+          99.0,
+          0.055
+        ]
+      ]
+    }
+  ],
+  "global_metrics": {
+    "n": 2892,
+    "n_decided": 2647,
+    "brier_score": 0.5074,
+    "log_loss": 0.848,
+    "hit_rate_decided": 0.6577,
+    "calibration_bins": [
+      {
+        "bin": "0.0-0.1",
+        "n": 0,
+        "predicted_p": null,
+        "observed_p": null
+      },
+      {
+        "bin": "0.1-0.2",
+        "n": 79,
+        "predicted_p": 0.1702,
+        "observed_p": 0.1646
+      },
+      {
+        "bin": "0.2-0.3",
+        "n": 109,
+        "predicted_p": 0.2608,
+        "observed_p": 0.2752
+      },
+      {
+        "bin": "0.3-0.4",
+        "n": 382,
+        "predicted_p": 0.3461,
+        "observed_p": 0.4031
+      },
+      {
+        "bin": "0.4-0.5",
+        "n": 657,
+        "predicted_p": 0.4564,
+        "observed_p": 0.4673
+      },
+      {
+        "bin": "0.5-0.6",
+        "n": 594,
+        "predicted_p": 0.5407,
+        "observed_p": 0.5842
+      },
+      {
+        "bin": "0.6-0.7",
+        "n": 605,
+        "predicted_p": 0.6467,
+        "observed_p": 0.6661
+      },
+      {
+        "bin": "0.7-0.8",
+        "n": 257,
+        "predicted_p": 0.761,
+        "observed_p": 0.7471
+      },
+      {
+        "bin": "0.8-0.9",
+        "n": 209,
+        "predicted_p": 0.8234,
+        "observed_p": 0.8565
+      },
+      {
+        "bin": "0.9-1.0",
+        "n": 0,
+        "predicted_p": null,
+        "observed_p": null
+      }
+    ],
+    "n_bet_decisions": 1298,
+    "n_bet_correct": 925,
+    "bet_hit_rate": 0.7126
+  },
+  "by_league": {
+    "Bundesliga": {
+      "n": 612,
+      "n_decided": 554,
+      "brier_score": 0.514,
+      "log_loss": 0.8628,
+      "hit_rate_decided": 0.6697,
+      "calibration_bins": [
+        {
+          "bin": "0.0-0.1",
+          "n": 0,
+          "predicted_p": null,
+          "observed_p": null
+        },
+        {
+          "bin": "0.1-0.2",
+          "n": 21,
+          "predicted_p": 0.1646,
+          "observed_p": 0.1905
+        },
+        {
+          "bin": "0.2-0.3",
+          "n": 25,
+          "predicted_p": 0.2552,
+          "observed_p": 0.28
+        },
+        {
+          "bin": "0.3-0.4",
+          "n": 72,
+          "predicted_p": 0.3529,
+          "observed_p": 0.3611
+        },
+        {
+          "bin": "0.4-0.5",
+          "n": 131,
+          "predicted_p": 0.4577,
+          "observed_p": 0.4275
+        },
+        {
+          "bin": "0.5-0.6",
+          "n": 145,
+          "predicted_p": 0.5398,
+          "observed_p": 0.5931
+        },
+        {
+          "bin": "0.6-0.7",
+          "n": 116,
+          "predicted_p": 0.6433,
+          "observed_p": 0.6379
+        },
+        {
+          "bin": "0.7-0.8",
+          "n": 59,
+          "predicted_p": 0.7593,
+          "observed_p": 0.6949
+        },
+        {
+          "bin": "0.8-0.9",
+          "n": 43,
+          "predicted_p": 0.8266,
+          "observed_p": 0.907
+        },
+        {
+          "bin": "0.9-1.0",
+          "n": 0,
+          "predicted_p": null,
+          "observed_p": null
+        }
+      ],
+      "n_bet_decisions": 272,
+      "n_bet_correct": 193,
+      "bet_hit_rate": 0.7096
+    },
+    "EPL": {
+      "n": 760,
+      "n_decided": 702,
+      "brier_score": 0.4838,
+      "log_loss": 0.8127,
+      "hit_rate_decided": 0.6752,
+      "calibration_bins": [
+        {
+          "bin": "0.0-0.1",
+          "n": 0,
+          "predicted_p": null,
+          "observed_p": null
+        },
+        {
+          "bin": "0.1-0.2",
+          "n": 38,
+          "predicted_p": 0.1644,
+          "observed_p": 0.1842
+        },
+        {
+          "bin": "0.2-0.3",
+          "n": 40,
+          "predicted_p": 0.2629,
+          "observed_p": 0.225
+        },
+        {
+          "bin": "0.3-0.4",
+          "n": 97,
+          "predicted_p": 0.3465,
+          "observed_p": 0.4845
+        },
+        {
+          "bin": "0.4-0.5",
+          "n": 163,
+          "predicted_p": 0.4554,
+          "observed_p": 0.4601
+        },
+        {
+          "bin": "0.5-0.6",
+          "n": 131,
+          "predicted_p": 0.5435,
+          "observed_p": 0.5802
+        },
+        {
+          "bin": "0.6-0.7",
+          "n": 147,
+          "predicted_p": 0.649,
+          "observed_p": 0.7347
+        },
+        {
+          "bin": "0.7-0.8",
+          "n": 65,
+          "predicted_p": 0.761,
+          "observed_p": 0.7692
+        },
+        {
+          "bin": "0.8-0.9",
+          "n": 79,
+          "predicted_p": 0.8268,
+          "observed_p": 0.8608
+        },
+        {
+          "bin": "0.9-1.0",
+          "n": 0,
+          "predicted_p": null,
+          "observed_p": null
+        }
+      ],
+      "n_bet_decisions": 377,
+      "n_bet_correct": 284,
+      "bet_hit_rate": 0.7533
+    },
+    "LaLiga": {
+      "n": 760,
+      "n_decided": 693,
+      "brier_score": 0.5212,
+      "log_loss": 0.8656,
+      "hit_rate_decided": 0.6436,
+      "calibration_bins": [
+        {
+          "bin": "0.0-0.1",
+          "n": 0,
+          "predicted_p": null,
+          "observed_p": null
+        },
+        {
+          "bin": "0.1-0.2",
+          "n": 9,
+          "predicted_p": 0.1864,
+          "observed_p": 0.2222
+        },
+        {
+          "bin": "0.2-0.3",
+          "n": 19,
+          "predicted_p": 0.2664,
+          "observed_p": 0.2632
+        },
+        {
+          "bin": "0.3-0.4",
+          "n": 81,
+          "predicted_p": 0.3448,
+          "observed_p": 0.4074
+        },
+        {
+          "bin": "0.4-0.5",
+          "n": 196,
+          "predicted_p": 0.4556,
+          "observed_p": 0.5306
+        },
+        {
+          "bin": "0.5-0.6",
+          "n": 157,
+          "predicted_p": 0.5397,
+          "observed_p": 0.5796
+        },
+        {
+          "bin": "0.6-0.7",
+          "n": 191,
+          "predicted_p": 0.6443,
+          "observed_p": 0.623
+        },
+        {
+          "bin": "0.7-0.8",
+          "n": 61,
+          "predicted_p": 0.761,
+          "observed_p": 0.7213
+        },
+        {
+          "bin": "0.8-0.9",
+          "n": 46,
+          "predicted_p": 0.8192,
+          "observed_p": 0.8913
+        },
+        {
+          "bin": "0.9-1.0",
+          "n": 0,
+          "predicted_p": null,
+          "observed_p": null
+        }
+      ],
+      "n_bet_decisions": 333,
+      "n_bet_correct": 225,
+      "bet_hit_rate": 0.6757
+    },
+    "SerieA": {
+      "n": 760,
+      "n_decided": 698,
+      "brier_score": 0.5119,
+      "log_loss": 0.8537,
+      "hit_rate_decided": 0.6447,
+      "calibration_bins": [
+        {
+          "bin": "0.0-0.1",
+          "n": 0,
+          "predicted_p": null,
+          "observed_p": null
+        },
+        {
+          "bin": "0.1-0.2",
+          "n": 11,
+          "predicted_p": 0.188,
+          "observed_p": 0.0
+        },
+        {
+          "bin": "0.2-0.3",
+          "n": 25,
+          "predicted_p": 0.2589,
+          "observed_p": 0.36
+        },
+        {
+          "bin": "0.3-0.4",
+          "n": 132,
+          "predicted_p": 0.3428,
+          "observed_p": 0.3636
+        },
+        {
+          "bin": "0.4-0.5",
+          "n": 167,
+          "predicted_p": 0.4573,
+          "observed_p": 0.4311
+        },
+        {
+          "bin": "0.5-0.6",
+          "n": 161,
+          "predicted_p": 0.5401,
+          "observed_p": 0.5839
+        },
+        {
+          "bin": "0.6-0.7",
+          "n": 151,
+          "predicted_p": 0.6502,
+          "observed_p": 0.6755
+        },
+        {
+          "bin": "0.7-0.8",
+          "n": 72,
+          "predicted_p": 0.7625,
+          "observed_p": 0.7917
+        },
+        {
+          "bin": "0.8-0.9",
+          "n": 41,
+          "predicted_p": 0.8183,
+          "observed_p": 0.7561
+        },
+        {
+          "bin": "0.9-1.0",
+          "n": 0,
+          "predicted_p": null,
+          "observed_p": null
+        }
+      ],
+      "n_bet_decisions": 316,
+      "n_bet_correct": 223,
+      "bet_hit_rate": 0.7057
+    }
+  },
+  "asian_metrics": {
+    "HOME_CORNERS_-0.5": {
+      "n": 2892,
+      "n_win": 1625,
+      "n_push": 0,
+      "n_lose": 1267,
+      "observed_win_rate": 0.5619,
+      "avg_predicted_win": 0.534,
+      "calibration_gap": -0.0279
+    },
+    "HOME_CORNERS_-1.0": {
+      "n": 2892,
+      "n_win": 1351,
+      "n_push": 274,
+      "n_lose": 1267,
+      "observed_win_rate": 0.4672,
+      "avg_predicted_win": 0.4365,
+      "calibration_gap": -0.0306
+    },
+    "HOME_CORNERS_-1.5": {
+      "n": 2892,
+      "n_win": 1351,
+      "n_push": 0,
+      "n_lose": 1541,
+      "observed_win_rate": 0.4672,
+      "avg_predicted_win": 0.4365,
+      "calibration_gap": -0.0306
+    },
+    "HOME_CORNERS_-2.0": {
+      "n": 2892,
+      "n_win": 1089,
+      "n_push": 262,
+      "n_lose": 1541,
+      "observed_win_rate": 0.3766,
+      "avg_predicted_win": 0.3512,
+      "calibration_gap": -0.0254
+    },
+    "HOME_CORNERS_-2.5": {
+      "n": 2892,
+      "n_win": 1089,
+      "n_push": 0,
+      "n_lose": 1803,
+      "observed_win_rate": 0.3766,
+      "avg_predicted_win": 0.3512,
+      "calibration_gap": -0.0254
+    },
+    "HOME_CORNERS_-3.0": {
+      "n": 2892,
+      "n_win": 867,
+      "n_push": 222,
+      "n_lose": 1803,
+      "observed_win_rate": 0.2998,
+      "avg_predicted_win": 0.2707,
+      "calibration_gap": -0.029
+    },
+    "HOME_CORNERS_-3.5": {
+      "n": 2892,
+      "n_win": 867,
+      "n_push": 0,
+      "n_lose": 2025,
+      "observed_win_rate": 0.2998,
+      "avg_predicted_win": 0.2707,
+      "calibration_gap": -0.029
+    },
+    "AWAY_CORNERS_-0.5": {
+      "n": 2892,
+      "n_win": 1022,
+      "n_push": 0,
+      "n_lose": 1870,
+      "observed_win_rate": 0.3534,
+      "avg_predicted_win": 0.3681,
+      "calibration_gap": 0.0147
+    },
+    "AWAY_CORNERS_-1.0": {
+      "n": 2892,
+      "n_win": 788,
+      "n_push": 234,
+      "n_lose": 1870,
+      "observed_win_rate": 0.2725,
+      "avg_predicted_win": 0.288,
+      "calibration_gap": 0.0155
+    },
+    "AWAY_CORNERS_-1.5": {
+      "n": 2892,
+      "n_win": 788,
+      "n_push": 0,
+      "n_lose": 2104,
+      "observed_win_rate": 0.2725,
+      "avg_predicted_win": 0.288,
+      "calibration_gap": 0.0155
+    },
+    "AWAY_CORNERS_-2.0": {
+      "n": 2892,
+      "n_win": 577,
+      "n_push": 211,
+      "n_lose": 2104,
+      "observed_win_rate": 0.1995,
+      "avg_predicted_win": 0.2112,
+      "calibration_gap": 0.0117
+    },
+    "AWAY_CORNERS_-2.5": {
+      "n": 2892,
+      "n_win": 577,
+      "n_push": 0,
+      "n_lose": 2315,
+      "observed_win_rate": 0.1995,
+      "avg_predicted_win": 0.2112,
+      "calibration_gap": 0.0117
+    },
+    "AWAY_CORNERS_-3.0": {
+      "n": 2892,
+      "n_win": 404,
+      "n_push": 173,
+      "n_lose": 2315,
+      "observed_win_rate": 0.1397,
+      "avg_predicted_win": 0.1487,
+      "calibration_gap": 0.009
+    },
+    "AWAY_CORNERS_-3.5": {
+      "n": 2892,
+      "n_win": 404,
+      "n_push": 0,
+      "n_lose": 2488,
+      "observed_win_rate": 0.1397,
+      "avg_predicted_win": 0.1487,
+      "calibration_gap": 0.009
+    }
+  }
+}

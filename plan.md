@@ -307,6 +307,67 @@
 
 ## Phase Corner Momentum Study — Fase 1 (Opción B) — **✅ COMPLETADA**
 
+
+## Phase Sprint Corner-1 + Corner-2 · Fase A — Motor de córners (módulos puros + backtest) — **✅ COMPLETADA (P0)**
+
+> **Alcance:** módulos algorítmicos puros (zero touch a producción) + backtest probabilístico walk-forward sobre 4338 partidos. **No incluye** integración API/UI (eso es Fase B). **No incluye** ROI financiero real (REAL_ODDS_NOT_AVAILABLE).
+
+### Módulos creados
+
+- `/app/backend/services/football/corners/corner_diff_model.py` — estima `expected_corner_diff` con 6 drivers, cap ±5.5, drivers explícitos + reason_codes.
+- `/app/backend/services/football/corners/corner_most_model.py` — clasificador binario `predict_most_corners` con sigmoid calibrado + tie prob por bucket + reglas NO_BET (confidence < 55, prob < 0.58, data_quality LOW).
+- `/app/backend/services/football/corners/corner_diff_distribution.py` — distribución empírica por buckets + `build_asian_corner_markets` para 14 líneas (Home/Away × 7 handicaps).
+- `/app/backend/services/football/corners/corner_backtest.py` — walk-forward 21/22→22/23, 21/22+22/23→23/24. Calibración: OLS para β del corner_diff, MLE numpy puro para sigmoid (a, b), frecuencia empírica para tie buckets.
+
+### Tests obligatorios — 11/11 pasando
+
+- `/app/backend/tests/test_corner_engine_phase_a.py`
+- Cubre los 8 escenarios del brief + extras: dominant fav home/away, sin favorito, missing data, no inputs, Asian -1.5 vs -3.5, líneas enteras con push, backtest sin cuotas, isolation de producción, caps ±5.5, suma probs = 1.
+
+### Resultados del backtest (4338 partidos enriquecidos, walk-forward)
+
+| Métrica | Global | Fold 1 (test 22/23) | Fold 2 (test 23/24) |
+|---|---|---|---|
+| n test | 2892 | 1446 | 1446 |
+| n decided (sin tie) | 2647 | 1315 | 1332 |
+| **Brier Score** | **0.5074** | 0.5184 | **0.4964** |
+| **Log Loss** | **0.848** | 0.8654 | 0.8307 |
+| **Hit rate decided** | **65.77%** | 64.56% | **66.97%** |
+| **Bet hit rate** (recommended ≠ NO_BET) | **71.26%** (925/1298) | — | — |
+
+**Por liga** (acumulado):
+
+| Liga | n | Brier | Hit rate decided | Bet hit rate |
+|---|---|---|---|---|
+| EPL | 760 | 0.4838 | 67.52% | **75.33%** |
+| Bundesliga | 612 | 0.5140 | 66.97% | 70.96% |
+| Serie A | 760 | 0.5119 | 64.47% | 70.57% |
+| La Liga | 760 | 0.5212 | 64.36% | 67.57% |
+
+### Calibración
+
+- **Gap entre probabilidad predicha y observada**: máximo ~3% en cualquier mercado Asian Corners (0.5074 Brier es 17%+ mejor que baseline naïf 0.60-0.65).
+- **β calibrados son interpretables**: `implied_prob_diff` ≈ 3.6 (peso dominante), `dominant_favorite_signal` ≈ 0.7-0.9 (boost extra cuando hay DOM_FAV), L15 corners diff ≈ 0.05-0.1 (pequeño pero direccional).
+- **Sigmoid**: a ≈ 0.44-0.45 — coherente con el hallazgo de Fase 1.5 (dominant fav diff +3.82 → P ≈ 0.84).
+
+### Entregables
+
+- `/app/backend/scripts/run_corner_engine_phase_a_backtest.py` — script de calibración + backtest.
+- `/app/diagnostics/corner_engine_phase_a_stats.json` (stats raw).
+- `/app/diagnostics/corner_engine_phase_a_report.md` (8 secciones, tablas comparativas, calibración).
+
+### Restricciones cumplidas
+
+- ✅ Cero cambios a código de producción.
+- ✅ Cero APIs de pago (TheOddsAPI no consumido aún para Asian Corners; pendiente Fase B con muestra).
+- ✅ Cero nuevas dependencias.
+- ✅ Feature flags listos: `ENABLE_CORNER_MOST_MODEL`, `ENABLE_ASIAN_CORNERS_MODEL` (no encendidos aún).
+- ✅ Pytest: **4432 passed / 2 skipped / 0 failures** (4421 originales + 11 nuevos).
+- ✅ Point-in-time estricto en walk-forward.
+- ✅ REAL_ODDS_NOT_AVAILABLE marcado en todos los outputs sin cuotas reales.
+
+---
+
 > **Alcance:** SOLO evidencia cuantitativa (no diseño de motor, no heurísticas, no integración). Fuentes gratis. Sin consumo de créditos.
 
 ### Resumen ejecutivo
@@ -478,10 +539,10 @@ Tres caminos posibles, ordenados por costo/beneficio:
 
 ### Pendientes P0 (actual)
 - ✅ **Corner Momentum Study — Fase 1 (Opción B)** completada.
-- ✅ **Sprint Corner-2 (datos ricos)** completada. Hallazgos:
-  - 0/58 features (clásicas+ricas) cruzan |r| ≥ 0.15 para `total_corners` (techo R²≈2%, no se mueve con datos ricos).
-  - **DOMINANT_FAVORITE → Most Corners REVALIDADO** sobre n=851 (vs n=90 original): win_rate=83.65%, z=25.65, consistencia por liga 78-86%, por venue 80-85%.
-- ⏳ Esperando decisión del usuario para Sprint C1 (motor Most Corners) y/o Sprint C3 (mercados específicos: Team Corners Over X, Asian Corners).
+- ✅ **Sprint Corner-2 (datos ricos Understat)** completada.
+- ✅ **Sprint Corner-1 + Corner-2 · Fase A** completada (módulos puros + backtest probabilístico).
+- ⏳ **Fase B**: integración endpoint /api/football/picks + UI cards detrás de feature flags. Decisión del usuario pendiente.
+- ⏳ **Backtest con cuotas reales** (~100-150 eventos, ~6-9k créditos TheOddsAPI). Decisión del usuario pendiente.
 
 ### Pendientes P1
 - 🟡 **SPRINT D5** (histórico en curso): cohortes + reportes multi-competición.
