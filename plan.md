@@ -439,6 +439,79 @@
 
 ## 4) Cierres recientes (bitácora)
 
+### ✅ Sprint-D9-OddsCascade / CornerAutoFallback / CascadeReorder — **COMPLETADO (P0)**
+
+> **Alcance:** 3 hotfixes pedidos por el usuario tras el análisis de
+> "matches en modo unknown" + "auto-promoción a córners" + "API-Sports
+> devolvía 0 fixtures bloqueando pipeline".
+
+**Decisiones del usuario (confirmadas):**
+- TheOddsAPI key: ya en `.env`.
+- OddsPortal fallback: scraper propio vía Scrape.do.
+- Umbral mínimo edge para auto-fallback de córners: **8%**.
+
+**Tarea 3 — Reordenar cascada de discovery (data_ingestion.py):**
+- Nuevo orden: `TheSportsDB → TheStatsAPI → ESPN → Sofascore → API-Football`.
+- ESPN y Sofascore ahora **short-circuitan** al alcanzar `_F87_MIN_VIABLE_COUNT`
+  (antes solo acumulaban a buckets de merge).
+- API-Football pasa al último lugar (paid, last-resort).
+- `_F87_MERGE_PRIORITY` actualizada al nuevo orden.
+- Tests nuevos: `test_d9_cascade_reorder_iteration4.py` (3 tests).
+
+**Tarea 1 — Reemplazo de Sportytrader por TheOddsAPI + OddsPortal:**
+- Nuevo `services/external_sources/odds_portal_client.py`:
+  - Parser fail-soft con sanity check de implied probs (Σ ∈ [0.95, 1.30]).
+  - Fetch vía `scrape_do_client.fetch_via_scrapedo_result`.
+  - Cache MongoDB `external_odds_cache` con TTL 6h.
+  - Reason codes explícitos (`ODDS_PORTAL_SCRAPEDO_DISABLED`,
+    `ODDS_PORTAL_PARSE_NO_TRIPLE`, `ODDS_PORTAL_PARSE_IMPLAUSIBLE_TRIPLE`, etc.).
+- Nuevo `services/external_sources/odds_cascade.py`:
+  - `fetch_direct_match_odds_cascade(home, away, sport_key, ...)`.
+  - Orquesta TheOddsAPI primario → OddsPortal fallback (con `_try_*` privados
+    monkey-patcheables para tests).
+  - Flag `ENABLE_ODDS_CASCADE_FALLBACK=true` (default).
+  - Audit completo: `cascade_audit.sources_tried`, `winner`, `reason_codes`.
+- `services/external_editorial_provider.fetch_sportytrader_match` ahora
+  retorna inmediatamente `{available: False, deprecated: True,
+  replaced_by: "odds_cascade"}` SIN tocar scrape.do / Bright Data
+  (evita el bug "matches in unknown mode" por timeouts).
+- Tests nuevos: `test_d9_odds_cascade_iteration4.py` (15 tests).
+
+**Tarea 2 — Auto-fallback a Corners en pipeline moneyball:**
+- Nuevo `services/football_corner_auto_fallback.py` (puro, testeable):
+  - `is_eligible_for_corner_promotion(pick, sport)` — solo football +
+    clase NO-VALUE + market original NO sea ya córners.
+  - `find_best_corner_edge(ctx, min_edge_pct, min_confidence)` — corre
+    Skellam + `skellam_to_asian_corners` con book_odds reales; devuelve
+    el mercado con mejor `ev` (ev ≥ min_edge_pct/100).
+  - `maybe_promote_corner_pick(pick, ...)` — devuelve un pick reemplazo
+    con `recommendation.market = "Asian Corners SIDE -L.X"`, odds_range
+    del book real, y bloque `_corner_auto_fallback` de auditoría.
+- Cableado en `moneyball_layer.apply_moneyball_layer`:
+  - Tras analyze_pick, si `sport == "football"`, intenta promoción.
+  - Si promueve, re-corre `analyze_pick` con el pick promovido
+    para tener `_market_edge` y bucket correctos.
+  - Log info con `edge_pct` para auditoría.
+- Flags y defaults conservadores:
+  - `ENABLE_CORNER_AUTO_FALLBACK=false` (opt-in).
+  - `CORNER_AUTO_FALLBACK_MIN_EDGE_PCT=8.0` (decisión usuario).
+- Tests nuevos: `test_d9_corner_auto_fallback_iteration4.py` (12 tests).
+
+**Validación:**
+- Suite backend: **4573 passed / 11 skipped / 0 failures** (los 3 archivos
+  de test nuevos excluidos del run gigante por monkey-patching async
+  sensible; corren OK aparte → **4603 passed combinados**).
+- Cero regresiones vs baseline 4463.
+- Backend supervisorctl restart OK; logs limpios.
+
+**Notas para próximas iteraciones:**
+- El auto-fallback de córners SOLO promueve cuando hay `asian_book_odds`
+  en el `corner_engine_context`. Sin book odds, no se promueve (no hay
+  edge medible). Una iteración futura podría inferir line/price desde
+  TheOddsAPI mercados de córners (cuando estén disponibles).
+- OddsPortal queda detrás del flag `ENABLE_ODDS_CASCADE_FALLBACK`; en
+  producción puede activarse o desactivarse sin redeploy de código.
+
 ### ✅ Sprint Corner — Fase B.1 (Skellam P0): Guards + validación + tests + suite verde
 - Añadidos reason codes explicables para saturación y drivers dominantes.
 - `validate_skellam_coefs` para documentar colinealidad y magnitudes sospechosas.
@@ -459,7 +532,7 @@
 
 - Backend: ejecutar `pytest` completo tras cambios.
 
-**Estado actual de la suite backend:** `4463 passed / 2 skipped` (0 regresiones).
+**Estado actual de la suite backend:** `4603 passed / 11 skipped` (0 regresiones, +140 tests respecto al baseline 4463).
 
 ---
 
@@ -478,6 +551,11 @@
   - Corner Engine:
     - `ENABLE_CORNER_MOST_MODEL=true`
     - `ENABLE_ASIAN_CORNERS_MODEL=true`
+  - Sprint-D9-OddsCascade / CornerAutoFallback (nuevas):
+    - `ENABLE_ODDS_CASCADE_FALLBACK=true` (default; OddsPortal vía Scrape.do).
+    - `ENABLE_CORNER_AUTO_FALLBACK=false` (opt-in; promociona a Asian Corners cuando edge ≥ 8%).
+    - `CORNER_AUTO_FALLBACK_MIN_EDGE_PCT=8.0` (decisión usuario, edge mínimo medido como `ev` Skellam vs book).
+    - `SCRAPEDO_TOKEN=...` (necesario para fetch real de OddsPortal; ausente → cascada degrada fail-soft).
 
 ---
 

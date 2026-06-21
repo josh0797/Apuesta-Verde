@@ -61,8 +61,8 @@ def _api_sports_fallback_enabled() -> bool:
 # football discovery.
 # ─────────────────────────────────────────────────────────────────────
 _F87_MIN_VIABLE_COUNT = int(_os.environ.get("F87_MIN_VIABLE_COUNT", "5"))
-_F87_MERGE_PRIORITY = ("thesportsdb", "thestatsapi", "api_football", "espn",
-                       "sofascore_pw", "scrapedo")
+_F87_MERGE_PRIORITY = ("thesportsdb", "thestatsapi", "espn",
+                       "sofascore_pw", "api_football", "scrapedo")
 
 # Status válidos para upcoming (cualquier otro se descarta en la cascada).
 # Defensa-en-profundidad: aunque cada adapter ya filtra terminados/en vivo,
@@ -321,7 +321,54 @@ async def _discover_football_fixtures(
             log.warning("[F87_discovery] thestatsapi failed: %s", exc)
             audit["reason_codes"]["thestatsapi"] = ["EXCEPTION"]
 
-    # ── 2) API-Football fallback ──
+    # ─────────────────────────────────────────────────────────────────
+    # Sprint-D9-cascade-reorder (decisión usuario): el orden ahora es
+    # TheSportsDB → TheStatsAPI → ESPN → Sofascore → API-Football.
+    # Motivación: API-Sports estaba devolviendo 0 fixtures cuando el
+    # crédito se agotaba o el endpoint daba 502, bloqueando el pipeline.
+    # Priorizamos primero las fuentes gratuitas confiables (ESPN/Sofa)
+    # antes de caer al proveedor de pago.
+    # ─────────────────────────────────────────────────────────────────
+
+    # ── 2) ESPN scoreboard (free, primary fallback) ──
+    try:
+        espn_raw = await fb.espn_soccer_scoreboard(client)
+        espn_pre = [_espn_to_apifootball_shape(e) for e in (espn_raw or [])]
+        espn_pre = [e for e in espn_pre if e]
+        espn_fx  = _normalise_and_record("espn", espn_pre)
+        buckets["espn"] = espn_fx
+        audit["sources_called"].append("espn")
+        if len(espn_fx) >= _F87_MIN_VIABLE_COUNT:
+            audit["primary_winner"] = "espn"
+            audit["total"]          = len(espn_fx)
+            for f in espn_fx:
+                f.setdefault("_discovery_source", "espn")
+            _publish_audit(espn_fx)
+            return espn_fx, audit
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[F87_discovery] espn failed: %s", exc)
+        audit["reason_codes"]["espn"] = ["EXCEPTION"]
+
+    # ── 3) Sofascore via Playwright (free, secondary fallback) ──
+    if _f87_flag_enabled("ENABLE_SOFASCORE_PW_FALLBACK"):
+        try:
+            from .external_sources import sofascore_fixtures_adapter as _sofa
+            sofa_raw = await _sofa.fetch_fixtures_today()
+            sofa_fx  = _normalise_and_record("sofascore_pw", sofa_raw)
+            buckets["sofascore_pw"] = sofa_fx
+            audit["sources_called"].append("sofascore_pw")
+            if len(sofa_fx) >= _F87_MIN_VIABLE_COUNT:
+                audit["primary_winner"] = "sofascore_pw"
+                audit["total"]          = len(sofa_fx)
+                for f in sofa_fx:
+                    f.setdefault("_discovery_source", "sofascore_pw")
+                _publish_audit(sofa_fx)
+                return sofa_fx, audit
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[F87_discovery] sofascore_pw failed: %s", exc)
+            audit["reason_codes"]["sofascore_pw"] = ["EXCEPTION"]
+
+    # ── 4) API-Football (paid, last-resort fallback) ──
     if _f87_flag_enabled("ENABLE_API_FOOTBALL_FALLBACK"):
         try:
             af_raw = await af.fixtures_next_48h(client) or []
@@ -340,31 +387,7 @@ async def _discover_football_fixtures(
             log.warning("[F87_discovery] api_football failed: %s", exc)
             audit["reason_codes"]["api_football"] = ["EXCEPTION"]
 
-    # ── 3) ESPN scoreboard ──
-    try:
-        espn_raw = await fb.espn_soccer_scoreboard(client)
-        espn_pre = [_espn_to_apifootball_shape(e) for e in (espn_raw or [])]
-        espn_pre = [e for e in espn_pre if e]
-        espn_fx  = _normalise_and_record("espn", espn_pre)
-        buckets["espn"] = espn_fx
-        audit["sources_called"].append("espn")
-    except Exception as exc:  # noqa: BLE001
-        log.warning("[F87_discovery] espn failed: %s", exc)
-        audit["reason_codes"]["espn"] = ["EXCEPTION"]
-
-    # ── 4) Sofascore via Playwright ──
-    if _f87_flag_enabled("ENABLE_SOFASCORE_PW_FALLBACK"):
-        try:
-            from .external_sources import sofascore_fixtures_adapter as _sofa
-            sofa_raw = await _sofa.fetch_fixtures_today()
-            sofa_fx  = _normalise_and_record("sofascore_pw", sofa_raw)
-            buckets["sofascore_pw"] = sofa_fx
-            audit["sources_called"].append("sofascore_pw")
-        except Exception as exc:  # noqa: BLE001
-            log.warning("[F87_discovery] sofascore_pw failed: %s", exc)
-            audit["reason_codes"]["sofascore_pw"] = ["EXCEPTION"]
-
-    # ── 5) Sofascore via scrape.do ──
+    # ── 5) Sofascore via scrape.do (tertiary network fallback) ──
     if _f87_flag_enabled("ENABLE_SCRAPEDO_FIXTURES_FALLBACK"):
         try:
             from .external_sources import scrapedo_fixtures_adapter as _sdf
@@ -446,7 +469,7 @@ async def discover_priority_fixtures(
 
     **Refactor (Sprint-D9 — Ecuador vs Curaçao FT bug):** ahora usa la
     cascada ``_discover_football_fixtures`` (TheSportsDB → TheStatsAPI →
-    API-Football → ESPN → Sofascore) en lugar de pegarle directo a
+    ESPN → Sofascore → API-Football) en lugar de pegarle directo a
     ``af.fixtures_by_date``. Razones:
       * Cuando los créditos de API-Sports se agotan, esta función
         devolvía 0 fixtures bloqueando todo el pipeline.

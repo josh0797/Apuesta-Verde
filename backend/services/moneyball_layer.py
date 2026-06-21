@@ -1081,6 +1081,42 @@ def apply_moneyball_layer(parsed: dict, sport: str = "football", stake: float = 
         cls = result["_moneyball"]["classification"]
         counts[cls] = counts.get(cls, 0) + 1
 
+        # ─────────────────────────────────────────────────────────────
+        # Sprint-D9-CornerAutoFallback (decisión usuario, edge ≥ 8%):
+        # Si el mercado directo no ofrece edge real, intentamos promover
+        # el pick al motor de córners cuando hay book_odds REALES en el
+        # contexto. Solo aplica a football y solo cuando el pick está
+        # en una clase NO-VALUE.
+        # ─────────────────────────────────────────────────────────────
+        if sport == "football":
+            try:
+                from . import football_corner_auto_fallback as _caf
+                promoted = _caf.maybe_promote_corner_pick(p, sport=sport)
+                if promoted is not None:
+                    # Re-evaluar el pick promovido con moneyball para
+                    # que el bucket final tenga _market_edge correcto.
+                    new_result = analyze_pick(promoted, sport=sport, stake=stake)
+                    promoted["_market_edge"] = new_result["_market_edge"]
+                    promoted["_moneyball"]   = new_result["_moneyball"]
+                    new_cls = new_result["_moneyball"]["classification"]
+                    counts[new_cls] = counts.get(new_cls, 0) + 1
+                    log.info(
+                        "[corner_auto_fallback] promoted pick %s: %s → %s (edge %.2f%%)",
+                        promoted.get("match_id"),
+                        (promoted.get("_corner_auto_fallback") or {})
+                            .get("promoted_from_market"),
+                        (promoted.get("_corner_auto_fallback") or {})
+                            .get("promoted_market"),
+                        (promoted.get("_corner_auto_fallback") or {})
+                            .get("edge_pct", 0.0),
+                    )
+                    # Reemplazar p por el pick promovido para que el
+                    # resto del flujo de bucketing trabaje con él.
+                    p = promoted
+                    cls = new_cls
+            except Exception as exc:  # noqa: BLE001 — fail-soft
+                log.debug("[corner_auto_fallback] skipped (%s)", exc)
+
         if cls in REQUIRES_MARKET_IDENTITY_CLASSIFICATIONS:
             # Phase F74 — UNKNOWN market identity. NUNCA descartar, NUNCA
             # marcar como trampa: rutear a bucket dedicado para que la UI

@@ -190,28 +190,32 @@ async def fetch_forebet_index() -> dict:
 # Sportytrader — per-match page (when URL known)
 # ─────────────────────────────────────────────────────────────────────
 async def fetch_sportytrader_match(url: str) -> dict:
-    """Fetch + cache a Sportytrader match page. Cache key = the URL.
-    24h TTL.
+    """**DEPRECATED (Sprint-D9-OddsCascade)** — short-circuit, sin HTTP.
+
+    Antes esta función llamaba a scrape.do para parsear stats/predicción
+    de SportyTrader. Ahora SportyTrader queda **completamente
+    desactivado** como fuente externa porque su valor editorial fue
+    reemplazado por 365Scores TopTrends y su valor de odds H2H fue
+    reemplazado por la cascada TheOddsAPI → OddsPortal
+    (``services.external_sources.odds_cascade``).
+
+    Retornamos de inmediato un payload "deprecated" para que los
+    consumidores legacy no rompan, y NUNCA hacemos un fetch HTTP que
+    podría quedar bloqueado por Bright Data / scrape.do.
     """
-    cache_key = f"sportytrader:{url}"
-    cached = await _cache_lookup(cache_key)
-    if cached and isinstance(cached.get("payload"), dict):
-        return cached["payload"]
-    try:
-        from services.scrape_do_client import fetch_via_scrapedo
-        from services.sportytrader_scraper import parse_sportytrader_match_page
-        html = await fetch_via_scrapedo(url, timeout=60.0)
-        if not html:
-            payload = {"available": False, "reason_codes": ["SPORTYTRADER_FETCH_FAILED"]}
-        else:
-            payload = parse_sportytrader_match_page(html)
-            payload["source_url"] = url
-        await _cache_save(cache_key, payload)
-        return payload
-    except Exception as exc:  # noqa: BLE001
-        log.warning("[F70_SPORTYTRADER] fetch failed for %s: %s", url, exc)
-        return {"available": False, "reason_codes": ["SPORTYTRADER_ERROR"],
-                "source_url": url}
+    log.debug("[F70_SPORTYTRADER] short-circuit deprecated for url=%s", url)
+    return {
+        "available":         False,
+        "deprecated":        True,
+        "replaced_by":       "odds_cascade",
+        "reason_codes":      ["SPORTYTRADER_DEPRECATED"],
+        "deprecation_reason": (
+            "SportyTrader queda desactivado a partir de Sprint-D9-OddsCascade. "
+            "Las cuotas H2H se ingieren ahora vía services.external_sources."
+            "odds_cascade (TheOddsAPI primario + OddsPortal fallback)."
+        ),
+        "source_url":        url,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────

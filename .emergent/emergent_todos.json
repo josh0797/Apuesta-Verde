@@ -1,6 +1,46 @@
 [
   {
-    "content": "A/B benchmark Skellam (ridge=0.1 vs 0.5): script + ejecución + reporte + decisión",
+    "content": "Tarea 3: Reordenar cascada en data_ingestion.py",
+    "status": "completed"
+  },
+  {
+    "content": "Tests para verificar nuevo orden de cascada (no regresiones)",
+    "status": "completed"
+  },
+  {
+    "content": "Tarea 1a: Crear odds_portal_client.py",
+    "status": "completed"
+  },
+  {
+    "content": "Tarea 1b: Crear odds_cascade.py con TheOddsAPI (primario) + OddsPortal (fallback)",
+    "status": "completed"
+  },
+  {
+    "content": "Tarea 1c: Deprecar fetch_sportytrader_match (early-return, sin HTTP)",
+    "status": "completed"
+  },
+  {
+    "content": "Tests para odds_cascade y deprecación de Sportytrader",
+    "status": "completed"
+  },
+  {
+    "content": "Tarea 2a: Crear football_corner_auto_fallback.py (módulo puro testeable)",
+    "status": "completed"
+  },
+  {
+    "content": "Tarea 2b: Cablear auto-fallback en apply_moneyball_layer (sport=='football', edge ≥ 8%)",
+    "status": "completed"
+  },
+  {
+    "content": "Tests para corner auto-fallback (edge threshold, no aplica si edge < 8%, etc.)",
+    "status": "completed"
+  },
+  {
+    "content": "Ejecutar pytest suite completa (mantener 4463+ pasando, cero regresiones)",
+    "status": "completed"
+  },
+  {
+    "content": "Actualizar plan.md con bitácora del sprint",
     "status": "completed"
   }
 ]
