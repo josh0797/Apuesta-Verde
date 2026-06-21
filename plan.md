@@ -439,6 +439,52 @@
 
 ## 4) Cierres recientes (bitácora)
 
+### 🚑 Sprint-D9-PostDeploy-Hotfix-2 — **COMPLETADO (P0 hotfix #2)**
+
+> Reporte usuario tras redeploy de los hotfixes anteriores:
+> `409: NO_PRIORITY_FIXTURES_FOUND … upcoming ingest TIMED OUT after 60s`
+> Visible en preview y producción.
+
+**Decisión usuario (definitiva):** **API-Football queda desactivada
+permanentemente** (cuenta no se renovará). El motor opera con
+**TheStatsAPI premium + TheSportsDB premium + ESPN + Sofascore**.
+
+**Diagnóstico del timeout 60s:** HOTFIX-1 (sprint anterior) llamaba a
+`af.fixtures_by_date` × 2 días cuando `matched_by_id_count==0`.
+Con API-Football suspendida cada llamada agotaba el timeout default
+(30s+), totalizando > 60s y disparando el wrapper de ingest.
+
+**Fixes aplicados:**
+
+* **`.env` — variable nueva** (decisión definitiva del usuario):
+  `ENABLE_API_FOOTBALL_FALLBACK=false`. Ya NO se invocará en runtime.
+* **`data_ingestion.py`:** Paso 2 (HOTFIX-1) ahora se ejecuta SOLO si
+  el flag está activo. Cuando off Y `matched_by_id_count==0` Y matches
+  by-name > 0, los conservamos como **best-effort priority** (mejor
+  que devolver 0). Llamadas residuales `af.fixtures_by_date` ahora con
+  `asyncio.wait_for(timeout=8.0)`.
+* **`tests/conftest.py` nuevo:** autouse fixture setea
+  `ENABLE_API_FOOTBALL_FALLBACK=true` por default en suites legacy
+  (~1000 tests) que asumían API-Football habilitada. Tests del path
+  "off" hacen opt-out explícito.
+
+**Validación:**
+- `discover_priority_fixtures` ahora tarda **0.34s** (antes 60s+).
+- `_discover_football_fixtures` (cascada general) tarda **0.11s**.
+- Cero llamadas residuales a API-Football confirmadas vía logs.
+- Suite backend: **4583 passed / 11 skipped / 0 failed** (cero
+  regresiones).
+- Tests nuevos: `test_d9_post_deploy_hotfix2_iteration6.py` (3).
+
+**Implicancia funcional:**
+- En período de parón internacional (sin Premier/LaLiga/Bundesliga),
+  el sistema mostrará amistosos internacionales (FIFA World Cup,
+  International Friendly) como priority fixtures by-name (best-effort).
+- Cuando vuelva la actividad de ligas top, TheSportsDB premium + ESPN
+  + Sofascore deberían cubrirlas. Si la cobertura sigue limitada,
+  considerar agregar más keywords al matching por nombre o un mapping
+  team→league con FBref / Understat.
+
 ### 🚑 Sprint-D9-PostDeploy-Hotfix — **COMPLETADO (P0 hotfix tras deploy)**
 
 > Reporte usuario tras redeploy del sprint anterior:

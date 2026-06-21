@@ -648,9 +648,11 @@ async def discover_priority_fixtures(
         counts[label or "unknown"] = counts.get(label or "unknown", 0) + 1
 
     # ── Paso 2: si la cascada NO encontró nada de priority **por ID
-    # canónico de API-Football**, fallback al endpoint directo de
-    # API-Sports (consume créditos — último recurso). ──
-    if not discovered or matched_by_id_count == 0:
+    # canónico de API-Football**, intentar fallback al endpoint directo
+    # de API-Sports (consume créditos — último recurso). Solo si el
+    # flag ``ENABLE_API_FOOTBALL_FALLBACK`` está activo. ──
+    api_football_enabled = _f87_flag_enabled("ENABLE_API_FOOTBALL_FALLBACK")
+    if api_football_enabled and (not discovered or matched_by_id_count == 0):
         log.info(
             "[priority_discover] cascade priority signal weak "
             "(discovered=%d, matched_by_id=%d) — invoking API-Sports fallback",
@@ -668,8 +670,16 @@ async def discover_priority_fixtures(
         raw_af: list[dict] = []
         for d in (today, tomorrow):
             try:
-                chunk = await af.fixtures_by_date(client, d.isoformat())
+                chunk = await asyncio.wait_for(
+                    af.fixtures_by_date(client, d.isoformat()),
+                    timeout=8.0,  # corto: API-Sports puede estar suspendida
+                )
                 raw_af.extend(chunk)
+            except asyncio.TimeoutError:
+                log.warning(
+                    "[priority_discover] /fixtures?date=%s timed out after 8s "
+                    "(API-Sports likely suspended / unreachable)", d,
+                )
             except Exception as exc:
                 log.warning("[priority_discover] /fixtures?date=%s failed: %s", d, exc)
         # Dedupe por (home, away, kickoff-timestamp) para no duplicar
@@ -706,6 +716,18 @@ async def discover_priority_fixtures(
             discovered.append(fx)
             label = id_to_label.get(lid, str(lid))
             counts[label] = counts.get(label, 0) + 1
+
+    elif not api_football_enabled and matched_by_id_count == 0 and discovered:
+        # Sprint-D9-HOTFIX2 (API-Football desactivada definitivamente):
+        # cuando solo hay matches by-name y NO podemos verificar con
+        # API-Football, mantenemos los matches by-name como mejor esfuerzo
+        # (p.ej. TheSportsDB → "FIFA World Cup"). El usuario verá los
+        # fixtures candidatos en lugar de un 409.
+        log.info(
+            "[priority_discover] API-Football disabled — keeping %d "
+            "by-name matches as best-effort priority fixtures",
+            len(discovered),
+        )
 
     discovered.sort(key=lambda f: (
         ((f.get("fixture") or {}).get("timestamp") or 0)

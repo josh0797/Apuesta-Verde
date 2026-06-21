@@ -175,6 +175,9 @@ class TestDiscoveryDebugReportsAdapterEmptyVsContractRejected:
             self, monkeypatch):
         monkeypatch.delenv("ENABLE_THESTATSAPI_FIXTURES_PRIMARY", raising=False)
         monkeypatch.setenv("F87_MIN_VIABLE_COUNT", "100")  # force merge path
+        # Sprint-D9-HOTFIX2: re-activate API-Football explicitly for this
+        # contract-rejected audit assertion.
+        monkeypatch.setenv("ENABLE_API_FOOTBALL_FALLBACK", "true")
 
         # Case A — TheStatsAPI returns empty raw.
         # Case B — API-Football returns 5 raw rows that all fail the contract.

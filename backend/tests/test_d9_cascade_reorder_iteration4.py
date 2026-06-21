@@ -136,6 +136,10 @@ async def test_espn_short_circuits_when_viable_and_thesportsdb_empty(monkeypatch
 async def test_api_football_is_last_resort(monkeypatch):
     """Cuando ESPN y Sofascore también fallan/vacían, API-Football
     finalmente entra como último recurso."""
+    # Sprint-D9-HOTFIX2: ENABLE_API_FOOTBALL_FALLBACK ahora viene en
+    # false por default (.env). Para validar la pertenencia al ORDEN
+    # de la cascada lo activamos explícitamente aquí.
+    monkeypatch.setenv("ENABLE_API_FOOTBALL_FALLBACK", "true")
 
     async def _empty_tsdb(client):
         return [], []
