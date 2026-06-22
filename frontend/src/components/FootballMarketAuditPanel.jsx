@@ -208,49 +208,101 @@ export function FootballMarketTraceDetail({ trace, testIdPrefix, matchId, candid
   const codeCls  = TONE_CLASSES[codeTone] || TONE_CLASSES.slate;
 
   // 6 explicit rows the user asked for.
+  // Sprint-F98.2 — render order:
+  //   1. ``trace.evaluated_market`` (new canonical block) — preferred.
+  //   2. legacy ``trace.selection`` / ``trace.market_display`` / ``trace.market``.
+  //   3. If neither resolved, render "Mercado no identificado" (NOT
+  //      the literal string "Mercado desconocido" — that was the bug).
+  const em = trace.evaluated_market || null;
+  const identityKey = em?.market_identity_key
+                       || trace.market_identity_key
+                       || null;
+  const identityResolved = identityKey
+                            && !String(identityKey).startsWith('UNKNOWN:');
+
   const rows = [
     {
       key:   'market',
       label: 'Mercado evaluado',
-      value: trace.selection
+      value: em && identityResolved
         ? (
-          <span className="flex items-center gap-2 flex-wrap justify-end">
-            <span className="font-medium text-foreground/95 text-right">{trace.selection}</span>
-            {trace.market_code && trace.market_code !== 'UNKNOWN' ? (
+          // Canonical evaluated_market block — Sprint-F98.2.
+          <span
+            className="flex items-center gap-2 flex-wrap justify-end"
+            data-testid={`${testIdPrefix || ''}-evaluated-market`}
+          >
+            <span className="font-medium text-foreground/95 text-right">
+              {em.market_name || em.selection || '—'}
+            </span>
+            {em.selection && em.selection !== em.market_name ? (
+              <span className="text-[10px] text-muted-foreground">
+                · {em.selection}
+              </span>
+            ) : null}
+            {em.line != null ? (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.05] border border-border/40 text-muted-foreground font-mono">
-                {trace.market_code}
+                line {em.line}
               </span>
             ) : null}
-            {trace.market_identity_key &&
-             !String(trace.market_identity_key).startsWith('UNKNOWN:') ? (
-              <span
-                className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30 text-cyan-200 font-mono"
-                data-testid={`${testIdPrefix || ''}-market-identity-key`}
-                title={`Market identity: ${trace.market_identity_key}`}
-              >
-                {trace.market_identity_key}
-              </span>
-            ) : null}
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30 text-cyan-200 font-mono"
+              data-testid={`${testIdPrefix || ''}-market-identity-key`}
+              title={`Market identity: ${em.market_identity_key}`}
+            >
+              {em.market_identity_key}
+            </span>
           </span>
         )
-        : (trace.market_display && trace.market_display !== '—'
+        : (trace.selection
             ? (
               <span className="flex items-center gap-2 flex-wrap justify-end">
-                <span className="font-medium text-foreground/95 text-right">
-                  {trace.market_display}
-                </span>
-                {trace.market_identity_key &&
-                 !String(trace.market_identity_key).startsWith('UNKNOWN:') ? (
+                <span className="font-medium text-foreground/95 text-right">{trace.selection}</span>
+                {trace.market_code && trace.market_code !== 'UNKNOWN' ? (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.05] border border-border/40 text-muted-foreground font-mono">
+                    {trace.market_code}
+                  </span>
+                ) : null}
+                {identityResolved ? (
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30 text-cyan-200 font-mono"
-                    title={`Market identity: ${trace.market_identity_key}`}
+                    data-testid={`${testIdPrefix || ''}-market-identity-key`}
+                    title={`Market identity: ${identityKey}`}
                   >
-                    {trace.market_identity_key}
+                    {identityKey}
                   </span>
                 ) : null}
               </span>
             )
-            : (trace.market || '—')),
+            : (trace.market_display && trace.market_display !== '—'
+                ? (
+                  <span className="flex items-center gap-2 flex-wrap justify-end">
+                    <span className="font-medium text-foreground/95 text-right">
+                      {trace.market_display}
+                    </span>
+                    {identityResolved ? (
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30 text-cyan-200 font-mono"
+                        title={`Market identity: ${identityKey}`}
+                      >
+                        {identityKey}
+                      </span>
+                    ) : null}
+                  </span>
+                )
+                : (
+                  // Sprint-F98.2: explicit "no market identified" state.
+                  // NEVER render the literal string "Mercado desconocido".
+                  <span
+                    className="inline-flex items-center gap-1.5 text-amber-300/90 italic"
+                    data-testid={`${testIdPrefix || ''}-market-not-identified`}
+                    title="El motor no pudo identificar a qué mercado pertenece esta cuota."
+                  >
+                    <span className="text-[10px]">⚠</span>
+                    Mercado no identificado
+                  </span>
+                )
+              )
+          ),
     },
     {
       key:   'odds',

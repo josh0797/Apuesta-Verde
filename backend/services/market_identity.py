@@ -33,13 +33,13 @@ from typing import Any, Optional
 # ─────────────────────────────────────────────────────────────────────
 _FAMILY_PATTERNS = [
     # 1X2 / Moneyline
-    ("1X2",             r"\b(1[\s_\-]?x[\s_\-]?2|moneyline|three[\s_\-]?way|h2h|head[\s_\-]?to[\s_\-]?head|ganador)\b"),
+    ("1X2",             r"\b(1[\s_\-]?x[\s_\-]?2|moneyline|three[\s_\-]?way|h2h|head[\s_\-]?to[\s_\-]?head|ganador|match[\s_\-]?winner|full[\s_\-]?time[\s_\-]?result|resultado(?:\s+1x2)?)\b"),
     ("DOUBLE_CHANCE",   r"\b(doble\s*oportunidad|double[\s_\-]?chance|dc)\b"),
     ("DNB",             r"\b(draw[\s_\-]?no[\s_\-]?bet|empate[\s_\-]?devuelve|dnb|sin\s*empate)\b"),
     ("BTTS",            r"\b(btts|ambos\s*marcan|both[\s_\-]?teams[\s_\-]?to[\s_\-]?score|ambos[\s_\-]?anotan)\b"),
     ("TOTAL_CORNERS",   r"\b(corners?|c[oó]rners?|saques?\s*de\s*esquina)\b"),
     ("TOTAL_CARDS",     r"\b(cards?|tarjetas?|amarillas?|yellows?|rojas?|reds?)\b"),
-    ("TOTAL_GOALS",     r"(over[\s_/\-]?under|\bo[\s_/\-]?u\b|total(?:es)?[\s_\-]?(?:de)?[\s_\-]?goles?|m[áa]s\s*de|menos\s*de|\bover\b|\bunder\b)"),
+    ("TOTAL_GOALS",     r"(over[\s_/\-]?under|\bo[\s_/\-]?u\b|total(?:es)?[\s_\-]?(?:de)?[\s_\-]?gol(?:es)?|total[\s_\-]?goals?|m[áa]s\s*de|menos\s*de|\bover\b|\bunder\b|goals?[\s_\-]?over[\s_\-]?under)"),
     ("HANDICAP_ASIAN",  r"\b(asian[\s_\-]?handicap|hand?icap[\s_\-]?asi[áa]tico|ah[\s_\-]?\-?\d)\b"),
     ("HANDICAP",        r"\b(handicap|hand[íi]cap|spread|line)\b"),
     ("EXACT_SCORE",     r"\b(correct[\s_\-]?score|marcador[\s_\-]?exacto|exact[\s_\-]?score)\b"),
@@ -113,6 +113,26 @@ def _resolve_side(family: str, side_raw: Any, line: Optional[float],
         if "2" in compact and "x" in compact.lower() and "1" not in compact:
             return "X2"
         if "1" in compact and "2" in compact:
+            return "12"
+        # Fix B (Sprint-F98.2): token-based detection from team names +
+        # ``empate``/``draw`` tokens — so "Argentina o Empate" yields 1X,
+        # "Italy o Brazil" yields 12, etc.
+        tokens: set[str] = set()
+        if home_name and _strip(home_name) in raw:
+            tokens.add("1")
+        if away_name and _strip(away_name) in raw:
+            tokens.add("2")
+        if any(t == w for t in _HOME_TOKENS for w in raw.split()):
+            tokens.add("1")
+        if any(t == w for t in _AWAY_TOKENS for w in raw.split()):
+            tokens.add("2")
+        if any(t in raw for t in ("empate", "draw")) or " x " in f" {raw} ":
+            tokens.add("X")
+        if tokens == {"1", "X"}:
+            return "1X"
+        if tokens == {"X", "2"}:
+            return "X2"
+        if tokens == {"1", "2"}:
             return "12"
 
     if family == "BTTS":

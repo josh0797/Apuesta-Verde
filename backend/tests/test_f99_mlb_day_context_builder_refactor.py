@@ -318,7 +318,9 @@ class TestModuleWiring:
         # The orchestrator should still export analyze_mlb_day.
         assert hasattr(m, "analyze_mlb_day")
         # And it should now import the builder (refactor cable wired).
-        src = open(m.__file__).read()
+        # Use context manager to ensure file is closed (silences ResourceWarning).
+        with open(m.__file__) as _f:
+            src = _f.read()
         assert "from .mlb_day_context_builder import apply_statcast_phase9_adjustments" in src
 
     def test_orchestrator_line_count_reduced(self):

@@ -351,6 +351,36 @@ def build_market_trace(pick_or_entry: dict,
         "classification":         classification or None,
         "sport":                  sport,
     }
+
+    # Fix B-1 (Sprint-F98.2) — Explicit ``evaluated_market`` block.
+    # UI consumers should NEVER render "Mercado desconocido" again when
+    # the engine actually identified the market. This block is the
+    # canonical contract the UI binds to:
+    #   {
+    #     "market_family":        "DOUBLE_CHANCE",
+    #     "market_name":          "Doble oportunidad",
+    #     "selection":            "Canada o empate",
+    #     "side":                 "1X",
+    #     "line":                 null,
+    #     "odds":                 1.25,
+    #     "market_identity_key":  "DOUBLE_CHANCE:1X"
+    #   }
+    # If the identity could NOT be resolved (key starts with UNKNOWN:),
+    # ``evaluated_market`` is set to None so the UI knows to render the
+    # "Mercado no identificado" state instead of a fake market name.
+    identity_key = (market_identity or {}).get("identity_key") or ""
+    if identity_key and not identity_key.startswith("UNKNOWN:"):
+        trace["evaluated_market"] = {
+            "market_family":       market_identity.get("family"),
+            "market_name":         market_identity.get("display") or market_label or None,
+            "selection":           selection_lab or None,
+            "side":                market_identity.get("side"),
+            "line":                market_identity.get("line"),
+            "odds":                trace["odds"],
+            "market_identity_key": identity_key,
+        }
+    else:
+        trace["evaluated_market"] = None
     # ── Phase F73 — Market Identity Guard ─────────────────────────────
     # If we don't actually know the market (family is None or key starts
     # with UNKNOWN:), we MUST NOT classify the pick as MARKET_TRAP,
@@ -376,14 +406,33 @@ def build_market_trace(pick_or_entry: dict,
                 trace["rejection_code"]             = "MARKET_IDENTITY_MISSING"
                 trace["classification"]             = "MARKET_IDENTITY_MISSING"
                 trace["state"]                       = "REQUIRES_MARKET_IDENTIFICATION"
-                trace["rejection_reason"]           = (
-                    f"Cuota detectada ({trace['odds']}) pero no se "
-                    "identificó a qué mercado pertenece. No se puede "
-                    "calcular edge ni declarar trampa de mercado hasta "
-                    "mapear la cuota a un mercado específico (Doble "
-                    "Oportunidad, DNB, 1X2, Over/Under, BTTS, córners, "
-                    "hándicap, etc.)."
+                # Fix B-2 (Sprint-F98.2) — When the rejection was driven
+                # by a "low odds" heuristic (LOW_ODDS_NO_CUSHION) AND we
+                # cannot identify the market, surface the user-binding
+                # phrasing requested: "Cuota baja detectada, pero no se
+                # puede evaluar trampa sin identificar el mercado exacto."
+                visible_odds = trace.get("odds")
+                is_low_odds = (
+                    orig_code == "LOW_ODDS_NO_CUSHION"
+                    or (visible_odds is not None and visible_odds < 1.40)
                 )
+                if is_low_odds:
+                    trace["rejection_reason"] = (
+                        f"Cuota baja detectada ({visible_odds if visible_odds is not None else 'N/D'}), "
+                        "pero no se puede evaluar trampa sin identificar el "
+                        "mercado exacto. Una cuota baja puede ser mala para un "
+                        "mercado y aceptable para otro si el modelo estima "
+                        "≥90% (ej. Doble Oportunidad, DNB, Over 1.5)."
+                    )
+                else:
+                    trace["rejection_reason"] = (
+                        f"Cuota detectada ({visible_odds if visible_odds is not None else 'N/D'}) "
+                        "pero no se identificó a qué mercado pertenece. No se puede "
+                        "calcular edge ni declarar trampa de mercado hasta "
+                        "mapear la cuota a un mercado específico (Doble "
+                        "Oportunidad, DNB, 1X2, Over/Under, BTTS, córners, "
+                        "hándicap, etc.)."
+                    )
                 # Blank out edge-related fields to prevent UI from
                 # displaying misleading negatives.
                 trace["edge"]                  = None
@@ -394,10 +443,13 @@ def build_market_trace(pick_or_entry: dict,
                     "MARKET_IDENTITY_MISSING",
                     "EDGE_CALCULATION_BLOCKED_UNKNOWN_MARKET",
                 ]
-                if orig_code == "LOW_ODDS_NO_CUSHION":
+                if orig_code == "LOW_ODDS_NO_CUSHION" or is_low_odds:
                     trace["f73_reason_codes"].append(
                         "LOW_ODDS_TRAP_SUPPRESSED_BY_F73_NO_MARKET_ID"
                     )
+                # evaluated_market stays None (UI signals
+                # "Mercado no identificado" instead of "Mercado desconocido").
+                trace["evaluated_market"] = None
     except Exception:  # noqa: BLE001
         pass
     return trace

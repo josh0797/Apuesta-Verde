@@ -1,26 +1,26 @@
 [
   {
-    "content": "F98.1-A: Agregar fetch_last_events_by_team en thesportsdb_client.py",
+    "content": "Fix A: Warnings corregidos (pytest.ini + 2 tests con context managers) - 14 -> 0",
     "status": "completed"
   },
   {
-    "content": "F98.1-B: Integrar fallback TheSportsDB en data_ingestion.py para recent_fixtures (fuera de if deep:)",
+    "content": "Fix B-1: Agregar campo evaluated_market con market_identity_key al market_trace",
     "status": "completed"
   },
   {
-    "content": "F98.1-C: _thestatsapi_enrichment ya adjunto + builder lo procesa",
+    "content": "Fix B-2: Cambiar clasificacion cuota<1.40 sin mercado de trap a MARKET_IDENTITY_MISSING",
     "status": "completed"
   },
   {
-    "content": "F98.1-D: Script seed_national_teams.py + tests",
+    "content": "Tests para los 2 cambios + pytest completo (4827 passed, 0 regresiones, 0 warnings)",
     "status": "completed"
   },
   {
-    "content": "F98.1-E: Tests integracion + pytest 4804 passed 0 regresiones",
+    "content": "Re-ejecutar E2E y validar evaluated_market en UI feed",
     "status": "completed"
   },
   {
-    "content": "F98.1-F: Re-ejecutar E2E - 2 picks medium_confidence reales + 8 mejoras THIN->LIMITED",
+    "content": "Frontend: Componente FootballMarketAuditPanel consume evaluated_market y renderiza 'Mercado no identificado' en lugar de 'Mercado desconocido'",
     "status": "completed"
   }
 ]

@@ -303,16 +303,16 @@ class TestOrchestratorWiring:
     def test_module_imports_clean(self):
         mod = importlib.import_module("services.mlb_day_orchestrator")
         # The marker log message indicates the wiring is in place.
-        src = open(mod.__file__).read()
+        with open(mod.__file__) as _f:
+            src = _f.read()
         assert "[UNDER_HARD_RULES]" in src
         assert "evaluate_under_hard_rules" in src
         assert "pick_score_pre_under_rules"  in src
         assert "pick_score_post_under_rules" in src
 
     def test_orchestrator_uses_under_hard_rules_after_blender(self):
-        src = open(
-            importlib.import_module("services.mlb_day_orchestrator").__file__,
-        ).read()
+        with open(importlib.import_module("services.mlb_day_orchestrator").__file__) as _f:
+            src = _f.read()
         # Order check: the M5.8.4 marker block must appear after the
         # M5.8.3 marker block in the source.
         idx_834 = src.find("M5.8.4 (NIVEL 3 §5-§6)")
