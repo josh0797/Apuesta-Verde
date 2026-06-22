@@ -524,13 +524,29 @@ def build_discarded_header(trace: dict) -> str:
     """Human-readable card header.
 
     Example: "PSG Doble Oportunidad (1X) descartado por edge insuficiente (-12.9%)"
+
+    **F99-P0 (Fase 6) — Prohibición de `unknown` como reason_code visible:**
+    si ``rejection_code`` no pertenece al catálogo conocido (lista de ``elif``
+    abajo), se emite el código auditable
+    ``UNCLASSIFIED_DISCARD_REQUIRES_AUDIT`` con un tag traducido genérico.
+    El consumidor (logs estructurados, UI debug) podrá distinguir este
+    caso del resto.  **Jamás** se devuelve ``"... descartado por unknown"``.
     """
     t = trace or {}
     sel = t.get("selection") or t.get("market") or "Mercado"
     code = t.get("market_code")
     market = t.get("market") or ""
     edge_pct = t.get("edge_pct")
-    rejection_code = t.get("rejection_code") or "UNKNOWN"
+    raw_rejection_code = t.get("rejection_code")
+
+    # Normalización: si el código viene vacío o como string "UNKNOWN" (default
+    # legacy), lo convertimos a `UNCLASSIFIED_DISCARD_REQUIRES_AUDIT`.
+    if not raw_rejection_code or str(raw_rejection_code).strip().upper() in (
+        "", "UNKNOWN", "NONE", "NULL",
+    ):
+        rejection_code = "UNCLASSIFIED_DISCARD_REQUIRES_AUDIT"
+    else:
+        rejection_code = str(raw_rejection_code)
 
     code_str = f" ({code})" if code and code not in ("UNKNOWN", market.upper()) else ""
     # Choose a short tag.
@@ -552,7 +568,17 @@ def build_discarded_header(trace: dict) -> str:
     elif rejection_code == "WATCHLIST_ONLY":
         c = t.get("confidence")
         tag = f"confianza insuficiente ({c}/100)" if c is not None else "confianza insuficiente"
+    elif rejection_code == "UNCLASSIFIED_DISCARD_REQUIRES_AUDIT":
+        # F99-P0 (Fase 6): tag legible que NO contiene la palabra "unknown".
+        tag = "motivo no clasificado (revisión pendiente)"
+        log.warning(
+            "[football_market_trace] UNCLASSIFIED_DISCARD selection=%r market=%r "
+            "raw_rejection_code=%r edge_pct=%r confidence=%r",
+            sel, market, raw_rejection_code, edge_pct, t.get("confidence"),
+        )
     else:
+        # Código conocido pero sin tag dedicado — generamos uno legible
+        # SIN producir nunca la cadena "unknown".
         tag = rejection_code.replace("_", " ").lower()
 
     if market:

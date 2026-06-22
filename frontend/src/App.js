@@ -4,6 +4,7 @@ import { I18nProvider } from '@/lib/i18n';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { SportProvider } from '@/lib/sport';
 import { AppHeader } from '@/components/AppHeader';
+import { AppVersionBadge } from '@/components/AppVersionBadge';
 import LoginPage from '@/pages/LoginPage';
 import DashboardPage from '@/pages/DashboardPage';
 import LivePage from '@/pages/LivePage';
@@ -70,6 +71,7 @@ function App() {
       <AuthProvider>
         <SportProvider>
           <AppShell />
+          <AppVersionBadge />
         </SportProvider>
       </AuthProvider>
     </I18nProvider>

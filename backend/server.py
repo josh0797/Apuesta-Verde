@@ -57,6 +57,16 @@ except Exception as _exc:  # noqa: BLE001 — fail-soft si falta numpy o similar
     _logging.getLogger(__name__).warning(
         "[corner-engine] router not loaded: %s", _exc)
 
+# Debug router (P0 — Auditoría Drift Producción).  Expone /api/debug/version.
+# Fail-soft: si el router no carga no debe romper el resto de la app.
+try:
+    from routers.debug_router import router as debug_router
+    app.include_router(debug_router)
+except Exception as _exc:  # noqa: BLE001
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "[debug-router] router not loaded: %s", _exc)
+
 
 # ── Lifecycle ────────────────────────────────────────────────────────────────
 @app.on_event("startup")
@@ -5926,6 +5936,46 @@ async def _run_analysis_pipeline(
     return {"pick_run_id": pick_id_base, "sport": sport, "generated_at": record["generated_at"], "result": result}
 
 
+def _build_response_meta() -> dict:
+    """Construye el bloque ``_meta`` con la identidad del backend.
+
+    Usado en respuestas que el cliente puede auditar para detectar drift.
+    Fail-soft: si la metadata no se puede calcular, devuelve un dict mínimo
+    con campos ``"unknown"``.
+    """
+    try:
+        from services import debug_metadata as _dm
+        sha, sha_source = _dm.resolve_git_sha()
+        ts, ts_source = _dm.resolve_build_timestamp(
+            git_source_already=(sha_source == _dm.SOURCE_GIT),
+        )
+        return {
+            "backend_version": {
+                "git_sha": sha,
+                "git_sha_short": _dm.short_sha(sha),
+                "build_timestamp": ts,
+                "metadata_source": {
+                    "git_sha": sha_source,
+                    "build_timestamp": ts_source,
+                },
+                "audit_phase": "F99-P0-PRODUCTION-DRIFT-AUDIT",
+            }
+        }
+    except Exception:  # noqa: BLE001 — fail-soft
+        return {
+            "backend_version": {
+                "git_sha": "unknown",
+                "git_sha_short": "unknown",
+                "build_timestamp": "unknown",
+                "metadata_source": {
+                    "git_sha": "unknown",
+                    "build_timestamp": "unknown",
+                },
+                "audit_phase": "F99-P0-PRODUCTION-DRIFT-AUDIT",
+            }
+        }
+
+
 @api.post("/analysis/run")
 async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_user)):
     """Run the LLM analyst on currently ingested matches for the chosen sport.
@@ -6007,10 +6057,12 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
                 "SYNC requests with max_matches > 4 are automatically promoted to "
                 "background to avoid ingress timeout. Poll /api/analysis/jobs/{job_id}."
             )
+        # P0 Auditoría Drift — inyectar identidad del backend en la respuesta.
+        response["_meta"] = _build_response_meta()
         return response
 
     # SYNC path (only when max_matches <= 4)
-    return await _run_analysis_pipeline(
+    sync_result = await _run_analysis_pipeline(
         user_id=user["id"],
         sport=sport,
         refresh=payload.refresh,
@@ -6021,6 +6073,15 @@ async def analysis_run(payload: AnalysisRunIn, user: dict = Depends(get_current_
         big_five_only=payload.big_five_only,
         national_teams_only=payload.national_teams_only,
     )
+    # P0 Auditoría Drift — inyectar identidad del backend.
+    if isinstance(sync_result, dict):
+        existing_meta = sync_result.get("_meta")
+        meta_payload = _build_response_meta()
+        if isinstance(existing_meta, dict):
+            existing_meta.setdefault("backend_version", meta_payload["backend_version"])
+        else:
+            sync_result["_meta"] = meta_payload
+    return sync_result
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -10466,6 +10527,66 @@ async def get_calibration_diagnostics_report(market: str, scope: str):
 
 # ── App registration ─────────────────────────────────────────────────────────
 app.include_router(api)
+
+
+# ── P0 Auditoría Drift Producción — middleware de versión ───────────────────
+# Inyecta el header X-Backend-Version en TODAS las respuestas para que el
+# frontend, scripts de auditoría y proxies puedan correlacionar cada response
+# con el commit del backend que la generó.  Fail-soft: si la metadata no se
+# puede calcular, no rompe la response.
+try:
+    from services import debug_metadata as _debug_metadata
+
+    # Cacheamos el sha corto al boot.  Esto garantiza un único hit a git/env
+    # por proceso.  Si llega "unknown", el header igual se emite con valor
+    # "unknown" para mantener forma estable.
+    _BACKEND_SHA_SHORT_CACHE = _debug_metadata.short_sha(
+        _debug_metadata.resolve_git_sha()[0]
+    )
+except Exception as _exc:  # noqa: BLE001
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "[backend-version-middleware] could not preload sha: %s", _exc)
+    _BACKEND_SHA_SHORT_CACHE = "unknown"
+
+
+@app.middleware("http")
+async def _inject_backend_version_header(request, call_next):  # type: ignore[no-untyped-def]
+    """Adjunta ``X-Backend-Version`` a toda response saliente.
+
+    F99-P0 (Fase 7): además aplica ``Cache-Control: no-store`` SOLO a
+    endpoints dinámicos sensibles a drift (analysis/run, debug/*, polling
+    de jobs, refresh=true) — nunca globalmente para no romper caches útiles.
+    """
+    try:
+        response = await call_next(request)
+    except Exception:
+        # Re-raise — el header solo se inyecta en respuestas exitosas.
+        raise
+    try:
+        response.headers["X-Backend-Version"] = _BACKEND_SHA_SHORT_CACHE
+
+        # Cache busting quirúrgico (Fase 7): aplicar a paths dinámicos.
+        path = request.url.path or ""
+        wants_refresh = (
+            (request.query_params.get("refresh") or "").lower() in ("1", "true", "yes")
+        )
+        dynamic_paths = (
+            "/api/analysis/run",
+            "/api/analysis/jobs",
+            "/api/debug/",
+        )
+        if wants_refresh or any(path.startswith(p) for p in dynamic_paths):
+            # No sobreescribimos un Cache-Control más estricto ya emitido por
+            # el endpoint (p.ej. debug router ya pone `no-store`).
+            existing_cc = response.headers.get("Cache-Control", "")
+            if "no-store" not in existing_cc:
+                response.headers["Cache-Control"] = "no-store, max-age=0"
+    except Exception:  # noqa: BLE001 — middleware debe ser totalmente fail-soft
+        pass
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

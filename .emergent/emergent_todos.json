@@ -1,18 +1,42 @@
 [
   {
-    "content": "F99.4 - Consolidator + adapter + hydrator + 22 tests",
+    "content": "Fase 1: GET /api/debug/version (18/18 tests)",
     "status": "completed"
   },
   {
-    "content": "F99.5 - Odds aggregator + 21 tests (vista canónica + best prices + movement)",
+    "content": "Fase 2: appMetadata.js + badge en DOM (8/8 tests FE)",
     "status": "completed"
   },
   {
-    "content": "Validación final F99.4+F99.5: 4946 passed, 11 skipped, 0 warnings (baseline +43)",
+    "content": "Fase 3: X-Backend-Version + _meta (6/6 tests)",
     "status": "completed"
   },
   {
-    "content": "plan.md cerrado con roadmap F99 completo (119 tests nuevos en total)",
+    "content": "Fase 4: /api/debug/sources con api_sports DISABLED (12/12 tests)",
+    "status": "completed"
+  },
+  {
+    "content": "Fase 5: Inventario legacy clasificado en AUDIT_LEGACY_INVENTORY.md",
+    "status": "completed"
+  },
+  {
+    "content": "Fase 6: UNCLASSIFIED_DISCARD_REQUIRES_AUDIT (17/17 tests, 44/44 sin regresión)",
+    "status": "completed"
+  },
+  {
+    "content": "Fase 7: Cache busting quirúrgico (5 BE + 4 FE tests)",
+    "status": "completed"
+  },
+  {
+    "content": "Fase 8: DEPLOYMENT_AUDIT.md con protocolo y comandos exactos",
+    "status": "completed"
+  },
+  {
+    "content": "Regresión focalizada 246 passed, 0 failed",
+    "status": "completed"
+  },
+  {
+    "content": "Validación E2E: endpoints HTTP + badge DOM verificados",
     "status": "completed"
   }
 ]

@@ -4,7 +4,7 @@ import { Sparkles, Loader2, ChevronDown, ChevronUp, ExternalLink, Activity, Shie
 import { Link } from 'react-router-dom';
 import { useI18n, sportTerms } from '@/lib/i18n';
 import { useSport, sportLabel } from '@/lib/sport';
-import { api } from '@/lib/api';
+import { api, noStoreConfig } from '@/lib/api';
 import { applyEnginePreset } from '@/lib/intelligence';
 import { AnalysisProgressModal } from '@/components/AnalysisProgressModal';
 
@@ -647,13 +647,15 @@ export default function DashboardPage() {
     setRunning(true);
     try {
       // Use background mode so the UI shows real-time progress instead of a 60-120s spinner.
+      // F99-P0 (Fase 7): noStoreConfig() previene que un proxy/CDN sirva
+      // un snapshot obsoleto del run, indispensable cuando refresh=true.
       const r = await api.post('/analysis/run', {
         refresh: true,
         include_live: true,
         max_matches: 10,
         sport,
         background: true,
-      });
+      }, noStoreConfig());
       // Bug-2 — if the user already switched sports while POST was in flight,
       // don't hijack the new sport's tab with a stale job id.
       if (sportRef.current !== requestSport) {
@@ -906,7 +908,7 @@ export default function DashboardPage() {
         sport,
         background: true,
         national_teams_only: true,
-      });
+      }, noStoreConfig());
       if (sportRef.current !== requestSport) {
         // eslint-disable-next-line no-console
         console.log('[SPORT_SWITCH] discarded stale national-teams run for', requestSport);
