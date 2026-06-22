@@ -1,50 +1,26 @@
 [
   {
-    "content": "Fase 1: Crear services/football_cross_source_identity.py con resolve_football_match_sources()",
+    "content": "F98.1-A: Agregar fetch_last_events_by_team en thesportsdb_client.py",
     "status": "completed"
   },
   {
-    "content": "Fase 1: Tests para cross_source_identity",
+    "content": "F98.1-B: Integrar fallback TheSportsDB en data_ingestion.py para recent_fixtures (fuera de if deep:)",
     "status": "completed"
   },
   {
-    "content": "Fase 1: Validar pytest 0 regresiones tras Fase 1",
+    "content": "F98.1-C: _thestatsapi_enrichment ya adjunto + builder lo procesa",
     "status": "completed"
   },
   {
-    "content": "Fase 2: Crear services/adapters/ con base + 5 adapters",
+    "content": "F98.1-D: Script seed_national_teams.py + tests",
     "status": "completed"
   },
   {
-    "content": "Fase 2: Tests por adapter (puros, provenance, sample sizes, reason codes)",
+    "content": "F98.1-E: Tests integracion + pytest 4804 passed 0 regresiones",
     "status": "completed"
   },
   {
-    "content": "Fase 3: Cascade selector por campo con fail-soft granular",
+    "content": "F98.1-F: Re-ejecutar E2E - 2 picks medium_confidence reales + 8 mejoras THIN->LIMITED",
     "status": "completed"
-  },
-  {
-    "content": "Fase 3: Tests cascade selector",
-    "status": "completed"
-  },
-  {
-    "content": "Fase 4: Builder F74 canonical + legacy adapter + telemetria schema_migration",
-    "status": "completed"
-  },
-  {
-    "content": "Fase 4: Tests integracion + pytest completo (4778 passed, 0 regresiones)",
-    "status": "completed"
-  },
-  {
-    "content": "Fase 5: Editorial lee F74 canonico",
-    "status": "completed"
-  },
-  {
-    "content": "Fase 5: Tests E2E focus matches (Argentina/Uruguay/NZ) - 5/5 pasan",
-    "status": "completed"
-  },
-  {
-    "content": "Fase 6 (pendiente): hidratacion upstream de recent_fixtures para selecciones nacionales",
-    "status": "pending"
   }
 ]

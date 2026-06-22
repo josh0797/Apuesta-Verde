@@ -145,7 +145,7 @@
 - Fail-soft granular por campo/métrica: fallback ante error/timeout/captcha/schema inesperado/empty/null/sample insuficiente/stale.
 
 **Entregables (implementados ✅):**
-1) `services/football_cross_source_identity.py`
+1) `services/football_cross_source_identity.py` ✅
    - `resolve_football_match_sources(base_match, client, db=None) -> dict` (async)
    - Matching: fecha ± 6 horas, home/away normalizados, competición, aliases selecciones.
    - Regla dura: NO unir solo por nombres si fecha no coincide.
@@ -157,6 +157,7 @@
    - `adapt_thestatsapi_to_f74(raw) -> dict`
    - `adapt_statsbomb_to_f74(raw) -> dict` (cache-first)
    - `adapt_fbref_to_f74(raw) -> dict` (cache-first)
+   - `adapt_legacy_match_to_f74(match) -> dict` (bridge legacy → envelope)
    - **Fix crítico:** coalesce de scores (0 es válido) para evitar perder fixtures con `away_score=0`.
 
 3) Cascade selector por campo ✅
@@ -167,7 +168,7 @@
 4) Builder canónico F74 ✅
    - `services/football_enrichment_builder.py`: materializa `football_data_enrichment` **en memoria** combinando:
      - adapters por fuente (si existen raws) +
-     - **legacy bridge adapter** +
+     - legacy bridge adapter +
      - cascade por campo.
    - **Override ranking:** añade `legacy_match_doc` como último fallback para que no sea ignorado.
 
@@ -178,7 +179,7 @@
      - 3) legacy flat sigue como último fallback
    - Añade `schema_migration` telemetry al output.
 
-**Validación:**
+**Validación Sprint-F98:**
 - Suite completa: **4778 passed / 11 skipped / 0 failures** (0 regresiones).
 - E2E tests parametrizados (Argentina–Austria / Uruguay–Cabo Verde / NZ–Egipto) con match-doc shape de `data_ingestion` ✅
 
@@ -320,32 +321,43 @@
 - ✅ Sprint-D9-UI-Parity (iteration 10) completada.
 - ✅ **Sprint-F98 — Cross-Source Identity + F74 Canonical Adapters (COMPLETADO)**
   - Fase 1 ✅, Fase 2 ✅, Fase 3 ✅, Fase 4 ✅, Fase 5 ✅
-  - Tests nuevos: **+155** (F1..F5) + **+5 E2E focus** ⇒ **+160** (todos pasan)
+  - Tests nuevos: **+155** + **+5 E2E focus** ⇒ **+160**
   - Suite: **4778 passed / 11 skipped / 0 failures**
 
-#### Pendiente P0 (nuevo) — Sprint-F98.1: Hidratación upstream de forma reciente para selecciones
-**Hallazgo crítico en validación E2E real:**
-- El editorial ya lee F74 (y el builder puede convertir legacy a F74).
-- Pero en el endpoint REAL los partidos llegan con:
-  - `home_team.context.recent_fixtures=[]`
-  - `away_team.context.recent_fixtures=[]`
-  - `h2h_recent=[]`
-- Por eso el editorial real sigue mostrando `data_quality: THIN` (correctamente) aunque la lógica ya esté arreglada.
+#### ✅ Pendiente P0 (resuelto) — Sprint-F98.1: Hidratación upstream de forma reciente para selecciones
+**Hallazgo original:** el endpoint REAL traía `recent_fixtures=[]` y `h2h_recent=[]` para selecciones → editorial real caía a THIN.
 
-**Diagnóstico:**
-- Las colecciones seed actuales (`football_team_xg_offline_seed`, `football_team_corners_offline_seed`) cubren **~95 clubes europeos**, no selecciones.
-- El discovery/ingest para selecciones no está hidratando `recent_h_raw`/`recent_a_raw` en `data_ingestion.py`.
+**Remediación implementada (Sprint-F98.1) ✅:**
+1) **TheSportsDB `eventslast.php` como reemplazo real de API-Sports**
+   - Archivo: `services/external_sources/thesportsdb_client.py`
+   - Nuevo: `fetch_last_events_by_team(team_id, n=5)` + normalizador `_normalize_event_to_recent_fixture`.
 
-**Fase 6 propuesta (P0 seguimiento):**
-1. Investigar por qué no se hidratan fixtures recientes para selecciones:
-   - TheSportsDB: endpoints de últimos partidos por selección
-   - SofaScore: resolver event/team ids + fetch form
-   - TheStatsAPI: fixtures/results por selección
-2. Poblar seeds con selecciones nacionales (mínimo top-60 selecciones) para xG y corners.
-3. Adjuntar raws en match doc (`_sofascore_raw`, `_thestatsapi_raw`) durante ingesta para que el builder tenga material real.
-4. Re-ejecutar `/app/diagnostics/football_e2e_recommendation_trace.py` y verificar:
-   - `incomplete_data` no domina
-   - `data_quality` sube a LIMITED/USABLE cuando haya forma reciente
+2) **Fallback en `data_ingestion.py` fuera de `if deep:`**
+   - Esto asegura que:
+     - `deep=True` (upcoming/background)
+     - `deep=False` (live ingest)
+     ambos hidraten `recent_h_raw`/`recent_a_raw` cuando API-Sports sea vacío.
+   - Resolver de idTeam por nombre (`search_teams`) con filtros:
+     - `strSport == Soccer`
+     - exclusión `U17/U20/U23/Women/Youth`
+     - preferencia por ligas nacionales (World Cup / Nations League / Qualifiers)
+
+3) **Script de seed para selecciones (opcional, acelerador de cobertura)**
+   - Archivo: `services/football_national_team_seed.py`
+   - CLI + batch: `seed_national_team_recent_form()`
+   - Colección nueva: `football_team_recent_fixtures_seed`
+   - Lista top: `TOP_NATIONAL_TEAMS` (~60–80 selecciones) incluyendo los 3 partidos focales.
+
+**Validación Sprint-F98.1 ✅:**
+- Tests nuevos: **+21** (`test_f98_1_upstream_hydration.py`) + **+5** E2E focus.
+- Suite completa: **4804 passed / 11 skipped / 0 failures**.
+- Logs backend confirman hidratación masiva: ~20 hidrataciones (10 partidos × 2 sides) vía TheSportsDB.
+- E2E real tras restart:
+  - **Argentina vs Austria** pasó de `incomplete_data` → `medium_confidence` (market `Total Under`, conf=66).
+  - Se observan mejoras de calidad (THIN→LIMITED) en múltiples partidos.
+  - Algunos partidos siguen en `discarded_market` por `ODDS_MISSING` (válido; no es THIN).
+
+**Estado:** ✅ LISTO para redespliegue.
 
 ### Pendientes P1 (próximo)
 - ⏳ **Backtest financiero con TheOddsAPI (P1)**
@@ -384,6 +396,20 @@
 - Fix crítico de coalesce para scores=0 en adapters.
 - `legacy_match_doc` agregado como fallback final en rankings dentro del builder.
 
+### ✅ Sprint-F98.1 — Hidratación upstream para selecciones nacionales (TheSportsDB eventslast)
+**Archivos clave entregados:**
+- `services/external_sources/thesportsdb_client.py`
+  - `fetch_last_events_by_team()`
+  - `_normalize_event_to_recent_fixture()`
+- `services/data_ingestion.py`
+  - fallback TheSportsDB aplicado también para `deep=False`
+  - resolver idTeam por `search_teams` con filtros anti-juveniles
+- `services/football_national_team_seed.py`
+  - CLI + batch seeding de selecciones (colección `football_team_recent_fixtures_seed`)
+- Tests:
+  - `tests/test_f98_1_upstream_hydration.py` (+21)
+  - `tests/test_f98_e2e_focus_matches.py` (+5)
+
 ---
 
 ## 6) Validación esperada (estado actual)
@@ -398,7 +424,7 @@
 
 - Backend: ejecutar `pytest` completo tras cambios.
 
-**Estado actual de la suite backend:** `4778 passed / 11 skipped` (0 regresiones).
+**Estado actual de la suite backend:** `4804 passed / 11 skipped` (0 regresiones).
 
 ---
 
@@ -417,16 +443,21 @@
   - Corner Engine:
     - `ENABLE_CORNER_MOST_MODEL=true`
     - `ENABLE_ASIAN_CORNERS_MODEL=true`
-  - Sprint-D9-OddsCascade / CornerAutoFallback:
-    - `ENABLE_ODDS_CASCADE_FALLBACK=true` (default; OddsPortal vía Scrape.do).
-    - `ENABLE_CORNER_AUTO_FALLBACK=false` (opt-in; promociona a Asian Corners cuando edge ≥ 8%).
-    - `CORNER_AUTO_FALLBACK_MIN_EDGE_PCT=8.0` (decisión usuario).
-    - `SCRAPEDO_TOKEN=...` (necesario para fetch real de OddsPortal; ausente → cascada degrada fail-soft).
+
+- Sprint-D9-OddsCascade / CornerAutoFallback:
+  - `ENABLE_ODDS_CASCADE_FALLBACK=true` (default; OddsPortal vía Scrape.do).
+  - `ENABLE_CORNER_AUTO_FALLBACK=false` (opt-in; promociona a Asian Corners cuando edge ≥ 8%).
+  - `CORNER_AUTO_FALLBACK_MIN_EDGE_PCT=8.0` (decisión usuario).
+  - `SCRAPEDO_TOKEN=...` (necesario para fetch real de OddsPortal; ausente → cascada degrada fail-soft).
 
 - Política Sprint-F98 (nueva):
   - StatsBomb/FBref: cache-first / background-only (no bloquear request principal).
   - Resolver identidad cross-source: persistir `matches.cross_source_ids`.
   - Consumers: leer F74 primero + fallback legacy con telemetría.
+
+- Política Sprint-F98.1 (nueva):
+  - `eventslast.php` de TheSportsDB es el fallback oficial para `recent_fixtures` cuando API-Sports no provea datos.
+  - Fallback debe correr tanto en `deep=True` como `deep=False`.
 
 ---
 

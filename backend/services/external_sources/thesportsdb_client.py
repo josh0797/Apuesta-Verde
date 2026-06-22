@@ -80,6 +80,7 @@ log = logging.getLogger("services.external_sources.thesportsdb")
 DEFAULT_TIMEOUT_SEC = 8.0
 _LIVESCORE_PATH_TPL = "/v2/json/livescore/{sport}"
 _SEARCH_TEAMS_TPL   = "/v1/json/{key}/searchteams.php"
+_EVENTSLAST_TPL     = "/v1/json/{key}/eventslast.php"
 
 # Status normalisation.
 _STATUS_FINISHED = {"FT", "FINAL", "AET", "PEN", "FINISHED"}
@@ -306,6 +307,95 @@ async def search_teams(name: str,
     )
     teams = payload.get("teams") if isinstance(payload, dict) else None
     return teams if isinstance(teams, list) else []
+
+
+# ─────────────────────────────────────────────────────────────────────
+#   Sprint-F98.1 — eventslast.php (last N results for a team)
+# ─────────────────────────────────────────────────────────────────────
+def _normalize_event_to_recent_fixture(raw: dict) -> Optional[dict]:
+    """Project a TheSportsDB ``eventslast`` event into the shape that
+    ``services.normalizers.normalize_recent_fixtures`` already consumes.
+
+    The shape is INTENTIONALLY identical to the API-Sports
+    ``fixtures_last_n`` envelope so the downstream pipeline is
+    drop-in compatible.
+    """
+    if not isinstance(raw, dict):
+        return None
+    h_score = _safe_int(raw.get("intHomeScore"))
+    a_score = _safe_int(raw.get("intAwayScore"))
+    if h_score is None and a_score is None:
+        # Not finished / missing score → useless for the L5/L15 aggregator.
+        return None
+    return {
+        "fixture": {
+            "id":        raw.get("idEvent"),
+            "date":      raw.get("strTimestamp") or raw.get("dateEvent"),
+            "status":    {"short": "FT", "long": "Finished"},
+        },
+        "teams": {
+            "home": {
+                "id":   raw.get("idHomeTeam"),
+                "name": raw.get("strHomeTeam"),
+            },
+            "away": {
+                "id":   raw.get("idAwayTeam"),
+                "name": raw.get("strAwayTeam"),
+            },
+        },
+        "goals": {"home": h_score, "away": a_score},
+        "league": {
+            "id":     raw.get("idLeague"),
+            "name":   raw.get("strLeague"),
+            "season": raw.get("strSeason"),
+        },
+        # Non-canonical extras used by some adapters (xG via SofaScore).
+        "_provider":           "thesportsdb",
+        "_thesportsdb_event":  raw.get("idEvent"),
+    }
+
+
+async def fetch_last_events_by_team(
+    team_id: str | int,
+    *,
+    n: int = 5,
+    client: Optional[httpx.AsyncClient] = None,
+    timeout: float = DEFAULT_TIMEOUT_SEC,
+) -> list[dict]:
+    """Sprint-F98.1 — Fallback for ``api_football.fixtures_last_n``.
+
+    TheSportsDB's ``eventslast.php?id=<idTeam>`` returns the team's
+    last 5 finished events. This is the **only viable replacement**
+    for the API-Sports endpoint of the same name (now disabled) for
+    national-team coverage.
+
+    Notes:
+      * The provider returns at most 5 items per call; ``n`` is
+        therefore clamped to 5 internally.
+      * Pure fail-soft: ``[]`` on any error or when disabled.
+      * Output items are normalised to the API-Sports
+        ``fixtures_last_n`` envelope so existing normalizers stay
+        unchanged.
+    """
+    if team_id is None or str(team_id).strip() == "":
+        return []
+    if not is_enabled():
+        return []
+    payload = await _request(
+        client,
+        _EVENTSLAST_TPL.format(key=os.environ["THESPORTSDB_KEY"]),
+        params={"id": str(team_id)},
+        timeout=timeout,
+    )
+    raw_results = (payload or {}).get("results")
+    if not isinstance(raw_results, list):
+        return []
+    out: list[dict] = []
+    for raw in raw_results[: max(1, min(int(n), 5))]:
+        norm = _normalize_event_to_recent_fixture(raw)
+        if norm:
+            out.append(norm)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────

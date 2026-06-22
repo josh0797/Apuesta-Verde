@@ -1576,6 +1576,142 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             except Exception:
                 pass
 
+            # Sprint-F98.1 — TheSportsDB fallback for recent_fixtures.
+            # NOTE: the actual fallback is performed OUTSIDE this
+            # ``if deep:`` block so that LIVE ingestion (deep=False)
+            # also benefits from it. See the block below.
+            pass
+
+        # Sprint-F98.1 — TheSportsDB fallback for recent_fixtures
+        # (lives OUTSIDE ``if deep:`` so LIVE ingest also benefits).
+        # API-Sports is disabled in this build, so the calls above
+        # silently return []. For national teams we hydrate the last 5
+        # finished events by hitting TheSportsDB ``eventslast.php``.
+        if not recent_h_raw or not recent_a_raw:
+            try:
+                from .external_sources import (
+                    thesportsdb_client as _tsdb,
+                )
+                if _tsdb.is_enabled():
+                    async def _resolve_tsdb_team_id(team_block: dict,
+                                                      *,
+                                                      is_national: bool) -> Optional[str]:
+                        """Resolve a TheSportsDB idTeam.
+
+                        Priority:
+                          1. ``team_block["_thesportsdb_id"]`` or ``team_block["id"]``
+                             when the fixture itself came from TheSportsDB.
+                          2. ``search_teams`` by name, preferring Soccer +
+                             (preferred) national-team leagues. Youth +
+                             women's teams (U17/U20/U23/Women) are excluded.
+                        """
+                        tb = team_block or {}
+                        explicit = (
+                            tb.get("_thesportsdb_id")
+                            or tb.get("thesportsdb_team_id")
+                        )
+                        if explicit:
+                            return str(explicit)
+                        # When the fixture provider is thesportsdb the
+                        # internal id IS the idTeam.
+                        if (fx_raw.get("_discovery_source") == "thesportsdb"
+                                or str(fx_raw.get("provider") or "") == "thesportsdb"):
+                            tid = tb.get("id")
+                            if tid:
+                                return str(tid)
+                        name = tb.get("name")
+                        if not name:
+                            return None
+                        try:
+                            candidates = await _tsdb.search_teams(
+                                name, client=client,
+                            )
+                        except Exception:
+                            return None
+                        # Filter to Soccer + (preferred) national-team
+                        # leagues. We must not pick "Argentina Rugby"
+                        # for "Argentina", nor "Argentina U20".
+                        soccer = [c for c in candidates or []
+                                   if str(c.get("strSport") or "").lower() == "soccer"]
+                        if not soccer:
+                            return None
+                        exclude_kws = (" u17", " u20", " u23",
+                                        " women", " youth")
+                        senior = [
+                            c for c in soccer
+                            if not any(kw in (" " + str(c.get("strTeam") or "").lower())
+                                        for kw in exclude_kws)
+                        ]
+                        pool = senior or soccer
+                        if is_national:
+                            national_kws = ("world cup", "nations league",
+                                             "qualifiers", "national")
+                            preferred = [
+                                c for c in pool
+                                if any(kw in str(c.get("strLeague") or "").lower()
+                                        for kw in national_kws)
+                            ]
+                            if preferred:
+                                return str(preferred[0].get("idTeam") or "")
+                        return str(pool[0].get("idTeam") or "")
+
+                    # Determine whether this fixture is a national-team
+                    # match (heuristic for the search-teams league filter).
+                    try:
+                        from .api_sports import is_national_team_league
+                        league_id_raw = ((fx_raw.get("league") or {}).get("id"))
+                        is_nat = bool(league_id_raw and is_national_team_league(league_id_raw))
+                    except Exception:
+                        is_nat = False
+                    # Also flag World Cup by league name (some discovery
+                    # paths don't expose ``league.id`` for TheSportsDB).
+                    if not is_nat:
+                        ln = str(((fx_raw.get("league") or {}).get("name") or "")).lower()
+                        if any(kw in ln for kw in (
+                            "world cup", "nations league", "qualifiers",
+                            "international friendly",
+                        )):
+                            is_nat = True
+
+                    if not recent_h_raw:
+                        tsdb_id_h = await _resolve_tsdb_team_id(home, is_national=is_nat)
+                        if tsdb_id_h:
+                            try:
+                                recent_h_raw = await _tsdb.fetch_last_events_by_team(
+                                    tsdb_id_h, n=5, client=client,
+                                )
+                                if recent_h_raw:
+                                    log.info(
+                                        "[ingestion.F98.1] hydrated home recent_fixtures "
+                                        "via TheSportsDB (team=%s, n=%d)",
+                                        tsdb_id_h, len(recent_h_raw),
+                                    )
+                            except Exception as exc:
+                                log.debug(
+                                    "[ingestion.F98.1] tsdb home fallback failed: %s",
+                                    exc,
+                                )
+                    if not recent_a_raw:
+                        tsdb_id_a = await _resolve_tsdb_team_id(away, is_national=is_nat)
+                        if tsdb_id_a:
+                            try:
+                                recent_a_raw = await _tsdb.fetch_last_events_by_team(
+                                    tsdb_id_a, n=5, client=client,
+                                )
+                                if recent_a_raw:
+                                    log.info(
+                                        "[ingestion.F98.1] hydrated away recent_fixtures "
+                                        "via TheSportsDB (team=%s, n=%d)",
+                                        tsdb_id_a, len(recent_a_raw),
+                                    )
+                            except Exception as exc:
+                                log.debug(
+                                    "[ingestion.F98.1] tsdb away fallback failed: %s",
+                                    exc,
+                                )
+            except ImportError:
+                pass
+
         # NOTE: ``norm_odds`` was computed earlier (with TheStatsAPI fallback
         # baked in). Do NOT recompute here — that would discard the fallback.
         ctx_home = nz.normalize_team_context(stats_h, stand_resp, inj_h, home["id"])
