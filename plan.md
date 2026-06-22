@@ -634,3 +634,33 @@ Observabilidad post-deploy:
 - Refactor profundo de `football_editorial_prediction.py` para que todas las lecturas pasen por el adapter v2 (hoy solo `_data_completeness` lo invoca; resto del módulo sigue leyendo F74 directamente).
 - Odds aggregator + ranking/cascade de odds (queda para F99.5 según roadmap).
 
+
+
+---
+
+## SPRINT P99.6 — Tests críticos de enriquecimiento (10 escenarios) — COMPLETADO ✅
+
+Blindaje de garantías centrales antes de F99.4 / F99.5. **14/14 tests pasando** en `tests/test_p99_6_enrichment_critical_guards.py`.
+
+### Escenarios cubiertos
+
+| # | Escenario | Resultado |
+|---|---|---|
+| 1 | SofaScore resuelve el evento usando equipos + fecha | ✅ args propagados al resolver |
+| 2 | Su payload se adapta correctamente a F74 | ✅ shape canónica + métricas por lado |
+| 3 | El builder consume el adapter existente (no duplica) | ✅ `adapt_sofascore_to_f74` invocado por el builder con el wrapper |
+| 4 | SofaScore con possession válida + xG ausente → conserva possession | ✅ cascade per-field; possession queda en SofaScore aunque xG caiga a TheStatsAPI |
+| 5 | Solo xG cae a TheStatsAPI | ✅ shots/corners/possession siguen siendo SofaScore; ranking F99-P2 respetado |
+| 6 | Fixture + recent form + SofaScore stats puede subir THIN → USABLE | ✅ data_quality sube de tier con SofaScore |
+| 7 | SofaScore bloqueado o schema inesperado no rompe el pipeline | ✅ 5 casos adversariales (None, str, list, dict parcial, schema drift) + hydrator marca BLOCKED |
+| 8 | El editorial sigue leyendo F74 primero | ✅ `_data_completeness` rutea por adapter v2 con flag on, emite `F99_EDITORIAL_F74_ADAPTER_USED` |
+| 9 | No se mezclan selecciones con clubes o categorías juveniles | ✅ filtro `U17/U20/U23/Women/Youth` + distractor "Argentinos Juniors" descartado; senior team #14 seleccionado |
+| 10 | El seed de córners conserva su prioridad y contrato D9 | ✅ ranking `offline_seed → sofascore → thestatsapi → thesportsdb → seed_partial`; firmas `get_offline_corners_history` y `promote_online_matches_to_seed` intactas; en cascade end-to-end offline_seed gana sobre sofascore |
+
+### Validación
+- `pytest tests/test_p99_6_enrichment_critical_guards.py` → **14/14 passed**.
+- `pytest full` → **4903 passed, 11 skipped, 0 warnings, 0 failures** (baseline elevada desde 4889 → +14).
+
+### Próximas sub-fases (esperando binding del usuario)
+- **F99.4** — L5/L15 Recent Form Extender (consolidación seed + TheSportsDB + SofaScore + TheStatsAPI).
+- **F99.5** — Odds aggregator + ranking/cascade.
