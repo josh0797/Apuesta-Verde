@@ -200,6 +200,23 @@ def build_football_data_enrichment(match: Any) -> dict:
         except Exception as exc:  # noqa: BLE001
             log.debug("[f74_builder] corners seed adapters unavailable: %s", exc)
 
+    # F99.4 — recent-form consolidated envelope. Pure adapter; only added
+    # when the hydrator has attached the consolidated payload.
+    _recent_form_raw = match.get("_recent_form_consolidated_raw")
+    if _recent_form_raw is not None:
+        try:
+            from services.adapters.recent_form_consolidated_adapter import (
+                adapt_recent_form_to_f74,
+            )
+            raw_pairs.append((
+                "recent_form_consolidated", _recent_form_raw,
+                lambda r: adapt_recent_form_to_f74(
+                    r, home_team=home_name, away_team=away_name,
+                ),
+            ))
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[f74_builder] recent_form adapter unavailable: %s", exc)
+
     for label, raw, runner in raw_pairs:
         if raw is None:
             continue

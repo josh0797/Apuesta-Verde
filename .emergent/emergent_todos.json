@@ -1,18 +1,18 @@
 [
   {
-    "content": "P99.6 - 14/14 tests criticos pasando (10 escenarios + 4 sub-tests)",
+    "content": "F99.4 - Consolidator + adapter + hydrator + 22 tests",
     "status": "completed"
   },
   {
-    "content": "P99.6 - Suite full sin regresiones (4903 passed, 0 warnings)",
+    "content": "F99.5 - Odds aggregator + 21 tests (vista canónica + best prices + movement)",
     "status": "completed"
   },
   {
-    "content": "F99.4 - Confirmar binding con usuario antes de implementar",
-    "status": "in_progress"
+    "content": "Validación final F99.4+F99.5: 4946 passed, 11 skipped, 0 warnings (baseline +43)",
+    "status": "completed"
   },
   {
-    "content": "F99.5 - Confirmar binding con usuario antes de implementar",
-    "status": "pending"
+    "content": "plan.md cerrado con roadmap F99 completo (119 tests nuevos en total)",
+    "status": "completed"
   }
 ]

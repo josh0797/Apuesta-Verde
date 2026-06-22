@@ -1899,6 +1899,20 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
                 await _f99_hydrate_corners_seed(match_doc, db, sport="football")
         except Exception as exc:  # noqa: BLE001
             log.debug("[f99.1_corners_seed] hydrator unavailable: %s", exc)
+
+        # F99.4 — Recent-form extender (opt-in via
+        # ENABLE_F99_RECENT_FORM_EXTENDER). Reads seed + SofaScore raw +
+        # TheStatsAPI raw + TheSportsDB raw, runs the pure consolidator
+        # and attaches ``_recent_form_consolidated_raw``.
+        try:
+            from .football_recent_form_hydrator import (
+                hydrate_match_recent_form as _f99_4_hydrate_recent_form,
+                is_enabled as _f99_4_recent_form_enabled,
+            )
+            if _f99_4_recent_form_enabled():
+                await _f99_4_hydrate_recent_form(match_doc, db, sport="football")
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[f99.4_recent_form] hydrator unavailable: %s", exc)
         # Phase P2 — provenance: API-Sports is authoritative for the football
         # path; every section here was fetched from the same provider.
         # F84.a — Stamp team_stats audit so the editorial layer can show

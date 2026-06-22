@@ -81,26 +81,31 @@ DEFAULT_RANKINGS: dict[str, list[str]] = {
     "_result":                ["thesportsdb", "thestatsapi", "sofascore"],
 
     # Per-metric rankings (binding contract — F99 update).
-    "xg_for_l5":              ["sofascore", "thestatsapi", "statsbomb", "fbref"],
-    "xg_against_l5":          ["sofascore", "thestatsapi", "statsbomb", "fbref"],
-    "shots_for_l5":           ["sofascore", "thestatsapi", "statsbomb", "fbref"],
-    "shots_on_target_l5":     ["sofascore", "thestatsapi", "statsbomb", "fbref"],
-    "possession_avg_l5":      ["sofascore", "thestatsapi", "fbref", "statsbomb"],
+    "xg_for_l5":              ["sofascore", "thestatsapi", "statsbomb", "fbref", "recent_form_consolidated"],
+    "xg_against_l5":          ["sofascore", "thestatsapi", "statsbomb", "fbref", "recent_form_consolidated"],
+    "shots_for_l5":           ["sofascore", "thestatsapi", "statsbomb", "fbref", "recent_form_consolidated"],
+    "shots_on_target_l5":     ["sofascore", "thestatsapi", "statsbomb", "fbref", "recent_form_consolidated"],
+    "possession_avg_l5":      ["sofascore", "thestatsapi", "fbref", "statsbomb", "recent_form_consolidated"],
     "passes_completed_l5":    ["sofascore", "thestatsapi", "fbref", "statsbomb"],
     "pass_accuracy_l5":       ["sofascore", "thestatsapi", "fbref", "statsbomb"],
 
-    # Form / recent fixtures
-    "recent_fixtures":        ["sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
-    "form_string_l5":         ["sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
-    "goals_scored_l5":        ["sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
-    "goals_conceded_l5":      ["sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
-    "btts_rate_l5":           ["sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
-    "clean_sheets_l5":        ["sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
+    # Form / recent fixtures — F99.4 introduces the consolidator as a
+    # high-priority fallback BEFORE the legacy single-source choices for
+    # form-string and goals (those are the metrics where the dedupe + per-
+    # field merge pays off the most).
+    "recent_fixtures":        ["recent_form_consolidated", "sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
+    "form_string_l5":         ["recent_form_consolidated", "sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
+    "goals_scored_l5":        ["recent_form_consolidated", "sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
+    "goals_conceded_l5":      ["recent_form_consolidated", "sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
+    "goals_scored_l15":       ["recent_form_consolidated", "sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
+    "goals_conceded_l15":     ["recent_form_consolidated", "sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
+    "btts_rate_l5":           ["sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse", "recent_form_consolidated"],
+    "clean_sheets_l5":        ["sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse", "recent_form_consolidated"],
 
     # Corners (F99 binding):
     #   offline_seed → SofaScore → TheStatsAPI → TheSportsDB → seed_partial
-    "corners_for_l5":         ["offline_seed", "sofascore", "thestatsapi", "thesportsdb", "seed_partial", "footystats", "totalcorner"],
-    "corners_against_l5":     ["offline_seed", "sofascore", "thestatsapi", "thesportsdb", "seed_partial", "footystats", "totalcorner"],
+    "corners_for_l5":         ["offline_seed", "sofascore", "thestatsapi", "thesportsdb", "seed_partial", "recent_form_consolidated", "footystats", "totalcorner"],
+    "corners_against_l5":     ["offline_seed", "sofascore", "thestatsapi", "thesportsdb", "seed_partial", "recent_form_consolidated", "footystats", "totalcorner"],
 
     # H2H is a section, not a per-metric path; we apply the ranking to
     # `h2h.matches` (whichever provider has the richest h2h block wins).

@@ -397,8 +397,11 @@ def test_default_rankings_match_user_spec():
     assert DEFAULT_RANKINGS["shots_on_target_l5"][:4] == ["sofascore", "thestatsapi", "statsbomb", "fbref"]
     # Posesión y pases.
     assert DEFAULT_RANKINGS["possession_avg_l5"][:4] == ["sofascore", "thestatsapi", "fbref", "statsbomb"]
-    # Forma reciente.
-    assert DEFAULT_RANKINGS["recent_fixtures"][:4] == ["sofascore", "thesportsdb", "thestatsapi", "fbref"]
+    # Forma reciente. F99.4: ``recent_form_consolidated`` es ahora el
+    # primario para recent_fixtures (consolidación cross-source).
+    assert DEFAULT_RANKINGS["recent_fixtures"][:5] == [
+        "recent_form_consolidated", "sofascore", "thesportsdb", "thestatsapi", "fbref",
+    ]
     # H2H.
     assert DEFAULT_RANKINGS["_h2h"]   == ["sofascore", "thesportsdb", "thestatsapi"]
     # Córners (F99 binding): offline_seed → SofaScore → TheStatsAPI → TheSportsDB → seed_partial.

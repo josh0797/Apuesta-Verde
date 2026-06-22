@@ -664,3 +664,124 @@ Blindaje de garantías centrales antes de F99.4 / F99.5. **14/14 tests pasando**
 ### Próximas sub-fases (esperando binding del usuario)
 - **F99.4** — L5/L15 Recent Form Extender (consolidación seed + TheSportsDB + SofaScore + TheStatsAPI).
 - **F99.5** — Odds aggregator + ranking/cascade.
+
+---
+
+## FASE F99.4 — L5/L15 Recent Form Extender — COMPLETADO ✅
+
+### Resumen
+Consolidador puro multi-fuente para historial reciente de equipos. Combina hasta 4 proveedores (`football_team_recent_fixtures_seed` + SofaScore + TheStatsAPI + TheSportsDB) con **dedupe por identidad canónica** y **fusión híbrida por campo**, produciendo ventanas L5/L15 con flags de parcialidad estrictos.
+
+### Decisiones del usuario (binding aplicado)
+- **Una sola fuente canónica**: el extender consolida; NO crea otra fuente paralela. F74 sigue siendo el único canónico.
+- **Adapters puros**: el consolidator no consulta `db` ni hace IO; el hydrator es la única capa con IO.
+- **Hibrido por campo** con prioridad base `seed → sofascore → thestatsapi → thesportsdb`. Overrides explícitos:
+  - `xg_for/against`, `shots`, `possession`: SofaScore primario (F99-P2).
+  - `corners_for/against`: seed primario (F99-P2 / F99.1).
+- **Dedupe** por (date YYYY-MM-DD, opponent_norm, venue, competition_norm). `source_ids` se conservan pero NO bloquean dedupe cross-source.
+- **L15 partial**: `sample_size < 15`. **L15 insufficient**: `sample_size < 5` (no se presenta 10 partidos como L15 completa).
+- **Splits oficial/amistoso** conservados: cada record lleva `competition_kind` (`official | friendly | unknown`).
+
+### Archivos creados/modificados
+- `services/football_recent_form_consolidator.py` **(NUEVO)** — función pura `consolidate_recent_form()` con dedupe + hybrid-by-field + windows + partial flags.
+- `services/adapters/recent_form_consolidated_adapter.py` **(NUEVO)** — adapter F98 puro `adapt_recent_form_to_f74()` con projection L5/L15 + official_friendly split + reason codes `F99_4_*`.
+- `services/football_recent_form_hydrator.py` **(NUEVO)** — feature flag `ENABLE_F99_RECENT_FORM_EXTENDER`. Lee `football_team_recent_fixtures_seed` + extrae rows de los raws ya hidratados (SofaScore, TheStatsAPI, TheSportsDB) sin generar IO adicional. Fail-soft, telemetría estructurada.
+- `services/data_ingestion.py` — wire del hydrator F99.4 después de F99.1.
+- `services/football_enrichment_builder.py` — añadido el adapter al `raw_pairs` del builder.
+- `services/football_source_cascade.py` — ranking actualizado: `recent_form_consolidated` ahora es primario para `recent_fixtures`, `form_string_l5`, `goals_scored_l5/l15`, `goals_conceded_l5/l15`. Para xG/shots/possession/corners queda como **último fallback** (la fuente primaria sigue siendo SofaScore o seed según F99-P2).
+- `tests/test_f99_4_recent_form_extender.py` **(NUEVO)** — **22/22 tests pasando**.
+
+### Validación
+- Pytest full: **4925 passed, 11 skipped, 0 warnings** (baseline elevada desde 4903 → +22).
+- Lint Python: clean.
+
+### Activación en producción
+- `ENABLE_F99_RECENT_FORM_EXTENDER=true` (opt-in).
+- Trace por partido: `match["football_data_enrichment_source_trace"]["recent_form_consolidated"]`.
+
+---
+
+## FASE F99.5 — Odds Aggregator + ranking/cascade — COMPLETADO ✅
+
+### Resumen
+Aggregator multi-mercado que extiende — **sin duplicar** — la cascada existente `services.external_sources.odds_cascade`. Produce un payload canónico con:
+- **Vista canónica por mercado**: bookmaker + snapshot consistentes; única fuente válida para overround / probabilidad implícita.
+- **Vista best_prices por selección**: mejor precio disponible, solo para EV de ejecución (NUNCA para vig removal).
+- **Movement tracking** opcional (opening / latest / change con historial acotado).
+
+### Decisiones del usuario (binding aplicado)
+- **No duplicar** `odds_cascade.py`: el aggregator consume `snapshots_from` (raw quotes por proveedor) que el caller obtiene de los adapters existentes.
+- **Provider priority** por defecto: `the_odds_api → thestatsapi → sofascore → oddsportal → manual`.
+- **Mercados a normalizar** (10 familias): `MATCH_WINNER`, `DOUBLE_CHANCE`, `DRAW_NO_BET`, `ASIAN_HANDICAP`, `TOTAL_GOALS`, `BOTH_TEAMS_TO_SCORE`, `TOTAL_CORNERS`, `TEAM_CORNERS`, `ASIAN_CORNERS`, `TOTAL_CARDS`. **No** se incluye player props, exact score, first scorer, bet builders.
+- **Líneas reales preservadas** (no se fuerza 2.5/3.5; cualquier línea válida sobrevive).
+- **Granularidad híbrida**: canónico por mercado (consistencia bookmaker + snapshot) + best_prices por selección (vista informativa).
+- **Cero leak a F74**: el output **no** contiene `football_data_enrichment`, `data_quality`, `evaluated_market`, `edge`, `EV`, `market_trap`, etc. La ausencia de odds NUNCA puede degradar `data_quality`.
+
+### Reason codes implementados
+- `F99_ODDS_AGGREGATOR_USED` — siempre presente.
+- `F99_ODDS_PRIMARY_USED` — mercado canónico desde el primer proveedor.
+- `F99_ODDS_FALLBACK_USED` — mercado canónico desde un proveedor secundario.
+- `F99_ODDS_NO_PRIMARY` — ningún proveedor produjo línea completa.
+- `F99_ODDS_MARKET_NORMALIZED` — el mapping logró normalizar al menos un mercado.
+- `F99_ODDS_MARKET_UNSUPPORTED` — mercado solicitado fuera del scope F99.5.
+- `F99_ODDS_SCHEMA_INVALID` — input inválido.
+- `F99_ODDS_ALL_SOURCES_EXHAUSTED` — `snapshots_from` vacío.
+- `F99_ODDS_MANUAL_REQUIRED` — ningún canónico válido en ningún mercado.
+- `F99_ODDS_BEST_PRICE_SELECTED` — se construyó al menos un best_price.
+- `F99_ODDS_MOVEMENT_RECORDED` — se computó movimiento contra `previous_snapshot`.
+- `F99_ODDS_STALE_FALLBACK` — reservado para caller (TTL-based decisions).
+
+### Archivos creados
+- `services/football_odds_aggregator.py` **(NUEVO)** — función pura `aggregate_match_odds()`, helpers de normalización de Quote / market signature / canonical selection / best-prices view / movement tracking.
+- `tests/test_f99_5_odds_aggregator.py` **(NUEVO)** — **21/21 tests pasando**.
+
+### Cobertura de tests F99.5
+1. Provider priority y MARKET_FAMILIES = binding.
+2. Canonical market = primary (provider rank #1) cuando línea completa.
+3. **Sin mezclar bookmakers/snapshots** dentro de un mercado canónico.
+4. Fallback a secundario cuando primario incompleto.
+5. Best prices = mejor precio por selección across providers.
+6. Best prices NUNCA contaminan overround canónico.
+7. Líneas arbitrarias (2.25, 10.5, etc.) preservadas.
+8. Movement opening/latest/change + snapshots_count incrementado.
+9. Cero leak de keys F74 / data_quality / evaluated_market / edge / EV.
+10. Fail-soft con quotes malformadas + invalid input + scope partial.
+11. `F99_ODDS_AGGREGATOR_USED` siempre presente.
+12. No importa adapters de fetch (no duplica odds_cascade).
+13. `F99_ODDS_NO_PRIMARY` cuando solo una selección presente.
+
+### Validación final
+- Pytest full: **4946 passed, 11 skipped, 0 warnings, 0 failures** (baseline elevada desde 4925 → +21).
+- Lint Python: clean.
+
+### Activación en producción
+- `ENABLE_F99_ODDS_AGGREGATOR=true` (opt-in).
+- El aggregator es **puro y síncrono**: el caller orquesta los fetches (vía `fetch_direct_match_odds_cascade`, `thestatsapi_odds_adapter`, etc.) y le pasa los raw quotes. Esto mantiene la separación de concerns (cascade hace IO, aggregator normaliza y consolida).
+
+### Diferido
+- Wire del aggregator a `data_ingestion.py` (queda como follow-up F99.7): la lógica de polling de odds + persistencia de snapshots con TTL es independiente del wiring core F99 y merece su propia fase con observabilidad.
+- Integración del aggregator con `football_editorial_payload_adapter` para que el editorial reciba ÚNICAMENTE `odds_available: bool` (binding guard #11 ya garantizado por el adapter v2).
+
+---
+
+## CIERRE — Roadmap F99 completo
+
+| Sub-fase | Estado | Tests |
+|---|---|---|
+| F99 — SofaScore Wiring + API-Sports kill switch | ✅ | 23 |
+| F99.1 — Adapters offline_seed / seed_partial (córners) | ✅ | 15 |
+| F99.2 — Purga estructural API-Sports | ✅ | 9 |
+| F99.3 — Editorial payload adapter (puro, F74-first) | ✅ | 15 |
+| F99.4 — L5/L15 Recent Form Extender | ✅ | 22 |
+| F99.5 — Odds aggregator + ranking/cascade | ✅ | 21 |
+| P99.6 — Tests críticos de enriquecimiento (10 escenarios) | ✅ | 14 |
+| **TOTAL F99** | **✅** | **119 tests nuevos** |
+
+**Baseline final: 4946 passed, 11 skipped, 0 warnings, 0 failures.**
+
+### Próximos pasos sugeridos (esperando confirmación del usuario)
+- **F99.7** — Wire del odds aggregator en `data_ingestion.py` con polling/TTL/persistencia de snapshots.
+- **F99.8** — Background cache para StatsBomb/FBref.
+- **F99.9** — Eliminación física de `services/api_football.py` tras ventana de observación con `DEPRECATED_STUB_USAGE_COUNTERS == 0`.
+- **F99.10** — Refactor completo del editorial para que TODAS las lecturas pasen por el adapter v2.
+
