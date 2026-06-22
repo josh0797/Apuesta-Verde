@@ -7,15 +7,15 @@
     "watchlist": 0,
     "watchlist_odds_needed": 0,
     "discarded_motivation": 0,
-    "discarded_market": 6,
-    "incomplete_data": 9
+    "discarded_market": 18,
+    "incomplete_data": 0
   },
   "per_match": [
     {
       "match_key": "1053637559",
       "match_label": "Uruguay vs Cape Verde",
       "backend_analysis_run": {
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -23,12 +23,12 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "ui_feed": {
         "via": "picks_run_by_id",
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -36,7 +36,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "diff": {
@@ -55,7 +55,7 @@
       "match_key": "1053637587",
       "match_label": "Spain vs Saudi Arabia",
       "backend_analysis_run": {
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -63,12 +63,12 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "ui_feed": {
         "via": "picks_run_by_id",
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -76,7 +76,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "diff": {
@@ -103,7 +103,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "ui_feed": {
@@ -116,7 +116,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "diff": {
@@ -135,7 +135,7 @@
       "match_key": "1417473411",
       "match_label": "Tunisia vs Japan",
       "backend_analysis_run": {
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -143,12 +143,12 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "ui_feed": {
         "via": "picks_run_by_id",
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -156,7 +156,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "diff": {
@@ -213,7 +213,7 @@
       "match_key": "1539004",
       "match_label": "Czechia vs South Africa",
       "backend_analysis_run": {
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -221,12 +221,12 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Partido ya jugado, sin valor en mercados disponibles.",
         "classification": null
       },
       "ui_feed": {
         "via": "picks_run_by_id",
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -234,7 +234,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Partido ya jugado, sin valor en mercados disponibles.",
         "classification": null
       },
       "diff": {
@@ -253,7 +253,7 @@
       "match_key": "1539005",
       "match_label": "Switzerland vs Bosnia & Herzegovina",
       "backend_analysis_run": {
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -261,12 +261,12 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Partido ya jugado, sin valor en mercados disponibles.",
         "classification": null
       },
       "ui_feed": {
         "via": "picks_run_by_id",
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -274,7 +274,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Partido ya jugado, sin valor en mercados disponibles.",
         "classification": null
       },
       "diff": {
@@ -301,7 +301,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "ui_feed": {
@@ -314,87 +314,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": "Cuotas no atractivas y sin información de forma reciente.",
-        "classification": null
-      },
-      "diff": {
-        "bucket_changed": false,
-        "market_label_lost": false,
-        "odds_lost": false,
-        "anomalies_detected_in_backend": [
-          "MARKET_LABEL_UNKNOWN",
-          "ODDS_MISSING",
-          "EDGE_MISSING",
-          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
-        ]
-      }
-    },
-    {
-      "match_key": "1545678",
-      "match_label": "IFK Goteborg vs Valerenga",
-      "backend_analysis_run": {
-        "bucket": "discarded_market",
-        "market": "unknown",
-        "selection": null,
-        "odds": null,
-        "confidence": null,
-        "edge": null,
-        "estimated_prob": null,
-        "implied_prob": null,
-        "reason": "Overflow del pre-filtro (capacidad)",
-        "classification": null
-      },
-      "ui_feed": {
-        "via": "picks_run_by_id",
-        "bucket": "discarded_market",
-        "market": "unknown",
-        "selection": null,
-        "odds": null,
-        "confidence": null,
-        "edge": null,
-        "estimated_prob": null,
-        "implied_prob": null,
-        "reason": "Overflow del pre-filtro (capacidad)",
-        "classification": null
-      },
-      "diff": {
-        "bucket_changed": false,
-        "market_label_lost": false,
-        "odds_lost": false,
-        "anomalies_detected_in_backend": [
-          "MARKET_LABEL_UNKNOWN",
-          "ODDS_MISSING",
-          "EDGE_MISSING",
-          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
-        ]
-      }
-    },
-    {
-      "match_key": "1554469",
-      "match_label": "Austria Klagenfurt vs SV Kapfenberg",
-      "backend_analysis_run": {
-        "bucket": "discarded_market",
-        "market": "unknown",
-        "selection": null,
-        "odds": null,
-        "confidence": null,
-        "edge": null,
-        "estimated_prob": null,
-        "implied_prob": null,
-        "reason": "Cuotas no atractivas y sin información de forma reciente.",
-        "classification": null
-      },
-      "ui_feed": {
-        "via": "picks_run_by_id",
-        "bucket": "discarded_market",
-        "market": "unknown",
-        "selection": null,
-        "odds": null,
-        "confidence": null,
-        "edge": null,
-        "estimated_prob": null,
-        "implied_prob": null,
-        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "diff": {
@@ -421,7 +341,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "ui_feed": {
@@ -434,7 +354,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": "Cuotas no atractivas y sin información de forma reciente.",
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "diff": {
@@ -453,7 +373,7 @@
       "match_key": "1632525756",
       "match_label": "Belgium vs Iran",
       "backend_analysis_run": {
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -461,12 +381,12 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "ui_feed": {
         "via": "picks_run_by_id",
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -474,7 +394,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "diff": {
@@ -493,7 +413,7 @@
       "match_key": "2391755",
       "match_label": "New Zealand vs Egypt",
       "backend_analysis_run": {
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -501,12 +421,12 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "ui_feed": {
         "via": "picks_run_by_id",
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -514,7 +434,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "diff": {
@@ -533,7 +453,7 @@
       "match_key": "2391758",
       "match_label": "Argentina vs Austria",
       "backend_analysis_run": {
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -541,12 +461,12 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "ui_feed": {
         "via": "picks_run_by_id",
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -554,7 +474,207 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "2391759",
+      "match_label": "Jordan vs Algeria",
+      "backend_analysis_run": {
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "2391760",
+      "match_label": "Norway vs Senegal",
+      "backend_analysis_run": {
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "2391761",
+      "match_label": "England vs Ghana",
+      "backend_analysis_run": {
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "2391762",
+      "match_label": "Panama vs Croatia",
+      "backend_analysis_run": {
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
+        "classification": null
+      },
+      "diff": {
+        "bucket_changed": false,
+        "market_label_lost": false,
+        "odds_lost": false,
+        "anomalies_detected_in_backend": [
+          "MARKET_LABEL_UNKNOWN",
+          "ODDS_MISSING",
+          "EDGE_MISSING",
+          "CLASSIFICATION_VS_MARKET_INCONSISTENT"
+        ]
+      }
+    },
+    {
+      "match_key": "2391763",
+      "match_label": "Portugal vs Uzbekistan",
+      "backend_analysis_run": {
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
+        "classification": null
+      },
+      "ui_feed": {
+        "via": "picks_run_by_id",
+        "bucket": "discarded_market",
+        "market": "unknown",
+        "selection": null,
+        "odds": null,
+        "confidence": null,
+        "edge": null,
+        "estimated_prob": null,
+        "implied_prob": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "diff": {
@@ -573,7 +693,7 @@
       "match_key": "2461113",
       "match_label": "France vs Iraq",
       "backend_analysis_run": {
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -581,12 +701,12 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "ui_feed": {
         "via": "picks_run_by_id",
-        "bucket": "incomplete_data",
+        "bucket": "discarded_market",
         "market": "unknown",
         "selection": null,
         "odds": null,
@@ -594,7 +714,7 @@
         "edge": null,
         "estimated_prob": null,
         "implied_prob": null,
-        "reason": null,
+        "reason": "Cuotas no atractivas y sin edge claro.",
         "classification": null
       },
       "diff": {

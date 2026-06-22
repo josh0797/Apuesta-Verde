@@ -1,30 +1,50 @@
 [
   {
-    "content": "Verificar parche aplicado en services/football_market_trace.py",
+    "content": "Fase 1: Crear services/football_cross_source_identity.py con resolve_football_match_sources()",
     "status": "completed"
   },
   {
-    "content": "Revisar y ajustar script E2E para incluir Argentina-Austria, Uruguay-Cabo Verde, Nueva Zelanda-Egipto",
+    "content": "Fase 1: Tests para cross_source_identity",
     "status": "completed"
   },
   {
-    "content": "Ejecutar script E2E y generar JSON dumps",
+    "content": "Fase 1: Validar pytest 0 regresiones tras Fase 1",
     "status": "completed"
   },
   {
-    "content": "Validar paridad UI feed vs analysis run",
+    "content": "Fase 2: Crear services/adapters/ con base + 5 adapters",
     "status": "completed"
   },
   {
-    "content": "Escribir tests de regresion para football_market_trace.py",
+    "content": "Fase 2: Tests por adapter (puros, provenance, sample sizes, reason codes)",
     "status": "completed"
   },
   {
-    "content": "Ejecutar pytest completo y confirmar 0 regresiones",
+    "content": "Fase 3: Cascade selector por campo con fail-soft granular",
     "status": "completed"
   },
   {
-    "content": "Reportar resultados al usuario con JSONs adjuntos",
+    "content": "Fase 3: Tests cascade selector",
     "status": "completed"
+  },
+  {
+    "content": "Fase 4: Builder F74 canonical + legacy adapter + telemetria schema_migration",
+    "status": "completed"
+  },
+  {
+    "content": "Fase 4: Tests integracion + pytest completo (4778 passed, 0 regresiones)",
+    "status": "completed"
+  },
+  {
+    "content": "Fase 5: Editorial lee F74 canonico",
+    "status": "completed"
+  },
+  {
+    "content": "Fase 5: Tests E2E focus matches (Argentina/Uruguay/NZ) - 5/5 pasan",
+    "status": "completed"
+  },
+  {
+    "content": "Fase 6 (pendiente): hidratacion upstream de recent_fixtures para selecciones nacionales",
+    "status": "pending"
   }
 ]

@@ -118,6 +118,7 @@ COUNTRY_ALIASES: dict[str, str] = {
     "marruecos":     "morocco",
     "mexico":        "mexico",
     "noruega":       "norway",
+    "nueva zelanda": "new zealand",
     "paises bajos":  "netherlands",
     "polonia":       "poland",
     "portugal":      "portugal",

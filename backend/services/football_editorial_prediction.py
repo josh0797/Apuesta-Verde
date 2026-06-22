@@ -64,8 +64,17 @@ def _safe(v: Any) -> Optional[float]:
 
 
 def _data_completeness(match: dict) -> dict:
-    """Phase F67 (extended by F69) — audit data sources and compute
+    """Phase F67 (extended by F69, F98) — audit data sources and compute
     ``data_quality`` (THIN / LIMITED / USABLE / STRONG).
+
+    Sprint-F98 read order (binding):
+      1. ``match["football_data_enrichment"]`` (canonical F74) — preferred.
+      2. Build it on-the-fly via ``football_enrichment_builder`` so we
+         project the legacy match doc into F74 in-memory when the
+         canonical block hasn't been pre-attached.
+      3. Final fallback: the original legacy lookups (kept for
+         backwards compatibility and so consumers that pre-date
+         the F98 migration still work).
 
     The 4-tier classification replaces F67's 3-tier ``completeness``
     while preserving backwards-compat (``completeness`` still emitted,
@@ -92,30 +101,63 @@ def _data_completeness(match: dict) -> dict:
             "available_sources":  [],
         }
 
+    # Sprint-F98 step 1+2: try to obtain the F74 canonical block.
+    f74 = match.get("football_data_enrichment")
+    if not isinstance(f74, dict) or not f74:
+        try:
+            from services.football_enrichment_builder import (
+                build_football_data_enrichment,
+            )
+            f74 = build_football_data_enrichment(match)
+        except Exception:  # noqa: BLE001
+            f74 = None
+
     home_t = match.get("home_team") if isinstance(match.get("home_team"), dict) else {}
     away_t = match.get("away_team") if isinstance(match.get("away_team"), dict) else {}
 
+    # F74 path (preferred). Each ``f74_*`` boolean is True ONLY when
+    # the canonical block actually has the field.
+    if isinstance(f74, dict):
+        f74_home = f74.get("home") if isinstance(f74.get("home"), dict) else {}
+        f74_away = f74.get("away") if isinstance(f74.get("away"), dict) else {}
+        f74_h2h  = f74.get("h2h")  if isinstance(f74.get("h2h"),  dict) else {}
+    else:
+        f74_home = f74_away = f74_h2h = {}
+
     has_corners_l5 = bool(
+        _safe(f74_home.get("corners_for_l5")) is not None
+        and _safe(f74_away.get("corners_for_l5")) is not None
+    ) or bool(
         _safe(match.get("home_corners_for_l5")) is not None
         and _safe(match.get("away_corners_for_l5")) is not None
     )
     has_goals_history = bool(
-        _safe(home_t.get("goals_scored_l5")) is not None
+        _safe(f74_home.get("goals_scored_l5")) is not None
+        or _safe(f74_away.get("goals_scored_l5")) is not None
+        or _safe(home_t.get("goals_scored_l5")) is not None
         or _safe(home_t.get("goals_scored_l15")) is not None
         or _safe(match.get("home_goals_scored_l5")) is not None
     )
     has_xg = bool(
+        _safe(f74_home.get("xg_for_l5")) is not None
+        and _safe(f74_away.get("xg_for_l5")) is not None
+    ) or bool(
         _safe(match.get("home_xg")) is not None
         and _safe(match.get("away_xg")) is not None
     )
     has_btts = bool(
-        _safe(home_t.get("btts_rate_l15")) is not None
+        _safe(f74_home.get("btts_rate_l5")) is not None
+        or _safe(f74_away.get("btts_rate_l5")) is not None
+        or _safe(home_t.get("btts_rate_l15")) is not None
         or _safe(away_t.get("btts_rate_l15")) is not None
     )
     has_clean_sheets = bool(
-        _safe(home_t.get("clean_sheet_rate_l15")) is not None
+        _safe(f74_home.get("clean_sheets_l5")) is not None
+        or _safe(f74_away.get("clean_sheets_l5")) is not None
+        or _safe(home_t.get("clean_sheet_rate_l15")) is not None
         or _safe(away_t.get("clean_sheet_rate_l15")) is not None
     )
+    has_h2h_signal = bool(f74_h2h.get("sample"))
     # Phase F69 — market context is the bundle of (odds, edge, prob_estim,
     # prob_implied, market_evaluated) coming from the discard entry. We
     # surface it as its own source so editorials can lean on it when
@@ -172,11 +214,14 @@ def _data_completeness(match: dict) -> dict:
         "has_xg":             has_xg,
         "has_btts_rate":      has_btts,
         "has_clean_sheets":   has_clean_sheets,
-        "has_h2h":            False,        # injected externally by caller
+        "has_h2h":            has_h2h_signal,   # F98: now driven by F74
         "has_market_context": has_market_context,
         "completeness":       completeness,
         "data_quality":       data_quality,
         "available_sources":  sources,
+        # Sprint-F98 telemetry — visible only when F74 was consulted.
+        "schema_migration":   ((f74 or {}).get("schema_migration")
+                                if isinstance(f74, dict) else None),
     }
 
 
