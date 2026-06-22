@@ -245,7 +245,7 @@ def maybe_promote_corner_pick(
         ser re-evaluado por ``apply_moneyball_layer`` para obtener su
         ``_moneyball`` + ``_market_edge`` actualizados.
     """
-    if not _flag_enabled("ENABLE_CORNER_AUTO_FALLBACK", default=False):
+    if not _flag_enabled("ENABLE_CORNER_AUTO_FALLBACK", default=True):
         return None
 
     if not isinstance(pick, dict):

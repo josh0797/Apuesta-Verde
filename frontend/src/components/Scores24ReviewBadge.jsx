@@ -28,24 +28,29 @@ const TONE = {
   missing:   { cls: 'border-rose-500/30 bg-rose-500/10 text-rose-200',     Icon: XCircle },
 };
 
+// Sprint-D9 + Sprint-F99 follow-up: textos agnósticos al proveedor.  Antes
+// decían literalmente "Sportytrader" (proveedor legacy bloqueado por Bright
+// Data).  Tras el wiring de TheOddsAPI + OddsPortal (Sprint-D9) y editorial
+// interno F99.3, la UI debe hablar de "Editorial externo" / "Auditoría",
+// no referir al proveedor histórico.
 const LABELS_ES = {
-  pending:   'Sportytrader: pendiente',
-  searching: 'Sportytrader: buscando URL',
-  reviewed:  'Sportytrader: revisado',
-  rescued:   'Sportytrader: alternativa detectada',
-  watchlist: 'Sportytrader: revisión Watchlist',
-  confirmed: 'Sportytrader: descarte confirmado',
-  missing:   'Sportytrader no encontrado',
+  pending:   'Editorial externo: pendiente',
+  searching: 'Editorial externo: buscando',
+  reviewed:  'Editorial externo: revisado',
+  rescued:   'Auditoría: alternativa detectada',
+  watchlist: 'Auditoría: revisión Watchlist',
+  confirmed: 'Auditoría: descarte confirmado',
+  missing:   'Editorial externo no disponible',
 };
 
 const LABELS_EN = {
-  pending:   'Sportytrader: pending',
-  searching: 'Sportytrader: searching URL',
-  reviewed:  'Sportytrader: reviewed',
-  rescued:   'Sportytrader: alternative detected',
-  watchlist: 'Sportytrader: watchlist review',
-  confirmed: 'Sportytrader: discard confirmed',
-  missing:   'Sportytrader not found',
+  pending:   'External editorial: pending',
+  searching: 'External editorial: searching',
+  reviewed:  'External editorial: reviewed',
+  rescued:   'Audit: alternative detected',
+  watchlist: 'Audit: watchlist review',
+  confirmed: 'Audit: discard confirmed',
+  missing:   'External editorial unavailable',
 };
 
 /**

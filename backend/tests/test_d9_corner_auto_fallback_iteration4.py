@@ -64,8 +64,30 @@ def _no_value_pick() -> dict:
 # ─────────────────────────────────────────────────────────────────────
 # Tests del módulo puro
 # ─────────────────────────────────────────────────────────────────────
-def test_disabled_by_default(monkeypatch):
+def test_default_is_now_enabled_post_sprint_d9_followup(monkeypatch):
+    """
+    Sprint-D9 follow-up (Jun-2026): ENABLE_CORNER_AUTO_FALLBACK pasó de
+    default ``false`` a ``true`` porque ahora el cascade de odds D9
+    (TheOddsAPI + OddsPortal) está wireado en la ingesta y los picks
+    finalmente reciben ``corner_engine_context`` con ``asian_book_odds``
+    poblado.  Sin el cambio de default, el motor de rescate de córners
+    nunca se activaría en producción y el bug original persistiría.
+    """
     monkeypatch.delenv("ENABLE_CORNER_AUTO_FALLBACK", raising=False)
+    pick = _no_value_pick()
+    pick["corner_engine_context"] = _dominant_favorite_ctx_with_book_odds(
+        {"HOME_-1.5": 2.10}
+    )
+    promoted = caf.maybe_promote_corner_pick(pick)
+    assert promoted is not None, (
+        "Con default=true (post-Sprint-D9-followup) un pick eligible con "
+        "edge alto en córners debe promoverse automáticamente."
+    )
+
+
+def test_disabled_explicitly_via_env(monkeypatch):
+    """El flag puede apagarse explícitamente."""
+    monkeypatch.setenv("ENABLE_CORNER_AUTO_FALLBACK", "false")
     pick = _no_value_pick()
     pick["corner_engine_context"] = _dominant_favorite_ctx_with_book_odds(
         {"HOME_-1.5": 2.10}

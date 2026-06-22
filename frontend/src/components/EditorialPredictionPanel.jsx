@@ -204,12 +204,12 @@ export function EditorialPredictionPanel({
   const t = (lang === 'en')
     ? {
         header: 'Internal editorial analysis',
-        sub:    'Fallback Sportytrader — generated from your own L5/L15 model',
+        sub:    'External editorial unavailable — generated from your own L5/L15 model',
         bestPrefix: 'Highlighted protected market',
       }
     : {
         header: 'Análisis editorial interno',
-        sub:    'Fallback interno — Sportytrader no encontrado · generado desde tu modelo L5/L15',
+        sub:    'Editorial externo no disponible · generado desde tu modelo L5/L15',
         bestPrefix: 'Mercado protegido destacado',
       };
 
