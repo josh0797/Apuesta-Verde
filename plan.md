@@ -531,3 +531,106 @@ Cableado de SofaScore como **fuente estadística primaria** del esquema canónic
 3. Set env `DISABLE_API_FOOTBALL=true` para activar el kill switch funcional.
 4. Monitorear `match["football_data_enrichment_source_trace"]["sofascore"]` para observabilidad granular por partido.
 
+
+---
+
+## FASE F99.1 + F99.3 + F99.2 — Sub-fases del wiring SofaScore — COMPLETADO ✅
+
+Orden de ejecución (binding del usuario, menor → mayor riesgo): **F99.1 → F99.3 → F99.2**.
+
+### F99.1 — Adapters `offline_seed` / `seed_partial` (córners)
+
+Decisiones binding aplicadas:
+- **Una sola colección**: `football_team_corners_offline_seed` alimenta **ambos** envelopes.
+- **`seed_partial` NO es colección nueva**: es un estado derivado de `sample_size < min_sample` o `underlying_source == "promoted_from_online"`.
+- **Adapters puros**: sin `db`, sin IO, sin consultar Mongo, sin llamar proveedores. La hidratación ocurre antes vía el hydrator.
+- **Scope estricto**: el adapter de córners **NUNCA** llena xG / goles / shots / posesión, incluso si el documento del seed los trae.
+- **Granularidad por lado**: dos envelopes independientes — un equipo "rico" llena `offline_seed`, un equipo "parcial" llena `seed_partial`. El cascade decide campo por campo según F99-P2.
+
+Archivos creados/modificados:
+- `services/adapters/offline_seed_corners_adapter.py` **(NUEVO)** — `adapt_offline_seed_corners_to_f74` + `adapt_seed_partial_corners_to_f74`.
+- `services/football_offline_seed_hydrator.py` **(NUEVO)** — feature flag `ENABLE_F99_CORNERS_SEED_HYDRATION`, fail-soft, telemetría estructurada en `match[TRACE_KEY]["corners_offline_seed"]` con `attempted | status | sides{home/away}.{matches, classified_as} | min_sample | checked_at`.
+- `services/data_ingestion.py` — wire del hydrator inmediatamente después del bloque SofaScore.
+- `services/football_enrichment_builder.py` — añadidos los dos adapters al `raw_pairs` del builder F74 (sin reconstruir nada).
+- `tests/test_f99_1_offline_seed_adapters.py` **(NUEVO)** — **15/15 tests pasando**.
+
+### F99.3 — Editorial payload adapter (puro, F74 → editorial-ready)
+
+Decisiones binding aplicadas:
+- **Puro y sin IO**: `build_editorial_ready_match_payload_v2(match, enrichment=None)` no ejecuta el builder, no consulta `db`, no consume proveedores, no muta el match.
+- **F74 first + legacy top-up**: F74 es la fuente canónica primaria; legacy aporta solo top-up de campos faltantes, **nunca** sobre-escribe.
+- **Sin odds / market identity en el payload**: lista negra estricta `odds | evaluated_market | market_identity_key | market_evaluated | edge | ev | expected_value | implied_probability | market_trap | market_trap_score`. La ausencia de odds **no** afecta `data_quality` (binding guard #9).
+- **Whitelist de métricas**: solo métricas futbolísticas explícitas — goles, xG, shots, possession, corners, BTTS, clean sheets, under 2.5/3.5, form L5/L15, recent_fixtures, cards, H2H, official/friendly split.
+- **Reason codes**: `F99_EDITORIAL_F74_ADAPTER_USED`, `F99_EDITORIAL_LEGACY_FALLBACK_USED`, `F99_EDITORIAL_PAYLOAD_INCOMPLETE`.
+- **Feature flag**: `ENABLE_F99_EDITORIAL_F74_ADAPTER` — opt-in para rollout controlado; legacy queda como fallback temporal.
+
+Archivos creados/modificados:
+- `services/football_editorial_payload_adapter.py` — añadidos:
+  - `build_editorial_ready_match_payload_v2`, `is_f99_editorial_adapter_enabled`,
+  - Constantes `F99_ADAPTER_SCHEMA_VERSION`, `F99_FLAG_ENV_VAR`, `RC_F99_*`,
+  - Helpers puros `_f99_*` con whitelist / strip de keys prohibidas.
+- `services/football_editorial_prediction.py` — `_data_completeness` ahora invoca el adapter v2 cuando el flag está on; expone `f99_editorial_reason_codes` y `f99_adapter_used` para telemetría.
+- `tests/test_f99_3_editorial_payload_adapter.py` **(NUEVO)** — **15/15 tests pasando** (pureza, no-mutation, no-builder, sin odds, reason codes, top-up legacy, whitelist, flag).
+
+### F99.2 — Purga estructural de API-Sports en `data_ingestion.py`
+
+Decisiones binding aplicadas:
+- **`services/api_football.py` NO se elimina físicamente**: queda como **stub deprecado fail-closed**. Toda función pública retorna `[]`/`None`/`{}` sin tocar HTTP. Contador `DEPRECATED_STUB_USAGE_COUNTERS` y reason code `API_FOOTBALL_DEPRECATED_STUB_USED` para detectar deuda residual.
+- **Cero call-sites activos**: `grep af\.<fn>(` en `data_ingestion.py` = 0. Test de auditoría (`test_no_active_af_callsites_in_data_ingestion`) protege esto contra regresiones.
+- **Caches `cache_*` legacy**: NO se purgan físicamente; `_cache_set` ahora es **no-op** (nunca escribe nuevas entradas). Las colecciones existentes quedan como histórico read-only.
+- **Sin nuevas escrituras de provenance `api_football`**: el discovery declara el bucket como `API_FOOTBALL_DEPRECATED_STUB_USED` en `audit["reason_codes"]["api_football"]`.
+- **TheSportsDB como único discovery activo**: si TheSportsDB falla → fail-soft con telemetría (`THESPORTSDB_DISCOVERY_FAILED`, `FOOTBALL_DISCOVERY_PARTIAL`, `FOOTBALL_DISCOVERY_NO_NEW_FIXTURES`). **NUNCA** reactiva API-Sports.
+- **Rankings del cascade**: ninguno declara `api_football`/`fb_*` como fuente válida (test guard).
+
+Archivos modificados:
+- `services/api_football.py` — convertido en stub deprecado:
+  - Docstring `DEPRECATED STUB (F99.2)`.
+  - `_get` short-circuita siempre con envelope `{"response": [], "errors": {}, "_f99_disabled": True, "_f99_deprecated_stub": True, "_reason_code": "API_FOOTBALL_DEPRECATED_STUB_USED"}`.
+  - `_bump_stub_counter()` por cada función pública (`fixtures_by_date`, `fixtures_next_48h`, `fixtures_live`, `fixtures_by_league_window`, `fixture_by_id`, `odds_for_fixture`, `team_statistics`, `standings`, `head_to_head`, `injuries`, `fixture_statistics`, `team_corner_form`, `fixtures_last_n`).
+  - `_cache_set` → no-op (jamás escribe).
+  - Aviso INFO one-shot al primer uso del stub.
+- `services/data_ingestion.py` — purgadas ~13 llamadas `af.*` del path football:
+  - Discovery bucket `api_football` ahora se declara directamente como `API_FOOTBALL_DEPRECATED_STUB_USED` (sin invocar el stub).
+  - Priority discovery: el branch `af.fixtures_by_date` fue eliminado; cuando TheSportsDB rinde sin matches by-ID se mantienen los by-name como best-effort + telemetría `FOOTBALL_DISCOVERY_PARTIAL`.
+  - Live aggregator: el fallback a `af.fixtures_live` fue reemplazado por un return vacío seguro.
+  - Bucket `enrichment_audit`: las ramas `stand_resp`, `stats_h/stats_a`, `h2h`, `inj_h/inj_a`, `recent_h_raw/recent_a_raw`, `fx_stats` ya no invocan `af.*`; las variables quedan inicializadas vacías para no romper la forma esperada.
+- `tests/test_f99_2_api_sports_purge.py` **(NUEVO)** — **9/9 tests pasando** (cero call-sites, stub cero IO, contador, cache no-op, todas las funciones públicas fail-closed, caches `fb_*` ausentes de rankings, discovery audit con deprecation, fallo de TheSportsDB no reactiva API-Sports, doc deprecated).
+- Tests legacy actualizados al nuevo comportamiento F99.2:
+  - `tests/test_d9_cascade_reorder_iteration4.py` — `test_api_football_is_decommissioned_in_f99_2` reemplaza `test_api_football_is_last_resort`.
+  - `tests/test_f87_fixture_discovery.py` — dos tests + un test del cascade actualizados (api_football nunca gana, deprecation reason code presente).
+  - `tests/test_f87_fixture_discovery_isolation.py` — test de aislamiento MLB actualizado.
+  - `tests/test_f87_1_upstream_audit.py` — dos tests del shape_audit y ui_message ajustados a la nueva ausencia de bucket api_football.
+  - `tests/test_f99_sofascore_wiring.py` — dos tests del stub actualizados (envelope ampliado + fail-closed siempre).
+
+### Validación final
+
+| Métrica | Antes (cierre F99) | Después (F99.1+F99.2+F99.3) |
+|---|---|---|
+| Tests passing | 4850 | **4889** (+39) |
+| Skipped | 11 | 11 |
+| Failures | 0 | **0** |
+| Warnings | 0 | **0** |
+| Tiempo full suite | 324s | 449s |
+
+Lint Python: clean.
+
+### Activación en producción (cuando el usuario lo decida)
+
+Variables de entorno (todas opt-in):
+- `ENABLE_F99_SOFASCORE_HYDRATION=true` — hydrator F99 SofaScore.
+- `ENABLE_F99_CORNERS_SEED_HYDRATION=true` — hydrator F99.1 córners offline seed.
+- `ENABLE_F99_EDITORIAL_F74_ADAPTER=true` — adapter F99.3 editorial.
+- `DISABLE_API_FOOTBALL=true` — kept for backwards-compat (el stub ya es fail-closed independientemente del flag).
+
+Observabilidad post-deploy:
+- Telemetría por partido: `match["football_data_enrichment_source_trace"]` con sub-bloques `sofascore`, `corners_offline_seed`.
+- Discovery audit: `audit["reason_codes"]["api_football"] == ["API_FOOTBALL_DEPRECATED_STUB_USED"]` indica deuda residual = 0.
+- Editorial: `data_completeness.f99_editorial_reason_codes` para ver qué path tomó cada match.
+- Stub counter: `api_football.DEPRECATED_STUB_USAGE_COUNTERS` — debería quedar en cero en producción tras F99.2 (cualquier valor > 0 indica un caller residual).
+
+### Lo que NO se hizo (deferido)
+
+- Eliminación física del archivo `services/api_football.py` — espera confirmación de cero usos en runtime durante una ventana de observación.
+- Refactor profundo de `football_editorial_prediction.py` para que todas las lecturas pasen por el adapter v2 (hoy solo `_data_completeness` lo invoca; resto del módulo sigue leyendo F74 directamente).
+- Odds aggregator + ranking/cascade de odds (queda para F99.5 según roadmap).
+

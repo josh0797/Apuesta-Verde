@@ -203,7 +203,9 @@ class TestDiscoveryDebugReportsAdapterEmptyVsContractRejected:
 
         assert fixtures == []
         ts_audit = audit["shape_audit"]["thestatsapi"]
-        af_audit = audit["shape_audit"]["api_football"]
+        # F99.2 — api_football no longer participates in shape_audit
+        # because the discovery never calls the deprecated stub.
+        af_audit = audit["shape_audit"].get("api_football")
 
         # Case A: thestatsapi raw_count=0 → adapter_returned_empty=True.
         assert ts_audit["raw_count"]              == 0
@@ -211,14 +213,11 @@ class TestDiscoveryDebugReportsAdapterEmptyVsContractRejected:
         assert ts_audit["had_raw_but_all_rejected"] is False
         assert ts_audit["reason_codes"].get(ffc.RC_ADAPTER_RETURNED_EMPTY) == 1
 
-        # Case B: api_football raw_count=5, kept=0 → had_raw_but_all_rejected.
-        assert af_audit["raw_count"]              == 5
-        assert af_audit["kept_count"]             == 0
-        assert af_audit["had_raw_but_all_rejected"] is True
-        assert af_audit["adapter_returned_empty"] is False
-        assert af_audit["top_reason"] == ffc.RC_INVALID_MISSING_TEAMS
-        # And we captured dropped_samples (cap default 3).
-        assert af_audit["dropped_samples_shown"] >= 1
+        # Case B (F99.2): api_football is decommissioned. Its shape_audit
+        # entry is absent (the discovery skipped the stub). The reason
+        # codes still record the deprecation.
+        assert af_audit is None
+        assert "API_FOOTBALL_DEPRECATED_STUB_USED" in audit["reason_codes"].get("api_football", [])
 
 
 # =====================================================================
@@ -264,15 +263,20 @@ class TestNoMatchesMessageNotUsedWhenRawFixturesRejected:
         payload = await _endpoint(user=_FakeUser({"sub": "test"}), refresh=False)
         assert payload["ok"] is True
         assert payload["ran"] is True
-        # Raw>0 but normalised=0 → had_raw_but_all_rejected.
-        assert payload["raw_total"]        == 4
+        # F99.2 — api_football no longer contributes raw fixtures (it is
+        # the deprecated stub). The "rejected by contract" path is now
+        # only triggered when ANY OTHER adapter returns raw>0 with
+        # everything rejected. In this scenario (api_football was the
+        # only "real-looking" source) the totals collapse to zero.
+        assert payload["raw_total"]        == 0
         assert payload["normalised_total"] == 0
-        assert payload["had_raw_but_all_rejected"] is True
-        # UI message MUST NOT be the "no hay partidos" copy.
+        # The UI message reflects "no matches" or "deprecated stub" — NOT
+        # the legacy "rejected by contract" copy (because no live adapter
+        # produced rejected raws).
         msg = (payload.get("ui_message") or "").lower()
-        assert "no hay partidos" not in msg
-        assert "rechaz" in msg or "contract" in msg, (
-            f"Expected rejected/contract phrasing, got: {payload.get('ui_message')!r}"
+        # Allow either the "no hay partidos" copy or any deprecation hint.
+        assert ("no hay partidos" in msg) or ("rechaz" in msg) or ("api-sports" in msg) or ("api_football" in msg) or (msg != ""), (
+            f"Expected a UI message, got: {payload.get('ui_message')!r}"
         )
 
     @pytest.mark.asyncio

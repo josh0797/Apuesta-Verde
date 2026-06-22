@@ -175,6 +175,31 @@ def build_football_data_enrichment(match: Any) -> dict:
         ("fbref",       match.get("_fbref_raw"),
          lambda r: adapt_fbref_to_f74(r)),
     ]
+    # F99.1 — corners offline_seed / seed_partial. The same raw payload
+    # feeds two adapters that classify sides as full vs partial via
+    # sample_size & underlying_source (NOT separate collections).
+    _corners_seed_raw = match.get("_corners_offline_seed_raw")
+    if _corners_seed_raw is not None:
+        try:
+            from services.adapters.offline_seed_corners_adapter import (
+                adapt_offline_seed_corners_to_f74,
+                adapt_seed_partial_corners_to_f74,
+            )
+            raw_pairs.append((
+                "offline_seed", _corners_seed_raw,
+                lambda r: adapt_offline_seed_corners_to_f74(
+                    r, home_team=home_name, away_team=away_name,
+                ),
+            ))
+            raw_pairs.append((
+                "seed_partial", _corners_seed_raw,
+                lambda r: adapt_seed_partial_corners_to_f74(
+                    r, home_team=home_name, away_team=away_name,
+                ),
+            ))
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[f74_builder] corners seed adapters unavailable: %s", exc)
+
     for label, raw, runner in raw_pairs:
         if raw is None:
             continue

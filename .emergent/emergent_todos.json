@@ -1,30 +1,22 @@
 [
   {
-    "content": "F99-P1.a: Exponer resolve_sofascore_event y fetch_sofascore_match_context en services/external_sources/sofascore.py",
+    "content": "F99.1 - Adapter + hydrator + wire + 15 tests (offline_seed / seed_partial)",
     "status": "completed"
   },
   {
-    "content": "F99-P1.b: Crear hydrator opt-in services/football_sofascore_hydrator.py (fail-soft + telemetria estructurada)",
+    "content": "F99.3 - Editorial payload adapter v2 + refactor _data_completeness + 15 tests",
     "status": "completed"
   },
   {
-    "content": "F99-P1.c: Wire hydrator desde data_ingestion.py (football only) bajo feature flag ENABLE_F99_SOFASCORE_HYDRATION",
+    "content": "F99.2 - api_football stub deprecado fail-closed + purga estructural (0 call-sites) + 9 tests",
     "status": "completed"
   },
   {
-    "content": "F99-P2: Ajustar rankings en services/football_source_cascade.py (xG, tiros, corners segun spec usuario)",
+    "content": "F99 validacion final: 4889 passed, 11 skipped, 0 warnings (baseline +39)",
     "status": "completed"
   },
   {
-    "content": "F99-P0: Kill-switch DISABLE_API_FOOTBALL en services/api_football.py (purga funcional, no estructural)",
-    "status": "completed"
-  },
-  {
-    "content": "F99 tests: 23/23 nuevos tests pasando + 8 tests F98 actualizados al nuevo binding",
-    "status": "completed"
-  },
-  {
-    "content": "F99 validacion: pytest full 4850 passing, 11 skipped, 0 warnings (baseline elevada +23)",
+    "content": "plan.md actualizado con cierre F99.1+F99.2+F99.3",
     "status": "completed"
   }
 ]

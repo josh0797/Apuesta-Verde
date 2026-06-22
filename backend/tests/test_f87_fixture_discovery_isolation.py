@@ -56,12 +56,14 @@ class TestDiscoveryIsolation:
             with patch("services.external_sources.thestatsapi_fixtures_adapter.fetch_fixtures_next_48h",
                         AsyncMock(return_value=([], ["THESTATSAPI_FIXTURES_EMPTY"]))), \
                  patch("services.data_ingestion.af.fixtures_next_48h",
-                        AsyncMock(return_value=af_fixtures)):
+                        AsyncMock(return_value=af_fixtures)) as spy_af:
                 fixtures, audit = await di._discover_football_fixtures(object())
 
             assert audit["isolated_from_mlb"] is True
-            assert audit["primary_winner"] == "api_football"
-            assert len(fixtures) == 6
+            # F99.2 — api_football is decommissioned. Never invoked.
+            spy_af.assert_not_awaited()
+            assert audit["primary_winner"] != "api_football"
+            assert "API_FOOTBALL_DEPRECATED_STUB_USED" in audit["reason_codes"].get("api_football", [])
         finally:
             # Restore real modules so other tests aren't affected.
             if original_qcm is not None:

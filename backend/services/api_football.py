@@ -1,34 +1,32 @@
-"""API-Football v3 async client with strict rate limiting + Mongo cache.
+"""API-Football v3 async client — **DEPRECATED STUB (F99.2)**.
 
-Free plan = 10 requests per minute (very low). We:
-  - Limit to ~8 req/min via a sliding-window token bucket.
-  - Cache team_statistics / standings / h2h / injuries in Mongo (6h TTL).
-  - Cache odds in Mongo (30 min TTL).
+This module used to be the active legacy client for api-sports.io. After
+Phase F99 it is **completely decommissioned** from the football pipeline.
+The file is kept on disk only for **import compatibility** during the
+transition (some external scripts may still reference the symbols). It:
 
-F99 — API-Sports decommission (binding del usuario):
-  This client is being **eliminated from the football pipeline** in favour
-  of TheSportsDB (fixtures base) + SofaScore (primary stats) + TheStatsAPI
-  (fallback / odds). To make the cut-over reversible and safe we install a
-  **kill switch** at the lowest IO layer (``_get``):
+  * does **not** perform any outbound HTTP IO,
+  * does **not** read or use the ``API_FOOTBALL_KEY`` env var at runtime,
+  * does **not** participate in any active enrichment or fallback path,
+  * does **not** write to ``enrichment_audit`` provenance,
+  * is **not** imported by the active football pipeline anymore.
 
-    * If env ``DISABLE_API_FOOTBALL=true`` (default in F99 onwards once the
-      user toggles it), every outbound call short-circuits to an empty
-      response envelope ``{"response": []}``. Callers that consume
-      ``response`` lists keep working (they just see "no data") and the
-      football pipeline transparently falls through to the F74 cascade.
-    * If the env flag is unset/false the module behaves as before, so we
-      do not break legacy paths that are still being migrated.
+Public symbols return fail-closed values (``[]`` / ``None`` / ``{}``).
+A stub counter (``DEPRECATED_STUB_USAGE_COUNTERS``) is incremented every
+time a deprecated function is reached, and a single info log is emitted
+once per process to flag pending tech debt.
 
-  This is intentionally a **functional** purge (zero IO); the structural
-  removal of the ~40 ``af.*`` call-sites in ``data_ingestion.py`` is
-  scheduled for a follow-up sub-phase (F99.2) to avoid mass refactor risk.
+Removal plan (post F99.2):
+  1. Confirm zero call-sites via ``grep -rn "api_football\\|from . import .*api_football" services/``.
+  2. Delete the file in a follow-up phase once all referencing tests are
+     migrated / removed.
 """
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
-import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -40,6 +38,9 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 log = logging.getLogger("api_football")
 
+# F99.2 — kept for backwards compatibility, but the runtime never reads
+# the API key. It is left here so legacy tests that monkeypatch the
+# value don't break.
 API_KEY = os.environ.get("API_FOOTBALL_KEY", "")
 BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -47,14 +48,61 @@ HEADERS = {"x-apisports-key": API_KEY}
 # F99 — kill switch for the API-Sports client.
 DISABLE_FLAG_ENV_VAR = "DISABLE_API_FOOTBALL"
 
+# F99.2 — stub usage telemetry. The counter is incremented from ``_get``
+# whenever a function is reached so a downstream observer (tests, audit
+# tools) can detect lingering call-sites. We also expose a reason code
+# so the trace block of the football pipeline can declare the legacy
+# touch when it happens.
+DEPRECATED_STUB_REASON_CODE = "API_FOOTBALL_DEPRECATED_STUB_USED"
+DEPRECATED_STUB_USAGE_COUNTERS: dict[str, int] = {
+    "_get":                        0,
+    "fixtures_by_date":            0,
+    "fixtures_next_48h":           0,
+    "fixtures_live":               0,
+    "fixtures_by_league_window":   0,
+    "fixture_by_id":               0,
+    "odds_for_fixture":            0,
+    "team_statistics":             0,
+    "standings":                   0,
+    "head_to_head":                0,
+    "injuries":                    0,
+    "fixture_statistics":          0,
+    "team_corner_form":            0,
+    "fixtures_last_n":             0,
+}
+_DEPRECATION_NOTICE_EMITTED = False
+
+
+def _bump_stub_counter(label: str) -> None:
+    """Internal helper: count a deprecated-stub touch + one-shot info log."""
+    global _DEPRECATION_NOTICE_EMITTED
+    try:
+        DEPRECATED_STUB_USAGE_COUNTERS[label] = (
+            DEPRECATED_STUB_USAGE_COUNTERS.get(label, 0) + 1
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    if not _DEPRECATION_NOTICE_EMITTED:
+        log.info(
+            "[F99.2] api_football is decommissioned; reached deprecated stub %s. "
+            "Migrate caller to TheSportsDB / SofaScore / TheStatsAPI.",
+            label,
+        )
+        _DEPRECATION_NOTICE_EMITTED = True
+
 
 def is_disabled() -> bool:
-    """True when the F99 kill switch is on (no outbound IO performed)."""
+    """True when the kill switch is on (default in F99.2).
+
+    The flag remains for backwards compatibility but in F99.2 the stub
+    is **always** fail-closed regardless of the flag. We still expose
+    ``is_disabled()`` so caller-side flag-checks behave as before.
+    """
     raw = os.environ.get(DISABLE_FLAG_ENV_VAR, "")
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
-PROXY_SEASON = 2024  # Free plan limit
+PROXY_SEASON = 2024  # Free plan limit (kept for legacy callers).
 
 # Cache TTLs
 ODDS_TTL_MIN = 30
@@ -91,41 +139,20 @@ class APIFootballError(Exception):
 
 
 async def _get(client: httpx.AsyncClient, path: str, params: dict | None = None) -> dict:
-    # F99 — kill switch: short-circuit ALL outbound API-Sports IO when the
-    # flag is on. Returns an empty response envelope so legacy callers
-    # (which iterate ``data["response"]``) keep working without
-    # exceptions and the football pipeline cleanly falls back to F74.
-    if is_disabled():
-        log.debug("api_football: DISABLE_API_FOOTBALL=on; skipping %s", path)
-        return {"response": [], "errors": {}, "_f99_disabled": True}
-    if not API_KEY:
-        raise APIFootballError("API_FOOTBALL_KEY not configured")
-    await _LIMITER.acquire()
-    try:
-        r = await client.get(f"{BASE_URL}{path}", headers=HEADERS, params=params, timeout=20)
-        r.raise_for_status()
-        data = r.json()
-    except Exception as exc:
-        raise APIFootballError(f"{path}: {exc}") from exc
-    errs = data.get("errors")
-    if errs and isinstance(errs, dict) and errs:
-        # rateLimit error → wait and retry once
-        if "rateLimit" in errs:
-            log.warning("Hit hard rate limit, sleeping 60s and retrying %s", path)
-            await asyncio.sleep(60)
-            await _LIMITER.acquire()
-            r = await client.get(f"{BASE_URL}{path}", headers=HEADERS, params=params, timeout=20)
-            r.raise_for_status()
-            data = r.json()
-            errs2 = data.get("errors")
-            if errs2 and isinstance(errs2, dict) and errs2:
-                log.warning("API-Football errors after retry %s: %s", path, errs2)
-        else:
-            log.warning("API-Football errors for %s: %s", path, errs)
-    return data
+    # F99.2 — DEPRECATED STUB. Always short-circuit: zero IO, fail-closed.
+    # The legacy kill switch ``DISABLE_API_FOOTBALL`` is no longer required
+    # because the stub now ALWAYS returns the empty response envelope.
+    _bump_stub_counter("_get")
+    return {
+        "response":      [],
+        "errors":        {},
+        "_f99_disabled": True,
+        "_f99_deprecated_stub": True,
+        "_reason_code":  DEPRECATED_STUB_REASON_CODE,
+    }
 
 
-# ── Cache helpers ────────────────────────────────────────────────────────────
+# ── Cache helpers (kept read-only for audit / backfill — NEVER written) ────
 def _cache_fresh(doc: dict | None, ttl_minutes: int) -> bool:
     if not doc:
         return False
@@ -140,6 +167,9 @@ def _cache_fresh(doc: dict | None, ttl_minutes: int) -> bool:
 
 
 async def _cache_get(db, collection: str, key: dict, ttl_minutes: int) -> dict | None:
+    """READ-ONLY in F99.2 — kept for audit tooling that might still query the
+    historical fb_* / cache_* collections. The stub itself never reaches
+    here at runtime because ``_get`` returns immediately."""
     if db is None:
         return None
     doc = await db[collection].find_one(key)
@@ -149,19 +179,24 @@ async def _cache_get(db, collection: str, key: dict, ttl_minutes: int) -> dict |
 
 
 async def _cache_set(db, collection: str, key: dict, data: Any) -> None:
-    if db is None:
-        return
-    doc = {**key, "data": data, "_cached_at": datetime.now(timezone.utc).isoformat()}
-    await db[collection].update_one(key, {"$set": doc}, upsert=True)
+    """F99.2 — **NO-OP**. We no longer write new entries into the legacy
+    API-Sports caches. The function is kept so any rogue caller (we
+    expect none after the data_ingestion purge) does not raise.
+    """
+    # Deliberately do nothing. The legacy caches stay frozen as historical
+    # snapshots; we never extend them with new records.
+    return None
 
 
 # ── Public endpoints (with optional db cache) ────────────────────────────────
 async def fixtures_by_date(client: httpx.AsyncClient, date_iso: str) -> list[dict]:
+    _bump_stub_counter("fixtures_by_date")
     data = await _get(client, "/fixtures", {"date": date_iso})
     return data.get("response", []) or []
 
 
 async def fixtures_next_48h(client: httpx.AsyncClient) -> list[dict]:
+    _bump_stub_counter("fixtures_next_48h")
     today = datetime.now(timezone.utc).date()
     tomorrow = today + timedelta(days=1)
     out: list[dict] = []
@@ -183,6 +218,7 @@ async def fixtures_next_48h(client: httpx.AsyncClient) -> list[dict]:
 
 
 async def fixtures_live(client: httpx.AsyncClient) -> list[dict]:
+    _bump_stub_counter("fixtures_live")
     data = await _get(client, "/fixtures", {"live": "all"})
     return data.get("response", []) or []
 
@@ -195,13 +231,8 @@ async def fixtures_by_league_window(
     from_date: str,
     to_date: str,
 ) -> list[dict]:
-    """Fetch fixtures for a single league_id over a date window.
-
-    Used by `discover_priority_fixtures` to surgically ask API-Sports for
-    just the Tier 1/2 leagues that matter, instead of pulling the global
-    /fixtures?date=… firehose (which is what historically caused
-    Côte d'Ivoire U17 / Botswana / Belarus to flood the candidate list).
-    """
+    """[F99.2 STUB] Always returns ``[]`` — API-Sports is decommissioned."""
+    _bump_stub_counter("fixtures_by_league_window")
     data = await _get(client, "/fixtures", {
         "league": league_id,
         "season": season,
@@ -212,12 +243,14 @@ async def fixtures_by_league_window(
 
 
 async def fixture_by_id(client: httpx.AsyncClient, fixture_id: int) -> dict | None:
+    _bump_stub_counter("fixture_by_id")
     data = await _get(client, "/fixtures", {"id": fixture_id})
     resp = data.get("response", []) or []
     return resp[0] if resp else None
 
 
 async def odds_for_fixture(client: httpx.AsyncClient, fixture_id: int, db=None) -> list[dict]:
+    _bump_stub_counter("odds_for_fixture")
     key = {"fixture_id": fixture_id}
     cached = await _cache_get(db, "cache_odds", key, ODDS_TTL_MIN)
     if cached is not None:
@@ -229,6 +262,7 @@ async def odds_for_fixture(client: httpx.AsyncClient, fixture_id: int, db=None) 
 
 
 async def team_statistics(client: httpx.AsyncClient, team_id: int, league_id: int, season: int = PROXY_SEASON, db=None) -> dict:
+    _bump_stub_counter("team_statistics")
     key = {"team_id": team_id, "league_id": league_id, "season": season}
     cached = await _cache_get(db, "cache_team_stats", key, CONTEXT_TTL_HOURS * 60)
     if cached is not None:
@@ -240,6 +274,7 @@ async def team_statistics(client: httpx.AsyncClient, team_id: int, league_id: in
 
 
 async def standings(client: httpx.AsyncClient, league_id: int, season: int = PROXY_SEASON, db=None) -> list[dict]:
+    _bump_stub_counter("standings")
     key = {"league_id": league_id, "season": season}
     cached = await _cache_get(db, "cache_standings", key, CONTEXT_TTL_HOURS * 60)
     if cached is not None:
@@ -251,6 +286,7 @@ async def standings(client: httpx.AsyncClient, league_id: int, season: int = PRO
 
 
 async def head_to_head(client: httpx.AsyncClient, home_id: int, away_id: int, limit: int = 5, db=None) -> list[dict]:
+    _bump_stub_counter("head_to_head")
     key = {"h2h_key": f"{home_id}-{away_id}"}
     cached = await _cache_get(db, "cache_h2h", key, CONTEXT_TTL_HOURS * 60)
     if cached is not None:
@@ -263,6 +299,7 @@ async def head_to_head(client: httpx.AsyncClient, home_id: int, away_id: int, li
 
 
 async def injuries(client: httpx.AsyncClient, team_id: int, season: int = PROXY_SEASON, db=None) -> list[dict]:
+    _bump_stub_counter("injuries")
     key = {"team_id": team_id, "season": season}
     cached = await _cache_get(db, "cache_injuries", key, CONTEXT_TTL_HOURS * 60)
     if cached is not None:
@@ -274,11 +311,8 @@ async def injuries(client: httpx.AsyncClient, team_id: int, season: int = PROXY_
 
 
 async def fixture_statistics(client: httpx.AsyncClient, fixture_id: int, db=None) -> list[dict]:
-    """Per-team statistics for a finished fixture.
-
-    Includes Corner Kicks, Shots, Possession, Cards, etc. Cached aggressively
-    (7 days) because stats of a finished match never change.
-    """
+    """[F99.2 STUB] Per-team statistics for a finished fixture. Always returns ``[]``."""
+    _bump_stub_counter("fixture_statistics")
     key = {"fixture_id": int(fixture_id)}
     cached = await _cache_get(db, "cache_fixture_stats", key, 7 * 24 * 60)
     if cached is not None:
@@ -338,24 +372,8 @@ async def team_corner_form(
     season: int = PROXY_SEASON,
     db=None,
 ) -> dict:
-    """Corner kicks form over the team's last N completed fixtures.
-
-    Cached by `(team_id, season)` for 12h (corners only change after each new
-    finished match). Internal per-fixture stats are cached 7 days.
-
-    Returns:
-        {
-          "team_id":         int,
-          "sample_size":     int,        # actual fixtures with corner data
-          "avg_for":         float,      # corners scored per game
-          "avg_against":     float,      # corners conceded per game
-          "avg_total":       float,      # avg_for + avg_against
-          "per_match":       list[dict], # [{fixture_id, date, corners_for, corners_against}]
-          "missing_data":    bool,       # True if sample_size < 3
-        }
-
-    Returns an empty-form dict (sample_size=0) when no data is available.
-    """
+    """[F99.2 STUB] Corner kicks form. Returns an empty form dict (sample_size=0)."""
+    _bump_stub_counter("team_corner_form")
     n = max(1, min(int(n or 5), 10))
     key = {"team_id": int(team_id), "season": season, "n": n, "kind": "corner_form"}
     cached = await _cache_get(db, "cache_team_corner_form", key, 12 * 60)
@@ -424,37 +442,9 @@ async def fixtures_last_n(
     db=None,
     include_all_competitions: bool = False,
 ) -> list[dict]:
-    """Return the team's last N fixtures (most recent first) WITH final score.
-
-    Used by `services/statsbomb_features.py` to build a goal-distribution
-    profile per team — feeds the Poisson model that powers the Under 3.5 /
-    Under 2.5 protected scan (Phase 9 + P2A enhancement). Also used by
-    ``football_corners_history`` for the L1/L5/L15 corner window.
-
-    Sprint-D9.2 Block A — Cross-tournament window
-    ---------------------------------------------
-    For national-team analysis (World Cup, Euros, Copa América) the
-    legacy contract ``season=PROXY_SEASON`` over-filters: API-Sports
-    files friendlies and qualifiers under different ``season`` values
-    (league_id=10 "Friendlies International" lives in a season equal to
-    the calendar year, not the tournament year). To compute a real
-    L1/L5/L15 corner window for a national team you need ALL competitions
-    glued together.
-
-    Two new entry-points:
-
-    * ``include_all_competitions=True`` — drops the ``season`` filter and
-      asks API-Sports for "last N globally". This is the recommended
-      mode for national-team windows. Cache key is versioned
-      ``kind: "last_n_global"`` so it does not collide with the legacy
-      cache.
-    * ``season=None`` — same effect (drops the filter) but keeps the
-      legacy cache key, primarily for ad-hoc scripts.
-
-    Leagues stay on the original contract by default
-    (``include_all_competitions=False``, ``season=PROXY_SEASON``) so we
-    don't introduce a regression in club-football flows.
-    """
+    """[F99.2 STUB] Returns ``[]`` — recent fixtures must come from
+    TheSportsDB / SofaScore / TheStatsAPI now."""
+    _bump_stub_counter("fixtures_last_n")
     n = max(1, min(int(n or 10), 20))
     # Sprint-D9.2 Block A — cross-tournament fan-in for national teams.
     use_global = bool(include_all_competitions) or season is None

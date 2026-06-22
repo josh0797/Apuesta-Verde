@@ -102,33 +102,43 @@ class TestF87aTheStatsAPIPrimary:
             assert f["_discovery_source"] == "thestatsapi"
 
     @pytest.mark.asyncio
-    async def test_thestatsapi_empty_falls_through_to_apifootball(self, monkeypatch):
+    async def test_thestatsapi_empty_no_longer_falls_through_to_apifootball(self, monkeypatch):
+        """F99.2 — API-Sports decommissioned. When TheStatsAPI returns
+        empty, the discovery NO LONGER reactivates api_football. The
+        bucket is marked as ``API_FOOTBALL_DEPRECATED_STUB_USED`` and
+        the discovery returns the next available signal (or empty)."""
         monkeypatch.delenv("ENABLE_THESTATSAPI_FIXTURES_PRIMARY", raising=False)
         af_fixtures = [_make_af_fixture(i) for i in range(10)]
         with patch("services.external_sources.thestatsapi_fixtures_adapter.fetch_fixtures_next_48h",
                     AsyncMock(return_value=([], ["THESTATSAPI_FIXTURES_EMPTY"]))), \
              patch("services.data_ingestion.af.fixtures_next_48h",
-                    AsyncMock(return_value=af_fixtures)):
+                    AsyncMock(return_value=af_fixtures)) as spy_af:
             fixtures, audit = await di._discover_football_fixtures(object())
 
-        assert audit["primary_winner"] == "api_football"
-        assert audit["counts_per_src"]["api_football"] == 10
-        assert len(fixtures) == 10
-        assert all(f["_discovery_source"] == "api_football" for f in fixtures)
+        # api_football MUST NOT be invoked.
+        spy_af.assert_not_awaited()
+        # api_football is NEVER selected as primary winner.
+        assert audit["primary_winner"] != "api_football"
+        # The bucket is declared deprecated.
+        assert "API_FOOTBALL_DEPRECATED_STUB_USED" in audit["reason_codes"].get("api_football", [])
 
     @pytest.mark.asyncio
-    async def test_thestatsapi_disabled_skips_to_apifootball(self, monkeypatch):
+    async def test_thestatsapi_disabled_no_longer_skips_to_apifootball(self, monkeypatch):
+        """F99.2 — even with TheStatsAPI disabled, api_football is never
+        used. This guards the regression path where a user accidentally
+        flips the legacy flag back on."""
         monkeypatch.setenv("ENABLE_THESTATSAPI_FIXTURES_PRIMARY", "false")
         af_fixtures = [_make_af_fixture(i) for i in range(6)]
         ts_spy = AsyncMock()
         with patch("services.external_sources.thestatsapi_fixtures_adapter.fetch_fixtures_next_48h", ts_spy), \
              patch("services.data_ingestion.af.fixtures_next_48h",
-                    AsyncMock(return_value=af_fixtures)):
+                    AsyncMock(return_value=af_fixtures)) as spy_af:
             fixtures, audit = await di._discover_football_fixtures(object())
 
         ts_spy.assert_not_awaited()
+        spy_af.assert_not_awaited()
         assert "thestatsapi" not in audit["sources_called"]
-        assert audit["primary_winner"] == "api_football"
+        assert audit["primary_winner"] != "api_football"
 
 
 # =====================================================================
@@ -367,16 +377,21 @@ class TestF87Merge:
 # =====================================================================
 class TestFailSoftCascade:
     @pytest.mark.asyncio
-    async def test_broken_thestatsapi_still_falls_back(self, monkeypatch):
+    async def test_broken_thestatsapi_does_not_reactivate_apifootball(self, monkeypatch):
+        """F99.2 — when TheStatsAPI crashes, the cascade must NOT reactivate
+        API-Sports. Discovery degrades gracefully; api_football is never
+        the winner."""
         monkeypatch.delenv("ENABLE_THESTATSAPI_FIXTURES_PRIMARY", raising=False)
         af_fixtures = [_make_af_fixture(i) for i in range(7)]
         with patch("services.external_sources.thestatsapi_fixtures_adapter.fetch_fixtures_next_48h",
                     AsyncMock(side_effect=RuntimeError("boom"))), \
              patch("services.data_ingestion.af.fixtures_next_48h",
-                    AsyncMock(return_value=af_fixtures)):
+                    AsyncMock(return_value=af_fixtures)) as spy_af:
             fixtures, audit = await di._discover_football_fixtures(object())
 
         assert "thestatsapi" in audit["reason_codes"]
         assert audit["reason_codes"]["thestatsapi"] == ["EXCEPTION"]
-        assert audit["primary_winner"] == "api_football"
-        assert len(fixtures) == 7
+        # api_football is decommissioned — never invoked, never the winner.
+        spy_af.assert_not_awaited()
+        assert audit["primary_winner"] != "api_football"
+        assert "API_FOOTBALL_DEPRECATED_STUB_USED" in audit["reason_codes"].get("api_football", [])

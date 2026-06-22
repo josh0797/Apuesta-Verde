@@ -112,12 +112,38 @@ def _data_completeness(match: dict) -> dict:
         except Exception:  # noqa: BLE001
             f74 = None
 
+    # Sprint-F99.3 — when the F74 editorial adapter is enabled, route
+    # the read through ``build_editorial_ready_match_payload_v2`` so the
+    # adapter centralises aliases, defaults and field projection. The
+    # legacy reads below act as a top-up fallback only if the adapter
+    # itself reports ``F99_EDITORIAL_PAYLOAD_INCOMPLETE``.
+    _f99_payload: Optional[dict] = None
+    _f99_reason_codes: list[str] = []
+    try:
+        from services.football_editorial_payload_adapter import (
+            build_editorial_ready_match_payload_v2,
+            is_f99_editorial_adapter_enabled,
+            RC_F99_F74_ADAPTER_USED,
+            RC_F99_LEGACY_FALLBACK_USED,
+            RC_F99_PAYLOAD_INCOMPLETE,
+        )
+        if is_f99_editorial_adapter_enabled():
+            _f99_payload = build_editorial_ready_match_payload_v2(match, enrichment=f74)
+            _f99_reason_codes = list(_f99_payload.get("reason_codes") or [])
+    except Exception:  # noqa: BLE001
+        _f99_payload = None
+
     home_t = match.get("home_team") if isinstance(match.get("home_team"), dict) else {}
     away_t = match.get("away_team") if isinstance(match.get("away_team"), dict) else {}
 
-    # F74 path (preferred). Each ``f74_*`` boolean is True ONLY when
+    # F99.3 path: prefer the adapter projection when available.
+    if isinstance(_f99_payload, dict) and _f99_payload.get("home") is not None:
+        f74_home = _f99_payload.get("home") or {}
+        f74_away = _f99_payload.get("away") or {}
+        f74_h2h  = _f99_payload.get("h2h")  or {}
+    # F74 path (legacy preferred). Each ``f74_*`` boolean is True ONLY when
     # the canonical block actually has the field.
-    if isinstance(f74, dict):
+    elif isinstance(f74, dict):
         f74_home = f74.get("home") if isinstance(f74.get("home"), dict) else {}
         f74_away = f74.get("away") if isinstance(f74.get("away"), dict) else {}
         f74_h2h  = f74.get("h2h")  if isinstance(f74.get("h2h"),  dict) else {}
@@ -222,6 +248,14 @@ def _data_completeness(match: dict) -> dict:
         # Sprint-F98 telemetry — visible only when F74 was consulted.
         "schema_migration":   ((f74 or {}).get("schema_migration")
                                 if isinstance(f74, dict) else None),
+        # Sprint-F99.3 — adapter telemetry (reason codes propagated when
+        # ENABLE_F99_EDITORIAL_F74_ADAPTER is on). Always a list (empty
+        # when the flag is off) so downstream consumers can read it
+        # without branching.
+        "f99_editorial_reason_codes": _f99_reason_codes,
+        "f99_adapter_used": isinstance(_f99_payload, dict)
+                              and bool(_f99_payload.get("_meta", {})
+                                       .get("adapter_path_used", "").startswith("F99_")),
     }
 
 

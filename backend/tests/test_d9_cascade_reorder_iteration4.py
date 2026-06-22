@@ -133,12 +133,12 @@ async def test_espn_short_circuits_when_viable_and_thesportsdb_empty(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_api_football_is_last_resort(monkeypatch):
-    """Cuando ESPN y Sofascore también fallan/vacían, API-Football
-    finalmente entra como último recurso."""
-    # Sprint-D9-HOTFIX2: ENABLE_API_FOOTBALL_FALLBACK ahora viene en
-    # false por default (.env). Para validar la pertenencia al ORDEN
-    # de la cascada lo activamos explícitamente aquí.
+async def test_api_football_is_decommissioned_in_f99_2(monkeypatch):
+    """F99.2 — even when ALL other sources (TheSportsDB, TheStatsAPI, ESPN,
+    SofaScore PW) are empty, API-Sports is **never** reactivated as the
+    fallback. The discovery degrades gracefully and emits the deprecation
+    reason code instead of selecting api_football."""
+    # The legacy flag is ignored after F99.2.
     monkeypatch.setenv("ENABLE_API_FOOTBALL_FALLBACK", "true")
 
     async def _empty_tsdb(client):
@@ -153,13 +153,11 @@ async def test_api_football_is_last_resort(monkeypatch):
         "services.external_sources.thestatsapi_fixtures_adapter.fetch_fixtures_next_48h",
         _empty_tsa,
     )
-    # ESPN: vacío
     async def _empty_espn(client):
         return []
     monkeypatch.setattr(
         "services.fallback_scraper.espn_soccer_scoreboard", _empty_espn,
     )
-    # Sofascore PW: vacío
     async def _empty_sofa():
         return []
     monkeypatch.setattr(
@@ -167,34 +165,22 @@ async def test_api_football_is_last_resort(monkeypatch):
         _empty_sofa,
     )
 
-    # API-Football: viable (raw API-Football shape)
-    af_fixtures = [
-        _fake_apifootball_fixture(f"Home{i}", f"Away{i}", fid=100 + i)
-        for i in range(6)
-    ]
+    # Any af.fixtures_next_48h invocation would break the test — F99.2
+    # says the discovery must NOT touch the deprecated stub.
     af_called = {"count": 0}
-    async def _af_ok(client):
+    async def _af_should_not_be_called(client):
         af_called["count"] += 1
-        return af_fixtures
-    monkeypatch.setattr(
-        "services.api_football.fixtures_next_48h", _af_ok,
-    )
-    # Sofascore scrape.do: cero (no debe ser viable cuando AF sí lo es)
-    async def _empty_scrape():
         return []
     monkeypatch.setattr(
-        "services.external_sources.scrapedo_fixtures_adapter.fetch_fixtures_today",
-        _empty_scrape,
+        "services.api_football.fixtures_next_48h", _af_should_not_be_called,
     )
 
     client = _FakeClient()
     fixtures, audit = await di._discover_football_fixtures(client)
 
-    # API-Football debe ser primary winner.
-    assert af_called["count"] == 1
-    assert audit.get("primary_winner") == "api_football"
-    # Y se llamó al ORDEN nuevo: thesportsdb → thestatsapi → espn →
-    # sofascore_pw → api_football
-    sources = audit["sources_called"]
-    assert sources.index("espn") < sources.index("api_football")
-    assert sources.index("sofascore_pw") < sources.index("api_football")
+    # Hard guard: api_football MUST NOT be invoked.
+    assert af_called["count"] == 0
+    # api_football MUST NOT win.
+    assert audit.get("primary_winner") != "api_football"
+    # Deprecation reason code MUST be present in the audit.
+    assert "API_FOOTBALL_DEPRECATED_STUB_USED" in audit["reason_codes"].get("api_football", [])

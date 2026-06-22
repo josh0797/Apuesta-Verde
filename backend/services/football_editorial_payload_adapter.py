@@ -372,11 +372,16 @@ def build_editorial_ready_match_payload(match: dict) -> dict:
 
     # ── 7) Debug block for UI ───────────────────────────────────────
     missing: list[str] = []
-    if not has_xg:      missing.append("xG")
-    if not has_btts:    missing.append("BTTS rate L15")
-    if not has_cs:      missing.append("clean sheets L15")
-    if not has_corners: missing.append("corners L5/L15")
-    if not has_h2h:     missing.append("h2h_recent")
+    if not has_xg:
+        missing.append("xG")
+    if not has_btts:
+        missing.append("BTTS rate L15")
+    if not has_cs:
+        missing.append("clean sheets L15")
+    if not has_corners:
+        missing.append("corners L5/L15")
+    if not has_h2h:
+        missing.append("h2h_recent")
     market_identity_found = isinstance(match.get("market_identity"), dict) and bool(
         (match.get("market_identity") or {}).get("identity_key")
         and not str((match.get("market_identity") or {})
@@ -449,4 +454,366 @@ __all__ = [
     "RC_DATA_QUALITY_UPGRADED",
     "RC_NO_SIGNALS",
     "build_editorial_ready_match_payload",
+    # Sprint-F99.3 — adapter puro F74-only (single entry point goal).
+    "F99_ADAPTER_SCHEMA_VERSION",
+    "RC_F99_F74_ADAPTER_USED",
+    "RC_F99_LEGACY_FALLBACK_USED",
+    "RC_F99_PAYLOAD_INCOMPLETE",
+    "F99_FLAG_ENV_VAR",
+    "is_f99_editorial_adapter_enabled",
+    "build_editorial_ready_match_payload_v2",
 ]
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Sprint-F99.3 · Pure F74→editorial payload adapter
+# ─────────────────────────────────────────────────────────────────────
+# Binding del usuario:
+#   * Función pura: NO consulta db, NO ejecuta builder, NO modifica match.
+#   * F74 es el contrato canónico; legacy actúa como top-up cuando F74
+#     no llenó la métrica todavía.
+#   * Sin odds normalizadas, sin precios, sin evaluated_market, sin
+#     market_identity_key, sin edge / EV / market_trap. Solo metadato
+#     descriptivo ``odds_available``.
+#   * Reason codes: F99_EDITORIAL_F74_ADAPTER_USED,
+#     F99_EDITORIAL_LEGACY_FALLBACK_USED, F99_EDITORIAL_PAYLOAD_INCOMPLETE.
+#   * Feature flag para rollout controlado:
+#     ``ENABLE_F99_EDITORIAL_F74_ADAPTER`` (env, opt-in).
+# ═════════════════════════════════════════════════════════════════════
+
+import os as _os
+
+F99_ADAPTER_SCHEMA_VERSION = "F99-EDITORIAL-1"
+F99_FLAG_ENV_VAR           = "ENABLE_F99_EDITORIAL_F74_ADAPTER"
+
+RC_F99_F74_ADAPTER_USED     = "F99_EDITORIAL_F74_ADAPTER_USED"
+RC_F99_LEGACY_FALLBACK_USED = "F99_EDITORIAL_LEGACY_FALLBACK_USED"
+RC_F99_PAYLOAD_INCOMPLETE   = "F99_EDITORIAL_PAYLOAD_INCOMPLETE"
+
+# Forbidden keys — NEVER emitted in the F99 editorial payload.
+_F99_FORBIDDEN_KEYS = frozenset({
+    "odds", "odds_decimal",
+    "evaluated_market", "market_identity_key", "market_evaluated",
+    "edge", "ev", "expected_value",
+    "market_trap", "market_trap_score",
+    "implied_probability", "estimated_probability",
+})
+
+# Whitelisted "side" metrics projected from F74.
+_F99_SIDE_METRICS = (
+    "goals_scored_l5",  "goals_scored_l15",
+    "goals_conceded_l5", "goals_conceded_l15",
+    "xg_for_l5",        "xg_for_l15",
+    "xg_against_l5",    "xg_against_l15",
+    "shots_for_l5",
+    "shots_on_target_l5",
+    "possession_avg_l5",
+    "passes_completed_l5",
+    "pass_accuracy_l5",
+    "corners_for_l5",   "corners_against_l5",  "corners_total_l5",
+    "corners_for_l15",  "corners_against_l15", "corners_total_l15",
+    "btts_rate_l5",     "btts_rate_l15",
+    "clean_sheets_l5",  "clean_sheets_l15",
+    "under_2_5_rate_l5",  "under_2_5_rate_l15",
+    "under_3_5_rate_l5",  "under_3_5_rate_l15",
+    "form_string_l5",   "form_string_l15",
+    "recent_fixtures",
+    "cards_for_l5",     "cards_against_l5",
+)
+
+_F99_H2H_KEYS = ("matches", "home_wins", "away_wins", "draws", "sample")
+
+
+def is_f99_editorial_adapter_enabled() -> bool:
+    """Strict opt-in feature flag for the F99.3 pure editorial adapter."""
+    raw = _os.environ.get(F99_FLAG_ENV_VAR, "")
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _f99_team_name(match: dict, side: str) -> str:
+    if not isinstance(match, dict):
+        return ""
+    block = match.get(f"{side}_team")
+    if isinstance(block, dict):
+        n = block.get("name")
+        if n:
+            return str(n)
+    if isinstance(block, str):
+        return block
+    flat = match.get(f"{side}_team_name")
+    return str(flat) if flat else ""
+
+
+def _f99_is_valid_f74(enrichment: Any) -> bool:
+    if not isinstance(enrichment, dict) or not enrichment:
+        return False
+    if enrichment.get("available"):
+        return True
+    home = enrichment.get("home")
+    away = enrichment.get("away")
+    return (isinstance(home, dict) and bool(home)) or (isinstance(away, dict) and bool(away))
+
+
+def _f99_project_side(f74_side: Any) -> dict:
+    if not isinstance(f74_side, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key in _F99_SIDE_METRICS:
+        v = f74_side.get(key)
+        if v is None:
+            continue
+        if key in _F99_FORBIDDEN_KEYS:
+            continue
+        out[key] = v
+    return out
+
+
+def _f99_project_h2h(f74_h2h: Any) -> dict:
+    if not isinstance(f74_h2h, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for k in _F99_H2H_KEYS:
+        if k in f74_h2h and f74_h2h[k] is not None:
+            out[k] = f74_h2h[k]
+    return out
+
+
+def _f99_strip_forbidden(d: dict) -> dict:
+    if not isinstance(d, dict):
+        return {}
+    return {k: v for k, v in d.items() if k not in _F99_FORBIDDEN_KEYS}
+
+
+def _f99_legacy_side(match: dict, side: str) -> dict:
+    """Read legacy flat keys + team-block keys as a top-up only.
+
+    Maps legacy field names to F74 canonical names so consumers don't
+    need to branch. NEVER includes odds / evaluated_market / edge.
+    """
+    if not isinstance(match, dict):
+        return {}
+    team = match.get(f"{side}_team")
+    team = team if isinstance(team, dict) else {}
+
+    def _flat(suffix: str):
+        return match.get(f"{side}_{suffix}")
+
+    candidates = {
+        "goals_scored_l5":      team.get("goals_scored_l5")  or _flat("goals_scored_l5"),
+        "goals_scored_l15":     team.get("goals_scored_l15") or _flat("goals_scored_l15"),
+        "goals_conceded_l5":    team.get("goals_conceded_l5"),
+        "goals_conceded_l15":   team.get("goals_conceded_l15"),
+        "xg_for_l5":            team.get("xg_for_l5") or _flat("xg"),
+        "xg_against_l5":        team.get("xg_against_l5"),
+        "btts_rate_l15":        team.get("btts_rate_l15"),
+        "clean_sheets_l15":     team.get("clean_sheet_rate_l15"),
+        "corners_for_l5":       _flat("corners_for_l5"),
+        "corners_against_l5":   _flat("corners_against_l5"),
+        "form_string_l5":       team.get("form_string_l5"),
+    }
+    return {k: v for k, v in candidates.items() if v is not None}
+
+
+def _f99_odds_present(match: dict) -> bool:
+    """Descriptive flag — does the match doc carry any odds signal?
+
+    We DO NOT inspect the values; we only return True/False. Caller may
+    use this for debug/telemetry but it MUST NOT alter ``data_quality``.
+    """
+    if not isinstance(match, dict):
+        return False
+    o = match.get("odds")
+    if isinstance(o, dict) and o:
+        return True
+    try:
+        if float(o) > 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    me = match.get("market_evaluated")
+    if isinstance(me, str) and me.strip():
+        return True
+    return False
+
+
+def _f99_compute_dq(home: dict, away: dict, h2h: dict) -> str:
+    """Same 4-tier rules as the legacy editorial — but odds-independent."""
+    def _has(d: Any, k: str) -> bool:
+        if not isinstance(d, dict):
+            return False
+        v = d.get(k)
+        if v is None:
+            return False
+        try:
+            float(v)
+            return True
+        except (TypeError, ValueError):
+            return isinstance(v, (list, str)) and bool(v)
+    has_corners = (_has(home, "corners_for_l5") and _has(away, "corners_for_l5"))
+    has_goals   = (_has(home, "goals_scored_l5") or _has(away, "goals_scored_l5")
+                    or _has(home, "goals_scored_l15") or _has(away, "goals_scored_l15"))
+    has_xg      = (_has(home, "xg_for_l5") and _has(away, "xg_for_l5"))
+    has_btts    = (_has(home, "btts_rate_l15") or _has(away, "btts_rate_l15")
+                    or _has(home, "btts_rate_l5") or _has(away, "btts_rate_l5"))
+    has_cs      = (_has(home, "clean_sheets_l15") or _has(away, "clean_sheets_l15")
+                    or _has(home, "clean_sheets_l5") or _has(away, "clean_sheets_l5"))
+    stats = sum([has_corners, has_goals, has_xg, has_btts, has_cs])
+    if stats >= 4 and (has_xg or has_btts):
+        return "STRONG"
+    if stats >= 2 and has_goals:
+        return "USABLE"
+    if stats >= 1:
+        return "LIMITED"
+    return "THIN"
+
+
+def _f99_available_sources(home: dict, away: dict, h2h: dict) -> list[str]:
+    out: list[str] = []
+    def _has(d: Any, k: str) -> bool:
+        if not isinstance(d, dict):
+            return False
+        v = d.get(k)
+        return v is not None and v != ""
+    if _has(home, "corners_for_l5") and _has(away, "corners_for_l5"):
+        out.append("corners L5/L15")
+    if (_has(home, "goals_scored_l5") or _has(home, "goals_scored_l15")
+            or _has(away, "goals_scored_l5") or _has(away, "goals_scored_l15")):
+        out.append("historial de goles L5/L15")
+    if _has(home, "xg_for_l5") and _has(away, "xg_for_l5"):
+        out.append("xG / xGA")
+    if (_has(home, "btts_rate_l15") or _has(away, "btts_rate_l15")
+            or _has(home, "btts_rate_l5") or _has(away, "btts_rate_l5")):
+        out.append("BTTS rate L15")
+    if (_has(home, "clean_sheets_l15") or _has(away, "clean_sheets_l15")
+            or _has(home, "clean_sheets_l5") or _has(away, "clean_sheets_l5")):
+        out.append("porterías a cero L15")
+    if isinstance(h2h, dict) and (h2h.get("sample") or h2h.get("matches")):
+        out.append("H2H")
+    return out
+
+
+def build_editorial_ready_match_payload_v2(
+    match: Any,
+    enrichment: Optional[dict] = None,
+) -> dict:
+    """Build the F99.3 editorial-ready payload (pure, F74-first).
+
+    This is the **single editorial entry point** the user wants
+    everything to migrate to. The function:
+
+    * NEVER mutates ``match``.
+    * NEVER consults ``db`` or runs the F74 builder.
+    * NEVER emits odds, evaluated_market, edge or market_identity.
+
+    Behaviour
+    ---------
+    1. If ``enrichment`` (or ``match["football_data_enrichment"]``) is a
+       valid F74 block → use it as the primary source and stamp
+       ``F99_EDITORIAL_F74_ADAPTER_USED``.
+    2. Top-up missing keys from legacy locations
+       (``home_team[...]`` / flat ``match[...]``) and stamp
+       ``F99_EDITORIAL_LEGACY_FALLBACK_USED`` when at least one key was
+       sourced from legacy.
+    3. If neither F74 nor legacy yielded a usable payload, stamp
+       ``F99_EDITORIAL_PAYLOAD_INCOMPLETE``.
+
+    ``data_quality`` is recomputed strictly from football signals
+    (odds-independent), respecting binding guard #9.
+    """
+    if not isinstance(match, dict):
+        return {
+            "schema_version":   F99_ADAPTER_SCHEMA_VERSION,
+            "teams":            {"home": {"name": ""}, "away": {"name": ""}},
+            "home":             {},
+            "away":             {},
+            "h2h":              {},
+            "official_friendly_split": {},
+            "data_quality":     "THIN",
+            "available_sources": [],
+            "field_provenance":  {},
+            "schema_migration":  None,
+            "reason_codes":     [RC_F99_PAYLOAD_INCOMPLETE],
+            "_meta": {
+                "adapter_path_used": "F99_NONE",
+                "f74_present":       False,
+                "odds_available":    False,
+            },
+        }
+
+    f74 = enrichment if isinstance(enrichment, dict) else match.get("football_data_enrichment")
+    use_f74 = _f99_is_valid_f74(f74)
+
+    home_name = _f99_team_name(match, "home")
+    away_name = _f99_team_name(match, "away")
+
+    home: dict = {}
+    away: dict = {}
+    h2h:  dict = {}
+    field_provenance: dict = {}
+    schema_migration: Optional[dict] = None
+    reason_codes: list[str] = []
+
+    if use_f74:
+        f74_home = f74.get("home") if isinstance(f74.get("home"), dict) else {}
+        f74_away = f74.get("away") if isinstance(f74.get("away"), dict) else {}
+        f74_h2h  = f74.get("h2h")  if isinstance(f74.get("h2h"),  dict) else {}
+        home = _f99_project_side(f74_home)
+        away = _f99_project_side(f74_away)
+        h2h  = _f99_project_h2h(f74_h2h)
+        field_provenance = dict(f74.get("field_provenance") or {})
+        schema_migration = f74.get("schema_migration")
+        reason_codes.append(RC_F99_F74_ADAPTER_USED)
+
+    # Legacy top-up — never overrides F74 picks.
+    legacy_used = False
+    legacy_home = _f99_legacy_side(match, "home")
+    legacy_away = _f99_legacy_side(match, "away")
+    for k, v in legacy_home.items():
+        if home.get(k) is None and v is not None:
+            home[k] = v
+            legacy_used = True
+    for k, v in legacy_away.items():
+        if away.get(k) is None and v is not None:
+            away[k] = v
+            legacy_used = True
+
+    if legacy_used:
+        reason_codes.append(RC_F99_LEGACY_FALLBACK_USED)
+
+    # Defensive strip of forbidden keys (belt + braces).
+    home = _f99_strip_forbidden(home)
+    away = _f99_strip_forbidden(away)
+    h2h  = _f99_strip_forbidden(h2h)
+
+    if not home and not away and not h2h:
+        reason_codes.append(RC_F99_PAYLOAD_INCOMPLETE)
+
+    data_quality      = _f99_compute_dq(home, away, h2h)
+    available_sources = _f99_available_sources(home, away, h2h)
+
+    return {
+        "schema_version":   F99_ADAPTER_SCHEMA_VERSION,
+        "teams": {
+            "home": {"name": home_name},
+            "away": {"name": away_name},
+        },
+        "home":             home,
+        "away":             away,
+        "h2h":              h2h,
+        "official_friendly_split": dict((f74 or {}).get("official_friendly_split") or {}) if use_f74 else {},
+        "data_quality":     data_quality,
+        "available_sources": available_sources,
+        "field_provenance":  field_provenance,
+        "schema_migration":  schema_migration,
+        "reason_codes":     reason_codes,
+        "_meta": {
+            "adapter_path_used": (
+                "F99_F74"   if use_f74 else
+                "F99_LEGACY" if legacy_used else
+                "F99_NONE"
+            ),
+            "f74_present":     use_f74,
+            "odds_available":  _f99_odds_present(match),  # descriptivo solo
+        },
+    }
+

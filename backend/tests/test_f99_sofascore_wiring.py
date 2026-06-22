@@ -376,11 +376,8 @@ def test_api_football_kill_switch_flag_helper(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_api_football_get_short_circuits_when_disabled(monkeypatch):
-    """When DISABLE_API_FOOTBALL=on, ``_get`` returns the empty envelope.
-
-    Critically: NO HTTP IO is performed (the http client we pass would
-    explode if touched), and NO exception is raised so legacy callers
-    keep falling through to the F74 cascade silently.
+    """F99.2 — ``_get`` is now a deprecated stub: ALWAYS short-circuits and
+    NEVER performs HTTP IO, regardless of the legacy kill-switch flag.
     """
     from services import api_football as af
     monkeypatch.setenv(af.DISABLE_FLAG_ENV_VAR, "true")
@@ -390,14 +387,26 @@ async def test_api_football_get_short_circuits_when_disabled(monkeypatch):
             raise AssertionError("HTTP must not be invoked when kill switch is on")
 
     out = await af._get(_ExplodingClient(), "/fixtures", params={"date": "2025-01-01"})
-    assert out == {"response": [], "errors": {}, "_f99_disabled": True}
+    # Empty envelope is preserved for legacy callers ...
+    assert out["response"] == []
+    assert out["errors"]   == {}
+    # ... and F99.2 adds the deprecation markers.
+    assert out["_f99_disabled"]        is True
+    assert out["_f99_deprecated_stub"] is True
+    assert out["_reason_code"] == af.DEPRECATED_STUB_REASON_CODE
 
 
 @pytest.mark.asyncio
-async def test_api_football_get_raises_when_no_key_and_enabled(monkeypatch):
-    """Sanity: legacy behaviour preserved when the kill switch is OFF."""
+async def test_api_football_get_is_failclosed_even_without_kill_switch(monkeypatch):
+    """F99.2 — the stub is fail-closed REGARDLESS of env flag.
+
+    Previously, with the kill switch off and ``API_FOOTBALL_KEY`` empty,
+    ``_get`` would raise ``APIFootballError``. After F99.2 the stub no
+    longer raises (decommissioned).
+    """
     from services import api_football as af
     monkeypatch.delenv(af.DISABLE_FLAG_ENV_VAR, raising=False)
     monkeypatch.setattr(af, "API_KEY", "")
-    with pytest.raises(af.APIFootballError):
-        await af._get(object(), "/fixtures")
+    out = await af._get(object(), "/fixtures")
+    assert out["response"]              == []
+    assert out["_f99_deprecated_stub"]  is True

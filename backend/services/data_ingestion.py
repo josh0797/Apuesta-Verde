@@ -26,7 +26,7 @@ from typing import Any, Optional
 
 import httpx
 
-from . import api_football as af  # legacy football-only client (kept for backward compat)
+from . import api_football as af  # F99.2 — deprecated stub (no active call-sites remain)
 from . import api_sports as aps    # generic multi-sport client
 from . import provenance as prov   # Phase P2: per-section source/freshness tagging
 from . import fallback_scraper as fb
@@ -368,24 +368,12 @@ async def _discover_football_fixtures(
             log.warning("[F87_discovery] sofascore_pw failed: %s", exc)
             audit["reason_codes"]["sofascore_pw"] = ["EXCEPTION"]
 
-    # ── 4) API-Football (paid, last-resort fallback) ──
-    if _f87_flag_enabled("ENABLE_API_FOOTBALL_FALLBACK"):
-        try:
-            af_raw = await af.fixtures_next_48h(client) or []
-            af_fx = _normalise_and_record("api_football", af_raw)
-            buckets["api_football"] = af_fx
-            audit["sources_called"].append("api_football")
-            if (len(af_fx) >= _F87_MIN_VIABLE_COUNT
-                    and not buckets.get("thestatsapi")):
-                audit["primary_winner"] = "api_football"
-                audit["total"]          = len(af_fx)
-                for f in af_fx:
-                    f.setdefault("_discovery_source", "api_football")
-                _publish_audit(af_fx)
-                return af_fx, audit
-        except Exception as exc:  # noqa: BLE001
-            log.warning("[F87_discovery] api_football failed: %s", exc)
-            audit["reason_codes"]["api_football"] = ["EXCEPTION"]
+    # ── 4) API-Football — DECOMMISSIONED (F99.2) ──
+    # Path eliminado del descubrimiento activo. El stub ahora retorna []
+    # y registramos la telemetría para detectar deuda residual. NUNCA
+    # promoveremos API-Sports como ganador del bucket.
+    audit["reason_codes"]["api_football"] = ["API_FOOTBALL_DEPRECATED_STUB_USED"]
+    buckets["api_football"] = []
 
     # ── 5) Sofascore via scrape.do (tertiary network fallback) ──
     if _f87_flag_enabled("ENABLE_SCRAPEDO_FIXTURES_FALLBACK"):
@@ -649,84 +637,38 @@ async def discover_priority_fixtures(
 
     # ── Paso 2: si la cascada NO encontró nada de priority **por ID
     # canónico de API-Football**, intentar fallback al endpoint directo
-    # de API-Sports (consume créditos — último recurso). Solo si el
-    # flag ``ENABLE_API_FOOTBALL_FALLBACK`` está activo. ──
-    api_football_enabled = _f87_flag_enabled("ENABLE_API_FOOTBALL_FALLBACK")
-    if api_football_enabled and (not discovered or matched_by_id_count == 0):
+    # F99.2 — API-Sports decommission. Antes este bloque usaba
+    # ``af.fixtures_by_date`` como fallback de descubrimiento. Ahora el
+    # discovery activo depende exclusivamente de TheSportsDB. Si la
+    # señal de la cascada es débil (sin matches por ID canónico) NO
+    # reactivamos API-Sports: dejamos los matches by-name disponibles
+    # como mejor esfuerzo y emitimos telemetría de discovery parcial.
+    if matched_by_id_count == 0 and discovered:
+        # Mantenemos los by-name como best-effort y declaramos discovery
+        # parcial para que el caller pueda decidir si forzar refetch o
+        # continuar con cache.
         log.info(
-            "[priority_discover] cascade priority signal weak "
-            "(discovered=%d, matched_by_id=%d) — invoking API-Sports fallback",
-            len(discovered), matched_by_id_count,
-        )
-        # Cuando solo había matches por nombre (no por ID canónico), los
-        # consideramos "low confidence" (p.ej. TheSportsDB suele matchear
-        # sub-17/sub-20 a "FIFA World Cup"). Descartamos ese ruido y
-        # reemplazamos por el resultado autorizado de API-Football.
-        if matched_by_id_count == 0:
-            discovered = []
-            counts = {}
-        today = now.date()
-        tomorrow = today + timedelta(days=1)
-        raw_af: list[dict] = []
-        for d in (today, tomorrow):
-            try:
-                chunk = await asyncio.wait_for(
-                    af.fixtures_by_date(client, d.isoformat()),
-                    timeout=8.0,  # corto: API-Sports puede estar suspendida
-                )
-                raw_af.extend(chunk)
-            except asyncio.TimeoutError:
-                log.warning(
-                    "[priority_discover] /fixtures?date=%s timed out after 8s "
-                    "(API-Sports likely suspended / unreachable)", d,
-                )
-            except Exception as exc:
-                log.warning("[priority_discover] /fixtures?date=%s failed: %s", d, exc)
-        # Dedupe por (home, away, kickoff-timestamp) para no duplicar
-        # fixtures que ya vinieron por la cascada con ID válido.
-        existing_keys = set()
-        for ex in discovered:
-            t = ex.get("teams") or {}
-            h = (t.get("home") or {}).get("name") or ""
-            a = (t.get("away") or {}).get("name") or ""
-            ts = (ex.get("fixture") or {}).get("timestamp") or 0
-            existing_keys.add((h.lower(), a.lower(), int(ts) // 60))
-        for fx in raw_af:
-            try:
-                lid = (fx.get("league") or {}).get("id")
-                if lid not in priority_ids:
-                    continue
-                ts = fx["fixture"]["timestamp"]
-                dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-                status = fx["fixture"]["status"]["short"]
-            except Exception:
-                continue
-            if status not in ("NS", "TBD"):
-                continue
-            if not (now - timedelta(minutes=10) <= dt <= cutoff):
-                continue
-            t = fx.get("teams") or {}
-            h = (t.get("home") or {}).get("name") or ""
-            a = (t.get("away") or {}).get("name") or ""
-            key = (h.lower(), a.lower(), int(ts) // 60)
-            if key in existing_keys:
-                continue
-            existing_keys.add(key)
-            fx.setdefault("_discovery_source", "api_football")
-            discovered.append(fx)
-            label = id_to_label.get(lid, str(lid))
-            counts[label] = counts.get(label, 0) + 1
-
-    elif not api_football_enabled and matched_by_id_count == 0 and discovered:
-        # Sprint-D9-HOTFIX2 (API-Football desactivada definitivamente):
-        # cuando solo hay matches by-name y NO podemos verificar con
-        # API-Football, mantenemos los matches by-name como mejor esfuerzo
-        # (p.ej. TheSportsDB → "FIFA World Cup"). El usuario verá los
-        # fixtures candidatos en lugar de un 409.
-        log.info(
-            "[priority_discover] API-Football disabled — keeping %d "
-            "by-name matches as best-effort priority fixtures",
+            "[priority_discover] F99.2 — API-Sports decommissioned. "
+            "Keeping %d by-name matches as best-effort priority fixtures.",
             len(discovered),
+        )
+        try:
+            audit_entry = {
+                "ts":     datetime.now(timezone.utc).isoformat(),
+                "stage":  "priority_discover",
+                "reason": "FOOTBALL_DISCOVERY_PARTIAL",
+                "matched_by_id": int(matched_by_id_count),
+                "matched_by_name": int(len(discovered)),
+            }
+            log.info("[F99.2_discovery] %s", audit_entry)
+        except Exception:  # noqa: BLE001
+            pass
+    elif matched_by_id_count == 0 and not discovered:
+        # Discovery completamente vacío — TheSportsDB falló o no hay
+        # fixtures hoy. NO reactivamos API-Sports.
+        log.warning(
+            "[priority_discover] F99.2 — THESPORTSDB_DISCOVERY_FAILED "
+            "and FOOTBALL_DISCOVERY_NO_NEW_FIXTURES; api-sports is decommissioned."
         )
 
     discovered.sort(key=lambda f: (
@@ -1031,17 +973,19 @@ async def ingest_live(client: httpx.AsyncClient, db, sport: str = "football", ma
 
     try:
         if sport == "football":
-            # MLB-TS1: Use the football aggregator which transparently merges
-            # API-Sports + TheStatsAPI (national teams / internacionales).
-            # Fail-soft: if TheStatsAPI is disabled or fails, behaves like
-            # the legacy `af.fixtures_live(client)` call.
+            # F99.2 — Use the football aggregator (TheStatsAPI + TheSportsDB).
+            # API-Sports has been decommissioned; if the aggregator fails we
+            # return an empty live list rather than reactivating api_football.
             try:
                 from .football_live_aggregator import fetch_live_football_fixtures
                 live_raw, _agg_meta = await fetch_live_football_fixtures(client, db)
                 log.info("[ingest_live] aggregator meta: %s", _agg_meta)
             except Exception as exc:
-                log.warning("[ingest_live] aggregator failed, falling back to API-Sports: %s", exc)
-                live_raw = await af.fixtures_live(client)
+                log.warning(
+                    "[ingest_live] F99.2 — aggregator failed and api_football is "
+                    "decommissioned; returning empty live list: %s", exc,
+                )
+                live_raw = []
         else:
             live_raw = await aps.fixtures_live(sport, client)
     except Exception as exc:
@@ -1449,11 +1393,10 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             fid=fid, home=home, away=away,
             kickoff=kickoff, league_name=league_name,
         )
-        try:
-            stand_resp = await af.standings(client, lid, db=db)
-        except Exception as e:
-            log.warning("standings failed for league %s: %s", lid, e)
-            stand_resp = []
+        # F99.2 — Standings: API-Sports decommissioned. Future phases will
+        # wire TheStatsAPI / TheSportsDB standings; for now we keep the
+        # variable empty and the editorial degrades gracefully.
+        stand_resp = []
 
         stats_h, stats_a, h2h, inj_h, inj_a = {}, {}, [], [], []
         stats_h_source = stats_a_source = "missing"  # F84.a — audit
@@ -1493,12 +1436,11 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
                 log.debug("[F84.a] thestatsapi team_stats home failed: %s", exc)
                 stats_h = {}
             if not stats_h and _api_sports_fallback_enabled():
-                try:
-                    stats_h = await af.team_statistics(client, home["id"], lid, db=db)
-                    if stats_h:
-                        stats_h_source = "api_sports_fallback"
-                except Exception:
-                    stats_h = {}
+                # F99.2 — fallback to API-Sports is hard-disabled. Even if
+                # the legacy env flag is on, the stub returns {} so this
+                # branch is effectively a no-op. Kept for backwards
+                # compatibility with the audit shape; remove in F99.3+.
+                stats_h = {}
             try:
                 stats_a = await _ts_team_stats.fetch_team_season_stats(
                     client,
@@ -1513,12 +1455,8 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
                 log.debug("[F84.a] thestatsapi team_stats away failed: %s", exc)
                 stats_a = {}
             if not stats_a and _api_sports_fallback_enabled():
-                try:
-                    stats_a = await af.team_statistics(client, away["id"], lid, db=db)
-                    if stats_a:
-                        stats_a_source = "api_sports_fallback"
-                except Exception:
-                    stats_a = {}
+                # F99.2 — same rationale as the home block above.
+                stats_a = {}
             # F84.b — Inversión de prioridad para head_to_head:
             # 1) TheStatsAPI primaria (lista de matches del home team filtrada
             #    localmente por opponent → shape API-Sports v3 compatible).
@@ -1543,38 +1481,26 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
                 log.debug("[F84.b] thestatsapi h2h failed: %s", exc)
                 h2h = []
             if not h2h and _api_sports_fallback_enabled():
-                try:
-                    h2h = await af.head_to_head(
-                        client, home["id"], away["id"], limit=5, db=db,
-                    )
-                    if h2h:
-                        h2h_source = "api_sports_fallback"
-                except Exception:
-                    h2h = []
+                # F99.2 — API-Sports h2h decommissioned. The legacy stub
+                # returns []. Future phases will plug SofaScore h2h here.
+                h2h = []
             try:
-                inj_h = await af.injuries(client, home["id"], db=db)
+                # F99.2 — injuries via API-Sports decommissioned. Kept as
+                # placeholder so downstream provenance shape is stable.
+                inj_h = []
             except Exception:
                 pass
             try:
-                inj_a = await af.injuries(client, away["id"], db=db)
+                inj_a = []
             except Exception:
                 pass
-            # P2A — pull last-15 fixtures per team for the historical goal
-            # profile (under_3_5_rate, team_exceeded_2_goals_rate, etc.).
-            # Cached 12h per (team, season). 15 games gives a robust sample
-            # for under-tendency detection (case Atlético-MG style).
-            try:
-                recent_h_raw = await af.fixtures_last_n(
-                    client, home["id"], n=15, season=season, db=db,
-                )
-            except Exception:
-                pass
-            try:
-                recent_a_raw = await af.fixtures_last_n(
-                    client, away["id"], n=15, season=season, db=db,
-                )
-            except Exception:
-                pass
+            # F99.2 — recent fixtures via API-Sports decommissioned. The
+            # F98.1 path below already covers this via TheSportsDB and the
+            # SofaScore hydrator (when enabled). We initialise the
+            # variables to empty so the rest of the pipeline keeps its
+            # contract.
+            recent_h_raw = []
+            recent_a_raw = []
 
             # Sprint-F98.1 — TheSportsDB fallback for recent_fixtures.
             # NOTE: the actual fallback is performed OUTSIDE this
@@ -1729,17 +1655,11 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
         # engine has nothing to chew on. Fetch the dedicated endpoint and
         # merge so live_xg_proxy can produce real numbers.
         if is_live and live_stats and not (live_stats.get("home_stats") or live_stats.get("away_stats")):
-            try:
-                fx_stats = await af.fixture_statistics(client, fid)
-                if fx_stats:
-                    # Re-normalize by injecting the stats array back into fx_raw.
-                    fx_raw_copy = dict(fx_raw)
-                    fx_raw_copy["statistics"] = fx_stats
-                    rehydrated = nz.normalize_live_stats(fx_raw_copy)
-                    if rehydrated and (rehydrated.get("home_stats") or rehydrated.get("away_stats")):
-                        live_stats = rehydrated
-            except Exception as exc:
-                log.warning("fixture_statistics fetch failed for %s: %s", fid, exc)
+            # F99.2 — fixture_statistics via API-Sports decommissioned.
+            # When the live aggregator returns empty per-team stats we
+            # rely on the SofaScore hydrator (F99) + TheStatsAPI snapshot
+            # below to fill xG/threat/pressure. No more af.* calls here.
+            log.debug("[F99.2] live fixture %s has empty stats; awaiting SofaScore/TheStatsAPI hydration", fid)
 
         # MLB-TS1 Batch 2 — TheStatsAPI stats enrichment for national-team /
         # international fixtures. Trigger when:
@@ -1964,6 +1884,21 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
             # Defensive — hydrator itself is fail-soft; this is for import
             # errors / unexpected issues. DEBUG only to keep logs quiet.
             log.debug("[f99_sofascore] hydrator unavailable: %s", exc)
+
+        # F99.1 — Corners offline-seed wiring (opt-in via
+        # ENABLE_F99_CORNERS_SEED_HYDRATION). Reads the
+        # ``football_team_corners_offline_seed`` collection ONLY and attaches
+        # ``_corners_offline_seed_raw`` to the match doc. Pure corners
+        # family — never used to fill xG / goals / shots.
+        try:
+            from .football_offline_seed_hydrator import (
+                hydrate_match_corners_offline_seed as _f99_hydrate_corners_seed,
+                is_enabled as _f99_corners_seed_enabled,
+            )
+            if _f99_corners_seed_enabled():
+                await _f99_hydrate_corners_seed(match_doc, db, sport="football")
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[f99.1_corners_seed] hydrator unavailable: %s", exc)
         # Phase P2 — provenance: API-Sports is authoritative for the football
         # path; every section here was fetched from the same provider.
         # F84.a — Stamp team_stats audit so the editorial layer can show
