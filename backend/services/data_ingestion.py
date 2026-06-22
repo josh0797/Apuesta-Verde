@@ -1948,6 +1948,22 @@ async def _enrich_football(client: httpx.AsyncClient, db, fx_raw: dict, is_live:
                     )
             except Exception as exc:
                 log.warning("[ts_enrichment] football fixture %s enrichment failed: %s", fid, exc)
+        # F99 — SofaScore wiring (opt-in via ENABLE_F99_SOFASCORE_HYDRATION).
+        # The hydrator is fail-soft, writes structured telemetry into
+        # match_doc[TRACE_KEY]["sofascore"] and attaches _sofascore_raw only
+        # when there is usable data for the F98 adapter. NEVER raise here:
+        # the rest of the football pipeline must continue regardless.
+        try:
+            from .football_sofascore_hydrator import (
+                hydrate_match_sofascore as _f99_hydrate_sofascore,
+                is_enabled as _f99_sofascore_enabled,
+            )
+            if _f99_sofascore_enabled():
+                await _f99_hydrate_sofascore(match_doc, sport="football")
+        except Exception as exc:  # noqa: BLE001
+            # Defensive — hydrator itself is fail-soft; this is for import
+            # errors / unexpected issues. DEBUG only to keep logs quiet.
+            log.debug("[f99_sofascore] hydrator unavailable: %s", exc)
         # Phase P2 — provenance: API-Sports is authoritative for the football
         # path; every section here was fetched from the same provider.
         # F84.a — Stamp team_stats audit so the editorial layer can show

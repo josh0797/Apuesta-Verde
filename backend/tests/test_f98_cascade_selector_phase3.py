@@ -55,17 +55,18 @@ def _envelope_with(source: str, side: str, metric: str, value, *,
 
 
 # ─────────────────────────────────────────────────────────────────────
-# 1. Ranking — xG primary
+# 1. Ranking — xG primary (F99 binding: SofaScore primario)
 # ─────────────────────────────────────────────────────────────────────
-def test_cascade_picks_thestatsapi_for_xg_over_sofascore():
+def test_cascade_picks_sofascore_for_xg_over_thestatsapi():
     envs = [
-        _envelope_with("sofascore",   "home", "xg_for_l5", 1.10),
         _envelope_with("thestatsapi", "home", "xg_for_l5", 1.45),
+        _envelope_with("sofascore",   "home", "xg_for_l5", 1.10),
     ]
     merged = cascade_merge_envelopes(envs)
-    assert merged["home"]["xg_for_l5"] == 1.45
+    # F99: SofaScore is now the primary xG provider.
+    assert merged["home"]["xg_for_l5"] == 1.10
     prov = merged["field_provenance"]["home.xg_for_l5"]
-    assert prov["source"] == "thestatsapi"
+    assert prov["source"] == "sofascore"
     assert RC_PRIMARY_HIT in prov["reason_codes"]
 
 
@@ -93,48 +94,49 @@ def test_cascade_picks_sofascore_for_corners():
 # 2. Fallback chain on FIELD_ABSENT / available=False
 # ─────────────────────────────────────────────────────────────────────
 def test_cascade_falls_back_when_primary_missing_field():
-    # TheStatsAPI envelope present but does NOT contain xg_for_l5.
-    env_tsa = new_envelope(source="thestatsapi", available=True)
-    # SofaScore (rank 3 for xG) supplies it.
-    env_ss  = _envelope_with("sofascore", "home", "xg_for_l5", 1.20)
-    merged = cascade_merge_envelopes([env_tsa, env_ss])
-    assert merged["home"]["xg_for_l5"] == 1.20
+    # SofaScore (rank 1 for xG, post-F99) envelope present but does NOT contain xg_for_l5.
+    env_ss_empty = new_envelope(source="sofascore", available=True)
+    # TheStatsAPI (rank 2 for xG) supplies it.
+    env_tsa = _envelope_with("thestatsapi", "home", "xg_for_l5", 1.45)
+    merged = cascade_merge_envelopes([env_ss_empty, env_tsa])
+    assert merged["home"]["xg_for_l5"] == 1.45
     prov = merged["field_provenance"]["home.xg_for_l5"]
-    assert prov["source"] == "sofascore"
+    assert prov["source"] == "thestatsapi"
     assert RC_FALLBACK_USED in prov["reason_codes"]
     chain = {step["source"] for step in prov["fallback_chain"]}
-    # TheStatsAPI should appear in the fallback chain as skipped.
-    assert "thestatsapi" in chain or "statsbomb" in chain
+    # SofaScore should appear in the fallback chain as skipped.
+    assert "sofascore" in chain
 
 
 def test_cascade_skips_unavailable_provider():
-    env_tsa_dead = new_envelope(source="thestatsapi", available=False)
-    env_ss = _envelope_with("sofascore", "home", "xg_for_l5", 1.20)
-    merged = cascade_merge_envelopes([env_tsa_dead, env_ss])
+    # F99: primary for xG is now SofaScore — make it unavailable to force fallback.
+    env_ss_dead = new_envelope(source="sofascore", available=False)
+    env_tsa = _envelope_with("thestatsapi", "home", "xg_for_l5", 1.45)
+    merged = cascade_merge_envelopes([env_ss_dead, env_tsa])
     prov = merged["field_provenance"]["home.xg_for_l5"]
-    assert prov["source"] == "sofascore"
-    # The skip reasons must mention UNAVAILABLE for thestatsapi.
-    tsa_step = next((s for s in prov["fallback_chain"]
-                     if s["source"] == "thestatsapi"), None)
-    assert tsa_step is not None
-    assert RC_PROVIDER_UNAVAILABLE in tsa_step["skip_reasons"]
+    assert prov["source"] == "thestatsapi"
+    # The skip reasons must mention UNAVAILABLE for sofascore.
+    ss_step = next((s for s in prov["fallback_chain"]
+                     if s["source"] == "sofascore"), None)
+    assert ss_step is not None
+    assert RC_PROVIDER_UNAVAILABLE in ss_step["skip_reasons"]
 
 
 def test_cascade_skips_null_field_in_provenance():
-    env_tsa = new_envelope(source="thestatsapi", available=True)
-    # Setting None triggers FIELD_NULL provenance entry.
-    set_field(env_tsa, "home.xg_for_l5", None, sample_size=5)
-    finalize_envelope(env_tsa)
-    env_ss  = _envelope_with("sofascore", "home", "xg_for_l5", 0.95)
-    merged = cascade_merge_envelopes([env_tsa, env_ss])
-    assert merged["home"]["xg_for_l5"] == 0.95
+    # F99: primary for xG is now SofaScore — inject FIELD_NULL there.
+    env_ss = new_envelope(source="sofascore", available=True)
+    set_field(env_ss, "home.xg_for_l5", None, sample_size=5)
+    finalize_envelope(env_ss)
+    env_tsa = _envelope_with("thestatsapi", "home", "xg_for_l5", 1.45)
+    merged = cascade_merge_envelopes([env_ss, env_tsa])
+    assert merged["home"]["xg_for_l5"] == 1.45
     chain = {(s["source"], tuple(s["skip_reasons"]))
              for s in merged["field_provenance"]["home.xg_for_l5"]["fallback_chain"]}
     found = False
     for src, reasons in chain:
-        if src == "thestatsapi" and "FIELD_NULL" in reasons:
+        if src == "sofascore" and "FIELD_NULL" in reasons:
             found = True
-    assert found, f"expected FIELD_NULL skip for thestatsapi, got {chain}"
+    assert found, f"expected FIELD_NULL skip for sofascore, got {chain}"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -142,46 +144,47 @@ def test_cascade_skips_null_field_in_provenance():
 # ─────────────────────────────────────────────────────────────────────
 def test_cascade_skips_low_sample_when_min_required():
     """xg_for_l5 requires min_sample=3 by default."""
-    env_tsa_thin = _envelope_with("thestatsapi", "home", "xg_for_l5", 1.55,
+    # F99: SofaScore is primary, so put the THIN sample there.
+    env_ss_thin = _envelope_with("sofascore",   "home", "xg_for_l5", 1.10,
                                     sample_size=1)
-    env_ss_ok    = _envelope_with("sofascore",   "home", "xg_for_l5", 1.10,
+    env_tsa_ok  = _envelope_with("thestatsapi", "home", "xg_for_l5", 1.55,
                                     sample_size=5)
-    merged = cascade_merge_envelopes([env_tsa_thin, env_ss_ok])
-    assert merged["home"]["xg_for_l5"] == 1.10
+    merged = cascade_merge_envelopes([env_ss_thin, env_tsa_ok])
+    assert merged["home"]["xg_for_l5"] == 1.55
     prov = merged["field_provenance"]["home.xg_for_l5"]
-    assert prov["source"] == "sofascore"
-    tsa_step = next(s for s in prov["fallback_chain"] if s["source"] == "thestatsapi")
-    assert RC_FIELD_SKIPPED_LOW_SAMPLE in tsa_step["skip_reasons"]
+    assert prov["source"] == "thestatsapi"
+    ss_step = next(s for s in prov["fallback_chain"] if s["source"] == "sofascore")
+    assert RC_FIELD_SKIPPED_LOW_SAMPLE in ss_step["skip_reasons"]
 
 
 def test_cascade_accepts_low_sample_when_min_override_to_zero():
-    env_tsa_thin = _envelope_with("thestatsapi", "home", "xg_for_l5", 1.55,
+    env_ss_thin = _envelope_with("sofascore",   "home", "xg_for_l5", 1.10,
                                     sample_size=1)
-    env_ss_ok    = _envelope_with("sofascore",   "home", "xg_for_l5", 1.10,
+    env_tsa_ok  = _envelope_with("thestatsapi", "home", "xg_for_l5", 1.55,
                                     sample_size=5)
     merged = cascade_merge_envelopes(
-        [env_tsa_thin, env_ss_ok],
+        [env_ss_thin, env_tsa_ok],
         min_sample_override={"xg_for_l5": 0},
     )
-    assert merged["home"]["xg_for_l5"] == 1.55  # primary now allowed
+    assert merged["home"]["xg_for_l5"] == 1.10  # primary (sofascore) now allowed
 
 
 # ─────────────────────────────────────────────────────────────────────
 # 4. Custom staleness codes
 # ─────────────────────────────────────────────────────────────────────
 def test_cascade_skips_on_stale_provider_marker():
+    # F99: SofaScore is now primary for xG; mark SofaScore as stale.
+    env_ss = _envelope_with("sofascore",   "home", "xg_for_l5", 0.90, sample_size=5)
+    env_ss["field_provenance"]["home.xg_for_l5"]["reason_codes"].append("DATA_STALE_24H")
     env_tsa = _envelope_with("thestatsapi", "home", "xg_for_l5", 1.55, sample_size=5)
-    # Inject stale marker into provenance.
-    env_tsa["field_provenance"]["home.xg_for_l5"]["reason_codes"].append("DATA_STALE_24H")
-    env_ss = _envelope_with("sofascore", "home", "xg_for_l5", 0.90, sample_size=5)
     merged = cascade_merge_envelopes(
-        [env_tsa, env_ss],
+        [env_ss, env_tsa],
         staleness_codes=["DATA_STALE_24H"],
     )
-    assert merged["home"]["xg_for_l5"] == 0.90
-    tsa_step = next(s for s in merged["field_provenance"]["home.xg_for_l5"]["fallback_chain"]
-                     if s["source"] == "thestatsapi")
-    assert RC_PROVIDER_STALE in tsa_step["skip_reasons"]
+    assert merged["home"]["xg_for_l5"] == 1.55
+    ss_step = next(s for s in merged["field_provenance"]["home.xg_for_l5"]["fallback_chain"]
+                     if s["source"] == "sofascore")
+    assert RC_PROVIDER_STALE in ss_step["skip_reasons"]
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -379,13 +382,33 @@ def test_cascade_is_deterministic():
 # 9. Ranking metadata sanity
 # ─────────────────────────────────────────────────────────────────────
 def test_default_rankings_match_user_spec():
-    """User-binding rankings — these MUST NOT silently change."""
-    assert DEFAULT_RANKINGS["xg_for_l5"][:4] == ["thestatsapi", "statsbomb", "sofascore", "fbref"]
+    """User-binding rankings — these MUST NOT silently change.
+
+    F99 binding (Prioridad 2):
+      * xG / xGA L5     → SofaScore primario, TheStatsAPI fallback, caches.
+      * Tiros / SOT L5  → SofaScore primario, TheStatsAPI fallback, caches.
+      * Córners L5      → offline_seed → SofaScore → TheStatsAPI → TheSportsDB → seed_partial → caches legacy.
+    """
+    # xG: SofaScore primario tras F99.
+    assert DEFAULT_RANKINGS["xg_for_l5"][:4] == ["sofascore", "thestatsapi", "statsbomb", "fbref"]
+    assert DEFAULT_RANKINGS["xg_against_l5"][:4] == ["sofascore", "thestatsapi", "statsbomb", "fbref"]
+    # Tiros / SOT: SofaScore primario, TheStatsAPI fallback, caches después.
     assert DEFAULT_RANKINGS["shots_for_l5"][:4] == ["sofascore", "thestatsapi", "statsbomb", "fbref"]
+    assert DEFAULT_RANKINGS["shots_on_target_l5"][:4] == ["sofascore", "thestatsapi", "statsbomb", "fbref"]
+    # Posesión y pases.
     assert DEFAULT_RANKINGS["possession_avg_l5"][:4] == ["sofascore", "thestatsapi", "fbref", "statsbomb"]
+    # Forma reciente.
     assert DEFAULT_RANKINGS["recent_fixtures"][:4] == ["sofascore", "thesportsdb", "thestatsapi", "fbref"]
+    # H2H.
     assert DEFAULT_RANKINGS["_h2h"]   == ["sofascore", "thesportsdb", "thestatsapi"]
-    assert DEFAULT_RANKINGS["corners_for_l5"] == ["sofascore", "thestatsapi", "footystats", "totalcorner"]
+    # Córners (F99 binding): offline_seed → SofaScore → TheStatsAPI → TheSportsDB → seed_partial.
+    assert DEFAULT_RANKINGS["corners_for_l5"][:5] == [
+        "offline_seed", "sofascore", "thestatsapi", "thesportsdb", "seed_partial",
+    ]
+    assert DEFAULT_RANKINGS["corners_against_l5"][:5] == [
+        "offline_seed", "sofascore", "thestatsapi", "thesportsdb", "seed_partial",
+    ]
+    # Odds (sin cambios en F99 P2).
     assert DEFAULT_RANKINGS["_odds"]  == ["the_odds_api", "thestatsapi", "odds_portal", "sofascore"]
 
 

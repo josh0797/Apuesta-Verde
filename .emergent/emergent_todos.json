@@ -1,26 +1,30 @@
 [
   {
-    "content": "Fix A: Warnings corregidos (pytest.ini + 2 tests con context managers) - 14 -> 0",
+    "content": "F99-P1.a: Exponer resolve_sofascore_event y fetch_sofascore_match_context en services/external_sources/sofascore.py",
     "status": "completed"
   },
   {
-    "content": "Fix B-1: Agregar campo evaluated_market con market_identity_key al market_trace",
+    "content": "F99-P1.b: Crear hydrator opt-in services/football_sofascore_hydrator.py (fail-soft + telemetria estructurada)",
     "status": "completed"
   },
   {
-    "content": "Fix B-2: Cambiar clasificacion cuota<1.40 sin mercado de trap a MARKET_IDENTITY_MISSING",
+    "content": "F99-P1.c: Wire hydrator desde data_ingestion.py (football only) bajo feature flag ENABLE_F99_SOFASCORE_HYDRATION",
     "status": "completed"
   },
   {
-    "content": "Tests para los 2 cambios + pytest completo (4827 passed, 0 regresiones, 0 warnings)",
+    "content": "F99-P2: Ajustar rankings en services/football_source_cascade.py (xG, tiros, corners segun spec usuario)",
     "status": "completed"
   },
   {
-    "content": "Re-ejecutar E2E y validar evaluated_market en UI feed",
+    "content": "F99-P0: Kill-switch DISABLE_API_FOOTBALL en services/api_football.py (purga funcional, no estructural)",
     "status": "completed"
   },
   {
-    "content": "Frontend: Componente FootballMarketAuditPanel consume evaluated_market y renderiza 'Mercado no identificado' en lugar de 'Mercado desconocido'",
+    "content": "F99 tests: 23/23 nuevos tests pasando + 8 tests F98 actualizados al nuevo binding",
+    "status": "completed"
+  },
+  {
+    "content": "F99 validacion: pytest full 4850 passing, 11 skipped, 0 warnings (baseline elevada +23)",
     "status": "completed"
   }
 ]

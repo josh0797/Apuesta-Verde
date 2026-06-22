@@ -4,6 +4,24 @@ Free plan = 10 requests per minute (very low). We:
   - Limit to ~8 req/min via a sliding-window token bucket.
   - Cache team_statistics / standings / h2h / injuries in Mongo (6h TTL).
   - Cache odds in Mongo (30 min TTL).
+
+F99 — API-Sports decommission (binding del usuario):
+  This client is being **eliminated from the football pipeline** in favour
+  of TheSportsDB (fixtures base) + SofaScore (primary stats) + TheStatsAPI
+  (fallback / odds). To make the cut-over reversible and safe we install a
+  **kill switch** at the lowest IO layer (``_get``):
+
+    * If env ``DISABLE_API_FOOTBALL=true`` (default in F99 onwards once the
+      user toggles it), every outbound call short-circuits to an empty
+      response envelope ``{"response": []}``. Callers that consume
+      ``response`` lists keep working (they just see "no data") and the
+      football pipeline transparently falls through to the F74 cascade.
+    * If the env flag is unset/false the module behaves as before, so we
+      do not break legacy paths that are still being migrated.
+
+  This is intentionally a **functional** purge (zero IO); the structural
+  removal of the ~40 ``af.*`` call-sites in ``data_ingestion.py`` is
+  scheduled for a follow-up sub-phase (F99.2) to avoid mass refactor risk.
 """
 from __future__ import annotations
 
@@ -25,6 +43,16 @@ log = logging.getLogger("api_football")
 API_KEY = os.environ.get("API_FOOTBALL_KEY", "")
 BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
+
+# F99 — kill switch for the API-Sports client.
+DISABLE_FLAG_ENV_VAR = "DISABLE_API_FOOTBALL"
+
+
+def is_disabled() -> bool:
+    """True when the F99 kill switch is on (no outbound IO performed)."""
+    raw = os.environ.get(DISABLE_FLAG_ENV_VAR, "")
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
 
 PROXY_SEASON = 2024  # Free plan limit
 
@@ -63,6 +91,13 @@ class APIFootballError(Exception):
 
 
 async def _get(client: httpx.AsyncClient, path: str, params: dict | None = None) -> dict:
+    # F99 — kill switch: short-circuit ALL outbound API-Sports IO when the
+    # flag is on. Returns an empty response envelope so legacy callers
+    # (which iterate ``data["response"]``) keep working without
+    # exceptions and the football pipeline cleanly falls back to F74.
+    if is_disabled():
+        log.debug("api_football: DISABLE_API_FOOTBALL=on; skipping %s", path)
+        return {"response": [], "errors": {}, "_f99_disabled": True}
     if not API_KEY:
         raise APIFootballError("API_FOOTBALL_KEY not configured")
     await _LIMITER.acquire()

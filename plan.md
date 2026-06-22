@@ -1,7 +1,7 @@
-# Plan — Phases F58–F98.x (bitácora)
+# Plan — Phases F58–F99 (bitácora)
 
 > **Nota:** Este plan se mantiene como bitácora completa.
-> **Estado histórico:** ✅ F58–F97 completadas / en curso según bitácora.
+> **Estado histórico:** ✅ F58–F98.1 completadas / F99 en curso.
 > **Idioma operativo:** Español.
 
 ---
@@ -132,56 +132,24 @@
 ### Objetivo nuevo (Sprint-F98) — **Cross-Source Identity + F74 Canonical Adapters (P0)**
 **Meta:** eliminar falsos `data_quality: THIN` cuando el motor **sí tiene datos**, pero están guardados en forma distinta (anidada/legacy) vs lo que consumen editorial/selección de mercado.
 
-**Problema específico detectado:**
-- `data_ingestion.py` guarda forma reciente en `home_team.context.recent_fixtures` / `away_team.context.recent_fixtures`.
-- El editorial y consumidores legacy buscaban campos planos tipo `home_xg`, `home_goals_scored_l5` o `home_team.goals_scored_l5`.
-- Resultado: caídas a `data_quality: THIN` aunque haya datos reales.
+(…sin cambios en esta sección; ver entrada Sprint-F98 abajo en bitácora.)
 
-**Decisiones del usuario (confirmadas):**
-- F74 (`services/football_data_enrichment.py`) debe ser la **única fuente canónica** para consumidores.
-- Migración gradual y segura: legacy se mantiene como fallback mientras se instrumenta telemetría.
-- Resolver identidad cross-source durante ingesta y persistir en `matches.cross_source_ids`.
-- StatsBomb y FBref: **cache-first / background-only**, no bloquear request principal.
-- Fail-soft granular por campo/métrica: fallback ante error/timeout/captcha/schema inesperado/empty/null/sample insuficiente/stale.
+### Objetivo nuevo (F99) — **SofaScore Wiring + eliminación definitiva de API-Sports en fútbol (P0)**
+**Meta global:**
+- Eliminar API-Sports del pipeline de fútbol.
+- Base de fixtures: **TheSportsDB**.
+- Stats primarios: **SofaScore**.
+- Fallback/odds: **TheStatsAPI**.
+- Reusar F98/F98.1 (identity, adapters, cascade, builder). **No reconstruir capas existentes: solo cablear.**
+- **F74 es el único schema canónico** hacia editorial/market selection/UI.
 
-**Entregables (implementados ✅):**
-1) `services/football_cross_source_identity.py` ✅
-   - `resolve_football_match_sources(base_match, client, db=None) -> dict` (async)
-   - Matching: fecha ± 6 horas, home/away normalizados, competición, aliases selecciones.
-   - Regla dura: NO unir solo por nombres si fecha no coincide.
-
-2) Adapter layer (puro) en `services/adapters/` ✅
-   - Envelope canónico: `services/adapters/_envelope.py` (provenance + sample_size + data_quality score)
-   - `adapt_thesportsdb_to_f74(raw) -> dict`
-   - `adapt_sofascore_to_f74(raw, *, home_team, away_team) -> dict`
-   - `adapt_thestatsapi_to_f74(raw) -> dict`
-   - `adapt_statsbomb_to_f74(raw) -> dict` (cache-first)
-   - `adapt_fbref_to_f74(raw) -> dict` (cache-first)
-   - `adapt_legacy_match_to_f74(match) -> dict` (bridge legacy → envelope)
-   - **Fix crítico:** coalesce de scores (0 es válido) para evitar perder fixtures con `away_score=0`.
-
-3) Cascade selector por campo ✅
-   - `services/football_source_cascade.py` con rankings binding por métrica
-   - Fail-soft granular por campo: salta provider ante unavailable/empty/null/sample insuficiente/stale/schema mismatch
-   - Provenance por métrica + fallback chain.
-
-4) Builder canónico F74 ✅
-   - `services/football_enrichment_builder.py`: materializa `football_data_enrichment` **en memoria** combinando:
-     - adapters por fuente (si existen raws) +
-     - legacy bridge adapter +
-     - cascade por campo.
-   - **Override ranking:** añade `legacy_match_doc` como último fallback para que no sea ignorado.
-
-5) Consumer (editorial) lee F74 primero ✅
-   - `services/football_editorial_prediction._data_completeness` actualizado:
-     - 1) usa `match["football_data_enrichment"]` si existe
-     - 2) si no existe, lo construye via builder (sin IO)
-     - 3) legacy flat sigue como último fallback
-   - Añade `schema_migration` telemetry al output.
-
-**Validación Sprint-F98:**
-- Suite completa: **4778 passed / 11 skipped / 0 failures** (0 regresiones).
-- E2E tests parametrizados (Argentina–Austria / Uruguay–Cabo Verde / NZ–Egipto) con match-doc shape de `data_ingestion` ✅
+**Requisitos de comportamiento (binding):**
+- **Fail-soft granular por campo**: si falta xG en SofaScore pero hay tiros/posesión, se selecciona SofaScore para esos campos y se cae a TheStatsAPI solo para xG.
+- **Fail-soft con telemetría estructurada** (sin logs ruidosos):
+  - registrar intentos por fuente en `source_trace`/`sources` (según la estructura existente del envelope/F74), sin HTML/payloads completos ni errores sensibles.
+  - logs **DEBUG** para fallos esperados (blocked/timeout/schema drift); **WARNING** solo para problemas sistémicos (ej. fallos consecutivos/circuit breaker).
+- **Prohibido** filtrar payload crudo de SofaScore al editorial/market/UI:
+  - Flujo obligatorio: SofaScore raw → normalizador/wrapper → adapter F98 → cascade → builder → F74 → editorial.
 
 ---
 
@@ -305,76 +273,98 @@
 
 ---
 
-## Phase Sprint Corner-2 — Datos ricos (Understat) — **✅ COMPLETADA (P0)**
+## Phase Sprint Corner-2 — Datos ricos (Understat) — ✅ COMPLETADA (P0)
 (Sin cambios; ver secciones anteriores.)
+
+---
+
+## Phase F99 — SofaScore Wiring + eliminación definitiva de API-Sports (Football) — EN PROGRESO 🟡 (P0)
+
+### F99 · Prioridad 1 — Wire SofaScore a F74 (sin reconstruir módulos)
+**Estado:** 🟡 EN PROGRESO (investigación realizada; implementación pendiente).
+
+**Objetivo:**
+- Que `football_enrichment_builder.py` reciba `_sofascore_raw` con un wrapper consistente y que el adapter existente `adapt_sofascore_to_f74(...)` produzca métricas ricas para que el cascade seleccione SofaScore como primario por campo.
+
+**Trabajo a realizar (cableado mínimo):**
+1) **Extender `services/external_sources/sofascore.py` (reusar scraper actual, no paralelo):**
+   - Exponer funciones nuevas (o equivalentes) para el pipeline F99:
+     - `resolve_sofascore_event(...)` (resolver event_id con búsqueda).
+     - `fetch_sofascore_match_context(...)` (construir wrapper raw canónico para el adapter).
+   - **Wrapper raw canónico esperado por `sofascore_adapter`:**
+     - `{"event_id": <int>, "home_form": [...], "away_form": [...], "h2h": [...], "odds": {...}}`
+   - Fail-soft + telemetría:
+     - no lanzar excepción hacia arriba.
+     - no guardar HTML/JSON crudo en match doc.
+     - degradar a `None` si bloqueado/timeouts/schema drift.
+
+2) **Cableado en el punto de ingesta/enriquecimiento (sin reescribir builder):**
+   - Adjuntar el wrapper a `match["_sofascore_raw"]` **solo** cuando exista y sea seguro.
+   - Asegurar que el builder ya existente lo consuma (ya lo hace) y que el output canónico siga siendo:
+     - `match["football_data_enrichment"]` (F74)
+
+3) **Telemetría estructurada (sin logs ruidosos):**
+   - Registrar en el envelope/F74 `sources`/`field_provenance` el uso o fallback.
+   - Añadir/propagar un bloque de trazas por fuente (si ya existe en el pipeline actual) con estados como:
+     - `NO_DATA | PARTIAL | USABLE | RICH`
+   - Reglas:
+     - DEBUG para `BLOCKED/timeout/schema`.
+     - WARNING solo para problemas sistémicos (fallos consecutivos / breaker).
+
+4) **Regla clave:**
+   - No aplicar umbral global (xG+tiros+posesión). Selección **granular por métrica** via cascade.
+
+
+### F99 · Prioridad 2 — Ajustar rankings de cascada (binding del usuario)
+**Estado:** ⏳ NO INICIADO.
+
+**Archivo:** `services/football_source_cascade.py`
+
+**Cambios solicitados:**
+- Ajustar rankings (sin tocar lógica del cascade, solo rankings):
+  - xG / xGA (L5): **SofaScore → TheStatsAPI → seed offline → caches** (respetando F98; se implementa vía ranking por métrica usando providers disponibles).
+  - Tiros / SOT (L5): **SofaScore → TheStatsAPI → caches**.
+  - Córners (L5): **offline_seed → SofaScore → TheStatsAPI → TheSportsDB (si tiene dato válido) → seed_partial**.
+
+**Restricciones explícitas (de este turno):**
+- NO modificar cascade D9 `fetch_team_corners_history_v2`.
+- NO modificar `promote_online_matches_to_seed`.
+- NO cambiar endpoints ni UI de córners.
+- NO crear/extender todavía el odds aggregator.
+
+
+### F99 · P0 transversal — Eliminación definitiva de API-Sports en fútbol
+**Estado:** 🟡 EN PROGRESO.
+
+**Objetivo:**
+- Remover rutas residuales de `api_football`/`api_sports` en el pipeline de fútbol, especialmente en `services/data_ingestion.py`, manteniendo intactos otros deportes.
+
+**Acciones:**
+- Auditar `services/data_ingestion.py` y cualquier ruta football que aún haga fallback a API-Sports.
+- Reemplazar con:
+  - fixture base: TheSportsDB
+  - stats/odds fallback: TheStatsAPI
+- Mantener compatibilidad legacy donde ya está, pero sin nuevas dependencias a API-Sports en fútbol.
 
 ---
 
 ## 3) Pendientes y siguientes pasos
 
 ### Pendientes P0 (actual)
-- ✅ Corner Momentum Study (Fase 1) completada.
-- ✅ Sprint Corner-2 (Understat) completada.
-- ✅ Sprint Corner Fase A (módulos + backtest probabilístico) completada.
-- ✅ Sprint Corner Fase B (Skellam + endpoint + UI) completada.
-- ✅ Skellam P0 estabilidad/guards/validación avanzada completada.
-- ✅ Sprint-D9-UI-Parity (iteration 10) completada.
-- ✅ **Sprint-F98 — Cross-Source Identity + F74 Canonical Adapters (COMPLETADO)**
-  - Fase 1 ✅, Fase 2 ✅, Fase 3 ✅, Fase 4 ✅, Fase 5 ✅
-  - Tests nuevos: **+155** + **+5 E2E focus** ⇒ **+160**
-  - Suite: **4778 passed / 11 skipped / 0 failures**
-
-#### ✅ Pendiente P0 (resuelto) — Sprint-F98.1: Hidratación upstream de forma reciente para selecciones
-**Hallazgo original:** el endpoint REAL traía `recent_fixtures=[]` y `h2h_recent=[]` para selecciones → editorial real caía a THIN.
-
-**Remediación implementada (Sprint-F98.1) ✅:**
-1) **TheSportsDB `eventslast.php` como reemplazo real de API-Sports**
-   - Archivo: `services/external_sources/thesportsdb_client.py`
-   - Nuevo: `fetch_last_events_by_team(team_id, n=5)` + normalizador `_normalize_event_to_recent_fixture`.
-
-2) **Fallback en `data_ingestion.py` fuera de `if deep:`**
-   - Esto asegura que:
-     - `deep=True` (upcoming/background)
-     - `deep=False` (live ingest)
-     ambos hidraten `recent_h_raw`/`recent_a_raw` cuando API-Sports sea vacío.
-   - Resolver de idTeam por nombre (`search_teams`) con filtros:
-     - `strSport == Soccer`
-     - exclusión `U17/U20/U23/Women/Youth`
-     - preferencia por ligas nacionales (World Cup / Nations League / Qualifiers)
-
-3) **Script de seed para selecciones (opcional, acelerador de cobertura)**
-   - Archivo: `services/football_national_team_seed.py`
-   - CLI + batch: `seed_national_team_recent_form()`
-   - Colección nueva: `football_team_recent_fixtures_seed`
-   - Lista top: `TOP_NATIONAL_TEAMS` (~60–80 selecciones) incluyendo los 3 partidos focales.
-
-**Validación Sprint-F98.1 ✅:**
-- Tests nuevos: **+21** (`test_f98_1_upstream_hydration.py`) + **+5** E2E focus.
-- Suite completa: **4804 passed / 11 skipped / 0 failures**.
-- Logs backend confirman hidratación masiva: ~20 hidrataciones (10 partidos × 2 sides) vía TheSportsDB.
-- E2E real tras restart:
-  - **Argentina vs Austria** pasó de `incomplete_data` → `medium_confidence` (market `Total Under`, conf=66).
-  - Se observan mejoras de calidad (THIN→LIMITED) en múltiples partidos.
-  - Algunos partidos siguen en `discarded_market` por `ODDS_MISSING` (válido; no es THIN).
-
-**Estado:** ✅ LISTO para redespliegue.
+- ✅ Sprint-F98 — Cross-Source Identity + F74 Canonical Adapters (COMPLETADO)
+- ✅ Sprint-F98.1 — Hidratación upstream selecciones (TheSportsDB) (COMPLETADO)
+- 🟡 **F99 Prioridad 1:** cablear SofaScore para alimentar `_sofascore_raw` y activar selección primaria por campo en F74.
+- ⏳ **F99 Prioridad 2:** ajustar rankings de cascada (incluye **córners** con orden binding).
+- 🟡 **F99 P0:** eliminación completa de API-Sports en rutas football (purgar imports/fallbacks residuales).
 
 ### Pendientes P1 (próximo)
-- ⏳ **Backtest financiero con TheOddsAPI (P1)**
-  - Objetivo: 100–150 partidos (muestra controlada por coste de créditos).
-  - Mercados: **Asian Corners** y/o “Most Corners”.
-  - Condición: marcar explícitamente `REAL_ODDS_NOT_AVAILABLE` cuando falten cuotas.
-  - Entregables:
-    - reporte ROI/CLV/hit-rate por línea
-    - breakdown por liga + por bucket de `dominant_favorite_strength`
-    - auditoría de sesgo (solo picks recomendados vs todos)
-
-- 🟡 SPRINT D5 (histórico en curso): cohortes + reportes multi-competición.
-- 🟡 REFACTOR-1 (pasos 2/3 y 3/3 + ingest_upcoming).
-- ⏳ F84.c/F84.d Lineups + Standings.
+- ⏳ F99: actualizar `services/football_editorial_payload_adapter.py` (si hiciera falta para campos nuevos, sin payload crudo).
+- ⏳ F99: L5/L15 Recent Form Extender (consolidar seeds + TheSportsDB + SofaScore + TheStatsAPI).
+- ⏳ F99: Corner cascade modification + Idempotency promotion (fuera del scope de este turno).
+- ⏳ F99: Odds aggregator (`services/football_odds_aggregator.py`) (próxima fase; **no ahora**).
 
 ### Pendientes P2
-- ⏳ (Acordado) **NO construir aún Total Corners O/U** como motor principal.
+- ⏳ Background cache setup para StatsBomb/FBref.
 
 ---
 
@@ -384,31 +374,17 @@
 (Sin cambios; ya documentado.)
 
 ### ✅ Sprint-F98 — Cross-Source Identity + F74 Canonical Adapters: COMPLETADO
-**Archivos clave entregados:**
-- `services/football_cross_source_identity.py`
-- `services/adapters/_envelope.py` + adapters por fuente
-- `services/football_source_cascade.py`
-- `services/adapters/legacy_match_adapter.py`
-- `services/football_enrichment_builder.py`
-- `services/football_editorial_prediction.py` (read-first F74 + telemetría)
-
-**Notas:**
-- Fix crítico de coalesce para scores=0 en adapters.
-- `legacy_match_doc` agregado como fallback final en rankings dentro del builder.
+(Sin cambios; ya documentado.)
 
 ### ✅ Sprint-F98.1 — Hidratación upstream para selecciones nacionales (TheSportsDB eventslast)
-**Archivos clave entregados:**
-- `services/external_sources/thesportsdb_client.py`
-  - `fetch_last_events_by_team()`
-  - `_normalize_event_to_recent_fixture()`
-- `services/data_ingestion.py`
-  - fallback TheSportsDB aplicado también para `deep=False`
-  - resolver idTeam por `search_teams` con filtros anti-juveniles
-- `services/football_national_team_seed.py`
-  - CLI + batch seeding de selecciones (colección `football_team_recent_fixtures_seed`)
-- Tests:
-  - `tests/test_f98_1_upstream_hydration.py` (+21)
-  - `tests/test_f98_e2e_focus_matches.py` (+5)
+(Sin cambios; ya documentado.)
+
+### 🟡 F99 — Inicio / confirmación de directivas
+- Confirmado: trabajo en **PREVIEW**; el usuario hará redeploy a producción.
+- Confirmado: incluir ajuste de **ranking de córners** en `football_source_cascade.py` (sin tocar D9 `fetch_team_corners_history_v2` ni promoción a seed).
+- Confirmado: fail-soft con **telemetría estructurada** y sin logs ruidosos.
+- Confirmado: **prohibido** payload crudo SofaScore hacia editorial/UI.
+- Confirmado: selección granular por campo (sin umbral global).
 
 ---
 
@@ -435,29 +411,32 @@
   - Fail-soft: no levantar excepción sin convertirla a auditoría/razón.
   - Backtests: disciplina point-in-time estricta.
   - **No tocar** `MONGO_URL` ni `REACT_APP_BACKEND_URL`.
+  - F99: cambios solo en **PREVIEW**; sin operaciones destructivas/migraciones en producción en este turno.
 
 - Flags / env (principales):
   - `ENABLE_THE_STATS_API=true` + `THESTATSAPI_KEY`.
   - `THE_ODDS_API_KEY=...`.
   - TheSportsDB: `THESPORTSDB_KEY=...`.
-  - Corner Engine:
-    - `ENABLE_CORNER_MOST_MODEL=true`
-    - `ENABLE_ASIAN_CORNERS_MODEL=true`
+  - Scrape.do: `SCRAPEDO_TOKEN=...` (necesario para SofaScore scraping).
 
 - Sprint-D9-OddsCascade / CornerAutoFallback:
   - `ENABLE_ODDS_CASCADE_FALLBACK=true` (default; OddsPortal vía Scrape.do).
   - `ENABLE_CORNER_AUTO_FALLBACK=false` (opt-in; promociona a Asian Corners cuando edge ≥ 8%).
   - `CORNER_AUTO_FALLBACK_MIN_EDGE_PCT=8.0` (decisión usuario).
-  - `SCRAPEDO_TOKEN=...` (necesario para fetch real de OddsPortal; ausente → cascada degrada fail-soft).
 
-- Política Sprint-F98 (nueva):
+- Política Sprint-F98 (vigente):
   - StatsBomb/FBref: cache-first / background-only (no bloquear request principal).
   - Resolver identidad cross-source: persistir `matches.cross_source_ids`.
   - Consumers: leer F74 primero + fallback legacy con telemetría.
 
-- Política Sprint-F98.1 (nueva):
+- Política Sprint-F98.1 (vigente):
   - `eventslast.php` de TheSportsDB es el fallback oficial para `recent_fixtures` cuando API-Sports no provea datos.
   - Fallback debe correr tanto en `deep=True` como `deep=False`.
+
+- Política F99 (nueva):
+  - SofaScore es primario de stats por campo; TheStatsAPI es fallback.
+  - Eliminación de API-Sports en fútbol.
+  - Telemetría estructurada por fuente (sin payloads ni PII) y logs no ruidosos.
 
 ---
 
@@ -478,3 +457,77 @@
 
 ## SPRINT D9.3 — Active Series Context Fix + Expansion (P0 hotfix)
 (Sin cambios.)
+
+---
+
+## FASE F99 — SofaScore Wiring + eliminación funcional de API-Sports — COMPLETADO ✅
+
+### Resumen
+Cableado de SofaScore como **fuente estadística primaria** del esquema canónico F74, ajuste de los rankings de cascada según binding del usuario, y purga **funcional** (kill-switch) de API-Sports en el pipeline de fútbol — **sin reconstruir** ningún módulo F98/F98.1.
+
+### Decisiones del usuario (binding aplicado)
+- **PREVIEW only**: cambios listos para validación; redeploy a producción a cargo del usuario.
+- **Corners ranking**: `offline_seed → SofaScore → TheStatsAPI → TheSportsDB → seed_partial → caches legacy`.
+- **Sin tocar**: cascade D9 (`fetch_team_corners_history_v2`), `promote_online_matches_to_seed`, endpoints/UI de córners, odds aggregator (queda para próxima fase).
+- **Fallo de SofaScore**: fail-soft con telemetría estructurada, sin logs ruidosos; DEBUG para fallos esperados; WARNING reservado para problemas sistémicos.
+- **Sin payload crudo al editorial**: `_sofascore_raw` es ya una versión normalizada por `fetch_sofascore_match_context` (nunca HTML/JSON completos).
+- **Umbral granular**: selección de campo por campo (no umbral global); estados descriptivos `NO_DATA | PARTIAL | USABLE | RICH` solo para telemetría.
+
+### Archivos modificados
+- `services/external_sources/sofascore.py`
+  - Bajados WARNING/INFO a DEBUG para fallos esperados (no logs ruidosos).
+  - Añadidas funciones públicas F99:
+    - `resolve_sofascore_event(home, away, *, sport, target_date)` — wrapper público sobre `_resolve_event_id`.
+    - `fetch_sofascore_match_context(home, away, *, sport, recent_n, h2h_n, enrich_stats, total_timeout_s)` — produce el wrapper canónico `{event_id, home_form, away_form, h2h, odds, _trace}` que consume `adapt_sofascore_to_f74`.
+  - Mapeo de stats SofaScore → métricas adapter: `shots_on_target`, `shots`, `possession`, `corners`, `xg`.
+  - Timeout total y fail-soft estricto (nunca raise hacia el caller).
+- `services/football_sofascore_hydrator.py` **(NUEVO)**
+  - Hydrator opt-in (`ENABLE_F99_SOFASCORE_HYDRATION`, default off).
+  - Escribe telemetría estructurada en `match["football_data_enrichment_source_trace"]["sofascore"]` con `attempted | status | valid_fields | missing_fields | fallback_triggered | checked_at`.
+  - Adjunta `match["_sofascore_raw"]` solo si hay datos usables.
+  - Nunca raise hacia el caller.
+- `services/data_ingestion.py`
+  - Llamada al hydrator inmediatamente después del bloque TheStatsAPI en el path football (no toca otros deportes).
+- `services/football_source_cascade.py`
+  - **xG / xGA L5**: SofaScore → TheStatsAPI → StatsBomb → FBref.
+  - **Tiros / SOT L5**: SofaScore → TheStatsAPI → StatsBomb → FBref (sin cambios; ya cumplía).
+  - **Córners**: `offline_seed → sofascore → thestatsapi → thesportsdb → seed_partial → footystats → totalcorner` (declarativo; `offline_seed`/`seed_partial` aún sin envelopes propios — fail-soft `PROVIDER_NOT_PRESENT`).
+- `services/api_football.py`
+  - Kill switch `DISABLE_API_FOOTBALL`: cuando está activo, `_get` retorna `{"response": [], "errors": {}, "_f99_disabled": True}` (cero IO, cero excepciones). La purga estructural de los ~40 call-sites en `data_ingestion.py` queda para F99.2 (low-risk follow-up).
+- `tests/test_f99_sofascore_wiring.py` **(NUEVO)** — 23 tests pasando.
+- `tests/test_f98_cascade_selector_phase3.py` — 8 tests actualizados al nuevo binding F99.
+
+### Validación
+- **Pytest full**: `4850 passed, 11 skipped, 0 warnings` en 324s (baseline elevada desde 4827 → +23 nuevos tests F99).
+- **0 regresiones**, **0 warnings**.
+- Lint Python: clean.
+
+### Cobertura de tests F99
+1. `resolve_sofascore_event` — fail-soft (empty teams, sport desconocido, scrape.do unavailable) + delegación al resolver interno.
+2. `fetch_sofascore_match_context` — fail-soft (event no resuelto, sport no soportado, timeout) + construcción correcta del wrapper para el adapter F98.
+3. Hydrator — feature flag off / sport no soportado / team names ausentes / wrapper válido / fetch=None / excepciones inesperadas.
+4. Cascade rankings — xG/SOT/Tiros/Córners según spec; selección dinámica y fallback ordenado.
+5. API-Sports kill switch — helper `is_disabled`, short-circuit sin IO, comportamiento legacy preservado cuando el flag está off.
+
+### Lo que NO se hizo en este turno (deferido por binding del usuario)
+- ❌ **No** se modificó cascade D9 `fetch_team_corners_history_v2`.
+- ❌ **No** se modificó `promote_online_matches_to_seed`.
+- ❌ **No** se cambiaron endpoints/UI de córners.
+- ❌ **No** se extendió/creó odds aggregator (queda para próxima fase).
+- ❌ **No** se cambió ranking ni cascade de odds (queda para próxima fase).
+- ❌ **No** se removieron los call-sites de `af.*` en `data_ingestion.py` (purga **estructural**) — preferimos kill switch funcional sin riesgo de regresión. Sub-fase F99.2 sugerida.
+
+### Follow-ups sugeridos (próxima fase)
+- **F99.1** — Adapters para envelopes `offline_seed` y `seed_partial` (córners). Hoy son `PROVIDER_NOT_PRESENT` → cuando se cableen, el ranking declarativo entrará en efecto sin tocar el cascade.
+- **F99.2** — Purga estructural de call-sites `af.*` en `data_ingestion.py` + remoción del import.
+- **F99.3** — Editorial payload adapter (`services/football_editorial_payload_adapter.py`) para consumir métricas de `football_data_enrichment` enriquecido con SofaScore.
+- **F99.4** — L5/L15 Recent Form Extender (consolidación seed + TheSportsDB + SofaScore + TheStatsAPI).
+- **F99.5** — Odds aggregator + ranking/cascade de odds.
+- **F99.6** — Background cache para StatsBomb/FBref.
+
+### Activación en producción
+1. Desplegar a producción.
+2. Set env `ENABLE_F99_SOFASCORE_HYDRATION=true` para activar el hydrator.
+3. Set env `DISABLE_API_FOOTBALL=true` para activar el kill switch funcional.
+4. Monitorear `match["football_data_enrichment_source_trace"]["sofascore"]` para observabilidad granular por partido.
+

@@ -63,6 +63,16 @@ RC_NO_PROVIDER_HAD_FIELD  = "CASCADE_NO_PROVIDER_HAD_FIELD"
 RC_PRIMARY_HIT            = "CASCADE_PRIMARY_HIT"
 
 # Default ranking (user-binding).
+#
+# F99 — ajustes de Prioridad 2 (binding del usuario):
+#   * xG / xGA L5     → SofaScore primario, TheStatsAPI fallback, caches después.
+#   * Tiros / SOT L5  → SofaScore primario, TheStatsAPI fallback, caches después.
+#   * Córners         → offline_seed → SofaScore → TheStatsAPI → TheSportsDB → seed_partial
+#                       Nota: ``offline_seed``/``seed_partial`` aún no producen
+#                       envelopes propios; el cascade los salta como
+#                       PROVIDER_NOT_PRESENT (fail-soft). Quedan declarados
+#                       para que la próxima fase F99 cablee sus adapters sin
+#                       reabrir esta política.
 DEFAULT_RANKINGS: dict[str, list[str]] = {
     # Identity / fixture / result are usually outside the envelope's
     # home/away — they come from sources.event_id etc. We still expose
@@ -70,9 +80,9 @@ DEFAULT_RANKINGS: dict[str, list[str]] = {
     "_identity":              ["thesportsdb", "thestatsapi", "sofascore"],
     "_result":                ["thesportsdb", "thestatsapi", "sofascore"],
 
-    # Per-metric rankings (binding contract).
-    "xg_for_l5":              ["thestatsapi", "statsbomb", "sofascore", "fbref"],
-    "xg_against_l5":          ["thestatsapi", "statsbomb", "sofascore", "fbref"],
+    # Per-metric rankings (binding contract — F99 update).
+    "xg_for_l5":              ["sofascore", "thestatsapi", "statsbomb", "fbref"],
+    "xg_against_l5":          ["sofascore", "thestatsapi", "statsbomb", "fbref"],
     "shots_for_l5":           ["sofascore", "thestatsapi", "statsbomb", "fbref"],
     "shots_on_target_l5":     ["sofascore", "thestatsapi", "statsbomb", "fbref"],
     "possession_avg_l5":      ["sofascore", "thestatsapi", "fbref", "statsbomb"],
@@ -87,9 +97,10 @@ DEFAULT_RANKINGS: dict[str, list[str]] = {
     "btts_rate_l5":           ["sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
     "clean_sheets_l5":        ["sofascore", "thesportsdb", "thestatsapi", "fbref", "warehouse"],
 
-    # Corners
-    "corners_for_l5":         ["sofascore", "thestatsapi", "footystats", "totalcorner"],
-    "corners_against_l5":     ["sofascore", "thestatsapi", "footystats", "totalcorner"],
+    # Corners (F99 binding):
+    #   offline_seed → SofaScore → TheStatsAPI → TheSportsDB → seed_partial
+    "corners_for_l5":         ["offline_seed", "sofascore", "thestatsapi", "thesportsdb", "seed_partial", "footystats", "totalcorner"],
+    "corners_against_l5":     ["offline_seed", "sofascore", "thestatsapi", "thesportsdb", "seed_partial", "footystats", "totalcorner"],
 
     # H2H is a section, not a per-metric path; we apply the ranking to
     # `h2h.matches` (whichever provider has the richest h2h block wins).
