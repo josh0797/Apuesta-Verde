@@ -150,6 +150,18 @@ _REJECTION_CODE_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"market\s*trap|mercado\s+trampa",re.I),  "MARKET_TRAP"),
     (re.compile(r"cuota\s+baja",           re.I),         "LOW_ODDS_NO_CUSHION"),
     (re.compile(r"sin\s+valor|no\s+value", re.I),         "NO_VALUE"),
+    # F99-P0 (Fase 6 follow-up) — patrones REALES vistos en runtime.
+    # El reason típico de un partido en watchlist post-F99 es:
+    #   "Cuotas no atractivas y contexto competitivo normal."
+    # Antes caía al fallback UNKNOWN y disparaba el catch-all
+    # UNCLASSIFIED_DISCARD_REQUIRES_AUDIT.  Ahora se clasifica.
+    (re.compile(r"cuotas?\s+no\s+atractiv",re.I),         "ODDS_NOT_ATTRACTIVE"),
+    (re.compile(r"contexto\s+competitivo\s+normal",re.I), "COMPETITIVE_CONTEXT_NORMAL"),
+    (re.compile(r"watchlist[_\s]*insufficient[_\s]*support",re.I),
+                                                          "WATCHLIST_INSUFFICIENT_SUPPORT"),
+    (re.compile(r"insufficient[_\s]*support",re.I),       "WATCHLIST_INSUFFICIENT_SUPPORT"),
+    (re.compile(r"market[_\s]*identity[_\s]*unresolv",re.I),
+                                                          "MARKET_IDENTITY_UNRESOLVED"),
 ]
 
 
@@ -212,6 +224,21 @@ def _humanize_rejection_reason(rejection_code: str,
         return "Señales trampa estructuradas activas; confianza no fiable."
     if rejection_code == "NO_VALUE":
         return f"No se encontró valor real (edge {e}, confianza {c}/100)."
+    if rejection_code == "WATCHLIST_INSUFFICIENT_SUPPORT":
+        return ("Watchlist por soporte insuficiente: las señales disponibles "
+                f"no alcanzan el umbral mínimo (confianza {c}/100).")
+    if rejection_code == "WATCHLIST_ONLY":
+        return f"Confianza {c}/100 insuficiente para recomendar; queda en watchlist."
+    if rejection_code == "ODDS_NOT_ATTRACTIVE":
+        return f"Cuotas {o} no atractivas para el riesgo evaluado."
+    if rejection_code == "COMPETITIVE_CONTEXT_NORMAL":
+        return "Contexto competitivo normal sin ventaja explotable identificada."
+    if rejection_code == "MARKET_IDENTITY_UNRESOLVED":
+        return "El motor no pudo identificar el mercado canónico para evaluar valor."
+    if rejection_code == "MARKET_IDENTITY_MISSING":
+        return "Mercado del pick descartado no se pudo mapear a una identidad conocida."
+    if rejection_code == "UNCLASSIFIED_DISCARD_REQUIRES_AUDIT":
+        return ("Descarte sin causa clasificable — requiere revisión manual del trace.")
     return f"Pick descartado ({rejection_code})."
 
 
@@ -298,6 +325,22 @@ def build_market_trace(pick_or_entry: dict,
     classification = mb.get("classification") or ""
     reason_raw     = mb.get("classification_reason") or p.get("reason") or ""
     rejection_code = _derive_rejection_code(classification, reason_raw)
+
+    # F99-P0 (Fase 6 follow-up) — clasificación específica para el patrón
+    # "market=Watchlist sin classification ni reason discriminatoria".  Antes
+    # llegaba como UNKNOWN y la UI mostraba "motivo no clasificado".  Ahora
+    # detectamos el caso y reportamos el reason_code real.
+    if rejection_code in ("UNKNOWN", "WATCHLIST"):
+        market_lower = (market_label or "").strip().lower()
+        if market_lower == "watchlist":
+            # Inspeccionar reason_codes upstream si están disponibles.
+            ms = (p.get("market_selection") or rec.get("market_selection") or {})
+            upstream_codes = ms.get("reason_codes") or []
+            if any("INSUFFICIENT_SUPPORT" in str(c).upper() for c in upstream_codes):
+                rejection_code = "WATCHLIST_INSUFFICIENT_SUPPORT"
+            else:
+                rejection_code = "WATCHLIST_ONLY"
+
     rejection_human = _humanize_rejection_reason(
         rejection_code, edge_pct, fragility_score, confidence, odds)
 
@@ -568,6 +611,16 @@ def build_discarded_header(trace: dict) -> str:
     elif rejection_code == "WATCHLIST_ONLY":
         c = t.get("confidence")
         tag = f"confianza insuficiente ({c}/100)" if c is not None else "confianza insuficiente"
+    elif rejection_code == "WATCHLIST_INSUFFICIENT_SUPPORT":
+        tag = "watchlist por soporte insuficiente"
+    elif rejection_code == "ODDS_NOT_ATTRACTIVE":
+        tag = "cuotas no atractivas"
+    elif rejection_code == "COMPETITIVE_CONTEXT_NORMAL":
+        tag = "contexto competitivo normal"
+    elif rejection_code == "MARKET_IDENTITY_UNRESOLVED":
+        tag = "mercado no identificado"
+    elif rejection_code == "MARKET_IDENTITY_MISSING":
+        tag = "mercado no identificado"
     elif rejection_code == "UNCLASSIFIED_DISCARD_REQUIRES_AUDIT":
         # F99-P0 (Fase 6): tag legible que NO contiene la palabra "unknown".
         tag = "motivo no clasificado (revisión pendiente)"

@@ -4766,7 +4766,11 @@ async def _run_analysis_pipeline(
         "abort_reason":           None,
         "ingest_error":           None,
         "cache_status":           "n/a",
-        "source_used":            "api_sports",
+        # F99-P0 (Fase 6 follow-up): default `unknown` en lugar de `api_sports`.
+        # El default antiguo causaba que la UI mostrara `Fuente usada: api_sports`
+        # aún cuando el discovery cascade (TheSportsDB/TheStatsAPI/ESPN/Sofascore)
+        # había ganado. El valor real se setea más abajo según el ganador real.
+        "source_used":            "unknown",
     }
 
     # ── Per-stage instrumentation (user-facing diagnostics) ─────────────
@@ -4908,7 +4912,8 @@ async def _run_analysis_pipeline(
             except asyncio.TimeoutError:
                 ingest_error = "upcoming ingest TIMED OUT after 60s"
                 log.warning("[ANALYSIS_PIPELINE] %s — continuing with cached fixtures", ingest_error)
-                await _emit("ingesting", 20, "API-Sports lenta — usando partidos cacheados…")
+                # F99-P0: mensaje genérico (la cascada F87 ya no usa API-Sports en fútbol).
+                await _emit("ingesting", 20, "Discovery lento — usando partidos cacheados…")
             except Exception as exc:
                 ingest_error = f"upcoming ingest failed: {exc}"
                 log.warning("[ANALYSIS_PIPELINE] %s", ingest_error)
@@ -5002,7 +5007,41 @@ async def _run_analysis_pipeline(
     pipeline_meta["espn_nba_games_found"] = 0
     pipeline_meta["fallback_used"] = False
     pipeline_meta["fallback_reason"] = None
-    pipeline_meta["primary_source"] = "api_sports"
+    # F99-P0 (Fase 6 follow-up): determinar `primary_source` dinámicamente
+    # según el ganador real del discovery cascade. ANTES estaba hardcoded
+    # como "api_sports" y causaba que la UI reportara una fuente que ya
+    # ni siquiera estaba activa (api_football.py es un stub fail-closed
+    # post-F99.2).
+    if sport == "football":
+        try:
+            _discovery_audit = ingestion.get_last_football_discovery_audit()
+            _primary_winner = (_discovery_audit or {}).get("primary_winner")
+            if _primary_winner:
+                pipeline_meta["primary_source"] = _primary_winner
+                pipeline_meta["source_used"] = _primary_winner
+            elif _discovery_audit and _discovery_audit.get("merged"):
+                pipeline_meta["primary_source"] = "cascade_merged"
+                pipeline_meta["source_used"] = "cascade_merged"
+            else:
+                # Discovery cascade ejecutado pero ningún ganador → marcar
+                # explícitamente que no hubo fuente activa (no `api_sports`).
+                pipeline_meta["primary_source"] = "none"
+                pipeline_meta["source_used"] = "none"
+            # Exponer el audit completo para el panel debug de la UI.
+            pipeline_meta["football_discovery_audit"] = {
+                "primary_winner":    (_discovery_audit or {}).get("primary_winner"),
+                "sources_called":    (_discovery_audit or {}).get("sources_called") or [],
+                "counts_normalised": (_discovery_audit or {}).get("counts_normalised") or {},
+                "merged":            bool((_discovery_audit or {}).get("merged")),
+                "total":             (_discovery_audit or {}).get("total") or 0,
+            }
+        except Exception as _exc:  # noqa: BLE001 — fail-soft
+            log.warning("[pipeline_meta] could not resolve football discovery winner: %s", _exc)
+            pipeline_meta["primary_source"] = "unknown"
+            pipeline_meta["source_used"] = "unknown"
+    else:
+        # MLB/NBA todavía usan api_sports como primaria (no en scope F99).
+        pipeline_meta["primary_source"] = "api_sports"
     pipeline_meta["external_rescue_count"] = 0
     pipeline_meta["external_sources_consulted"] = []
     if sport == "baseball" and not upcoming and not live_only:

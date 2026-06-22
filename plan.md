@@ -1,7 +1,7 @@
 # Plan — Phases F58–F99 (bitácora)
 
 > **Nota:** Este plan se mantiene como bitácora completa.
-> **Estado histórico:** ✅ F58–F99.5 completadas / ✅ **P0 Auditoría Drift Producción (8 fases) COMPLETADA en Preview**.
+> **Estado histórico:** ✅ F58–F99.5 completadas / ✅ P0 Auditoría Drift Producción (8 fases) / ✅ **P0 Post-Auditoría: fix real de `api_sports` en pipeline_meta + clasificación de descartes**.
 > **Idioma operativo:** Español.
 
 ---
@@ -142,6 +142,14 @@
 - Endpoints de diagnóstico **no exponen secretos** (tokens/URLs privadas/config completa).
 - No hardcodear “Argentina vs Austria”; la auditoría es general.
 
+### Objetivo nuevo P0 (Post-Auditoría) — **Eliminar falsos positivos de `api_sports` y `unknown` en UI/telemetría**
+**Motivación:** tras desplegar herramientas P0, el usuario reportó que el panel “Pipeline debug” seguía mostrando `Fuente usada: api_sports` y descartes genéricos.
+
+**Objetivos (post-auditoría):**
+- Garantizar que **fútbol** nunca muestre `api_sports` como `source_used/primary_source` (solo MLB/NBA).
+- Derivar `source_used/primary_source` de la fuente real ganadora del discovery cascade (F87) y exponer `football_discovery_audit`.
+- Evitar que descartes de watchlist caigan a `UNKNOWN` cuando el reason real existe.
+
 ---
 
 ## 2) Implementación (fases)
@@ -179,81 +187,42 @@
 **Objetivo:** exponer identidad verificable del backend en runtime.
 
 **Implementación (entregado):**
-- Nuevo módulo: `backend/services/debug_metadata.py`.
-  - Cascada de `git_sha`/`build_timestamp`:
-    1) `GIT_SHA` / `BUILD_TIMESTAMP`
-    2) alternativas equivalentes (`COMMIT_SHA`, `SOURCE_COMMIT`, `VERCEL_GIT_COMMIT_SHA`, etc.)
-    3) `git rev-parse HEAD` + timestamp del commit **solo si** `.git` y `git` están disponibles
-    4) `unknown` (sin 500)
-  - Campo `metadata_source` + `metadata_source_detail`.
-  - `module_hashes`: SHA-256 determinista de módulos críticos.
-- Endpoint: `GET /api/debug/version` en `backend/routers/debug_router.py`.
-  - Header: `X-Backend-Version` (sha corto) + `Cache-Control: no-store`.
+- `backend/services/debug_metadata.py` (cascada env→git→unknown + `metadata_source` + `module_hashes`).
+- `GET /api/debug/version` en `backend/routers/debug_router.py` con `X-Backend-Version` y `Cache-Control: no-store`.
 
-**Tests dirigidos (entregado):**
+**Tests dirigidos:**
 - `backend/tests/test_f99_p0_audit_debug_version.py` (**18 passed**).
-
-**Evidencia (Preview):**
-- `GET /api/debug/version` devuelve `audit_phase=F99-P0-PRODUCTION-DRIFT-AUDIT` y `git_sha_short=786c998`.
 
 ---
 
 ### Fase 2 — Identidad del Frontend (metadata centralizada + badge DOM)
 **Estado:** ✅ COMPLETADO.
 
-**Objetivo:** demostrar qué bundle frontend está ejecutándose.
-
 **Implementación (entregado):**
-- Metadata centralizada: `frontend/src/lib/appMetadata.js`.
-  - Variables (CRA): `REACT_APP_APP_VERSION`, `REACT_APP_COMMIT_SHA`, `REACT_APP_BUILD_TIME`.
-  - Exporta `APP_METADATA` + `logAppMetadataOnce()`.
-- Badge DOM (oculto, siempre presente): `frontend/src/components/AppVersionBadge.jsx`.
-  - `data-testid="app-version-badge"` + dataset con `commit_sha`, `build_time`, `app_version`.
-- Integración:
-  - `frontend/src/index.js`: `logAppMetadataOnce()` al boot.
-  - `frontend/src/App.js`: renderiza `<AppVersionBadge />`.
+- `frontend/src/lib/appMetadata.js`.
+- `frontend/src/components/AppVersionBadge.jsx` + montaje en `App.js`.
 
-**Tests dirigidos (FE):**
-- `frontend/src/lib/__tests__/appMetadata.test.js` (4 tests).
-- `frontend/src/components/__tests__/AppVersionBadge.test.js` (4 tests).
-
-**Evidencia (Preview):**
-- Badge presente en DOM con `data-audit-phase=F99-P0-PRODUCTION-DRIFT-AUDIT`.
-- En Preview actual las vars de build no están inyectadas → valores `unknown` (esperado; se recomienda configurar CI para Producción).
+**Tests FE:**
+- `appMetadata.test.js` + `AppVersionBadge.test.js`.
 
 ---
 
 ### Fase 5 — Inventario de referencias legacy (grep + clasificación)
 **Estado:** ✅ COMPLETADO.
 
-**Objetivo:** determinar si textos legacy existen en el código actual o solo provienen de despliegues/cachés antiguas.
-
-**Output entregado:**
-- `/app/AUDIT_LEGACY_INVENTORY.md` con:
-  - resumen por patrón
-  - clasificación por archivo
-  - ruta de ejecución probable
-  - acción recomendada
-
-**Hallazgos clave:**
-- `SPORTYTRADER` aparece mayormente como proveedor real + UI fallback; no es “texto fósil” por sí solo.
-- `api_sports` sigue existiendo en ámbitos no-fútbol; en fútbol está fail-closed por stub (F99.2). Si aparece activo en fútbol en Producción → drift.
-- “Watchlist descartado por unknown” se originaba en `football_market_trace.py` por fallback de `rejection_code`.
+**Output:**
+- `/app/AUDIT_LEGACY_INVENTORY.md`.
 
 ---
 
 ### Fase 3 — Trazado end-to-end (backend → cliente)
 **Estado:** ✅ COMPLETADO.
 
-**Objetivo:** vincular cada respuesta y ejecución con la versión exacta del backend.
+**Implementación:**
+- Middleware global `X-Backend-Version`.
+- `_meta.backend_version` en `/api/analysis/run`.
 
-**Implementación (entregado):**
-- `backend/server.py`:
-  - Middleware global que inyecta `X-Backend-Version` en **todas** las respuestas.
-  - Helper `_build_response_meta()`.
-  - Inyección de `_meta.backend_version` en respuestas de `/api/analysis/run`.
-
-**Tests dirigidos:**
+**Tests:**
 - `backend/tests/test_f99_p0_audit_backend_version_meta.py` (**6 passed**).
 
 ---
@@ -261,59 +230,37 @@
 ### Fase 4 — Auditoría de fuentes activas `/api/debug/sources`
 **Estado:** ✅ COMPLETADO.
 
-**Objetivo:** ver en runtime qué proveedores están registrados y si están habilitados.
+**Implementación:**
+- `backend/services/debug_sources.py` + `GET /api/debug/sources`.
+- Invariante: `api_sports` en fútbol **no puede** ser ENABLED.
 
-**Implementación (entregado):**
-- Nuevo módulo: `backend/services/debug_sources.py`.
-  - Estados: `REGISTERED | ENABLED | DISABLED | UNAVAILABLE`.
-  - Invariante crítica aplicada: `api_sports` en fútbol **nunca** puede reportarse como `ENABLED`.
-- Endpoint: `GET /api/debug/sources` en `backend/routers/debug_router.py`.
-  - `Cache-Control: no-store`.
-
-**Tests dirigidos:**
+**Tests:**
 - `backend/tests/test_f99_p0_audit_debug_sources.py` (**12 passed**).
-
-**Evidencia (Preview):**
-- `api_sports: DISABLED`, `9 ENABLED`, `2 REGISTERED`, `0 UNAVAILABLE`.
 
 ---
 
 ### Fase 6 — Logs estructurados de descartes (prohibido `unknown`)
-**Estado:** ✅ COMPLETADO.
+**Estado:** ✅ COMPLETADO (con ampliación post-auditoría).
 
-**Objetivo:** eliminar descartes con reason_code genérico `unknown` y forzar trazabilidad.
+**Implementación:**
+- `football_market_trace.build_discarded_header` no emite `"...unknown"`.
+- Catch-all `UNCLASSIFIED_DISCARD_REQUIRES_AUDIT` con log WARNING.
 
-**Implementación (entregado):**
-- `backend/services/football_market_trace.py`:
-  - `rejection_code` vacío/UNKNOWN → `UNCLASSIFIED_DISCARD_REQUIRES_AUDIT`.
-  - Tag legible: `motivo no clasificado (revisión pendiente)`.
-  - Warning log con contexto estructurado para rastreo.
-
-**Tests dirigidos:**
-- `backend/tests/test_f99_p0_audit_discard_reason_code.py` (**17 passed**).
-- Regresión parcial: `pytest -k market_trace` (**44 passed**, sin regresión).
+**Tests:**
+- `backend/tests/test_f99_p0_audit_discard_reason_code.py` (**25 passed**, ampliado para casos reales de runtime).
 
 ---
 
 ### Fase 7 — Cache busting del Frontend (quirúrgico)
 **Estado:** ✅ COMPLETADO.
 
-**Objetivo:** evitar que caches del cliente oculten despliegues o persistan resultados viejos.
-
-**Implementación (entregado):**
-- Frontend (axios):
-  - `frontend/src/lib/api.js`: exporta `noStoreConfig()` para aplicar headers anti-cache **solo** en endpoints dinámicos.
-  - `frontend/src/pages/DashboardPage.jsx`: aplica `noStoreConfig()` en llamadas a `/analysis/run` con `refresh=true`.
-- Backend:
-  - `backend/server.py` middleware: aplica `Cache-Control: no-store` **solo** a:
-    - `/api/analysis/run`
-    - `/api/analysis/jobs*`
-    - `/api/debug/*`
-    - requests con `?refresh=true`
+**Implementación:**
+- `frontend/src/lib/api.js`: `noStoreConfig()`.
+- Backend middleware: `Cache-Control: no-store` solo en endpoints dinámicos.
 
 **Tests:**
 - `backend/tests/test_f99_p0_audit_cache_busting.py` (**5 passed**).
-- `frontend/src/lib/__tests__/noStoreConfig.test.js` (4 passed).
+- `frontend/src/lib/__tests__/noStoreConfig.test.js` (**4 passed**).
 
 ---
 
@@ -321,30 +268,83 @@
 **Estado:** ✅ COMPLETADO.
 
 **Entregable:**
-- `/app/DEPLOYMENT_AUDIT.md`:
-  - comandos exactos (`curl` + DevTools snippets)
-  - comparación SHA frontend vs backend
-  - matriz de diagnóstico (drift vs caché vs datos viejos)
-  - recomendaciones de variables de CI (`GIT_SHA`, `BUILD_TIMESTAMP`, `REACT_APP_*`)
+- `/app/DEPLOYMENT_AUDIT.md`.
+
+---
+
+## Phase P0 — Post-Auditoría (Fix real de `api_sports` en fútbol + clasificación)
+
+### Estado
+✅ COMPLETADO en Preview (pendiente de redeploy del usuario a Producción).
+
+### Diagnóstico post-feedback (causas raíz)
+1. `backend/server.py` tenía defaults hardcoded:
+   - `pipeline_meta["source_used"] = "api_sports"`
+   - `pipeline_meta["primary_source"] = "api_sports"`
+   Esto forzaba a la UI a mostrar `api_sports` aunque el discovery cascade F87 estuviera usando `thesportsdb`/`thestatsapi`/`espn`/`sofascore`.
+2. Frontend tenía defaults literales `|| 'api_sports'` en `AnalysisProgressModal.jsx`.
+3. `football_market_trace._derive_rejection_code` no reconocía reasons reales y caía en `UNKNOWN`.
+
+### Cambios implementados
+**Backend — `backend/server.py`:**
+- Default inicial: `source_used = "unknown"` (no `api_sports`).
+- `pipeline_meta.primary_source/source_used` para fútbol se resuelven desde `ingestion.get_last_football_discovery_audit().primary_winner`.
+- Nuevo bloque `pipeline_meta.football_discovery_audit` con:
+  - `primary_winner`, `sources_called`, `counts_normalised`, `merged`, `total`.
+- Mensaje de timeout de ingestión ya no dice “API-Sports lenta” (ahora genérico).
+
+**Frontend — `frontend/src/components/AnalysisProgressModal.jsx`:**
+- Defaults cambiados a `unknown`.
+- Render de `Fuente primaria` también para fútbol cuando exista `meta.primary_source`.
+
+**Backend — `backend/services/football_market_trace.py`:**
+- Nuevas reglas de `_REJECTION_CODE_RULES` para reasons reales:
+  - `ODDS_NOT_ATTRACTIVE`
+  - `COMPETITIVE_CONTEXT_NORMAL`
+  - `WATCHLIST_INSUFFICIENT_SUPPORT`
+  - `MARKET_IDENTITY_UNRESOLVED`
+- `build_market_trace`: detección del patrón `market_label == "Watchlist"` con promoción a `WATCHLIST_ONLY`/`WATCHLIST_INSUFFICIENT_SUPPORT`.
+- `build_discarded_header` y `_humanize_rejection_reason`: tags/mensajes humanos para los nuevos códigos.
+
+### Evidencia / Validación
+- Validación API (local Preview):
+  - `pipeline_meta.primary_source = "thesportsdb"`
+  - `pipeline_meta.source_used = "thesportsdb"`
+  - `football_discovery_audit.total = 100`
+  - descartes con `rejection_code` específicos (`ODDS_NOT_ATTRACTIVE`, `MARKET_IDENTITY_MISSING`).
+- Validación visual (Preview):
+  - Screenshot full-page con:
+    - “Fuente usada: thesportsdb”
+    - “Watchlist descartado por cuotas no atractivas”
+    - “Watchlist descartado por mercado no identificado”.
+
+### Tests
+- `test_f99_p0_audit_discard_reason_code.py` ampliado: **25 passed**.
+- Regresión focalizada por archivos críticos: verde.
 
 ---
 
 ## 3) Pendientes y siguientes pasos
 
 ### Pendientes P0 (actual)
-- ✅ Auditoría Drift Producción completada en Preview.
-- **Acción del usuario (pendiente fuera del repo):** desplegar a Producción y ejecutar el protocolo de `/app/DEPLOYMENT_AUDIT.md`.
+- ✅ Herramientas de auditoría + fix post-auditoría completados en Preview.
+- ⬜ **Acción del usuario (fuera del repo):** redeploy a Producción para propagar el fix.
 
 ### Features suspendidas durante la auditoría
-- ⏸️ **F99.7** Wire odds aggregator (SUSPENDIDO hasta validación en Producción).
-- ⏸️ **F99.8** Background cache StatsBomb/FBref (SUSPENDIDO hasta validación en Producción).
+- ⏸️ **F99.7** Wire odds aggregator (SUSPENDIDO hasta validar Producción).
+- ⏸️ **F99.8** Background cache StatsBomb/FBref (SUSPENDIDO hasta validar Producción).
 
 ### Próximos pasos del usuario (operativos)
-1. Desplegar a Producción.
-2. Ejecutar el protocolo de `DEPLOYMENT_AUDIT.md` (sección 2).
-3. Comparar `git_sha`/`build_timestamp` entre Preview y Producción.
-4. Si hay drift: alinear pipeline para inyectar `GIT_SHA`/`BUILD_TIMESTAMP` y `REACT_APP_COMMIT_SHA`/`REACT_APP_BUILD_TIME`/`REACT_APP_APP_VERSION`.
-5. Con auditoría cerrada en Producción: reanudar F99.7 y luego F99.8.
+1. Redeploy a Producción.
+2. Verificar en Producción:
+   - `GET /api/debug/version` y `GET /api/debug/sources`.
+   - Ejecutar “Selecciones nacionales” y abrir “Pipeline debug”:
+     - `Fuente usada` **NO** debe ser `api_sports`.
+     - Debe reflejar el ganador real (`thesportsdb`/`thestatsapi`/`espn`/`sofascore_*`).
+     - Los descartes no deben caer en “motivo no clasificado” salvo casos realmente auditables.
+3. Si vuelve a aparecer `api_sports` en fútbol:
+   - Confirmar SHA backend en Producción ≠ Preview (drift) y reiniciar deployment.
+4. Una vez validado: reanudar F99.7 y luego F99.8.
 
 ---
 
@@ -361,52 +361,32 @@
 
 ### ✅ P0 — Auditoría Drift Producción (8 fases) — COMPLETADO
 **Artefactos creados:**
-- `backend/services/debug_metadata.py` (Fase 1)
-- `backend/routers/debug_router.py` (Fases 1+4)
-- `backend/services/debug_sources.py` (Fase 4)
-- `backend/tests/test_f99_p0_audit_debug_version.py` (18 tests)
-- `backend/tests/test_f99_p0_audit_backend_version_meta.py` (6 tests)
-- `backend/tests/test_f99_p0_audit_debug_sources.py` (12 tests)
-- `backend/tests/test_f99_p0_audit_discard_reason_code.py` (17 tests)
-- `backend/tests/test_f99_p0_audit_cache_busting.py` (5 tests)
-- `frontend/src/lib/appMetadata.js` (Fase 2)
-- `frontend/src/components/AppVersionBadge.jsx` (Fase 2)
-- `frontend/src/lib/__tests__/appMetadata.test.js` (4 tests)
-- `frontend/src/components/__tests__/AppVersionBadge.test.js` (4 tests)
-- `frontend/src/lib/__tests__/noStoreConfig.test.js` (4 tests)
-- `AUDIT_LEGACY_INVENTORY.md` (Fase 5)
-- `DEPLOYMENT_AUDIT.md` (Fase 8)
+- `backend/services/debug_metadata.py`
+- `backend/routers/debug_router.py`
+- `backend/services/debug_sources.py`
+- tests P0 (version/meta/sources/discard/cache)
+- FE metadata + badge + tests
+- `AUDIT_LEGACY_INVENTORY.md`
+- `DEPLOYMENT_AUDIT.md`
 
-**Archivos modificados:**
-- `backend/server.py`: middleware `X-Backend-Version` + no-store quirúrgico + `_build_response_meta()` + include `debug_router`.
-- `backend/services/football_market_trace.py`: prohíbe “unknown” en descartes, usa `UNCLASSIFIED_DISCARD_REQUIRES_AUDIT`.
-- `frontend/src/index.js`: `logAppMetadataOnce()`.
-- `frontend/src/App.js`: `<AppVersionBadge />`.
-- `frontend/src/lib/api.js`: `noStoreConfig()`.
-- `frontend/src/pages/DashboardPage.jsx`: aplica `noStoreConfig()` en `/analysis/run`.
-
-**Invariantes validadas en runtime (Preview):**
-- `/api/debug/version`: `git_sha_short=786c998`, `metadata_source=git`.
-- `/api/debug/sources`: `api_sports=DISABLED`.
-- Header `X-Backend-Version=786c998` en respuestas.
-- Badge `data-testid="app-version-badge"` presente en el DOM con `data-audit-phase`.
-- Cache-Control `no-store` solo en endpoints dinámicos y en requests con `refresh=true`.
-
-**Regresión focalizada:** `246 passed / 2 skipped / 0 failed` sobre módulos críticos (F99.*, F70-F94, market_trace, odds_cascade, api_health).
+### ✅ P0 — Post-Auditoría (Fix real)
+**Archivos modificados adicionales:**
+- `backend/server.py` (resolver source_used/primary_source por audit F87 + defaults correctos + mensaje timeout genérico)
+- `frontend/src/components/AnalysisProgressModal.jsx` (defaults a `unknown` + `Fuente primaria` para fútbol)
+- `backend/services/football_market_trace.py` (catálogo de reason_codes real + headers humanos)
 
 ---
 
 ## 6) Validación esperada (estado actual)
 
-- **Meta P0:** demostrar inequívocamente si Producción está corriendo un commit/bundle viejo, una ruta legacy, o un cache persistente.
+- **Meta P0:** demostrar inequívocamente si Producción está corriendo un commit/bundle viejo, una ruta legacy, un cache persistente, o un default hardcoded.
 
 ### Protocolo de tests (auditoría)
-- Tras cada fase: tests dirigidos ✅ (completado).
-- Tras Fases 1–5: bloque de integración ✅ (se validó con tests P0 + smoke F99).
-- Tras Fases 6–8: suite completa backend + testing agent end-to-end:
-  - La suite completa (5000+) excede el timeout de la sesión interactiva, pero se ejecutó:
-    - regresión focalizada (246 passed)
-    - smoke adicional en Preview (endpoints + badge)
+- Tras cada fase: tests dirigidos ✅
+- Tras Fases 1–5: bloque de integración ✅
+- Post-auditoría: pruebas adicionales ✅
+  - E2E vía API (`/api/analysis/run` background + polling) validando `pipeline_meta.source_used`.
+  - Screenshots full-page en dashboard tras click en “Selecciones nacionales”.
 
 ---
 
@@ -435,4 +415,4 @@ Al finalizar cada fase, entregar:
 - Comparación Preview/local.
 - Comandos exactos para ejecutar tras el despliegue en Producción.
 
-**Estado:** ✅ Entregado vía `AUDIT_LEGACY_INVENTORY.md` + `DEPLOYMENT_AUDIT.md` + endpoints `/api/debug/*`.
+**Estado:** ✅ Entregado vía `AUDIT_LEGACY_INVENTORY.md` + `DEPLOYMENT_AUDIT.md` + endpoints `/api/debug/*` + validación visual full-page.

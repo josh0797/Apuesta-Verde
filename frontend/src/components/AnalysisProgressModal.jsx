@@ -480,7 +480,7 @@ function PipelineDebugPanel({ meta, lang }) {
   const rows = [
     { k: lang === 'es' ? 'Fecha analizada'      : 'Date analysed',  v: meta.date_str },
     { k: lang === 'es' ? 'Zona horaria'         : 'Timezone',       v: meta.date_basis },
-    isMLB && { k: lang === 'es' ? 'Fuente primaria' : 'Primary source', v: meta.primary_source || 'api_sports' },
+    isMLB && { k: lang === 'es' ? 'Fuente primaria' : 'Primary source', v: meta.primary_source || 'unknown' },
     isMLB && meta.fallback_used && { k: lang === 'es' ? 'Fallback usado' : 'Fallback used', v: meta.fallback_reason || 'yes' },
     isMLB && meta.api_sports_games_found != null && { k: lang === 'es' ? 'Juegos API-Sports' : 'API-Sports games', v: meta.api_sports_games_found },
     isMLB && (meta.mlb_stats_api_games_found ?? 0) > 0 && { k: lang === 'es' ? 'Juegos MLB Stats API' : 'MLB Stats API games', v: meta.mlb_stats_api_games_found },
@@ -499,7 +499,8 @@ function PipelineDebugPanel({ meta, lang }) {
     { k: lang === 'es' ? 'Picks rescatados'    : 'Rescued picks',     v: meta.final_rescued_count ?? meta.rescued_total },
     { k: lang === 'es' ? 'Picks descartados'   : 'Discarded picks',   v: meta.final_discarded_count ?? meta.discarded_total },
     meta.blocked_by_time_filter ? { k: lang === 'es' ? 'Bloqueados por tiempo' : 'Time-blocked', v: meta.blocked_by_time_filter } : null,
-    { k: lang === 'es' ? 'Fuente usada'        : 'Source used', v: meta.source_used || 'api_sports' },
+    !isMLB && meta.primary_source && { k: lang === 'es' ? 'Fuente primaria' : 'Primary source', v: meta.primary_source },
+    { k: lang === 'es' ? 'Fuente usada'        : 'Source used', v: meta.source_used || 'unknown' },
     isMLB && { k: lang === 'es' ? 'Cache status' : 'Cache status', v: meta.cache_status || 'n/a' },
     meta.abort_reason ? { k: lang === 'es' ? 'Abort reason' : 'Abort reason', v: meta.abort_reason } : null,
   ].filter(Boolean);

@@ -127,6 +127,131 @@ def test_market_trap_still_works():
     assert "trampa" in header.lower()
 
 
+# ── F99-P0 (Fase 6 follow-up) — códigos nuevos del catálogo ─────────────────
+
+
+def test_watchlist_insufficient_support_has_human_tag():
+    header = build_discarded_header({
+        "selection": "Watchlist",
+        "market": None,
+        "rejection_code": "WATCHLIST_INSUFFICIENT_SUPPORT",
+    })
+    assert "soporte insuficiente" in header.lower()
+    assert "unknown" not in header.lower()
+    assert "no clasificado" not in header.lower()
+
+
+def test_odds_not_attractive_has_human_tag():
+    header = build_discarded_header({
+        "selection": "England vs Ghana",
+        "market": "Doble Oportunidad",
+        "rejection_code": "ODDS_NOT_ATTRACTIVE",
+    })
+    assert "cuotas no atractivas" in header.lower()
+    assert "unknown" not in header.lower()
+
+
+def test_competitive_context_normal_has_human_tag():
+    header = build_discarded_header({
+        "selection": "Norway vs Senegal",
+        "market": "BTTS",
+        "rejection_code": "COMPETITIVE_CONTEXT_NORMAL",
+    })
+    assert "contexto competitivo normal" in header.lower()
+
+
+def test_market_identity_unresolved_has_human_tag():
+    header = build_discarded_header({
+        "selection": "Watchlist",
+        "market": "Watchlist",
+        "rejection_code": "MARKET_IDENTITY_UNRESOLVED",
+    })
+    assert "no identificado" in header.lower()
+
+
+# ── Reglas de _derive_rejection_code para reasons reales de producción ──────
+
+
+def test_derive_rejection_code_recognises_odds_not_attractive():
+    from services.football_market_trace import _derive_rejection_code
+
+    code = _derive_rejection_code(
+        classification="",
+        reason="Cuotas no atractivas y contexto competitivo normal.",
+    )
+    # Debe matchear el primer regex que aplique (ODDS_NOT_ATTRACTIVE)
+    assert code == "ODDS_NOT_ATTRACTIVE"
+
+
+def test_derive_rejection_code_recognises_watchlist_insufficient_support():
+    from services.football_market_trace import _derive_rejection_code
+
+    code = _derive_rejection_code(
+        classification="",
+        reason="FOOTBALL_WATCHLIST_INSUFFICIENT_SUPPORT",
+    )
+    assert code == "WATCHLIST_INSUFFICIENT_SUPPORT"
+
+
+def test_build_market_trace_promotes_watchlist_market_to_specific_code():
+    """
+    Caso real visto en runtime: market='Watchlist' con classification y
+    reason vacíos.  Antes salía rejection_code='UNKNOWN' → catch-all.
+    Ahora debe convertirse en WATCHLIST_ONLY o WATCHLIST_INSUFFICIENT_SUPPORT
+    según el contexto upstream.
+    """
+    from services.football_market_trace import build_market_trace
+
+    # Caso A — sin upstream codes → WATCHLIST_ONLY
+    trace_a = build_market_trace({
+        "match_label": "England vs Ghana",
+        "_moneyball": {"classification": "", "classification_reason": ""},
+        "_market_edge": {},
+        "recommendation": {"market": "Watchlist", "selection": None},
+        "market_selection": {"recommended_market": "Watchlist", "reason_codes": []},
+        "reason": "",
+    })
+    assert trace_a["rejection_code"] in ("WATCHLIST_ONLY", "WATCHLIST_INSUFFICIENT_SUPPORT")
+
+    # Caso B — con upstream INSUFFICIENT_SUPPORT → WATCHLIST_INSUFFICIENT_SUPPORT
+    trace_b = build_market_trace({
+        "match_label": "England vs Ghana",
+        "_moneyball": {"classification": "", "classification_reason": ""},
+        "_market_edge": {},
+        "recommendation": {"market": "Watchlist", "selection": None},
+        "market_selection": {
+            "recommended_market": "Watchlist",
+            "reason_codes": ["FOOTBALL_WATCHLIST_INSUFFICIENT_SUPPORT"],
+        },
+        "reason": "",
+    })
+    assert trace_b["rejection_code"] == "WATCHLIST_INSUFFICIENT_SUPPORT"
+
+
+def test_build_market_trace_real_runtime_reason_classifies_correctly():
+    """Reproduce el reason real visto en Producción."""
+    from services.football_market_trace import build_market_trace
+
+    trace = build_market_trace({
+        "match_label": "England vs Ghana",
+        "_moneyball": {
+            "classification": "NO_BET_VALUE",
+            "classification_reason": "Cuotas no atractivas y contexto competitivo normal.",
+        },
+        "_market_edge": {},
+        "recommendation": {"market_type": "Doble Oportunidad", "selection": "1X"},
+        "reason": "Cuotas no atractivas y contexto competitivo normal.",
+    })
+    # Debe matchear ODDS_NOT_ATTRACTIVE (no UNKNOWN ni NO_VALUE genérico).
+    assert trace["rejection_code"] == "ODDS_NOT_ATTRACTIVE"
+    # Y el header debe ser legible.
+    from services.football_market_trace import build_discarded_header
+    header = build_discarded_header(trace)
+    assert "unknown" not in header.lower()
+    assert "no clasificado" not in header.lower()
+    assert "cuotas no atractivas" in header.lower()
+
+
 def test_unrecognized_but_specific_code_does_not_emit_unknown():
     """
     Si un código nuevo aparece (p.ej. 'NOVEL_GUARD_REJECTION') que no tiene
