@@ -237,6 +237,10 @@ def _humanize_rejection_reason(rejection_code: str,
         return "El motor no pudo identificar el mercado canónico para evaluar valor."
     if rejection_code == "MARKET_IDENTITY_MISSING":
         return "Mercado del pick descartado no se pudo mapear a una identidad conocida."
+    if rejection_code == "NO_ODDS_AVAILABLE":
+        return ("Sin cuotas disponibles: ninguna de las fuentes consultadas "
+                "(Cuotasahora, TheStatsAPI, SofaScore, OddsPortal, manuales) "
+                "devolvió mercados. Calidad estadística usable; falta el momio.")
     if rejection_code == "UNCLASSIFIED_DISCARD_REQUIRES_AUDIT":
         return ("Descarte sin causa clasificable — requiere revisión manual del trace.")
     return f"Pick descartado ({rejection_code})."
@@ -326,14 +330,31 @@ def build_market_trace(pick_or_entry: dict,
     reason_raw     = mb.get("classification_reason") or p.get("reason") or ""
     rejection_code = _derive_rejection_code(classification, reason_raw)
 
-    # F99-P0 (Fase 6 follow-up) — clasificación específica para el patrón
-    # "market=Watchlist sin classification ni reason discriminatoria".  Antes
-    # llegaba como UNKNOWN y la UI mostraba "motivo no clasificado".  Ahora
-    # detectamos el caso y reportamos el reason_code real.
-    if rejection_code in ("UNKNOWN", "WATCHLIST"):
+    # Sprint-D9-followup-2 (Jun-2026) — PRIORITY OVERRIDE: cuando el motor
+    # determinó que NO HAY CUOTAS DISPONIBLES en ninguna fuente (estado
+    # ``NO_ODDS_AVAILABLE`` del aggregator), NO debemos emitir códigos como
+    # ``MARKET_IDENTITY_MISSING``, ``MARKET_TRAP``, ``EDGE_*`` o
+    # ``WATCHLIST_*`` que sugieren un análisis estadístico fallido.  El
+    # motivo real es **operacional** (no hay datos de mercado, no es un
+    # problema del modelo).  Este override va PRIMERO porque tiene
+    # precedencia sobre cualquier inferencia downstream.
+    odds_status_raw = (
+        p.get("odds_status")
+        or (p.get("odds_snapshot") or {}).get("state")
+        or (p.get("_odds_status"))
+    )
+    if odds_status_raw == "NO_ODDS_AVAILABLE":
+        log.info(
+            "[market_trace] odds_status=NO_ODDS_AVAILABLE overriding "
+            "rejection_code from %r → NO_ODDS_AVAILABLE",
+            rejection_code,
+        )
+        rejection_code = "NO_ODDS_AVAILABLE"
+    elif rejection_code in ("UNKNOWN", "WATCHLIST"):
+        # F99-P0 (Fase 6 follow-up) — clasificación específica para
+        # "market=Watchlist sin classification ni reason discriminatoria".
         market_lower = (market_label or "").strip().lower()
         if market_lower == "watchlist":
-            # Inspeccionar reason_codes upstream si están disponibles.
             ms = (p.get("market_selection") or rec.get("market_selection") or {})
             upstream_codes = ms.get("reason_codes") or []
             if any("INSUFFICIENT_SUPPORT" in str(c).upper() for c in upstream_codes):
@@ -621,6 +642,8 @@ def build_discarded_header(trace: dict) -> str:
         tag = "mercado no identificado"
     elif rejection_code == "MARKET_IDENTITY_MISSING":
         tag = "mercado no identificado"
+    elif rejection_code == "NO_ODDS_AVAILABLE":
+        tag = "sin cuotas disponibles"
     elif rejection_code == "UNCLASSIFIED_DISCARD_REQUIRES_AUDIT":
         # F99-P0 (Fase 6): tag legible que NO contiene la palabra "unknown".
         tag = "motivo no clasificado (revisión pendiente)"

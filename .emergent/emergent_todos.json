@@ -1,42 +1,38 @@
 [
   {
-    "content": "Fase 1: GET /api/debug/version (18/18 tests)",
+    "content": "Auditar wiring F99.1 (offline_seed + seed_partial) — NO WIREADO (reportado al usuario)",
     "status": "completed"
   },
   {
-    "content": "Fase 2: appMetadata.js + badge en DOM (8/8 tests FE)",
+    "content": "Auditar wiring F99.3 (editorial payload adapter) — WIREADO en 3 sitios",
     "status": "completed"
   },
   {
-    "content": "Fase 3: X-Backend-Version + _meta (6/6 tests)",
+    "content": "Auditar wiring F99.4 (L5/L15 Recent Form Extender) — WIREADO en data_ingestion + enrichment_builder",
     "status": "completed"
   },
   {
-    "content": "Fase 4: /api/debug/sources con api_sports DISABLED (12/12 tests)",
+    "content": "Auditar Forebet — wireado pero panel oculto si forebet_pct_1=null (requiere FE fix posterior)",
     "status": "completed"
   },
   {
-    "content": "Fase 5: Inventario legacy clasificado en AUDIT_LEGACY_INVENTORY.md",
+    "content": "Crear cuotasahora_scraper.py con cache + sanity check overround — OK",
     "status": "completed"
   },
   {
-    "content": "Fase 6: UNCLASSIFIED_DISCARD_REQUIRES_AUDIT (17/17 tests, 44/44 sin regresión)",
+    "content": "Extender football_odds_aggregator con fetch_football_odds(match, source_ids, *, client, db=None) — OK (9/9 tests)",
     "status": "completed"
   },
   {
-    "content": "Fase 7: Cache busting quirúrgico (5 BE + 4 FE tests)",
+    "content": "Refactor: NO_ODDS_AVAILABLE override en build_market_trace — OK (override prioritario)",
     "status": "completed"
   },
   {
-    "content": "Fase 8: DEPLOYMENT_AUDIT.md con protocolo y comandos exactos",
+    "content": "Validación: 110 tests verdes en regresión",
     "status": "completed"
   },
   {
-    "content": "Regresión focalizada 246 passed, 0 failed",
-    "status": "completed"
-  },
-  {
-    "content": "Validación E2E: endpoints HTTP + badge DOM verificados",
-    "status": "completed"
+    "content": "Pendiente para siguiente turno: wirear F99.1 adapters + fix Forebet siempre visible + wirear fetch_football_odds en _ingestion_helpers",
+    "status": "pending"
   }
 ]

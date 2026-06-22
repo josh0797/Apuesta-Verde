@@ -549,3 +549,284 @@ __all__ = [
     "is_enabled",
     "aggregate_match_odds",
 ]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Sprint-D9-followup-2 (Jun-2026) — High-level façade with the new contract
+# requested by the user.
+#
+# Signature (binding):
+#
+#     async def fetch_football_odds(
+#         match: dict,
+#         source_ids: dict,
+#         *,
+#         client,
+#         db=None,
+#     ) -> dict
+#
+# Cascade order:
+#   1. Cuotasahora (exotic markets primary)
+#   2. TheStatsAPI
+#   3. SofaScore
+#   4. OddsPortal
+#   5. Manual odds
+#
+# Advance on:
+#   - request failed
+#   - empty response
+#   - empty bookmakers
+#   - empty markets
+#   - schema not recognized
+#   - invalid odds
+#
+# Output (success)::
+#
+#     {
+#         "available": True,
+#         "source": "cuotasahora" | "thestatsapi" | "sofascore" | "oddsportal",
+#         "markets": {...},
+#         "snapshot_at": iso8601,
+#         "reason_codes": ["CUOTASAHORA_HIT", ...],
+#     }
+#
+# Output (no odds)::
+#
+#     {
+#         "available": False,
+#         "state": "NO_ODDS_AVAILABLE",
+#         "reason_codes": [
+#             "NO_ODDS_AVAILABLE_FROM_ALL_SOURCES",
+#             "MANUAL_ODDS_REQUIRED",
+#         ],
+#     }
+# ════════════════════════════════════════════════════════════════════════════
+
+STATE_NO_ODDS = "NO_ODDS_AVAILABLE"
+RC_NO_ODDS_ALL = "NO_ODDS_AVAILABLE_FROM_ALL_SOURCES"
+RC_MANUAL_REQUIRED_USER = "MANUAL_ODDS_REQUIRED"
+
+
+def _names_from_match(match: dict) -> Tuple[str, str, Optional[str], Optional[str]]:
+    """Best-effort extraction of (home_name, away_name, league, kickoff_iso)."""
+    teams = (match or {}).get("teams") or {}
+    home = (teams.get("home") or {}).get("name") if isinstance(teams, dict) else ""
+    away = (teams.get("away") or {}).get("name") if isinstance(teams, dict) else ""
+    home = home or (match or {}).get("home_name") or (match or {}).get("home", "") or ""
+    away = away or (match or {}).get("away_name") or (match or {}).get("away", "") or ""
+    league = ((match or {}).get("league") or {}).get("name") if isinstance(match.get("league"), dict) else (match or {}).get("league_name")
+    kickoff_iso = (match or {}).get("kickoff_iso") or (match or {}).get("date")
+    if hasattr(kickoff_iso, "isoformat"):
+        try:
+            kickoff_iso = kickoff_iso.isoformat()
+        except Exception:
+            kickoff_iso = None
+    return str(home or ""), str(away or ""), league, kickoff_iso
+
+
+async def _try_cuotasahora(match, source_ids, client, db) -> Optional[dict]:
+    try:
+        from .external_sources import cuotasahora_scraper as _ca
+    except Exception:
+        return None
+    home, away, league, kickoff_iso = _names_from_match(match)
+    if not home or not away:
+        return None
+    try:
+        r = await _ca.fetch_match_odds(
+            home, away, client=client, db=db,
+            league_name=league, kickoff_iso=kickoff_iso,
+        )
+    except Exception:
+        return None
+    if isinstance(r, dict) and r.get("available") and r.get("markets"):
+        return r
+    return None
+
+
+async def _try_thestatsapi(match, source_ids, client, db) -> Optional[dict]:
+    try:
+        from .external_sources import thestatsapi_odds_adapter as _ts
+    except Exception:
+        return None
+    home, away, league, kickoff_iso = _names_from_match(match)
+    try:
+        shape, norm, mid = await _ts.fetch_odds_api_sports_shape(
+            client, match, home_name=home, away_name=away,
+            kickoff=kickoff_iso, league_name=league,
+        )
+    except Exception:
+        return None
+    if not (isinstance(norm, dict) and norm.get("available")):
+        return None
+    # Build a "markets" dict from the normalised bookmakers list.
+    markets: Dict[str, Any] = {}
+    bms = norm.get("bookmakers") or []
+    if bms:
+        # h2h: take the first bookmaker exposing 1X2
+        for bm in bms:
+            for bet in (bm.get("bets") or []):
+                bname = (bet.get("name") or "").lower()
+                if "match winner" in bname or "moneyline" in bname or bname == "1x2":
+                    h = d = a = None
+                    for v in (bet.get("values") or []):
+                        vn = (v.get("value") or "").lower()
+                        try:
+                            odd = float(v.get("odd") or 0)
+                        except (ValueError, TypeError):
+                            continue
+                        if vn in ("home", "1"): h = odd
+                        elif vn in ("draw", "x"): d = odd
+                        elif vn in ("away", "2"): a = odd
+                    if h and d and a:
+                        markets["h2h"] = {"home": h, "draw": d, "away": a}
+                        break
+            if markets.get("h2h"):
+                break
+    if not markets:
+        return None
+    return {
+        "available": True,
+        "source": "thestatsapi",
+        "markets": markets,
+        "snapshot_at": _utcnow().isoformat(),
+        "reason_codes": ["THESTATSAPI_ODDS_USED"],
+        "_match_id": mid,
+    }
+
+
+async def _try_sofascore(match, source_ids, client, db) -> Optional[dict]:
+    """SofaScore odds proxy (uses existing hydrator if available)."""
+    try:
+        from . import football_sofascore_hydrator as _sofa  # type: ignore
+    except Exception:
+        return None
+    home, away, league, kickoff_iso = _names_from_match(match)
+    if not hasattr(_sofa, "fetch_match_odds"):
+        return None
+    try:
+        r = await _sofa.fetch_match_odds(
+            home, away, client=client, db=db,
+            league_name=league, kickoff_iso=kickoff_iso,
+        )
+    except Exception:
+        return None
+    if isinstance(r, dict) and r.get("available") and r.get("markets"):
+        if not r.get("source"):
+            r["source"] = "sofascore"
+        if "reason_codes" not in r:
+            r["reason_codes"] = ["SOFASCORE_ODDS_USED"]
+        return r
+    return None
+
+
+async def _try_oddsportal(match, source_ids, client, db) -> Optional[dict]:
+    try:
+        from .external_sources import odds_portal_client as _op
+    except Exception:
+        return None
+    home, away, league, kickoff_iso = _names_from_match(match)
+    if not hasattr(_op, "fetch_match_odds"):
+        return None
+    try:
+        r = await _op.fetch_match_odds(
+            home, away, client=client, db=db,
+            league_name=league, kickoff_iso=kickoff_iso,
+        )
+    except Exception:
+        return None
+    if isinstance(r, dict) and r.get("available") and (r.get("markets") or r.get("home_odds")):
+        markets = r.get("markets") or {}
+        if not markets and r.get("home_odds") and r.get("away_odds"):
+            markets = {"h2h": {
+                "home": r.get("home_odds"),
+                "draw": r.get("draw_odds"),
+                "away": r.get("away_odds"),
+            }}
+        return {
+            "available": True,
+            "source": "oddsportal",
+            "markets": markets,
+            "snapshot_at": _utcnow().isoformat(),
+            "reason_codes": ["ODDSPORTAL_ODDS_USED"],
+        }
+    return None
+
+
+async def _try_manual_odds(match, source_ids, client, db) -> Optional[dict]:
+    """Look up manual odds previously entered by the user in Mongo."""
+    if db is None:
+        return None
+    try:
+        match_id = (match or {}).get("match_id") or (match or {}).get("id")
+        if not match_id:
+            return None
+        coll = db.get_collection("manual_odds_overrides") if hasattr(db, "get_collection") else db["manual_odds_overrides"]
+        doc = await coll.find_one({"match_id": str(match_id)})
+        if not doc or not doc.get("markets"):
+            return None
+        return {
+            "available": True,
+            "source": "manual",
+            "markets": doc["markets"],
+            "snapshot_at": _utcnow().isoformat(),
+            "reason_codes": ["MANUAL_ODDS_USED"],
+        }
+    except Exception:
+        return None
+
+
+_FETCH_CASCADE_NAMES = (
+    ("cuotasahora", "_try_cuotasahora",  "CUOTASAHORA_TRIED"),
+    ("thestatsapi", "_try_thestatsapi",  "THESTATSAPI_TRIED"),
+    ("sofascore",   "_try_sofascore",    "SOFASCORE_TRIED"),
+    ("oddsportal",  "_try_oddsportal",   "ODDSPORTAL_TRIED"),
+    ("manual",      "_try_manual_odds",  "MANUAL_ODDS_TRIED"),
+)
+
+
+async def fetch_football_odds(
+    match: dict,
+    source_ids: dict,
+    *,
+    client,
+    db=None,
+) -> dict:
+    """High-level cascade entry point.  See module docstring for contract."""
+    import sys as _sys
+    _mod = _sys.modules[__name__]  # late binding so monkeypatched funcs are picked up
+    reason_trail: List[str] = []
+    for name, fn_name, tried_code in _FETCH_CASCADE_NAMES:
+        reason_trail.append(tried_code)
+        fn = getattr(_mod, fn_name, None)
+        if fn is None:
+            continue
+        try:
+            result = await fn(match, source_ids or {}, client, db)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("[fetch_football_odds] %s raised: %s", name, exc)
+            reason_trail.append(f"{name.upper()}_RAISED")
+            continue
+        if result and isinstance(result, dict) and result.get("available"):
+            rc = list(result.get("reason_codes") or [])
+            for code in reason_trail:
+                if code not in rc:
+                    rc.append(code)
+            result["reason_codes"] = rc
+            return result
+
+    # All sources exhausted → emit canonical NO_ODDS_AVAILABLE envelope.
+    return {
+        "available": False,
+        "state": STATE_NO_ODDS,
+        "reason_codes": reason_trail + [RC_NO_ODDS_ALL, RC_MANUAL_REQUIRED_USER],
+    }
+
+
+# Re-export
+__all__ += [
+    "fetch_football_odds",
+    "STATE_NO_ODDS",
+    "RC_NO_ODDS_ALL",
+    "RC_MANUAL_REQUIRED_USER",
+]
