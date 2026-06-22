@@ -239,7 +239,7 @@ def _humanize_rejection_reason(rejection_code: str,
         return "Mercado del pick descartado no se pudo mapear a una identidad conocida."
     if rejection_code == "NO_ODDS_AVAILABLE":
         return ("Sin cuotas disponibles: ninguna de las fuentes consultadas "
-                "(Cuotasahora, TheStatsAPI, SofaScore, OddsPortal, manuales) "
+                "(Oddspedia, TheStatsAPI, SofaScore, OddsPortal, manuales) "
                 "devolvió mercados. Calidad estadística usable; falta el momio.")
     if rejection_code == "UNCLASSIFIED_DISCARD_REQUIRES_AUDIT":
         return ("Descarte sin causa clasificable — requiere revisión manual del trace.")

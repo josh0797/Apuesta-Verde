@@ -53,41 +53,51 @@ def test_all_sources_exhausted_returns_canonical_no_odds_envelope():
     assert agg.RC_NO_ODDS_ALL in rc
     assert agg.RC_MANUAL_REQUIRED_USER in rc
     # Trail de fuentes intentadas (auditabilidad)
-    assert "CUOTASAHORA_TRIED" in rc
+    assert "ODDSPEDIA_TRIED" in rc
     assert "THESTATSAPI_TRIED" in rc
     assert "SOFASCORE_TRIED" in rc
     assert "ODDSPORTAL_TRIED" in rc
     assert "MANUAL_ODDS_TRIED" in rc
 
 
-# ── Cuotasahora primaria ────────────────────────────────────────────────────
+# ── Oddspedia primaria ──────────────────────────────────────────────────────
 
 
-def test_cuotasahora_primary_short_circuits_cascade(monkeypatch):
-    async def _ca_hit(home, away, **kwargs):
+def test_oddspedia_primary_short_circuits_cascade(monkeypatch):
+    async def _op_hit(home, away, **kwargs):
         return {
             "available": True,
-            "source": "cuotasahora",
+            "source": "oddspedia",
             "markets": {"h2h": {"home": 2.10, "draw": 3.30, "away": 3.50}},
             "snapshot_at": "2026-06-22T12:00:00Z",
-            "reason_codes": ["CUOTASAHORA_HIT"],
+            "reason_codes": ["ODDSPEDIA_HIT"],
         }
 
-    # Inyectar el mock del scraper antes de la llamada
-    import services.external_sources.cuotasahora_scraper as _ca
-    monkeypatch.setattr(_ca, "fetch_match_odds", _ca_hit)
+    import services.external_sources.oddspedia_scraper as _op
+    monkeypatch.setattr(_op, "fetch_match_odds", _op_hit)
 
-    # Espías para verificar que el resto del cascade NO se invoca
     called = {"ts": 0, "sofa": 0, "op": 0, "manual": 0}
 
     async def _ts_called(*a, **kw):
         called["ts"] += 1
         return None
 
+    async def _sofa_called(*a, **kw):
+        called["sofa"] += 1
+        return None
+
+    async def _op_called(*a, **kw):
+        called["op"] += 1
+        return None
+
+    async def _man_called(*a, **kw):
+        called["manual"] += 1
+        return None
+
     monkeypatch.setattr(agg, "_try_thestatsapi", _ts_called)
-    monkeypatch.setattr(agg, "_try_sofascore",   lambda *a, **kw: (called.__setitem__("sofa", called["sofa"]+1), None)[1])
-    monkeypatch.setattr(agg, "_try_oddsportal",  lambda *a, **kw: (called.__setitem__("op", called["op"]+1), None)[1])
-    monkeypatch.setattr(agg, "_try_manual_odds", lambda *a, **kw: (called.__setitem__("manual", called["manual"]+1), None)[1])
+    monkeypatch.setattr(agg, "_try_sofascore",   _sofa_called)
+    monkeypatch.setattr(agg, "_try_oddsportal",  _op_called)
+    monkeypatch.setattr(agg, "_try_manual_odds", _man_called)
 
     async def _run():
         return await agg.fetch_football_odds(_match(), {}, client=None, db=None)
@@ -95,24 +105,24 @@ def test_cuotasahora_primary_short_circuits_cascade(monkeypatch):
     out = asyncio.run(_run())
 
     assert out.get("available") is True
-    assert out.get("source") == "cuotasahora"
+    assert out.get("source") == "oddspedia"
     assert out["markets"]["h2h"]["home"] == 2.10
-    assert "CUOTASAHORA_HIT" in (out.get("reason_codes") or [])
-    assert called["ts"] == 0  # cascade no debe continuar
+    assert "ODDSPEDIA_HIT" in (out.get("reason_codes") or [])
+    assert called["ts"] == 0
     assert called["sofa"] == 0
     assert called["op"] == 0
     assert called["manual"] == 0
 
 
-# ── Cuotasahora falla → cae a TheStatsAPI ───────────────────────────────────
+# ── Oddspedia falla → cae a TheStatsAPI ─────────────────────────────────────
 
 
-def test_thestatsapi_used_when_cuotasahora_empty(monkeypatch):
-    async def _ca_empty(home, away, **kwargs):
+def test_thestatsapi_used_when_oddspedia_empty(monkeypatch):
+    async def _op_empty(home, away, **kwargs):
         return {
-            "available": False, "source": "cuotasahora",
+            "available": False, "source": "oddspedia",
             "snapshot_at": "x",
-            "reason_codes": ["CUOTASAHORA_NO_MATCH"],
+            "reason_codes": ["ODDSPEDIA_NO_MATCH"],
         }
 
     async def _ts_hit(match, source_ids, client, db):
@@ -123,24 +133,22 @@ def test_thestatsapi_used_when_cuotasahora_empty(monkeypatch):
             "reason_codes": ["THESTATSAPI_ODDS_USED"],
         }
 
-    import services.external_sources.cuotasahora_scraper as _ca
-    monkeypatch.setattr(_ca, "fetch_match_odds", _ca_empty)
+    import services.external_sources.oddspedia_scraper as _op
+    monkeypatch.setattr(_op, "fetch_match_odds", _op_empty)
     monkeypatch.setattr(agg, "_try_thestatsapi", _ts_hit)
 
     out = asyncio.run(agg.fetch_football_odds(_match(), {}, client=None, db=None))
 
     assert out["source"] == "thestatsapi"
     assert "THESTATSAPI_ODDS_USED" in out["reason_codes"]
-    # Trail debe llevar TODOS los anteriores que se intentaron
-    assert "CUOTASAHORA_TRIED" in out["reason_codes"]
+    assert "ODDSPEDIA_TRIED" in out["reason_codes"]
 
 
 # ── Excepciones internas no rompen el cascade ───────────────────────────────
 
 
 def test_inner_exception_does_not_break_cascade(monkeypatch):
-    """Si una fuente lanza, se loguea y se continúa con la siguiente."""
-    async def _ca_boom(*args, **kwargs):
+    async def _op_boom(*args, **kwargs):
         raise RuntimeError("simulated network failure")
 
     async def _ts_hit(match, source_ids, client, db):
@@ -150,8 +158,8 @@ def test_inner_exception_does_not_break_cascade(monkeypatch):
             "snapshot_at": "x", "reason_codes": ["THESTATSAPI_ODDS_USED"],
         }
 
-    import services.external_sources.cuotasahora_scraper as _ca
-    monkeypatch.setattr(_ca, "fetch_match_odds", _ca_boom)
+    import services.external_sources.oddspedia_scraper as _op
+    monkeypatch.setattr(_op, "fetch_match_odds", _op_boom)
     monkeypatch.setattr(agg, "_try_thestatsapi", _ts_hit)
 
     out = asyncio.run(agg.fetch_football_odds(_match(), {}, client=None, db=None))

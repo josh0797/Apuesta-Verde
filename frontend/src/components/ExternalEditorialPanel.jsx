@@ -137,7 +137,7 @@ export function ExternalEditorialPanel({
       />
 
       {/* ── Forebet algorithm ──────────────────────────────────────── */}
-      {forebet && forebet.forebet_pct_1 != null && (
+      {forebet && forebet.forebet_pct_1 != null ? (
         <div
           className="rounded-md border border-cyan-400/30 bg-cyan-400/5 px-3 py-2 text-xs space-y-1"
           data-testid={`${testIdPrefix}-forebet`}
@@ -177,6 +177,27 @@ export function ExternalEditorialPanel({
                 Goles esperados: {forebet.goals_avg.toFixed(2)}
               </span>
             )}
+          </div>
+        </div>
+      ) : (
+        /* F99-followup: placeholder "no encontrado" — el panel SIEMPRE se muestra,
+           incluso cuando Forebet no devolvió predicción (por ejemplo amistosos o
+           ligas pequeñas). El usuario pidió explícitamente este comportamiento. */
+        <div
+          className="rounded-md border border-cyan-400/20 bg-cyan-400/[0.03] px-3 py-2 text-xs"
+          data-testid={`${testIdPrefix}-forebet-empty`}
+        >
+          <div className="flex items-center gap-2 text-cyan-300/70">
+            <Activity className="h-3.5 w-3.5 text-cyan-400/60" />
+            <span className="font-semibold text-cyan-200/80">{t.forebetLabel}</span>
+            <span className="ml-auto text-[10px] uppercase tracking-wider text-cyan-300/60">
+              {lang === 'en' ? 'Not found' : 'No encontrado'}
+            </span>
+          </div>
+          <div className="text-[11px] text-cyan-300/60 pt-1">
+            {lang === 'en'
+              ? 'Forebet has no algorithmic prediction for this match.'
+              : 'Forebet no tiene predicción algorítmica para este partido.'}
           </div>
         </div>
       )}

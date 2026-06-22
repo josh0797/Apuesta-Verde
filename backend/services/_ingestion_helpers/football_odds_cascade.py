@@ -188,71 +188,84 @@ async def fetch_football_odds_with_fallback(
         odds_source = "no_odds"
         norm_odds = {"available": False}
 
-    # ─── Sprint-D9 cascade (TheOddsAPI + OddsPortal) ────────────────────
-    # Wired Jun-2026 to fix the bug where football fixtures outside top-5
-    # leagues (national teams, lower divisions) arrived to the engine
-    # without odds and were discarded as `MARKET_IDENTITY_MISSING`.  The
-    # cascade was implemented and tested in Sprint-D9 but never wired in
-    # the ingestion path until now.
+    # ─── Sprint-D9-followup-2 (Jun-2026) cascade FACHADA ────────────────
+    # Reemplaza el wiring D9 viejo. La fachada ``fetch_football_odds`` ya
+    # contiene el cascade completo: Oddspedia → TheStatsAPI → SofaScore →
+    # OddsPortal → manual.  Solo invocamos esta nueva fachada si los
+    # pasos 1-3 (TheStatsAPI primary + api_sports stub + TheStatsAPI
+    # late) fallaron — para no duplicar trabajo cuando TheStatsAPI ya
+    # entregó cuotas.  Cuando devuelve NO_ODDS_AVAILABLE, stamps
+    # ``norm_odds._odds_status = "NO_ODDS_AVAILABLE"`` para que el
+    # market_trace haga el override prioritario downstream.
     if (not isinstance(norm_odds, dict) or not norm_odds.get("available")) and _d9_cascade_enabled():
         log.info(
             "[sprint-d9] fixture=%s entering D9 cascade (current source=%s)",
             fid, odds_source,
         )
         try:
-            from ..external_sources import odds_cascade as _d9
-            home_name = (home or {}).get("name") or ""
-            away_name = (away or {}).get("name") or ""
-            if home_name and away_name:
-                # Determine sport_key for TheOddsAPI.  Generic soccer key
-                # works for major leagues; for national teams we can pass
-                # a wildcard.
-                sport_key = "soccer"
-                kickoff_iso = None
-                try:
-                    if hasattr(kickoff, "isoformat"):
-                        kickoff_iso = kickoff.isoformat()
-                    elif isinstance(kickoff, str):
-                        kickoff_iso = kickoff
-                except Exception:
-                    kickoff_iso = None
-                d9_payload = await _d9.fetch_direct_match_odds_cascade(
-                    home_name, away_name,
-                    sport_key=sport_key,
-                    league=league_name,
-                    kickoff_iso=kickoff_iso,
-                )
-                if isinstance(d9_payload, dict) and d9_payload.get("available"):
-                    d9_resp, d9_norm = _wrap_d9_result_as_api_sports_shape(
-                        d9_payload, fid=fid,
-                        home_name=home_name, away_name=away_name,
-                    )
-                    if d9_norm.get("available"):
-                        odds_resp = d9_resp
-                        norm_odds = d9_norm
-                        src = d9_payload.get("source") or "unknown"
-                        odds_source = (
-                            "odds_cascade_theoddsapi"
-                            if src == "the_odds_api"
-                            else f"odds_cascade_{src}"
-                        )
-                        log.info(
-                            "[sprint-d9] fixture=%s odds rescued via %s (h=%s d=%s a=%s)",
-                            fid, src,
-                            d9_payload.get("home_odds"),
-                            d9_payload.get("draw_odds"),
-                            d9_payload.get("away_odds"),
-                        )
-                else:
-                    # No rescató: log con los reason codes para diagnóstico.
-                    reason_codes = (d9_payload or {}).get("reason_codes") or []
-                    log.info(
-                        "[sprint-d9] fixture=%s NOT rescued (home=%r away=%r league=%r) "
-                        "reason_codes=%s",
-                        fid, home_name, away_name, league_name, reason_codes,
-                    )
+            from .. import football_odds_aggregator as _agg
+            d9_result = await _agg.fetch_football_odds(
+                fx_raw,
+                source_ids={},
+                client=client,
+                db=db,
+            )
         except Exception as exc:
-            log.debug("[sprint-d9] cascade failed for %s: %s", fid, exc)
+            log.debug("[sprint-d9] facade failed for %s: %s", fid, exc)
+            d9_result = None
+
+        if isinstance(d9_result, dict) and d9_result.get("available"):
+            src = d9_result.get("source") or "unknown"
+            mkts = d9_result.get("markets") or {}
+            h2h = mkts.get("h2h") or {}
+            home_odd = h2h.get("home")
+            draw_odd = h2h.get("draw")
+            away_odd = h2h.get("away")
+            if home_odd and draw_odd and away_odd:
+                # Empaquetar en shape api-sports para downstream parity.
+                d9_payload = {
+                    "available": True,
+                    "source": src,
+                    "home_odds": home_odd,
+                    "draw_odds": draw_odd,
+                    "away_odds": away_odd,
+                    "implied_probs": {},
+                    "fetched_at": d9_result.get("snapshot_at"),
+                    "reason_codes": d9_result.get("reason_codes") or [],
+                    "markets": mkts,
+                }
+                home_name = (home or {}).get("name") or ""
+                away_name = (away or {}).get("name") or ""
+                d9_resp, d9_norm = _wrap_d9_result_as_api_sports_shape(
+                    d9_payload, fid=fid,
+                    home_name=home_name, away_name=away_name,
+                )
+                if d9_norm.get("available"):
+                    odds_resp = d9_resp
+                    norm_odds = d9_norm
+                    odds_source = f"odds_cascade_{src}"
+                    log.info(
+                        "[sprint-d9] fixture=%s odds rescued via fachada source=%s (h=%s d=%s a=%s)",
+                        fid, src, home_odd, draw_odd, away_odd,
+                    )
+        else:
+            # Fachada confirmó NO_ODDS_AVAILABLE: propagar el estado para
+            # que el market_trace lo respete (no emitirá MARKET_IDENTITY_MISSING).
+            log.info(
+                "[sprint-d9] fixture=%s NOT rescued (home=%r away=%r league=%r) "
+                "reason_codes=%s",
+                fid,
+                (home or {}).get("name"), (away or {}).get("name"),
+                league_name,
+                (d9_result or {}).get("reason_codes"),
+            )
+            if not isinstance(norm_odds, dict):
+                norm_odds = {"available": False}
+            norm_odds["_odds_status"] = "NO_ODDS_AVAILABLE"
+            norm_odds["state"] = "NO_ODDS_AVAILABLE"
+            norm_odds["_no_odds_reason_codes"] = (
+                (d9_result or {}).get("reason_codes") or []
+            )
 
     # Stamp source on the normalised payload for downstream auditing.
     if isinstance(norm_odds, dict):

@@ -92,10 +92,10 @@ def test_wrap_d9_result_oddsportal_label():
 async def test_fetch_football_odds_with_fallback_invokes_d9_when_others_fail(monkeypatch):
     """
     Cuando TheStatsAPI y API-Sports stub devuelven sin odds, la cascade
-    debe invocar fetch_direct_match_odds_cascade y stampar el source.
+    debe invocar la fachada ``fetch_football_odds`` (Sprint-D9-followup-2)
+    y stampar el source.
     """
     monkeypatch.setenv("ENABLE_D9_ODDS_CASCADE_IN_INGEST", "true")
-    # Disable api_sports fallback path so we go straight to D9 fallback.
     monkeypatch.setenv("ENABLE_API_SPORTS_FALLBACK", "false")
 
     # Mock TheStatsAPI to return empty
@@ -104,19 +104,20 @@ async def test_fetch_football_odds_with_fallback_invokes_d9_when_others_fail(mon
         return (None, None, None)
     monkeypatch.setattr(_ts_odds, "fetch_odds_api_sports_shape", _ts_empty)
 
-    # Mock D9 cascade to return a successful TheOddsAPI hit
-    from services.external_sources import odds_cascade as _d9
-    async def _d9_hit(home, away, **kwargs):
+    # Mock la fachada agg.fetch_football_odds para devolver hit con TheOddsAPI
+    from services import football_odds_aggregator as _agg
+    async def _facade_hit(match, source_ids, *, client, db):
         return {
             "available": True,
             "source": "the_odds_api",
-            "home_odds": 2.0, "draw_odds": 3.4, "away_odds": 3.5,
-            "implied_probs": {}, "fetched_at": "x", "reason_codes": ["D9_HIT"],
+            "markets": {"h2h": {"home": 2.0, "draw": 3.4, "away": 3.5}},
+            "snapshot_at": "x",
+            "reason_codes": ["D9_HIT"],
         }
-    monkeypatch.setattr(_d9, "fetch_direct_match_odds_cascade", _d9_hit)
+    monkeypatch.setattr(_agg, "fetch_football_odds", _facade_hit)
 
     odds_resp, norm, source = await foc.fetch_football_odds_with_fallback(
-        client=None,  # not used by mocks
+        client=None,
         db=None,
         fx_raw={"fixture": {"id": 42}},
         fid=42,
@@ -126,15 +127,15 @@ async def test_fetch_football_odds_with_fallback_invokes_d9_when_others_fail(mon
         league_name="Friendlies",
     )
 
-    assert source == "odds_cascade_theoddsapi"
+    assert source == "odds_cascade_the_odds_api"
     assert norm.get("available") is True
-    assert norm.get("_odds_source") == "odds_cascade_theoddsapi"
+    assert norm.get("_odds_source") == "odds_cascade_the_odds_api"
     assert norm.get("_odds_cascade_used") == "sprint_d9"
 
 
 @pytest.mark.asyncio
 async def test_fetch_football_odds_with_fallback_d9_disabled_returns_no_odds(monkeypatch):
-    """Si ENABLE_D9_ODDS_CASCADE_IN_INGEST=false, NO se invoca D9."""
+    """Si ENABLE_D9_ODDS_CASCADE_IN_INGEST=false, NO se invoca la fachada D9."""
     monkeypatch.setenv("ENABLE_D9_ODDS_CASCADE_IN_INGEST", "false")
     monkeypatch.setenv("ENABLE_API_SPORTS_FALLBACK", "false")
 
@@ -143,13 +144,12 @@ async def test_fetch_football_odds_with_fallback_d9_disabled_returns_no_odds(mon
         return (None, None, None)
     monkeypatch.setattr(_ts_odds, "fetch_odds_api_sports_shape", _ts_empty)
 
-    # Espía D9 para verificar que NO se llama
-    from services.external_sources import odds_cascade as _d9
+    from services import football_odds_aggregator as _agg
     called = {"n": 0}
-    async def _d9_spy(*args, **kwargs):
+    async def _facade_spy(*args, **kwargs):
         called["n"] += 1
-        return {"available": False, "reason_codes": []}
-    monkeypatch.setattr(_d9, "fetch_direct_match_odds_cascade", _d9_spy)
+        return {"available": False, "state": "NO_ODDS_AVAILABLE", "reason_codes": []}
+    monkeypatch.setattr(_agg, "fetch_football_odds", _facade_spy)
 
     _, norm, source = await foc.fetch_football_odds_with_fallback(
         client=None, db=None, fx_raw={"fixture": {"id": 1}},
@@ -163,7 +163,7 @@ async def test_fetch_football_odds_with_fallback_d9_disabled_returns_no_odds(mon
 
 @pytest.mark.asyncio
 async def test_fetch_football_odds_with_fallback_d9_failure_is_fail_soft(monkeypatch):
-    """Una excepción en el cascade D9 NO debe romper la ingesta."""
+    """Una excepción en la fachada D9 NO debe romper la ingesta."""
     monkeypatch.setenv("ENABLE_D9_ODDS_CASCADE_IN_INGEST", "true")
     monkeypatch.setenv("ENABLE_API_SPORTS_FALLBACK", "false")
 
@@ -172,12 +172,11 @@ async def test_fetch_football_odds_with_fallback_d9_failure_is_fail_soft(monkeyp
         return (None, None, None)
     monkeypatch.setattr(_ts_odds, "fetch_odds_api_sports_shape", _ts_empty)
 
-    from services.external_sources import odds_cascade as _d9
-    async def _d9_boom(*args, **kwargs):
+    from services import football_odds_aggregator as _agg
+    async def _facade_boom(*args, **kwargs):
         raise RuntimeError("simulated network failure")
-    monkeypatch.setattr(_d9, "fetch_direct_match_odds_cascade", _d9_boom)
+    monkeypatch.setattr(_agg, "fetch_football_odds", _facade_boom)
 
-    # No debe propagar la excepción
     _, norm, source = await foc.fetch_football_odds_with_fallback(
         client=None, db=None, fx_raw={"fixture": {"id": 1}},
         fid=1, home={"name": "X"}, away={"name": "Y"},
@@ -185,6 +184,47 @@ async def test_fetch_football_odds_with_fallback_d9_failure_is_fail_soft(monkeyp
     )
     assert source == "no_odds"
     assert norm.get("_odds_source") == "no_odds"
+    # Cuando la fachada falla por excepción, el _odds_status no se setea
+    # (solo se setea cuando la fachada devuelve available=False explícitamente).
+
+
+@pytest.mark.asyncio
+async def test_fetch_football_odds_with_fallback_no_odds_available_stamps_status(monkeypatch):
+    """
+    Sprint-D9-followup-2: cuando la fachada devuelve NO_ODDS_AVAILABLE,
+    el norm_odds debe llevar `_odds_status = "NO_ODDS_AVAILABLE"` y
+    `state = "NO_ODDS_AVAILABLE"` para que el market_trace haga el
+    override prioritario downstream.
+    """
+    monkeypatch.setenv("ENABLE_D9_ODDS_CASCADE_IN_INGEST", "true")
+    monkeypatch.setenv("ENABLE_API_SPORTS_FALLBACK", "false")
+
+    from services.external_sources import thestatsapi_odds_adapter as _ts_odds
+    async def _ts_empty(*args, **kwargs):
+        return (None, None, None)
+    monkeypatch.setattr(_ts_odds, "fetch_odds_api_sports_shape", _ts_empty)
+
+    from services import football_odds_aggregator as _agg
+    async def _facade_no_odds(*args, **kwargs):
+        return {
+            "available": False,
+            "state": "NO_ODDS_AVAILABLE",
+            "reason_codes": ["ODDSPEDIA_TRIED", "NO_ODDS_AVAILABLE_FROM_ALL_SOURCES", "MANUAL_ODDS_REQUIRED"],
+        }
+    monkeypatch.setattr(_agg, "fetch_football_odds", _facade_no_odds)
+
+    _, norm, source = await foc.fetch_football_odds_with_fallback(
+        client=None, db=None, fx_raw={"fixture": {"id": 99}},
+        fid=99, home={"name": "X"}, away={"name": "Y"},
+        kickoff=None, league_name=None,
+    )
+
+    assert source == "no_odds"
+    assert norm.get("_odds_status") == "NO_ODDS_AVAILABLE"
+    assert norm.get("state") == "NO_ODDS_AVAILABLE"
+    rc = norm.get("_no_odds_reason_codes") or []
+    assert "NO_ODDS_AVAILABLE_FROM_ALL_SOURCES" in rc
+    assert "MANUAL_ODDS_REQUIRED" in rc
 
 
 @pytest.mark.asyncio

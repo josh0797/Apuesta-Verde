@@ -566,7 +566,7 @@ __all__ = [
 #     ) -> dict
 #
 # Cascade order:
-#   1. Cuotasahora (exotic markets primary)
+#   1. Oddspedia (exotic markets primary — mercados ex\u00f3ticos + selecciones)
 #   2. TheStatsAPI
 #   3. SofaScore
 #   4. OddsPortal
@@ -584,10 +584,10 @@ __all__ = [
 #
 #     {
 #         "available": True,
-#         "source": "cuotasahora" | "thestatsapi" | "sofascore" | "oddsportal",
+#         "source": "oddspedia" | "thestatsapi" | "sofascore" | "oddsportal" | "manual",
 #         "markets": {...},
 #         "snapshot_at": iso8601,
-#         "reason_codes": ["CUOTASAHORA_HIT", ...],
+#         "reason_codes": ["ODDSPEDIA_HIT", ...],
 #     }
 #
 # Output (no odds)::
@@ -624,16 +624,16 @@ def _names_from_match(match: dict) -> Tuple[str, str, Optional[str], Optional[st
     return str(home or ""), str(away or ""), league, kickoff_iso
 
 
-async def _try_cuotasahora(match, source_ids, client, db) -> Optional[dict]:
+async def _try_oddspedia(match, source_ids, client, db) -> Optional[dict]:
     try:
-        from .external_sources import cuotasahora_scraper as _ca
+        from .external_sources import oddspedia_scraper as _op
     except Exception:
         return None
     home, away, league, kickoff_iso = _names_from_match(match)
     if not home or not away:
         return None
     try:
-        r = await _ca.fetch_match_odds(
+        r = await _op.fetch_match_odds(
             home, away, client=client, db=db,
             league_name=league, kickoff_iso=kickoff_iso,
         )
@@ -641,6 +641,13 @@ async def _try_cuotasahora(match, source_ids, client, db) -> Optional[dict]:
         return None
     if isinstance(r, dict) and r.get("available") and r.get("markets"):
         return r
+    return None
+
+
+async def _try_cuotasahora(match, source_ids, client, db) -> Optional[dict]:
+    # DEPRECATED Jun-2026: replaced by _try_oddspedia. Kept as no-op shim so
+    # existing tests/imports continue to compile; will be removed once all
+    # callers have migrated.
     return None
 
 
@@ -777,7 +784,7 @@ async def _try_manual_odds(match, source_ids, client, db) -> Optional[dict]:
 
 
 _FETCH_CASCADE_NAMES = (
-    ("cuotasahora", "_try_cuotasahora",  "CUOTASAHORA_TRIED"),
+    ("oddspedia",   "_try_oddspedia",    "ODDSPEDIA_TRIED"),
     ("thestatsapi", "_try_thestatsapi",  "THESTATSAPI_TRIED"),
     ("sofascore",   "_try_sofascore",    "SOFASCORE_TRIED"),
     ("oddsportal",  "_try_oddsportal",   "ODDSPORTAL_TRIED"),
